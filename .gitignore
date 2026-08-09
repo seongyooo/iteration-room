@@ -1,0 +1,55 @@
+# ---- Unity generated ----
+# Library/ alone is ~2.7GB of regenerable import cache. Never commit these.
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+
+# Asset meta files are REQUIRED - Unity tracks references by the GUID inside them.
+# Never add a blanket *.meta ignore.
+
+# ---- IDE / build artifacts ----
+.vs/
+.vscode/
+.idea/
+.consulo/
+ExportedObj/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+sysinfo.txt
+
+# ---- Packaged output ----
+*.apk
+*.aab
+*.unitypackage
+*.app
+crashlytics-build.properties
+
+# ---- Addressables ----
+/[Aa]ssets/[Ss]treamingAssets/aa.meta
+/[Aa]ssets/[Ss]treamingAssets/aa/*
+
+# ---- This project ----
+# Headless build logs from the initial project setup - regenerable, not source.
+_setup_logs/
+# Screenshot scratch: the MCP camera tool writes here during visual checks.
+Captures/
+[Aa]ssets/[Ss]creenshots/
+[Aa]ssets/[Ss]creenshots.meta
