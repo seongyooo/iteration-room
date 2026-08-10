@@ -53,6 +53,17 @@ namespace IterationRoom
         // eyelid close. The end-cycle control reads this so it can't be charged up out of turn.
         public bool IterationRunning { get; private set; }
 
+        // Set by PauseMenu. The loop itself needs no knowledge of it - Time.timeScale freezes the
+        // whole coroutine - but the scripts that read raw Input in Update do, because Update keeps
+        // running at a zero time scale and E, N and the mouse would all still land.
+        public bool IsPaused { get; private set; }
+
+        // "The game is accepting player input right now." Every Update that reads a key should
+        // gate on this rather than on IterationRunning alone; the two only differ while paused.
+        public bool AcceptsInput => IterationRunning && !IsPaused;
+
+        public void SetPaused(bool paused) => IsPaused = paused;
+
         private bool endRequested;
 
         // The player choosing to cut this cycle short. 60 seconds is a ceiling, not a quota: once

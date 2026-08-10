@@ -59,7 +59,7 @@ namespace IterationRoom
         {
             // Silent through the wake-up, like everything else the facility does: the player has no
             // control then, so a prompt would be describing a button that does nothing.
-            bool running = LoopManager.Instance == null || LoopManager.Instance.IterationRunning;
+            bool running = LoopManager.Instance == null || LoopManager.Instance.AcceptsInput;
 
             Transform interactAnchor = !interactRetired && running ? NearestWantingHint() : null;
             Show(interactGroup, interactRect, interactAnchor, ref interactAlpha);
@@ -113,7 +113,9 @@ namespace IterationRoom
             if (group == null || rect == null) return;
 
             bool visible = anchor != null && Place(rect, anchor);
-            alpha = Mathf.MoveTowards(alpha, visible ? 1f : 0f, fadeSpeed * Time.deltaTime);
+            // Unscaled, so the prompt still fades away when the pause menu freezes the game. On
+            // scaled time it would sit there at whatever alpha it had, frozen under the overlay.
+            alpha = Mathf.MoveTowards(alpha, visible ? 1f : 0f, fadeSpeed * Time.unscaledDeltaTime);
             group.alpha = alpha;
         }
 

@@ -35,7 +35,7 @@ namespace IterationRoom
 
         private void Update()
         {
-            bool available = LoopManager.Instance != null && LoopManager.Instance.IterationRunning;
+            bool available = LoopManager.Instance != null && LoopManager.Instance.AcceptsInput;
             bool down = pointerHeld || Input.GetKey(hotkey);
 
             if (!down)

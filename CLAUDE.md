@@ -4,7 +4,7 @@ Unity prototype of a 1-room, first-person time-loop puzzle game (ref: 2016 short
 
 **Status**: core loop implemented and manually play-tested as working (hold floor button for a full iteration → next iteration the ghost holds it while the player opens the door). A polish pass (centered furniture, bigger wall grid, real furniture models, shadow-like ghost, jump) has also been applied and rebuilt cleanly. A QA pass (2026-08-09) then found and fixed three defects that a play-test doesn't surface on its own — see **QA findings** below — and an audio/narration layer has been added. A presentation pass (2026-08-10) added the **end-of-cycle collapse** (panel flare + camera shake), replaced the eyelid sweep with a **blink**, decoupled the sit-up, and made the door lamp a **condition readout**; it is built and committed, but **has not been play-tested end to end** — it was verified only by a clean headless build.
 
-The presentation pass has since been play-tested and signed off, and the full SFX set now exists (generated — see **Audio**). A **Room2 puzzle** (drawer → tool → balloons → key → key door) was then added on 2026-08-10 and given one play-test, which raised six items — a physics bug, two polish jobs, a control-teaching problem and a design revert. **All six are now implemented and the scene builds clean with no errors or warnings**, but that work itself **has not been play-tested**: the balloon push was rewritten, the key door changed hands, and the first-time control prompts have never been seen by a player. See **Cleared on 2026-08-10** near the bottom. **The scene file is no longer tracked in git**: `SceneBuilder` is the source of truth and Unity re-randomises every fileID on rebuild, so run the build to produce it after a fresh clone.
+The presentation pass has since been play-tested and signed off, and the full SFX set now exists (generated — see **Audio**). A **Room2 puzzle** (drawer → tool → balloons → key → key door) was then added on 2026-08-10 and given one play-test, which raised six items — a physics bug, two polish jobs, a control-teaching problem and a design revert. **All six were implemented and have since been play-tested and signed off** — see **Cleared on 2026-08-10** near the bottom. A **title screen** (`MainMenu.unity` → `PLAY` → async load → `IterationRoom`) and an **Escape pause overlay** (`RESUME` / `MAIN MENU` / `QUIT`) were then added; both build clean and their structure has been verified in the saved scenes, but **neither has been run**. **The scene file is no longer tracked in git**: `SceneBuilder` is the source of truth and Unity re-randomises every fileID on rebuild, so run the build to produce it after a fresh clone.
 
 ## Stack
 
@@ -15,15 +15,16 @@ The presentation pass has since been play-tested and signed off, and the full SF
 
 ## How this project gets built
 
-There is **no manual scene editing history** — the entire scene is assembled by one script, run headlessly. This is the pattern to keep using:
+There is **no manual scene editing history** — both scenes are assembled by one script, run headlessly. This is the pattern to keep using:
 
-0. **A fresh clone has no scene** — `Assets/Scenes/IterationRoom.unity` is git-ignored build output. Run the build below before expecting to open anything.
+0. **A fresh clone has no scenes** — `Assets/Scenes/*.unity` is git-ignored build output. Run the build below before expecting to open anything. (The `.meta` files *are* tracked; see QA finding 8.)
+0b. **There are two scenes, and `MainMenu` is index 0** in `EditorBuildSettings`, so that is where a standalone player opens. `IterationRoom` is index 1 and is what `MainMenu` loads. Pressing Play in the Editor runs whichever is open, which is convenient: open `IterationRoom` to iterate on the game, open `MainMenu` to test the title screen.
 1. Edit C# under `Assets/Scripts/` and/or `Assets/Editor/SceneBuilder.cs`.
 2. Rebuild headlessly:
    ```
    "C:\Program Files\Unity\Hub\Editor\6000.5.7f1\Editor\Unity.exe" -batchmode -nographics -projectPath "C:\Users\seonl\Desktop\c\2026\summer\Iteration" -executeMethod IterationRoom.EditorTools.SceneBuilder.Build -quit -logFile <path-to-log>
    ```
-3. Check the log for `error CS` (compile errors) or exceptions before assuming success. A `[SceneBuilder] IterationRoom scene built at ...` line near the end plus exit code 0 means it worked. Benign noise to ignore: `[Licensing::Client] Error: HandshakeResponse...` retries at startup that self-resolve.
+3. Check the log for `error CS` (compile errors) or exceptions before assuming success. `[SceneBuilder] IterationRoom scene built at ...` and `[SceneBuilder] MainMenu scene built at ...` near the end, plus exit code 0, means it worked. Benign noise to ignore: `[Licensing::Client] Error: HandshakeResponse...` retries at startup that self-resolve.
 4. To actually see/play it, launch the Editor GUI directly (Unity Hub's "Open" project picker has been flaky on this machine — "프로젝트를 찾을 수 없습니다" even on a valid project — so prefer launching the Editor binary directly):
    ```
    "C:\Program Files\Unity\Hub\Editor\6000.5.7f1\Editor\Unity.exe" -projectPath "C:\Users\seonl\Desktop\c\2026\summer\Iteration"
@@ -125,6 +126,34 @@ Once Unity MCP is connected in a session, prefer it for incremental/visual tweak
   - The announcer says **"Cycle terminated."** on a voluntary end, because cutting the clock short skips the countdown — otherwise the one decision the player gets to make lands in silence.
   - **This mechanic only works because `GhostReplayer.Tick` releases everything once a timeline runs out — see below. Do not change that without re-reading this.**
 
+## The title screen (`MainMenu.unity`)
+
+A separate, near-empty scene: a camera, a canvas, a still of the room, `PLAY` and `QUIT`. It is the entry point of a standalone build.
+
+- **Separate scene rather than a state of the room, and that choice is what makes the loading bar real.** `IterationRoom` is a 306,000-triangle bed, 182 wall panels, seventy balloons, two baked probes and a pile of shaders — it takes a genuine moment. Held inside one scene there would be nothing to load and the bar would be theatre.
+- **The background is a still of the game's own first frame**, `Assets/Textures/MenuBackground.png` — the player camera's view from the foot of the bed, which is exactly what the Editor's Game view shows before Play is pressed. `SceneBuilder.CaptureMenuBackground` renders it **on every build**, so the menu can never advertise a room that no longer exists.
+  - Captured through `RenderPipeline.SubmitRenderRequest` with a `UniversalRenderPipeline.SingleCameraRequest`, **not** `Camera.Render()` — URP does not support a bare `Render()` from arbitrary code, and the request is also what actually runs the volume stack, so the still carries the same tonemapping, bloom and vignette the room is tuned against.
+  - The camera's `targetTexture` is restored in a `finally`. Left assigned, the game would render into a `RenderTexture` instead of the screen — and the saved scene would carry it.
+  - **Skipped under `-nographics`**, where there is no device to render with. The previous PNG stands and the build logs a warning: a stale background is a far better outcome than a failed build. To refresh it, build from the Editor (or without `-nographics`).
+  - **Note what this view actually contains, and that it was kept on purpose.** The spawn faces *away* from the bed, so the still is the south wall's panelling and nothing else — no bed, no door, no furniture. It was offered against a dedicated framing that would show the room's contents, and the empty wall was chosen: it is the frame the game genuinely opens on, and a grid of blank panels says what this place is more plainly than a picture of the furniture would. If that is ever revisited, the change is a menu-only camera rather than the spawn one — do not move the spawn to improve the menu.
+- `Loop/…`-style HUD language throughout: Consolas, red on a dark scrim, the title spaced out in the string exactly as `IterationLabel` does it (uGUI's `Text` has no tracking control, and in a monospace face a space is one cell). The menu and the in-game readouts then read as the same voice.
+- **Buttons are white with the dark look coming entirely from the `ColorBlock`.** A `Button` tints its target graphic by multiplying, so a background that is already near-black has nothing left to brighten with on hover.
+- `onClick` is wired in `MainMenu.Awake` from serialized `Button` references, **not** as persistent listeners. A listener added from an editor script has to go through `UnityEventTools` to serialize at all; this is one line and always works.
+- The menu **puts the cursor back** (`Cursor.lockState = None`) in `Start`. `FirstPersonController` locks and hides it, and Unity does not reset that across a scene load — without this, coming back to the menu would leave something you cannot click.
+
+## Pausing (`Loop/PauseMenu.cs`)
+
+**Escape** freezes the room and puts `RESUME` / `MAIN MENU` / `QUIT` over it. Escape again resumes.
+
+- **The freeze is one line — `Time.timeScale = 0` — and it works because every moving part here already runs on scaled time**: the loop's clock (`ElapsedTime += Time.deltaTime`), the wake-up's `WaitForSeconds`, the collapse ramp, the balloons' physics, and `CameraShaker`'s Perlin sampling of `Time.time`. None of them needs to know a pause exists. Verified by reading for `Time.unscaled*` before building it — there is none in the game code.
+- **What a zero time scale does not stop is `Update`.** Every script that reads a raw key would still see it: `E` would open drawers, `N` would charge the end-cycle control, the mouse would swing the pin, and — worst of the lot — `FirstPersonController.HandleLook` uses **no `deltaTime` at all**, so the view would swing with the very mouse movement being made to reach Resume.
+  - The gate is **`LoopManager.AcceptsInput`** (`IterationRunning && !IsPaused`). Everything that reads a key in `Update` gates on that rather than on `IterationRunning`; the two differ only while paused. `BalloonTool`, `Drawer`, `CarryableItem`, `KeyLock`, `EndCycleControl` and `ControlHintDisplay` were all moved onto it. **A new interactable that reads input must use it too.**
+  - `ControlEnabled` is forced false **every frame** while paused, not once on open — the loop hands control back at the end of every wake-up regardless of what the menu wants. On resume it is restored to *what it was*, not to true, so pausing during a wake-up cannot hand the player a camera the loop had deliberately taken away.
+- `AudioListener.pause = true` as well: the announcer and the room tone are not on scaled time and would carry on talking over a frozen room.
+- **`Time.timeScale` and `AudioListener.pause` are global, not per-scene**, so both are restored in `OnDestroy` as well as on the way out through the buttons — that covers the scene change too, which is the path easiest to miss. `ToMainMenu` unfreezes *before* the load, since a scene that arrives at `timeScale 0` has no way to start itself moving.
+- The overlay is **built last on the canvas** (sibling index 6, after `ControlHints`), so it covers the HUD, the prompts and the eyelids. Its scrim keeps `raycastTarget` on deliberately: that is what stops a click reaching the end-cycle control underneath. The `CanvasGroup` clears **`blocksRaycasts` as well as alpha** when closed — an alpha-0 graphic still receives clicks, so without it the invisible overlay would swallow everything the moment it had been opened once.
+- `ControlHintDisplay`'s fade moved to `Time.unscaledDeltaTime` for this: on scaled time a prompt caught mid-fade would sit frozen under the overlay instead of going away.
+
 ## Scripts (`Assets/Scripts/`, namespace `IterationRoom`)
 
 - `Player/FirstPersonController.cs` — CharacterController-based Portal-style movement + mouse look + jump (`jumpForce`, Space/`Jump` axis).
@@ -164,6 +193,8 @@ Once Unity MCP is connected in a session, prefer it for incremental/visual tweak
   - `ControlHintDisplay.interactTargets` is typed `MonoBehaviour[]`, not `IInteractHintTarget[]`, because **Unity does not serialize interface fields** — the cast back happens once in `Awake`.
   - Positions come from `WorldToScreenPoint` into a full-screen rect via `RectTransformUtility.ScreenPointToLocalPointInRectangle` with a **null camera** (the canvas is ScreenSpaceOverlay; passing one skews the result). The `z <= 0` test is load-bearing: `WorldToScreenPoint` happily returns a mirrored on-screen position for anything behind the eye, so without it a prompt for something at your back appears in front of you.
   - Silent while `LoopManager.IterationRunning` is false, like everything else the facility does — the player has no control during the wake-up, so a prompt would be describing a button that does nothing.
+- `Loop/PauseMenu.cs` — Escape's overlay, and the only thing in the project that touches `Time.timeScale`. See **Pausing** above; the part to know before adding anything is `LoopManager.AcceptsInput`.
+- `Menu/MainMenu.cs` — the title screen's only script: `PLAY`, `QUIT`, and the async load. The progress bar shows the **lesser** of real progress and elapsed fraction of `minimumLoadingTime`, so the floor stops a fast machine flashing the whole load past in two frames without ever letting the bar claim more than has actually happened. Unity reports `0..0.9` while `allowSceneActivation` is withheld and never reaches 1, so it is rescaled — a bar that stops dead at 90% reads as a failed load.
 - `Loop/CountdownTimer.cs`, `Loop/EndCycleControl.cs` — the two HUD readouts in the top-right. `EndCycleControl` is a real mechanic rather than a debug aid; the reasoning lives in **Scene layout**.
 - `Audio/NarrationDirector.cs`, `Audio/RoomAmbience.cs` — the PA announcer and the room tone/machinery. See the **Audio** section for the cue schedule and why the clip slots are allowed to be null.
 
@@ -286,6 +317,7 @@ Still open (found, not fixed):
 - A fresh Unity project via `-createProject` does **not** include `UnityEngine.UI` (uGUI) by default — needed `"com.unity.ugui": "2.0.0"` added to `Packages/manifest.json` before any `Text`/`Canvas` script compiles.
 - Unity Hub's folder-picker "프로젝트를 찾을 수 없습니다" error on this machine is a Hub UI issue, not a project problem — launch `Unity.exe -projectPath ...` directly instead.
 - **There is no scripting API that creates a layer.** `SceneBuilder.EnsureLayer` edits `ProjectSettings/TagManager.asset` through a `SerializedObject`, which means the build has a side effect **outside the scene** — expect that file in a diff after a fresh clone's first build. It is idempotent by name, so rebuilds reuse the slot rather than burning one of the 24 user layers each time. Indices **0-7 are Unity's own**; three of them look blank and are not, and writing into one is silently dropped, so the search starts at 8.
+- **`-nographics` cannot render anything**, which is why the menu background capture is conditional on `SystemInfo.graphicsDeviceType`. Anything else added to the build that needs a real render has to make the same check, or the canonical headless build stops working.
 - A batchmode build **fails outright if the Editor has the project open** ("another Unity instance is running"). When that happens, drive the same build through Unity MCP instead — `execute_menu_item("Iteration Room/Build Whitebox Scene")` — and read the result with `read_console`. Clear the console first: stale entries from before a rebuild look exactly like fresh failures.
 
 ## Scope boundaries

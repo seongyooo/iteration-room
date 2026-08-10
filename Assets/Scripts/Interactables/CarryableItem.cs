@@ -98,7 +98,7 @@ namespace IterationRoom
         private void Update()
         {
             if (IsCarried || !playerInRange || hand == null) return;
-            if (LoopManager.Instance != null && !LoopManager.Instance.IterationRunning) return;
+            if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
 
             // IsFullyOpen, not IsOpen, so the same E press cannot both open the drawer and empty it.
             if (requiresOpenDrawer != null && !requiresOpenDrawer.IsFullyOpen) return;

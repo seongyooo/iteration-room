@@ -81,7 +81,7 @@ namespace IterationRoom
             if (!playerInRange || IsOpen) return;
             // The bed spawn is close enough to the nightstand that a key held down through the
             // wake-up would otherwise open this before the player can see the room.
-            if (LoopManager.Instance != null && !LoopManager.Instance.IterationRunning) return;
+            if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
 
             if (Input.GetKeyDown(KeyCode.E)) RegisterPlayerOpen();
         }

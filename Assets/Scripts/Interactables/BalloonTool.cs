@@ -33,7 +33,7 @@ namespace IterationRoom
         private void Update()
         {
             if (hand == null || playerCamera == null) return;
-            if (LoopManager.Instance != null && !LoopManager.Instance.IterationRunning) return;
+            if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
             if (!hand.Has(requiredItemId)) return;
 
             if (Input.GetMouseButtonDown(0)) Swing();

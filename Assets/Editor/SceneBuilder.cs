@@ -15,6 +15,7 @@ namespace IterationRoom.EditorTools
     public static class SceneBuilder
     {
         private const string ScenePath = "Assets/Scenes/IterationRoom.unity";
+        private const string MenuScenePath = "Assets/Scenes/MainMenu.unity";
         private const string MaterialsDir = "Assets/Materials";
         private const string PrefabsDir = "Assets/Prefabs";
         private const string FurnitureDir = "Assets/ArtAssets/Furniture";
@@ -27,6 +28,7 @@ namespace IterationRoom.EditorTools
 
         private const string TexturesDir = "Assets/Textures";
         private const string IconsDir = TexturesDir + "/Icons";
+        private const string MenuBackgroundPath = TexturesDir + "/MenuBackground.png";
         private const string FontsDir = "Assets/Fonts";
         private const string AudioDir = "Assets/Audio";
         private const string VoiceDir = AudioDir + "/Voice";
@@ -219,6 +221,9 @@ namespace IterationRoom.EditorTools
             BuildControlHints(canvas, player.GetComponentInChildren<Camera>(), hand,
                 new MonoBehaviour[] { drawer, tool, doorButton, keyLock, key });
 
+            // Last on the canvas, so Escape's overlay covers the HUD, the prompts and the eyelids.
+            BuildPauseMenu(canvas, fpc);
+
             (NarrationDirector narration, RoomAmbience ambience) =
                 BuildAudio(player, door, floorButton, wakeUp);
 
@@ -245,15 +250,108 @@ namespace IterationRoom.EditorTools
             Directory.CreateDirectory("Assets/Scenes");
             EditorSceneManager.SaveScene(scene, ScenePath);
 
+            // Grabbed while the room is still the open scene and before anything else touches it:
+            // this is the frame the title screen sits behind.
+            CaptureMenuBackground(player.GetComponentInChildren<Camera>());
+
+            BuildMainMenuScene();
+
             // The build settings scene list was empty, so a standalone player would have shipped
             // with no scenes at all. Reasserted on every build rather than set once, because the
             // list lives in ProjectSettings and nothing else here maintains it.
-            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+            //
+            // MainMenu is index 0, so that is where a standalone player opens.
+            EditorBuildSettings.scenes = new[]
+            {
+                new EditorBuildSettingsScene(MenuScenePath, true),
+                new EditorBuildSettingsScene(ScenePath, true),
+            };
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
+            // BuildMainMenuScene left the menu open. Put the room back, so building from the GUI
+            // leaves the Editor looking at the thing that was just built.
+            EditorSceneManager.OpenScene(ScenePath);
+
             Debug.Log("[SceneBuilder] IterationRoom scene built at " + ScenePath);
+            Debug.Log("[SceneBuilder] MainMenu scene built at " + MenuScenePath);
+        }
+
+        // Renders the player camera to a PNG for the title screen to sit behind. It is literally
+        // the first frame of the game - the view down the room from the foot of the bed, which is
+        // exactly what the Editor's Game view shows before Play is pressed.
+        //
+        // Regenerated on every build that can render, so the menu can never advertise a room that
+        // no longer exists. Under `-nographics` there is no device to render with: the capture is
+        // SKIPPED and the previous PNG stands, because a stale background is a far better outcome
+        // than a failed build.
+        private static void CaptureMenuBackground(Camera cam)
+        {
+            if (cam == null)
+            {
+                Debug.LogWarning("[SceneBuilder] No player camera; menu background not captured.");
+                return;
+            }
+
+            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
+            {
+                Debug.LogWarning("[SceneBuilder] No graphics device (-nographics): keeping the existing "
+                               + "menu background. Rebuild from the Editor to refresh it.");
+                return;
+            }
+
+            const int width = 1920, height = 1080;
+
+            RenderTexture rt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            RenderTexture previousActive = RenderTexture.active;
+            RenderTexture previousTarget = cam.targetTexture;
+            Texture2D shot = null;
+
+            try
+            {
+                cam.targetTexture = rt;
+
+                // URP does not support a bare Camera.Render() from arbitrary code - a render
+                // request is the supported route, and it is also what actually runs the volume
+                // stack (tonemapping, bloom, vignette) the room's look is tuned against. The
+                // fallback is there for a pipeline that does not advertise the request.
+                var request = new UniversalRenderPipeline.SingleCameraRequest { destination = rt };
+                if (RenderPipeline.SupportsRenderRequest(cam, request))
+                    RenderPipeline.SubmitRenderRequest(cam, request);
+                else
+                    cam.Render();
+
+                RenderTexture.active = rt;
+                shot = new Texture2D(width, height, TextureFormat.RGB24, false);
+                shot.ReadPixels(new Rect(0f, 0f, width, height), 0, 0);
+                shot.Apply();
+
+                File.WriteAllBytes(MenuBackgroundPath, shot.EncodeToPNG());
+            }
+            finally
+            {
+                // Restored in a finally: leaving a target texture on the player camera would mean
+                // the game renders into a RenderTexture instead of the screen, and the saved scene
+                // would carry it.
+                cam.targetTexture = previousTarget;
+                RenderTexture.active = previousActive;
+                if (shot != null) Object.DestroyImmediate(shot);
+                rt.Release();
+                Object.DestroyImmediate(rt);
+            }
+
+            AssetDatabase.ImportAsset(MenuBackgroundPath, ImportAssetOptions.ForceUpdate);
+            if (AssetImporter.GetAtPath(MenuBackgroundPath) is TextureImporter importer)
+            {
+                importer.textureType = TextureImporterType.Sprite;
+                importer.spriteImportMode = SpriteImportMode.Single;
+                importer.mipmapEnabled = false;
+                importer.maxTextureSize = 2048;
+                importer.SaveAndReimport();
+            }
+
+            Debug.Log($"[SceneBuilder] Menu background captured to {MenuBackgroundPath}");
         }
 
         private static void EnsureFolders()
@@ -2387,6 +2485,268 @@ namespace IterationRoom.EditorTools
             eventSystem.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
 
             return (label, wakeUp, canvasGO.transform);
+        }
+
+        // Escape's overlay. Built after everything else on the canvas so it draws over the HUD,
+        // the control prompts and the eyelids - a pause menu behind a closed eyelid would be a
+        // strange thing to discover.
+        private static void BuildPauseMenu(Transform canvas, FirstPersonController playerController)
+        {
+            GameObject root = new GameObject("PauseMenu");
+            root.transform.SetParent(canvas, false);
+            Stretch(root.AddComponent<RectTransform>());
+
+            CanvasGroup group = root.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            group.blocksRaycasts = false;
+            group.interactable = false;
+
+            // Heavier than the title screen's scrim: this one has to read as the game having
+            // stopped, where the menu's only has to hold text off a picture.
+            GameObject scrimGO = new GameObject("Scrim");
+            scrimGO.transform.SetParent(root.transform, false);
+            Image scrim = scrimGO.AddComponent<Image>();
+            scrim.color = new Color(0f, 0f, 0f, 0.72f);
+            // Left as a raycast target on purpose: it is what stops a click reaching the end-cycle
+            // control sitting underneath it.
+            scrim.raycastTarget = true;
+            Stretch(scrim.GetComponent<RectTransform>());
+
+            GameObject titleGO = new GameObject("Title");
+            titleGO.transform.SetParent(root.transform, false);
+            Text title = titleGO.AddComponent<Text>();
+            title.font = UIFont();
+            title.fontSize = 52;
+            title.alignment = TextAnchor.MiddleCenter;
+            title.color = Color.red;
+            // Spaced out in the string, as everything else in this typeface is.
+            title.text = "P A U S E D";
+            title.horizontalOverflow = HorizontalWrapMode.Overflow;
+            title.verticalOverflow = VerticalWrapMode.Overflow;
+            title.raycastTarget = false;
+            RectTransform titleRect = title.GetComponent<RectTransform>();
+            titleRect.anchorMin = new Vector2(0.5f, 0.5f);
+            titleRect.anchorMax = new Vector2(0.5f, 0.5f);
+            titleRect.sizeDelta = new Vector2(1000f, 100f);
+            titleRect.anchoredPosition = new Vector2(0f, 170f);
+
+            Button resume = MakeMenuButton(root.transform, "ResumeButton", "RESUME", new Vector2(0f, 40f));
+            Button toMenu = MakeMenuButton(root.transform, "MenuButton", "MAIN MENU", new Vector2(0f, -40f));
+            Button quit = MakeMenuButton(root.transform, "QuitButton", "QUIT", new Vector2(0f, -120f));
+
+            GameObject hintGO = new GameObject("Hint");
+            hintGO.transform.SetParent(root.transform, false);
+            Text hint = hintGO.AddComponent<Text>();
+            hint.font = UIFont();
+            hint.fontSize = 18;
+            hint.alignment = TextAnchor.MiddleCenter;
+            hint.color = new Color(1f, 0.35f, 0.35f, 0.7f);
+            hint.text = "[ESC] TO RESUME";
+            hint.raycastTarget = false;
+            RectTransform hintRect = hint.GetComponent<RectTransform>();
+            hintRect.anchorMin = new Vector2(0.5f, 0.5f);
+            hintRect.anchorMax = new Vector2(0.5f, 0.5f);
+            hintRect.sizeDelta = new Vector2(600f, 36f);
+            hintRect.anchoredPosition = new Vector2(0f, -196f);
+
+            PauseMenu pause = root.AddComponent<PauseMenu>();
+            pause.playerController = playerController;
+            pause.group = group;
+            pause.resumeButton = resume;
+            pause.menuButton = toMenu;
+            pause.quitButton = quit;
+        }
+
+        // The title screen: a camera, a canvas and a still of the room. Deliberately almost
+        // nothing, because the whole point of it being a separate scene is that it opens instantly
+        // while the room behind it takes a real moment to come in.
+        private static void BuildMainMenuScene()
+        {
+            Scene menu = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+            GameObject camGO = new GameObject("MenuCamera");
+            camGO.tag = "MainCamera";
+            Camera cam = camGO.AddComponent<Camera>();
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            // Black behind everything: the background image is stretched to the screen, but a
+            // window shaped nothing like 16:9 should fall away to black rather than to the URP
+            // default blue.
+            cam.backgroundColor = Color.black;
+            camGO.AddComponent<AudioListener>();
+
+            GameObject canvasGO = new GameObject("Canvas");
+            Canvas canvas = canvasGO.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            CanvasScaler scaler = canvasGO.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = 0.5f;
+            canvasGO.AddComponent<GraphicRaycaster>();
+
+            // The captured room, and a scrim over it. The room is near-white and the HUD's red
+            // would fight it head-on; the scrim also puts the picture behind the title rather than
+            // beside it, which is what a background is for.
+            GameObject backgroundGO = new GameObject("Background");
+            backgroundGO.transform.SetParent(canvasGO.transform, false);
+            Image background = backgroundGO.AddComponent<Image>();
+            Sprite shot = AssetDatabase.LoadAssetAtPath<Sprite>(MenuBackgroundPath);
+            background.sprite = shot;
+            // A missing capture leaves a deliberate dark panel rather than uGUI's default white
+            // box, so a build without a graphics device still produces a menu that looks intended.
+            background.color = shot != null ? Color.white : new Color(0.06f, 0.06f, 0.07f, 1f);
+            background.raycastTarget = false;
+            Stretch(background.GetComponent<RectTransform>());
+
+            GameObject scrimGO = new GameObject("Scrim");
+            scrimGO.transform.SetParent(canvasGO.transform, false);
+            Image scrim = scrimGO.AddComponent<Image>();
+            scrim.color = new Color(0f, 0f, 0f, 0.5f);
+            scrim.raycastTarget = false;
+            Stretch(scrim.GetComponent<RectTransform>());
+
+            GameObject menuGO = new GameObject("Menu");
+            menuGO.transform.SetParent(canvasGO.transform, false);
+            CanvasGroup menuGroup = menuGO.AddComponent<CanvasGroup>();
+            Stretch(menuGO.AddComponent<RectTransform>());
+
+            GameObject titleGO = new GameObject("Title");
+            titleGO.transform.SetParent(menuGO.transform, false);
+            Text title = titleGO.AddComponent<Text>();
+            title.font = UIFont();
+            title.fontSize = 86;
+            title.alignment = TextAnchor.MiddleCenter;
+            title.color = Color.red;
+            // Spaced out in the string, exactly as IterationLabel does it and for the same reason:
+            // uGUI's Text has no tracking control at all, and in a monospace face a space is one
+            // cell. The in-game label and the title then read as the same typeface doing the same
+            // thing, which is the point - both are the facility talking.
+            title.text = "I T E R A T I O N";
+            title.horizontalOverflow = HorizontalWrapMode.Overflow;
+            title.verticalOverflow = VerticalWrapMode.Overflow;
+            title.raycastTarget = false;
+            RectTransform titleRect = title.GetComponent<RectTransform>();
+            titleRect.anchorMin = new Vector2(0.5f, 0.5f);
+            titleRect.anchorMax = new Vector2(0.5f, 0.5f);
+            titleRect.sizeDelta = new Vector2(1400f, 140f);
+            titleRect.anchoredPosition = new Vector2(0f, 190f);
+
+            Button playButton = MakeMenuButton(menuGO.transform, "PlayButton", "PLAY", new Vector2(0f, -30f));
+            Button quitButton = MakeMenuButton(menuGO.transform, "QuitButton", "QUIT", new Vector2(0f, -118f));
+
+            // The loading state, built over the same middle of the screen the buttons occupy so
+            // one replaces the other in place instead of the eye having to travel.
+            GameObject loadingGO = new GameObject("Loading");
+            loadingGO.transform.SetParent(canvasGO.transform, false);
+            CanvasGroup loadingGroup = loadingGO.AddComponent<CanvasGroup>();
+            loadingGroup.alpha = 0f;
+            loadingGroup.blocksRaycasts = false;
+            Stretch(loadingGO.AddComponent<RectTransform>());
+
+            GameObject loadingLabelGO = new GameObject("Label");
+            loadingLabelGO.transform.SetParent(loadingGO.transform, false);
+            Text loadingLabel = loadingLabelGO.AddComponent<Text>();
+            loadingLabel.font = UIFont();
+            loadingLabel.fontSize = 22;
+            loadingLabel.alignment = TextAnchor.MiddleCenter;
+            loadingLabel.color = Color.red;
+            loadingLabel.text = "LOADING 0%";
+            loadingLabel.raycastTarget = false;
+            RectTransform loadingLabelRect = loadingLabel.GetComponent<RectTransform>();
+            loadingLabelRect.anchorMin = new Vector2(0.5f, 0.5f);
+            loadingLabelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            loadingLabelRect.sizeDelta = new Vector2(600f, 40f);
+            loadingLabelRect.anchoredPosition = new Vector2(0f, -20f);
+
+            GameObject barGO = new GameObject("Bar");
+            barGO.transform.SetParent(loadingGO.transform, false);
+            Image bar = barGO.AddComponent<Image>();
+            bar.color = new Color(0f, 0f, 0f, 0.6f);
+            bar.raycastTarget = false;
+            RectTransform barRect = bar.GetComponent<RectTransform>();
+            barRect.anchorMin = new Vector2(0.5f, 0.5f);
+            barRect.anchorMax = new Vector2(0.5f, 0.5f);
+            barRect.sizeDelta = new Vector2(560f, 8f);
+            barRect.anchoredPosition = new Vector2(0f, -60f);
+
+            GameObject fillGO = new GameObject("Fill");
+            fillGO.transform.SetParent(barGO.transform, false);
+            Image fill = fillGO.AddComponent<Image>();
+            // A filled Image needs a sprite to have anything to fill; this is uGUI's own.
+            fill.sprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
+            fill.type = Image.Type.Filled;
+            fill.fillMethod = Image.FillMethod.Horizontal;
+            fill.fillAmount = 0f;
+            fill.color = Color.red;
+            fill.raycastTarget = false;
+            Stretch(fill.GetComponent<RectTransform>());
+
+            MainMenu mainMenu = canvasGO.AddComponent<MainMenu>();
+            mainMenu.menuGroup = menuGroup;
+            mainMenu.loadingGroup = loadingGroup;
+            mainMenu.playButton = playButton;
+            mainMenu.quitButton = quitButton;
+            mainMenu.loadingFill = fill;
+            mainMenu.loadingLabel = loadingLabel;
+
+            // uGUI buttons are inert without one, and an empty scene has nothing at all in it.
+            GameObject eventSystem = new GameObject("EventSystem");
+            eventSystem.AddComponent<UnityEngine.EventSystems.EventSystem>();
+            eventSystem.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
+
+            EditorSceneManager.SaveScene(menu, MenuScenePath);
+        }
+
+        private static void Stretch(RectTransform rect)
+        {
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+        }
+
+        private static Button MakeMenuButton(Transform parent, string name, string label, Vector2 anchoredPosition)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            RectTransform rect = go.AddComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(340f, 66f);
+            rect.anchoredPosition = anchoredPosition;
+
+            // White, with the dark look coming entirely from the ColorBlock below: a Button tints
+            // its target graphic by multiplying, so a background that is already near-black has
+            // nothing left to brighten with on hover.
+            Image background = go.AddComponent<Image>();
+            background.color = Color.white;
+
+            GameObject textGO = new GameObject("Label");
+            textGO.transform.SetParent(go.transform, false);
+            Text text = textGO.AddComponent<Text>();
+            text.font = UIFont();
+            text.fontSize = 26;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.color = Color.red;
+            text.text = label;
+            text.raycastTarget = false;
+            Stretch(text.GetComponent<RectTransform>());
+
+            Button button = go.AddComponent<Button>();
+            button.targetGraphic = background;
+
+            ColorBlock colors = button.colors;
+            colors.normalColor = new Color(0f, 0f, 0f, 0.55f);
+            colors.highlightedColor = new Color(0.34f, 0.04f, 0.04f, 0.8f);
+            colors.pressedColor = new Color(0.6f, 0.08f, 0.08f, 0.9f);
+            colors.selectedColor = colors.highlightedColor;
+            colors.disabledColor = new Color(0f, 0f, 0f, 0.3f);
+            colors.fadeDuration = 0.12f;
+            button.colors = colors;
+
+            return button;
         }
 
         // Two black panels that meet in the middle. They're driven through their anchors at

@@ -75,7 +75,7 @@ namespace IterationRoom
         private void Update()
         {
             if (!playerInRange || IsSpent) return;
-            if (LoopManager.Instance != null && !LoopManager.Instance.IterationRunning) return;
+            if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
 
             if (Input.GetKeyDown(KeyCode.E)) TryUnlock();
         }
