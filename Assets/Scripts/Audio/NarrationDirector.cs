@@ -23,10 +23,12 @@ namespace IterationRoom
         public AudioClip cycleTerminatedLine;
         public AudioClip announcementChime;
 
+        // No chime in front of this one. It fires at the top of every iteration, which is the one
+        // announcement the player will hear hundreds of times, and a two-note ding ahead of it made
+        // the loop's most repeated moment its most decorated. The line opens the cycle by itself.
         public void AnnounceIteration(int number)
         {
             bool haveLine = iterationLines != null && number >= 1 && number <= iterationLines.Length;
-            Chime();
             Speak(haveLine ? iterationLines[number - 1] : iterationGenericLine);
         }
 

@@ -189,47 +189,47 @@ def write(name, samples):
 
 # ---------------------------------------------------------------- the sounds
 
+def button_tone(freq, length, click_level, peak):
+    """A struck pitched tone - the pad answering rather than the pad being hit.
+
+    The first version of this was a spring-loaded plate landing on its stop: a low thump with a
+    detent click over it. Correct for the hardware, wrong for the game - at 96 Hz it read as a kick
+    drum every time anyone stood on the pad, and the room already has low end in the room tone and
+    the reset hit. This is the opposite choice: high, pitched, and left to ring.
+
+    Partials are slightly inharmonic (2.01, 2.98, 5.9 rather than exact multiples) because exact
+    ones read as an organ; the shorter decays on the upper ones are what make it metal."""
+    rng = random.Random(int(freq))
+    n = int(length * SR)
+
+    # (ratio, level, how much of `length` it takes to decay). The fundamental rings on well past the
+    # others - that tail is the "-----" of the sound.
+    parts = [(1.00, 1.00, 0.55), (2.01, 0.38, 0.22), (2.98, 0.20, 0.11), (5.90, 0.07, 0.05)]
+
+    out = [0.0] * n
+    for ratio, level, decay in parts:
+        env = env_decay(n, length * decay, attack=0.003)
+        out = mix(out, apply_env(sine(length, freq * ratio), scale(env, level)))
+
+    # A whisper of contact noise at the very front, so it still reads as something being pressed
+    # rather than as a notification popping out of nowhere. Deliberately tiny.
+    click = apply_env(bandpass(noise(0.02, rng), freq * 2.4, q=1.2),
+                      env_decay(int(0.02 * SR), 0.004, attack=0.0003))
+    out = at(out, scale(click, click_level), 0.0)
+
+    return fade_edges(normalize(out, peak))
+
+
 def floor_button_press():
-    """The floor pad taking weight: a spring-loaded plate travelling a few millimetres and bottoming
-    out on its stop. Three parts, and the order of them is the whole sound - the detent lets go
-    first, the plate lands second, and the housing rings under it."""
-    rng = random.Random(83)
-    dur = 0.45
-    n = int(dur * SR)
-
-    # The detent releasing. Short, bright, and slightly before everything else.
-    detent = apply_env(bandpass(noise(0.05, rng), 3400, q=1.3),
-                       env_decay(int(0.05 * SR), 0.008, attack=0.0004))
-
-    # The plate hitting its stop: the body of the sound.
-    plate = mix(apply_env(sine(dur, 96), env_decay(n, 0.055, attack=0.0012)),
-                apply_env(sine(dur, 143), scale(env_decay(n, 0.035, attack=0.0012), 0.5)),
-                apply_env(lowpass(noise(dur, rng), 1100), scale(env_decay(n, 0.03), 0.55)))
-
-    # A little metal in the housing, so it reads as installed hardware rather than as a knock.
-    ring = [0.0] * n
-    for j, f in enumerate((820, 1930)):
-        ring = mix(ring, scale(apply_env(bandpass(noise(dur, rng), f, q=17 - j * 5),
-                                         env_decay(n, 0.12 / (j + 1), attack=0.001)), 0.5 / (j + 1)))
-
-    out = at(scale(plate, 0.9), scale(detent, 0.5), 0.0)
-    out = mix(out, scale(ring, 0.35))
-    return fade_edges(normalize(out, 0.72))
+    """The pad going down. C6, left to ring for most of a second."""
+    return button_tone(1046.5, 1.0, click_level=0.12, peak=0.66)
 
 
 def floor_button_release():
-    """The pad coming back up. Lighter, higher and quicker than the press - a spring returning an
-    unloaded plate, not a body landing on it. Deliberately much less of an event: the press is the
-    one that means something."""
-    rng = random.Random(89)
-    dur = 0.3
-    n = int(dur * SR)
-
-    spring = apply_env(bandpass(noise(dur, rng), 2600, q=2.2), env_decay(n, 0.045, attack=0.0006))
-    seat = mix(apply_env(sine(dur, 168), env_decay(n, 0.03, attack=0.001)),
-               apply_env(lowpass(noise(dur, rng), 1500), scale(env_decay(n, 0.018), 0.5)))
-
-    return fade_edges(normalize(mix(scale(spring, 0.45), scale(seat, 0.7)), 0.5))
+    """The pad coming back up. The same tone a fourth lower and half as long - the shape of a thing
+    switching off, and deliberately a much smaller event than the press. The press is the one that
+    means something."""
+    return button_tone(783.99, 0.5, click_level=0.08, peak=0.42)
 
 
 def door_open():

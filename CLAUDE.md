@@ -58,8 +58,9 @@ Once Unity MCP is connected in a session, prefer it for incremental/visual tweak
   - Room2's fixtures have **shadows off** — every additional light's shadow shares one atlas, and Room2 is an empty shell with nothing to cast.
   - **The default Directional Light is deleted, not dimmed.** These are sealed boxes with a ceiling slab; a sun has no way in, so it contributed exactly nothing while still costing a shadow pass.
 - **Ambient is `Trilight`, not `Flat`**, and is demoted to standing in for the bounce URP is not computing. Trilight lights a surface by which way it *faces*, which maps directly onto the one thing downlights get wrong — they hammer the floor and never touch the ceiling.
-  - `ambientGroundColor` **(0.88)** lights **downward** faces, i.e. the ceiling. Highest of the three, standing in for light kicked back up off the bright floor.
-  - `ambientEquatorColor` **(0.40)** → the walls. `ambientSkyColor` **(0.22)** lights **upward** faces, i.e. the floor, which the spots already cover — raise it and the floor blows out.
+  - `ambientGroundColor` **(0.719)** lights **downward** faces, i.e. the ceiling. Much the highest of the three, because nothing else in the room lights an upward-facing surface at all.
+  - `ambientEquatorColor` **(0.138)** → the walls. `ambientSkyColor` **(0.131)** lights **upward** faces, i.e. the floor, which the spots already cover — raise it and the floor blows out.
+  - **These came down hard in the 2026-08-10 tuning pass** (from 0.88 / 0.40 / 0.22, found with `LightingTuner`). The room being too bright was never the fixtures — they stayed at 15 — it was the fill. The walls mattered most: at 0.40 the equator band was competing with the spots, flattening the very falloff toward the corners that the downlights exist to create.
   - Expect the ground colour to bleed onto the walls; that is spherical harmonics doing what bounce would, and it is why the walls read lit rather than painted.
   - **`DynamicGI.UpdateEnvironment()` must be called after assigning these.** Without it the values are stored but never reach a shader, and every tweak looks like it did nothing — this wasted a full tuning pass.
 - **Brightness is tuned in play mode, not by rebuilding** — `Assets/Scripts/Dev/LightingTuner.cs`, added to the scene by one line in `SceneBuilder.Build()`. Press **`F1`** in play mode. The values above were found by eye over long sessions, and the only way to find them was to see them in motion under the tonemapper.
@@ -124,7 +125,7 @@ The room has a diegetic PA announcer, taken from the reference film: every itera
 
 | Cue | When | Method |
 | --- | --- | --- |
-| "Iteration N, 60 seconds remaining." | after the wake-up, as the clock starts | `NarrationDirector.AnnounceIteration` |
+| "Iteration N, 60 seconds remaining." | after the wake-up, as the clock starts — **no chime** | `NarrationDirector.AnnounceIteration` |
 | "10 seconds remaining." | `LoopManager.tenSecondCueAt` (T-12, not T-10) | `AnnounceTenSeconds` |
 | "Nine." … "One." | one per whole second, T-9 to T-1 | `AnnounceCountdown` |
 | "New cycle initialized." | top of the next iteration, under the closed eyelids | `AnnounceNewCycle` |
@@ -133,6 +134,8 @@ The room has a diegetic PA announcer, taken from the reference film: every itera
 - **The T-10 line is cued at T-12 on purpose.** It runs about two seconds, and from T-9 the digit countdown replaces whatever the announcer is saying every second, so cueing it at a literal T-10 clips it after one word. `tenSecondCueAt` is serialized — retune it if the line is ever re-recorded at a different length.
 - Cues are **pushed from `LoopManager.RunLoop`, not polled** by the director. The loop already owns `ElapsedTime`, and the announcer has to stay silent through the wake-up, which sits outside the timed window. The counting loop guards on a *falling* whole second, so it fires exactly once per second at any frame rate.
 - Iteration 1 gets no "New cycle initialized" and no reset sting — it opens the run rather than resetting it.
+- **The iteration line has no chime in front of it**, though the T-10 and "Cycle terminated." lines still do. It fires at the top of every iteration, so it is the one announcement a player hears hundreds of times, and a two-note ding ahead of it made the loop's most repeated moment its most decorated.
+- **The number rises.** The iteration lines are generated from SSML rather than plain text so the number can be lifted in pitch and left climbing — "Iteration one!" rather than a label read off a list. See the generator notes for why that takes a question mark.
 - **Announcements replace each other** (`Stop()` + `Play()`), never `PlayOneShot`. The countdown fires once a second and one-shots would leave the digits slurring over each other.
 
 ### The PA treatment
@@ -148,6 +151,8 @@ The announcer is not played dry — `SceneBuilder.AddTannoyFilters` puts the voi
 
 ### Where the audio comes from
 
+- **Getting a rising ending out of SAPI requires a question mark**, and the iteration lines are written `Iteration <prosody pitch="+35%">N</prosody>? 60 seconds remaining.` on purpose. The terminal contour is chosen from sentence punctuation and overrides everything else — measured on Zira over the number at rate -2: `"1!"` 220→160 Hz (falls; the exclamation does nothing), `prosody contour="…"` 202→138 Hz (SAPI ignores the attribute), `"1?"` 182→232 Hz, and `pitch +35%` **plus** `?` 179→259 Hz. The `?` is never spoken, and because it closes the sentence on the number the rise sits there — leaving it to the end of the whole line instead would turn "remaining" into a question.
+- **Rate is -2 for the sentences, -1 for the countdown digits.** The synthesizer's default clip is what made it read as a screen reader rather than a PA. The digits cannot go slower than -1, since each has to finish inside its one-second slot before the next replaces it — verified: the spoken part of every digit ends by 0.78s, and the trailing silence in the file is irrelevant because `Speak` stops the previous clip.
 - **Narration is generated, not sourced.** `Tools/generate_narration.ps1` drives the Windows built-in synthesizer (`Microsoft Zira Desktop`, en-US female) to write all 43 lines into `Assets/Audio/Voice/` (30 numbered iteration lines + a generic stand-in, 9 countdown digits, the T-10 line, "New cycle initialized." and "Cycle terminated.") as 22 kHz 16-bit mono WAV. It costs nothing, runs offline, and keeps the voice track in the same "reproducible from a script" category as the rest of the project. The flat synthetic delivery happens to suit a facility tannoy. To replace them with better-acted takes, keep the filenames — no C# refers to how they were made. `SceneBuilder.NarrationIterationLines` must match the range the script writes (currently 30, then a generic line stands in).
 - **SFX are generated too**, by `Tools/generate_sfx.py` — ten clips (floor-button press and release, door, gasp, sheet rustle, room-tone loop, reset sting, machines, glass rattle, chime), synthesised from scratch with the Python standard library, no numpy and no downloads. Each is seeded, so re-running the script reproduces the identical set. See `Assets/Audio/SFX/README.md` for the filename table.
   - This is the same bargain the narration and the wall grain make: everything in the project has to rebuild from a script, and a folder of sourced CC0 clips was the one part that could not. They sound synthetic, which a tannoy-equipped facility gets away with.

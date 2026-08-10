@@ -417,10 +417,17 @@ namespace IterationRoom.EditorTools
             //             or the floor blows out to featureless white.
             // Expect the ground colour to bleed onto the walls too - that's spherical harmonics
             // doing what bounce would, and it's why the walls read lit rather than painted.
+            //
+            // Tuned in play mode with Dev/LightingTuner, 2026-08-10. The fixtures stayed at 15 and
+            // all three ambient bands came down hard - so what was too bright was never the lights,
+            // it was the fill. The walls in particular went 0.40 -> 0.138: at 0.40 the equator band
+            // was competing with the spots, which flattened the very falloff toward the corners the
+            // fixtures exist to create. The ceiling stays much the highest of the three (0.719),
+            // because nothing else in the room lights an upward-facing surface at all.
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor     = new Color(0.22f, 0.22f, 0.24f);
-            RenderSettings.ambientEquatorColor = new Color(0.40f, 0.40f, 0.42f);
-            RenderSettings.ambientGroundColor  = new Color(0.88f, 0.88f, 0.90f);
+            RenderSettings.ambientSkyColor     = new Color(0.131f, 0.131f, 0.151f);
+            RenderSettings.ambientEquatorColor = new Color(0.138f, 0.138f, 0.158f);
+            RenderSettings.ambientGroundColor  = new Color(0.719f, 0.719f, 0.739f);
             RenderSettings.ambientIntensity = 1f;
             // Assigning the colours does NOT rebuild the ambient probe. Without this they are
             // stored and never reach a shader, and every tweak looks like it did nothing.
