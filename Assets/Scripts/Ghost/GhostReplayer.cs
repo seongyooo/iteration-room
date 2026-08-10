@@ -26,8 +26,26 @@ namespace IterationRoom
         private GhostInteractable[] interactables;
         private int cursor;
         private uint activeSignals;
+        private bool finished;
         private Vector3 lastPosition;
         private float walkPhase;
+        private Renderer[] renderers;
+
+        private void Awake()
+        {
+            renderers = GetComponentsInChildren<Renderer>(true);
+        }
+
+        // Every timeline's frame 0 is the bed spawn, because recording starts the instant the
+        // wake-up hands control back - so ResetPlayback parks every ghost ever made on the exact
+        // spot the player wakes up on. Without hiding them, opening your eyes means looking
+        // through a stack of dark figures standing inside you, every single iteration.
+        public void SetVisible(bool visible)
+        {
+            if (renderers == null) return;
+            foreach (Renderer r in renderers)
+                if (r != null) r.enabled = visible;
+        }
 
         public void Init(List<RecordedFrame> recordedTimeline, GhostInteractable[] ghostInteractables)
         {
@@ -46,6 +64,7 @@ namespace IterationRoom
             }
             lastPosition = transform.position;
             walkPhase = 0f;
+            finished = false;
             // Release everything before replaying from the top, so a ghost that ended the previous
             // pass standing on a button doesn't leave it stuck on.
             ApplySignals(0u);
@@ -54,6 +73,24 @@ namespace IterationRoom
         public void Tick(float elapsedLoopTime)
         {
             if (timeline == null || timeline.Count == 0) return;
+
+            // Once the recording runs out this ghost is done: it lets go of everything and leaves.
+            //
+            // Holding the last frame instead - which is what clamping the cursor does on its own -
+            // makes ending a cycle early strictly better than seeing it out. Quit at t=5s while
+            // standing on the floor pad and that final frame's signal would stay applied from t=5
+            // to t=60 of every future iteration: five seconds of your time buying a 55-second hold,
+            // which deletes the "spend a whole iteration on this" premise the puzzle is built on.
+            if (elapsedLoopTime > timeline[timeline.Count - 1].time)
+            {
+                if (!finished)
+                {
+                    finished = true;
+                    ApplySignals(0u);
+                    SetVisible(false);
+                }
+                return;
+            }
 
             while (cursor < timeline.Count - 1 && timeline[cursor + 1].time <= elapsedLoopTime)
                 cursor++;

@@ -50,7 +50,10 @@ foreach ($n in 1..30) {
 
 Write-Line "New iteration, 60 seconds remaining." "voice_iteration_generic.wav" -1
 Write-Line "New cycle initialized." "voice_new_cycle.wav" -1
-$count += 2
+# Spoken when the player ends a cycle themselves instead of running the clock out. The distinction
+# matters: a voluntary end skips the countdown entirely, which is otherwise the loop's loudest beat.
+Write-Line "Cycle terminated." "voice_cycle_terminated.wav" -1
+$count += 3
 
 Write-Line "10 seconds remaining." "voice_ten_seconds.wav" 0
 $count++

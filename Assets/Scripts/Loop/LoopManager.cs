@@ -35,6 +35,30 @@ namespace IterationRoom
         public float ElapsedTime { get; private set; }
         public int IterationNumber { get; private set; }
 
+        // True only while the clock is actually running - not during the wake-up, not during the
+        // eyelid close. The end-cycle control reads this so it can't be charged up out of turn.
+        public bool IterationRunning { get; private set; }
+
+        private bool endRequested;
+
+        // The player choosing to cut this cycle short. 60 seconds is a ceiling, not a quota: once
+        // you have done what you came to do, the rest is dead time, and spending it is the one
+        // thing the loop never let you decide.
+        //
+        // It sets a flag rather than shoving ElapsedTime to loopDuration, because ElapsedTime is
+        // the timestamp written into every recorded frame - forcing it would corrupt the tail of
+        // the timeline the ghost is about to replay. The iteration still ends by the normal path.
+        //
+        // The cost is real and lands next loop: the recording stops here too, so the ghost this
+        // makes only covers the seconds you actually spent. Deciding when to quit *is* deciding how
+        // long your past self keeps standing on the pad. See GhostReplayer.Tick, which releases
+        // everything once a timeline runs out - without that, quitting early would be free.
+        public void EndCycleEarly()
+        {
+            if (!IterationRunning) return;
+            endRequested = true;
+        }
+
         private readonly List<GhostReplayer> ghosts = new List<GhostReplayer>();
 
         private void Awake()
@@ -66,8 +90,13 @@ namespace IterationRoom
                 // than inside the slab when it snaps shut.
                 door?.Close();
 
+                // Hidden for the whole wake-up: resetting parks them all on the bed spawn, which is
+                // exactly where the player is about to open their eyes.
                 foreach (var ghost in ghosts)
+                {
                     ghost.ResetPlayback();
+                    ghost.SetVisible(false);
+                }
 
                 // The machines spin the room back up, then the announcer confirms it - both under
                 // the closed eyelids. Iteration 1 opens the run rather than resetting it, so it
@@ -86,11 +115,20 @@ namespace IterationRoom
                 // Announced as the clock actually starts, which is also the moment control returns.
                 narration?.AnnounceIteration(IterationNumber);
 
+                // Back in view exactly as the clock starts, which is also the frame they start
+                // moving - so they appear already walking away rather than blinking into being.
+                foreach (var ghost in ghosts)
+                    ghost.SetVisible(true);
+
                 playerRecorder?.BeginRecording();
 
                 int lastCueSecond = int.MaxValue;
+                // Armed here, not at the top of the iteration: an input that lands during the
+                // wake-up would otherwise end the cycle the instant the clock started.
+                endRequested = false;
+                IterationRunning = true;
 
-                while (ElapsedTime < loopDuration)
+                while (ElapsedTime < loopDuration && !endRequested)
                 {
                     ElapsedTime += Time.deltaTime;
 
@@ -111,10 +149,23 @@ namespace IterationRoom
                     yield return null;
                 }
 
-                if (wakeUpSequence != null)
-                    yield return wakeUpSequence.CloseEyes();
+                IterationRunning = false;
+
+                // The announcer acknowledges a voluntary end on the spot, because cutting the
+                // clock short skips the countdown - otherwise ending early is silent, and the one
+                // decision the player gets to make would land with no feedback at all.
+                if (endRequested) narration?.AnnounceCycleTerminated();
+
+                // Control and recording both stop before the eyelids start closing. Left running,
+                // the player spent the ~1.6s blackout walking blind, and because ElapsedTime is
+                // frozen at loopDuration by then, every one of those frames recorded at the same
+                // timestamp - the ghost skipped the lot in a single jump on its final tick.
+                if (playerController != null) playerController.ControlEnabled = false;
 
                 List<RecordedFrame> timeline = playerRecorder != null ? playerRecorder.EndRecording() : null;
+
+                if (wakeUpSequence != null)
+                    yield return wakeUpSequence.CloseEyes();
 
                 if (timeline != null && timeline.Count > 0 && ghostPrefab != null)
                 {

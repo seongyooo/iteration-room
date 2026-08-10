@@ -19,6 +19,8 @@ namespace IterationRoom
         // "Nine." down to "One.", nine at element 0.
         public AudioClip[] countdownLines;
         public AudioClip newCycleLine;
+        // Spoken when the player ends a cycle themselves rather than running the clock out.
+        public AudioClip cycleTerminatedLine;
         public AudioClip announcementChime;
 
         public void AnnounceIteration(int number)
@@ -47,6 +49,12 @@ namespace IterationRoom
         public void AnnounceNewCycle()
         {
             Speak(newCycleLine);
+        }
+
+        public void AnnounceCycleTerminated()
+        {
+            Chime();
+            Speak(cycleTerminatedLine);
         }
 
         // Announcements replace each other instead of stacking. The countdown fires once a second

@@ -20,6 +20,8 @@ namespace IterationRoom
         public float lyingEyeHeight = 0.5f;
         public float lyingPitch = -80f;
 
+        public WallPanelDisplay wallPanels;
+
         public AudioSource bodySource;
         public AudioClip gaspClip;
         public AudioClip sheetRustleClip;
@@ -39,6 +41,10 @@ namespace IterationRoom
         {
             SetLids(1f);
 
+            // Killed behind the closed lids, so the reset itself is never seen - the player only
+            // ever witnesses the room coming back, never it going out.
+            wallPanels?.PowerDown();
+
             if (player != null)
             {
                 player.ControlEnabled = false;
@@ -54,6 +60,11 @@ namespace IterationRoom
             // before anything moves.
             yield return Sweep(1f, 0f, openDuration);
             yield return new WaitForSeconds(lookAtCeilingDuration);
+
+            // The room boots as the body sits up, so the two motions happen together rather than
+            // queueing. The panels are dark for the whole eyes-open beat before this, which is what
+            // makes the sweep land.
+            wallPanels?.PowerUp();
 
             if (player != null)
             {

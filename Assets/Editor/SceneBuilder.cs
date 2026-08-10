@@ -19,6 +19,13 @@ namespace IterationRoom.EditorTools
         private const string PrefabsDir = "Assets/Prefabs";
         private const string FurnitureDir = "Assets/ArtAssets/Furniture";
         private const string SettingsDir = "Assets/Settings";
+        // Wall panel albedo. Near-white is the reference film's clinical room; the dark value reads
+        // as a switched-off display, which only becomes legible because the panels are glossy and
+        // have a reflection probe to mirror - a matte dark panel would just be a black hole.
+        // Kept well clear of GrooveDark (0.04) so the seams still read against it.
+        private static readonly Color WallPanelColor = new Color(0.13f, 0.135f, 0.15f);
+
+        private const string TexturesDir = "Assets/Textures";
         private const string AudioDir = "Assets/Audio";
         private const string VoiceDir = AudioDir + "/Voice";
         private const string SfxDir = AudioDir + "/SFX";
@@ -86,10 +93,49 @@ namespace IterationRoom.EditorTools
             // seams read the way the old painted-on grid lines did.
             Material grooveMat = MakeColorMaterial("GrooveDark", new Color(0.04f, 0.04f, 0.045f));
             Material propMat = MakeColorMaterial("PropLight", new Color(0.85f, 0.85f, 0.85f));
+            // White is the resting state - what the panels are for all but the first seconds of an
+            // iteration, and what the reflection probes bake against. WallPanelDisplay drives them
+            // to WallPanelColor and back through a property block at runtime.
             Material panelMat = MakeColorMaterial("PanelWhite", Color.white);
+
+            // Tiling is per face, and a wall panel's face is roughly 1.7 x 0.9m while a floor slab
+            // is 9 x 10.9m - so the two need very different repeat counts to land on the same
+            // physical grain size (~0.35m per repeat).
+            // bumpScale is ~2.5, not the <1 that looks like a sane default. Central differences
+            // across a smooth multi-octave field give very small gradients, so the generated map is
+            // genuinely shallow: at 0.7 the walls rendered perfectly flat and the detail was
+            // invisible even with the camera against them. 10 turns it into stucco. 2.5 reads as
+            // painted plaster up close and disappears at room distance, which is the goal.
+            // The floor is left smoother, as a harder finish would be.
+            // Walls read as a smooth glazed panel - closer to ceramic tile or a switched-off
+            // display than to plaster. That means gloss, and almost no relief: the grain is kept
+            // at a whisper (0.2) purely so the specular isn't a perfectly uniform sheet, which is
+            // what makes a flat surface look CG. Smoothness 0.72 is what actually does the work,
+            // and it only reads correctly because the reflection probes give it the room to mirror
+            // rather than the blue sky.
+            //
+            // The floor stays matte by comparison, as a hard-wearing floor finish would be against
+            // a glazed wall.
+            Texture2D surfaceGrain = MakeNoiseNormalMap("SurfaceGrain", 512, 2.5f);
+            ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), 0.85f);
+            ApplySurfaceDetail(floorMat, surfaceGrain, 1.8f, new Vector2(26f, 30f), 0.18f);
 
             GameObject room = new GameObject("Room");
             BuildShell(room.transform, floorMat, grooveMat, panelMat);
+
+            // Every wall panel, gathered by parent name rather than threaded back out through
+            // BuildShell/BuildRoomShell/BuildPanelWall - the panels are the only children of a
+            // "*_Panels" node, so this stays correct without four signature changes.
+            var wallPanelRenderers = new System.Collections.Generic.List<Renderer>();
+            foreach (Renderer r in room.GetComponentsInChildren<Renderer>())
+                if (r.transform.parent != null && r.transform.parent.name.EndsWith("_Panels"))
+                    wallPanelRenderers.Add(r);
+
+            GameObject displayGO = new GameObject("WallPanelDisplay");
+            WallPanelDisplay wallDisplay = displayGO.AddComponent<WallPanelDisplay>();
+            wallDisplay.panels = wallPanelRenderers.ToArray();
+            wallDisplay.offColor = WallPanelColor;
+            wallDisplay.onColor = Color.white;
 
             // No dedicated room light - a point light read as too harsh/blown-out. Instead,
             // brighten the scene's default Directional Light and switch to flat ambient so the
@@ -97,6 +143,7 @@ namespace IterationRoom.EditorTools
             SetupLighting();
             BuildPostProcessing();
             ConfigureAmbientOcclusion();
+            ConfigureLightingPipeline();
 
             (Transform bed, Transform bedSpawn) = BuildBed(room.transform, propMat);
             GameObject nightstand = BuildNightstand(room.transform);
@@ -114,6 +161,7 @@ namespace IterationRoom.EditorTools
             GameObject ghostParent = new GameObject("Ghosts");
 
             (IterationLabel label, WakeUpSequence wakeUp) = BuildUI();
+            wakeUp.wallPanels = wallDisplay;
 
             (NarrationDirector narration, RoomAmbience ambience) =
                 BuildAudio(player, door, wakeUp, nightstand.transform);
@@ -135,6 +183,12 @@ namespace IterationRoom.EditorTools
 
             Directory.CreateDirectory("Assets/Scenes");
             EditorSceneManager.SaveScene(scene, ScenePath);
+
+            // The build settings scene list was empty, so a standalone player would have shipped
+            // with no scenes at all. Reasserted on every build rather than set once, because the
+            // list lives in ProjectSettings and nothing else here maintains it.
+            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
@@ -147,6 +201,7 @@ namespace IterationRoom.EditorTools
             if (!AssetDatabase.IsValidFolder(MaterialsDir)) AssetDatabase.CreateFolder("Assets", "Materials");
             if (!AssetDatabase.IsValidFolder(PrefabsDir)) AssetDatabase.CreateFolder("Assets", "Prefabs");
             if (!AssetDatabase.IsValidFolder(SettingsDir)) AssetDatabase.CreateFolder("Assets", "Settings");
+            if (!AssetDatabase.IsValidFolder(TexturesDir)) AssetDatabase.CreateFolder("Assets", "Textures");
             if (!AssetDatabase.IsValidFolder(AudioDir)) AssetDatabase.CreateFolder("Assets", "Audio");
             if (!AssetDatabase.IsValidFolder(VoiceDir)) AssetDatabase.CreateFolder(AudioDir, "Voice");
             if (!AssetDatabase.IsValidFolder(SfxDir)) AssetDatabase.CreateFolder(AudioDir, "SFX");
@@ -255,6 +310,67 @@ namespace IterationRoom.EditorTools
             if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", value);
         }
 
+        // URP gates additional (non-main) lights behind the pipeline asset, and the defaults are
+        // tuned for mobile: too few lights per object and no shadows from them. Reconciled here
+        // rather than left to the asset, so the scene's lighting can't be broken by an asset reset.
+        private static void ConfigureLightingPipeline()
+        {
+            var urp = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>($"{SettingsDir}/IterationURP.asset");
+            if (urp == null) return;
+
+            SerializedObject so = new SerializedObject(urp);
+
+            // Enums are set BY NAME, never by index. URP serialises this one as
+            // [Disabled, PerPixel, PerVertex] - PerPixel is index 1, not the 2 you would guess
+            // from the inspector's ordering, and picking 2 silently gives per-vertex lighting,
+            // which washes the room into flat blocks: precisely the look this change exists to fix.
+            SetEnumByName(so, "m_AdditionalLightsRenderingMode", "PerPixel");
+            // Every surface in the room is reached by all six fixtures, and anything under this
+            // limit means a slab silently drops the lights beyond it. 8 is URP's maximum.
+            SetIfPresent(so, "m_AdditionalLightsPerObjectLimit", 8);
+            SetIfPresent(so, "m_AdditionalLightShadowsSupported", true);
+            // Also an enum, not a pixel count - assigning 2048 as an int throws "enum index is out
+            // of range". One shared atlas holds every additional light's shadow map.
+            // 4096, not 2048: six shadowed fixtures share one atlas, and at 2048 URP logs
+            // "Reduced additional punctual light shadows resolution by 2 to make 6 shadow maps
+            // fit" and quietly drops each map to 512.
+            SetEnumByName(so, "m_AdditionalLightsShadowmapResolution", "_4096");
+            SetIfPresent(so, "m_SoftShadowsSupported", true);
+
+            so.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(urp);
+            AssetDatabase.SaveAssets();
+        }
+
+        private static void SetIfPresent(SerializedObject so, string path, int value)
+        {
+            SerializedProperty p = so.FindProperty(path);
+            if (p != null && p.propertyType != SerializedPropertyType.Enum) p.intValue = value;
+        }
+
+        // Resolves the index from the serialised enum's own name list, so a reordered or extended
+        // URP enum can't quietly select a different mode.
+        private static void SetEnumByName(SerializedObject so, string path, string valueName)
+        {
+            SerializedProperty p = so.FindProperty(path);
+            if (p == null || p.propertyType != SerializedPropertyType.Enum) return;
+
+            int index = System.Array.IndexOf(p.enumNames, valueName);
+            if (index < 0)
+            {
+                Debug.LogWarning($"[SceneBuilder] {path} has no value '{valueName}' - left at "
+                    + p.enumNames[p.enumValueIndex] + ". Options: " + string.Join(", ", p.enumNames));
+                return;
+            }
+            p.enumValueIndex = index;
+        }
+
+        private static void SetIfPresent(SerializedObject so, string path, bool value)
+        {
+            SerializedProperty p = so.FindProperty(path);
+            if (p != null) p.boolValue = value;
+        }
+
         private static void SetupLighting()
         {
             // Even, clinical-white lighting: carry almost all of it on flat ambient (which hits every
@@ -262,30 +378,282 @@ namespace IterationRoom.EditorTools
             // leave the directional as a weak, steeply-angled source purely for enough shading to
             // read geometry. A strong low-angle directional blew out one wall while the opposite
             // wall read grey.
-            RenderSettings.ambientMode = AmbientMode.Flat;
-            // Tuned against URP + Neutral tonemapping. URP responds to ambient differently from
-            // Built-in: 1.05 here blows the whole room to flat white, 0.72 leaves the walls grey
-            // while the directional still blows out the floor.
-            RenderSettings.ambientLight = new Color(0.95f, 0.95f, 0.97f);
+            // Trilight, NOT Flat - and this is the single most important line in here.
+            //
+            // The room used to be lit by flat ambient at (0.95, 0.95, 0.97) with no lights in it
+            // at all, so ambient was doing 100% of the lighting. That is exactly why it read as a
+            // whitebox: flat ambient adds the *same* amount to every surface regardless of
+            // orientation, distance or occlusion, so wall, ceiling and floor all came out
+            // identical. No falloff, no direction, no contrast, nothing to read depth from.
+            //
+            // Real fixtures do the lighting now (BuildCeilingLights). Ambient is demoted to
+            // standing in for the bounce URP isn't computing, and Trilight makes that stand-in
+            // directional: it lights a surface by which way it faces. That maps straight onto the
+            // problem downlights have - they hammer the floor and never touch the ceiling.
+            //   ground  -> hits DOWNWARD faces, i.e. the ceiling. Highest of the three, standing in
+            //             for light kicked back up off the bright floor.
+            //   equator -> the walls.
+            //   sky     -> hits UPWARD faces, i.e. the floor, which the spots already cover. Lowest,
+            //             or the floor blows out to featureless white.
+            // Expect the ground colour to bleed onto the walls too - that's spherical harmonics
+            // doing what bounce would, and it's why the walls read lit rather than painted.
+            RenderSettings.ambientMode = AmbientMode.Trilight;
+            RenderSettings.ambientSkyColor     = new Color(0.22f, 0.22f, 0.24f);
+            RenderSettings.ambientEquatorColor = new Color(0.40f, 0.40f, 0.42f);
+            RenderSettings.ambientGroundColor  = new Color(0.88f, 0.88f, 0.90f);
             RenderSettings.ambientIntensity = 1f;
+            // Assigning the colours does NOT rebuild the ambient probe. Without this they are
+            // stored and never reach a shader, and every tweak looks like it did nothing.
+            DynamicGI.UpdateEnvironment();
 
-            // The blue procedural skybox was tinting every surface through reflections.
+            // Reflections now come from per-room probes that see the actual white room, so this no
+            // longer has to be crushed to 0.1 to stop the blue sky bleeding onto the panels.
             RenderSettings.defaultReflectionMode = DefaultReflectionMode.Skybox;
-            RenderSettings.reflectionIntensity = 0.1f;
+            RenderSettings.reflectionIntensity = 1f;
 
+            // The default Directional Light is deleted, not dimmed. These rooms are sealed boxes
+            // with a ceiling slab over them - a sun has no way in, so it contributed exactly
+            // nothing while still costing a shadow pass. (It was even less use once the corner
+            // seams and the door pocket were closed.)
             foreach (Light light in Object.FindObjectsByType<Light>(FindObjectsInactive.Exclude))
-            {
-                if (light.type != LightType.Directional) continue;
+                if (light.type == LightType.Directional) Object.DestroyImmediate(light.gameObject);
+        }
 
-                light.transform.rotation = Quaternion.Euler(72f, 200f, 0f);
-                light.color = Color.white;
-                // Kept low on purpose: pointing this steeply down, anything higher blows out the
-                // floor long before it does anything useful for the walls.
-                light.intensity = 0.25f;
-                light.shadows = LightShadows.Soft;
-                light.shadowStrength = 0.5f;
-                break;
+        // Recessed ceiling fixtures - the actual light in the room.
+        //
+        // Spots rather than points, aimed straight down, because a downlight's cone is what gives
+        // the floor bright pools and lets the walls fall off toward the corners. That gradient is
+        // most of what separates a room from a whitebox; a point light just washes everything.
+        //
+        // castShadows is off for Room2: shadows from additional lights all share one atlas, and
+        // Room2 is an empty shell with nothing in it to cast any.
+        private static void BuildCeilingLights(Transform parent, string roomName, float zCenter, Material emissiveMat, bool castShadows)
+        {
+            GameObject root = new GameObject(roomName + "_CeilingLights");
+            root.transform.SetParent(parent, false);
+
+            // Two columns on the wall-panel rhythm, two rows down the room's length.
+            float[] xs = { -GridCellWidth, GridCellWidth };
+            float[] zs = { zCenter - 2.6f, zCenter + 2.6f };
+
+            const float panelSize = 1.4f;
+            const float panelThickness = 0.04f;
+
+            int index = 0;
+            foreach (float x in xs)
+            {
+                foreach (float z in zs)
+                {
+                    GameObject fixture = new GameObject($"Fixture_{index++}");
+                    fixture.transform.SetParent(root.transform, false);
+                    fixture.transform.localPosition = new Vector3(x, RoomHeight, z);
+
+                    // Sits just under the ceiling plane so it reads as set into it. Emission is
+                    // pushed well past 1.0 so it clears the deliberately high bloom threshold.
+                    Prim(PrimitiveType.Cube, "Panel", fixture.transform,
+                        new Vector3(0f, -panelThickness / 2f, 0f),
+                        new Vector3(panelSize, panelThickness, panelSize),
+                        emissiveMat, removeCollider: true);
+
+                    GameObject lightGO = new GameObject("Light");
+                    lightGO.transform.SetParent(fixture.transform, false);
+                    lightGO.transform.localPosition = new Vector3(0f, -panelThickness, 0f);
+                    lightGO.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+                    Light light = lightGO.AddComponent<Light>();
+                    light.type = LightType.Spot;
+                    // Wide and soft-edged, so it behaves like a panel rather than a torch.
+                    light.spotAngle = 130f;
+                    light.innerSpotAngle = 45f;
+                    light.range = 11f;
+                    // Found by eye against Neutral tonemapping. A 130-degree cone from 5m up
+                    // spreads its energy over most of the room, so this is far higher than it
+                    // looks: at 4 the room came out a dim grey. Raised from 11 when the fixture
+                    // count dropped from six to four - fewer sources over the same floor area.
+                    light.intensity = 15f;
+                    // Barely off white - clinical rather than domestic, without tinting the room.
+                    light.color = new Color(0.99f, 0.99f, 1f);
+                    light.shadows = castShadows ? LightShadows.Soft : LightShadows.None;
+                    light.shadowStrength = 0.75f;
+                    light.renderMode = LightRenderMode.ForcePixel;
+                }
             }
+        }
+
+        // Surface detail, generated rather than sourced, so the project stays reproducible from
+        // scripts like everything else here.
+        //
+        // The room's walls and slabs are perfectly uniform flat colour, which is the other half of
+        // why it read as a whitebox: real lights now sweep across them, but there is no micro-relief
+        // for that light to catch, so every surface still shades as one continuous gradient. A fine
+        // normal map gives the light something to break up on - the difference between "painted
+        // white" and "a painted white wall".
+        //
+        // Multi-octave value noise, made *tileable* by wrapping the lattice at each octave's period
+        // (see Hash). Mathf.PerlinNoise is not tileable and would seam at every repeat.
+        private static Texture2D MakeNoiseNormalMap(string name, int size, float bumpStrength)
+        {
+            string path = $"{TexturesDir}/{name}.png";
+
+            float[] height = new float[size * size];
+            // Coarsest octave is a broad undulation like a skimmed wall; finest is near-pixel grain.
+            int[] periods = { 8, 16, 32, 64 };
+            float[] weights = { 0.5f, 0.28f, 0.15f, 0.07f };
+            for (int o = 0; o < periods.Length; o++)
+                AddNoiseOctave(height, size, periods[o], weights[o], 1000 + o * 977);
+
+            Color[] pixels = new Color[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    // Central differences, wrapped, so the derived normals tile with the heights.
+                    float dx = height[WrapIndex(x - 1, y, size)] - height[WrapIndex(x + 1, y, size)];
+                    float dy = height[WrapIndex(x, y - 1, size)] - height[WrapIndex(x, y + 1, size)];
+                    Vector3 n = new Vector3(dx * bumpStrength, dy * bumpStrength, 1f).normalized;
+                    pixels[y * size + x] = new Color(n.x * 0.5f + 0.5f, n.y * 0.5f + 0.5f, n.z * 0.5f + 0.5f, 1f);
+                }
+            }
+
+            Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false, true);
+            tex.SetPixels(pixels);
+            tex.Apply();
+
+            Directory.CreateDirectory(TexturesDir);
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (importer != null)
+            {
+                // Without NormalMap the PNG imports as a colour texture and the shader reads the
+                // raw RGB as a normal, which tilts every surface toward +X/+Y.
+                importer.textureType = TextureImporterType.NormalMap;
+                importer.wrapMode = TextureWrapMode.Repeat;
+                importer.anisoLevel = 4;
+                importer.SaveAndReimport();
+            }
+
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+
+        private static void AddNoiseOctave(float[] height, int size, int period, float weight, int seed)
+        {
+            float cell = (float)size / period;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float fx = x / cell, fy = y / cell;
+                    int x0 = Mathf.FloorToInt(fx), y0 = Mathf.FloorToInt(fy);
+                    float tx = SmoothStep(fx - x0), ty = SmoothStep(fy - y0);
+
+                    float bottom = Mathf.Lerp(LatticeHash(x0, y0, period, seed), LatticeHash(x0 + 1, y0, period, seed), tx);
+                    float top = Mathf.Lerp(LatticeHash(x0, y0 + 1, period, seed), LatticeHash(x0 + 1, y0 + 1, period, seed), tx);
+                    height[y * size + x] += Mathf.Lerp(bottom, top, ty) * weight;
+                }
+            }
+        }
+
+        private static float SmoothStep(float t) => t * t * (3f - 2f * t);
+
+        private static int WrapIndex(int x, int y, int size)
+        {
+            x = ((x % size) + size) % size;
+            y = ((y % size) + size) % size;
+            return y * size + x;
+        }
+
+        // The lattice coordinate wraps at `period`, which is precisely what makes each octave -
+        // and therefore the whole map - tile seamlessly.
+        private static float LatticeHash(int x, int y, int period, int seed)
+        {
+            x = ((x % period) + period) % period;
+            y = ((y % period) + period) % period;
+            unchecked
+            {
+                int h = x * 374761393 + y * 668265263 + seed * 1274126177;
+                h = (h ^ (h >> 13)) * 1274126177;
+                return ((h ^ (h >> 16)) & 0x7fffffff) / (float)0x7fffffff;
+            }
+        }
+
+        // tiling is in repeats across one face. URP/Lit drives the normal map's UVs from _BaseMap's
+        // transform, not _BumpMap's, so setting the scale on _BumpMap does nothing at all.
+        private static void ApplySurfaceDetail(Material mat, Texture2D normalMap, float bumpScale, Vector2 tiling, float smoothness)
+        {
+            if (normalMap == null) return;
+
+            mat.EnableKeyword("_NORMALMAP");
+            mat.SetTexture("_BumpMap", normalMap);
+            mat.SetFloat("_BumpScale", bumpScale);
+            mat.SetTextureScale("_BaseMap", tiling);
+            // Raised off the old 0.03: at that roughness there is almost no specular response, so
+            // the relief only shows in diffuse shading and barely reads. Still well short of the
+            // 0.5 default that mirrors the skybox onto the walls.
+            SetSmoothness(mat, smoothness);
+            EditorUtility.SetDirty(mat);
+        }
+
+        // A glossy surface is only as good as what it has to reflect, and the only reflection
+        // source here was the procedural sky - which is blue, and which the room can't even see.
+        // Raising smoothness without this paints a blue cast over every white panel; that is the
+        // exact failure the old 0.03-smoothness-everywhere rule existed to dodge.
+        //
+        // Baked, and baked right here as part of the build. A Realtime probe was tried first, on
+        // the reasoning that SceneBuilder rebuilds the scene every run so baked data would always
+        // be stale - but a realtime probe renders nothing until play mode, so `probe.texture` came
+        // back EMPTY and the glossy walls had nothing at all to reflect. Baking it during Build()
+        // solves both: the cubemap is a real asset, and it is regenerated in lockstep with the
+        // geometry it captures. It is two small cubemaps, so it costs no meaningful build time.
+        //
+        // Box projection matters more than usual for a room this shape - it reprojects the cubemap
+        // onto the box bounds, so a reflected wall stays put on the wall instead of sliding around
+        // as the camera moves.
+        private static void BuildReflectionProbe(Transform parent, string roomName, float zCenter)
+        {
+            GameObject go = new GameObject(roomName + "_ReflectionProbe");
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = new Vector3(0f, RoomHeight * 0.5f, zCenter);
+
+            ReflectionProbe probe = go.AddComponent<ReflectionProbe>();
+            probe.mode = UnityEngine.Rendering.ReflectionProbeMode.Baked;
+            probe.boxProjection = true;
+            probe.size = new Vector3(RoomWidth, RoomHeight, RoomDepth);
+            // 512, not 256: at the wall smoothness used here the reflection is sharp enough that a
+            // 256 cubemap shows the ceiling fixtures as vague smears rather than panels.
+            probe.resolution = 512;
+            probe.clearFlags = ReflectionProbeClearFlags.Skybox;
+            probe.nearClipPlane = 0.05f;
+            probe.farClipPlane = 40f;
+
+            Directory.CreateDirectory(TexturesDir);
+            Lightmapping.BakeReflectionProbe(probe, $"{TexturesDir}/{roomName}_Reflection.exr");
+        }
+
+        private static Material MakeEmissiveMaterial(string name, Color color, float emission)
+        {
+            string path = $"{MaterialsDir}/{name}.mat";
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(OpaqueShader());
+                AssetDatabase.CreateAsset(mat, path);
+            }
+
+            mat.shader = OpaqueShader();
+            mat.color = color;
+            SetSmoothness(mat, 0.1f);
+
+            // The keyword matters as much as the colour: set _EmissionColor alone and URP leaves
+            // the emission pass compiled out, so the panel renders as plain white.
+            mat.EnableKeyword("_EMISSION");
+            mat.SetColor("_EmissionColor", color * emission);
+            mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+
+            EditorUtility.SetDirty(mat);
+            return mat;
         }
 
         private static Material MakeColorMaterial(string name, Color color)
@@ -371,6 +739,57 @@ namespace IterationRoom.EditorTools
             // of its panelling, its backing and its collision, so the opening is a real hole.
             BuildRoomShell(parent, "Room1", 0f, floorMat, grooveMat, panelMat, Rect.zero, doorway);
             BuildRoomShell(parent, "Room2", RoomPitch, floorMat, grooveMat, panelMat, doorway, Rect.zero);
+
+            BuildDoorPocketFill(parent, grooveMat);
+
+            Material fixtureMat = MakeEmissiveMaterial("CeilingFixture", Color.white, 3.5f);
+            BuildCeilingLights(parent, "Room1", 0f, fixtureMat, castShadows: true);
+            BuildCeilingLights(parent, "Room2", RoomPitch, fixtureMat, castShadows: false);
+
+            // Built after the lights, so the probe captures the room already lit.
+            BuildReflectionProbe(parent, "Room1", 0f);
+            BuildReflectionProbe(parent, "Room2", RoomPitch);
+        }
+
+        // Fills the cavity between the two rooms' walls, everywhere except the volume the door slab
+        // actually sweeps through.
+        //
+        // Left as one open pocket, that cavity ran the full width of the building and exited to the
+        // sky at both ends - standing in the doorway and looking sideways showed a 0.1m x 5m slot
+        // straight to the outside, which is the "you can see through between the walls" report.
+        // Capping it also gives the opening a proper reveal instead of a hollow slot at the jamb.
+        private static void BuildDoorPocketFill(Transform parent, Material mat)
+        {
+            GameObject fill = new GameObject("DoorPocketFill");
+            fill.transform.SetParent(parent, false);
+
+            float pocketCenterZ = RoomDepth / 2f + WallDepth + DoorPocketDepth / 2f;
+
+            // Matches the floor and ceiling slabs, so the fill reaches the outer face of the side
+            // walls and the divider is closed off at the same plane they are.
+            float halfWidth = RoomWidth / 2f + WallDepth;
+            Rect pocket = Rect.MinMaxRect(-halfWidth, 0f, halfWidth, RoomHeight);
+
+            // The slab's full sweep: closed at -DoorWidth/2, open a further DoorWidth to the right.
+            // The clearance keeps the fill's faces off the door's, which would otherwise be exactly
+            // coincident planes.
+            const float clearance = 0.01f;
+            Rect doorSweep = Rect.MinMaxRect(
+                -DoorWidth / 2f - clearance, 0f,
+                DoorWidth / 2f + DoorWidth + clearance, DoorHeight + clearance);
+
+            // No colliders: the walls either side of the doorway already carry the collision, and
+            // the only way to reach this volume is through the opening the fill deliberately leaves.
+            int piece = 0;
+            foreach (Rect part in SubtractRect(pocket, doorSweep))
+            {
+                if (part.width <= 0.001f || part.height <= 0.001f) continue;
+
+                Prim(PrimitiveType.Cube, $"Fill_{piece++}", fill.transform,
+                    new Vector3(part.center.x, part.center.y, pocketCenterZ),
+                    new Vector3(part.width, part.height, DoorPocketDepth),
+                    mat, removeCollider: true);
+            }
         }
 
         private static void BuildRoomShell(Transform parent, string roomName, float zCenter, Material floorMat, Material grooveMat, Material panelMat, Rect southCutout, Rect northCutout)
@@ -408,13 +827,28 @@ namespace IterationRoom.EditorTools
 
             Rect wallRect = Rect.MinMaxRect(-wallWidth / 2f, 0f, wallWidth / 2f, RoomHeight);
 
+            // Backing and collision overrun both ends of the wall by its own depth, so adjacent
+            // walls interpenetrate at the corners instead of merely abutting.
+            //
+            // Sized to the interior exactly, two perpendicular walls meet along a line and leave a
+            // WallDepth-square column that neither one covers, running the full height of the room.
+            // It never opens wide enough for a raycast to find - the void sits behind a zero-width
+            // seam - but rendering two slabs that only touch produces pinhole cracks at the corner
+            // from grazing angles. Note this is why thickening the walls would make it WORSE: the
+            // void is WallDepth squared.
+            //
+            // The panel grid is left at the interior width, so the visible cell layout is unchanged
+            // and the overrun is buried inside the adjacent wall.
+            Rect structureRect = Rect.MinMaxRect(
+                wallRect.xMin - WallDepth, wallRect.yMin, wallRect.xMax + WallDepth, wallRect.yMax);
+
             // The backing slab is cut by the same doorway rect as the panels. As one solid slab it
             // left the doorway a dead-end recess: you could walk through (collision was already
             // cut) but you were looking at wall.
             GameObject backing = new GameObject(name);
             backing.transform.SetParent(parent, false);
             int slab = 0;
-            foreach (Rect part in SubtractRect(wallRect, cutout))
+            foreach (Rect part in SubtractRect(structureRect, cutout))
             {
                 if (part.width <= 0.001f || part.height <= 0.001f) continue;
 
@@ -432,7 +866,7 @@ namespace IterationRoom.EditorTools
             GameObject collision = new GameObject(name + "_Collision");
             collision.transform.SetParent(parent, false);
             int solid = 0;
-            foreach (Rect part in SubtractRect(wallRect, cutout))
+            foreach (Rect part in SubtractRect(structureRect, cutout))
             {
                 if (part.width <= 0.001f || part.height <= 0.001f) continue;
 
@@ -541,9 +975,23 @@ namespace IterationRoom.EditorTools
             DisableBakedOcclusion(bed, materialName: "Sheet", assetName: "BedSheet");
             DisableBakedOcclusion(bed, materialName: "Pillow_2", assetName: "BedPillow");
 
+            // Hard against the foot of the bed, facing away from it down the room - you have just
+            // got up, so the bed is behind you and the open floor is what you see.
+            //
+            // This sat at Z=-1.75 facing 180 (away from everything), which put the player 1.42m
+            // past the foot of the bed with their back to it - so the wake-up sequence, which
+            // poses the eye as if lying down and then sits you up, ended with the bed out of
+            // frame entirely and you looking at the blank south wall. It never read as waking up
+            // in the bed because you were nowhere near it.
+            //
+            // The player cannot be spawned *in* the bed: the model carries a full-volume
+            // BoxCollider (Y 0..0.89) and the CharacterController would spawn interpenetrating it
+            // and get shoved out on the first frame. The bed's foot is at Z=-0.33 and the
+            // controller's radius is 0.3, so -0.7 is as close as it can stand without overlapping.
+            // Keeping X=0 preserves the deliberate door/bed/spawn centre line.
             GameObject spawn = new GameObject("BedSpawnPoint");
             spawn.transform.SetParent(parent, false);
-            spawn.transform.localPosition = new Vector3(0f, 0.05f, -1.75f);
+            spawn.transform.localPosition = new Vector3(0f, 0.05f, -0.7f);
             spawn.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
 
             return (bed.transform, spawn.transform);
@@ -568,14 +1016,16 @@ namespace IterationRoom.EditorTools
             // Out in the open floor area past the foot of the bed, matching room_layout_sample.png reference.
             root.transform.localPosition = new Vector3(2.8f, 0.03f, -1.75f);
 
-            GameObject visual = Prim(PrimitiveType.Cylinder, "Visual", root.transform, Vector3.zero, new Vector3(0.7f, 0.03f, 0.7f), mat, removeCollider: true);
+            // Unity's cylinder is 1 unit across, so the X/Z scale is the diameter.
+            const float padRadius = 0.35f;
+            GameObject visual = Prim(PrimitiveType.Cylinder, "Visual", root.transform, Vector3.zero,
+                new Vector3(padRadius * 2f, 0.03f, padRadius * 2f), mat, removeCollider: true);
 
-            CapsuleCollider trigger = root.AddComponent<CapsuleCollider>();
-            trigger.isTrigger = true;
-            trigger.radius = 0.5f;
-            trigger.height = 0.5f;
-
+            // No collider: FloorButton is a logical volume tested against the player's centre, not
+            // a physics trigger. Its radius is derived from the visible pad here so the hit area
+            // and the thing you can see can't drift apart - a hair proud of the edge, no more.
             FloorButton fb = root.AddComponent<FloorButton>();
+            fb.activationRadius = padRadius + 0.05f;
             fb.buttonRenderer = visual.GetComponent<Renderer>();
             return fb;
         }
@@ -646,6 +1096,19 @@ namespace IterationRoom.EditorTools
             Camera cam = camGO.AddComponent<Camera>();
             camGO.AddComponent<AudioListener>();
             cam.tag = "MainCamera";
+
+            // Unity's default near plane of 0.3 is the same as the controller's radius, and that
+            // does not work: what pokes through a wall is the near plane's CORNER, not its centre,
+            // and at fov 60 that corner reaches 0.463m (0.532m ultrawide) while the capsule stops
+            // the camera 0.3m away - less once skinWidth lets the wall penetrate the capsule. The
+            // whole wall build-up is only WallDepth (0.125m) thick, so the frustum clipped clean
+            // through it: stand against a wall or the door, look sideways, and you saw the far side
+            // of the room. At 0.05 the corner reaches 0.077m, comfortably inside the standoff.
+            cam.nearClipPlane = 0.05f;
+            // Pulled in from the default 1000 to keep depth precision concentrated where the scene
+            // actually is (~22m across both rooms). The panels are 0.025m proud of their backing,
+            // and SSAO resolves those grooves off the depth buffer.
+            cam.farClipPlane = 100f;
 
             // Opt the camera into the volume stack - URP cameras ignore post-processing otherwise.
             UniversalAdditionalCameraData camData = camGO.AddComponent<UniversalAdditionalCameraData>();
@@ -832,6 +1295,7 @@ namespace IterationRoom.EditorTools
                 countdownLines[i] = LoadClip(VoiceDir, $"voice_count_{9 - i}");
             narration.countdownLines = countdownLines;
             narration.newCycleLine = LoadClip(VoiceDir, "voice_new_cycle");
+            narration.cycleTerminatedLine = LoadClip(VoiceDir, "voice_cycle_terminated");
             narration.announcementChime = LoadClip(SfxDir, "sfx_chime");
 
             // --- room tone and machinery ---
@@ -918,7 +1382,16 @@ namespace IterationRoom.EditorTools
             GameObject canvasGO = new GameObject("Canvas");
             Canvas canvas = canvasGO.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvasGO.AddComponent<CanvasScaler>();
+            // Scale with the screen rather than the default constant pixel size, which pins the
+            // text to a fixed point size and leaves it tiny at 4K and oversized in a small window.
+            CanvasScaler scaler = canvasGO.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            // Split the difference between matching width and height, so neither a wide nor a tall
+            // window blows the UI up.
+            scaler.matchWidthOrHeight = 0.5f;
+
             canvasGO.AddComponent<GraphicRaycaster>();
 
             // Built first so it sits at the back of the canvas: the iteration label and the timer
@@ -955,6 +1428,13 @@ namespace IterationRoom.EditorTools
             label.label = text;
 
             BuildCountdownTimer(canvasGO.transform);
+            BuildEndCycleControl(canvasGO.transform);
+
+            // uGUI buttons do nothing without one of these in the scene, and NewScene's default
+            // objects are only a camera and a light.
+            GameObject eventSystem = new GameObject("EventSystem");
+            eventSystem.AddComponent<UnityEngine.EventSystems.EventSystem>();
+            eventSystem.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
 
             return (label, wakeUp);
         }
@@ -1015,6 +1495,69 @@ namespace IterationRoom.EditorTools
 
             CountdownTimer timer = go.AddComponent<CountdownTimer>();
             timer.label = text;
+        }
+
+        // The end-cycle control, immediately left of the countdown. Built last so it draws over the
+        // eyelids rather than under them.
+        private static void BuildEndCycleControl(Transform canvasParent)
+        {
+            GameObject go = new GameObject("EndCycleControl");
+            go.transform.SetParent(canvasParent, false);
+
+            RectTransform rect = go.AddComponent<RectTransform>();
+            rect.anchorMin = new Vector2(1f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(1f, 1f);
+            rect.sizeDelta = new Vector2(168f, 40f);
+            // The countdown is 160 wide, inset 20 from the corner, so it ends 180 in.
+            rect.anchoredPosition = new Vector2(-192f, -20f);
+
+            // Fades out while the clock isn't running, so the control reads as unavailable rather
+            // than broken during the wake-up.
+            CanvasGroup group = go.AddComponent<CanvasGroup>();
+
+            Image background = go.AddComponent<Image>();
+            background.color = new Color(0f, 0f, 0f, 0.55f);
+
+            // The hold gauge, drawn between the background and the label so it fills behind the
+            // text rather than over it.
+            GameObject fillGO = new GameObject("Fill");
+            fillGO.transform.SetParent(go.transform, false);
+            Image fill = fillGO.AddComponent<Image>();
+            // A filled Image needs a sprite to have anything to fill; the built-in UI sprite is the
+            // one uGUI itself uses for buttons.
+            fill.sprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
+            fill.type = Image.Type.Filled;
+            fill.fillMethod = Image.FillMethod.Horizontal;
+            fill.fillAmount = 0f;
+            fill.color = new Color(0.75f, 0.1f, 0.1f, 0.85f);
+            fill.raycastTarget = false;
+            RectTransform fillRect = fill.GetComponent<RectTransform>();
+            fillRect.anchorMin = Vector2.zero;
+            fillRect.anchorMax = Vector2.one;
+            fillRect.offsetMin = Vector2.zero;
+            fillRect.offsetMax = Vector2.zero;
+
+            GameObject labelGO = new GameObject("Label");
+            labelGO.transform.SetParent(go.transform, false);
+            Text label = labelGO.AddComponent<Text>();
+            label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            label.fontSize = 16;
+            label.alignment = TextAnchor.MiddleCenter;
+            label.color = Color.red;
+            // "HOLD" states the interaction, and the key is advertised because it is the one that
+            // works with the cursor locked.
+            label.text = "HOLD [N] — END CYCLE";
+            label.raycastTarget = false;
+            RectTransform labelRect = label.GetComponent<RectTransform>();
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = Vector2.zero;
+            labelRect.offsetMax = Vector2.zero;
+
+            EndCycleControl control = go.AddComponent<EndCycleControl>();
+            control.fill = fill;
+            control.group = group;
         }
     }
 }
