@@ -120,7 +120,7 @@ namespace IterationRoom.EditorTools
             // Walls read as a smooth glazed panel - closer to ceramic tile or a switched-off
             // display than to plaster. That means gloss, and almost no relief: the grain is kept
             // at a whisper (0.2) purely so the specular isn't a perfectly uniform sheet, which is
-            // what makes a flat surface look CG. Smoothness 0.72 is what actually does the work,
+            // what makes a flat surface look CG. Smoothness 0.85 is what actually does the work,
             // and it only reads correctly because the reflection probes give it the room to mirror
             // rather than the blue sky.
             //
@@ -150,9 +150,9 @@ namespace IterationRoom.EditorTools
             wallDisplay.offColor = WallPanelColor;
             wallDisplay.onColor = Color.white;
 
-            // No dedicated room light - a point light read as too harsh/blown-out. Instead,
-            // brighten the scene's default Directional Light and switch to flat ambient so the
-            // whole room reads evenly bright instead of having one hot spot.
+            // Four recessed downlights per room, plus Trilight ambient standing in for the bounce
+            // URP is not computing. The scene's default Directional Light is deleted rather than
+            // dimmed - these are sealed boxes with a ceiling slab, so a sun has no way in.
             SetupLighting();
             BuildPostProcessing();
             ConfigureAmbientOcclusion();
