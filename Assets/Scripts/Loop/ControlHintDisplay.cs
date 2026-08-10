@@ -3,18 +3,21 @@ using UnityEngine.UI;
 
 namespace IterationRoom
 {
-    // The room teaches its two controls once each and then never mentions them again.
+    // A grey disc with a key glyph in it floats over whatever interactable the player has walked up
+    // to, and a second one sits on the pin the moment it is in hand.
     //
-    // A grey disc with a key glyph in it floats over whatever the player has walked up to, and a
-    // second one sits on the pin the moment it is in hand. Each retires permanently the first time
-    // the player performs the action it describes - not the first time it is displayed, so walking
-    // past the nightstand without opening it does not burn the lesson.
+    // These used to retire permanently the first time the player performed the action each one
+    // described - the reasoning being that the loop's whole texture is repetition, so an
+    // instruction replaying every sixty seconds would become the most repeated thing in the
+    // prototype. Play-testing overruled it, and decisively: testers never found the door button at
+    // all, and the ones who did could not find it again an iteration later. A prompt that has been
+    // shown once has not been taught, and a control the player cannot find is worse than a control
+    // they are reminded of.
     //
-    // Retiring on the action rather than on a timer matters more here than it would in most games:
-    // the loop's whole texture is repetition, and an instruction that replays every sixty seconds
-    // would become the most repeated thing in the prototype. The flags are plain fields rather than
-    // PlayerPrefs, so they last for a session of play mode and reset when you press Play again -
-    // which is what you want while the thing is still being tested.
+    // What survives of the old reasoning is the restraint: the prompt still appears only when E
+    // would actually do something here (WantsInteractHint, not mere proximity), only over the
+    // nearest such thing, and at maxAlpha rather than full - so it reads as a label on the fixture
+    // rather than as the game talking.
     public class ControlHintDisplay : MonoBehaviour
     {
         public Camera playerCamera;
@@ -38,10 +41,12 @@ namespace IterationRoom
         public RectTransform swingRect;
 
         public float fadeSpeed = 6f;
+        // Held short of opaque now that these are permanent rather than one-time. At full alpha a
+        // prompt that is always there reads as part of the HUD; at 0.75 it reads as something
+        // stencilled on the fixture.
+        public float maxAlpha = 0.75f;
 
         private IInteractHintTarget[] targets;
-        private bool interactRetired;
-        private bool swingRetired;
         private float interactAlpha;
         private float swingAlpha;
 
@@ -61,15 +66,8 @@ namespace IterationRoom
             // control then, so a prompt would be describing a button that does nothing.
             bool running = LoopManager.Instance == null || LoopManager.Instance.AcceptsInput;
 
-            Transform interactAnchor = !interactRetired && running ? NearestWantingHint() : null;
-            Show(interactGroup, interactRect, interactAnchor, ref interactAlpha);
-            // Retired only while it is actually up, so a press made somewhere else in the room -
-            // long before the player has ever seen this - does not silently spend the lesson.
-            if (interactAnchor != null && Input.GetKeyDown(KeyCode.E)) interactRetired = true;
-
-            Transform swingAnchor = !swingRetired && running ? SwingAnchor() : null;
-            Show(swingGroup, swingRect, swingAnchor, ref swingAlpha);
-            if (swingAnchor != null && Input.GetMouseButtonDown(0)) swingRetired = true;
+            Show(interactGroup, interactRect, running ? NearestWantingHint() : null, ref interactAlpha);
+            Show(swingGroup, swingRect, running ? SwingAnchor() : null, ref swingAlpha);
         }
 
         // Nearest rather than first, so standing between the drawer and the pin inside it prompts
@@ -115,7 +113,7 @@ namespace IterationRoom
             bool visible = anchor != null && Place(rect, anchor);
             // Unscaled, so the prompt still fades away when the pause menu freezes the game. On
             // scaled time it would sit there at whatever alpha it had, frozen under the overlay.
-            alpha = Mathf.MoveTowards(alpha, visible ? 1f : 0f, fadeSpeed * Time.unscaledDeltaTime);
+            alpha = Mathf.MoveTowards(alpha, visible ? maxAlpha : 0f, fadeSpeed * Time.unscaledDeltaTime);
             group.alpha = alpha;
         }
 

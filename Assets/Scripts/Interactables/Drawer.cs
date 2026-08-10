@@ -27,7 +27,8 @@ namespace IterationRoom
 
         // Opening is an instant, but a ghost advances its timeline by elapsed time and can skip
         // several recorded frames in a single tick - a one-frame signal would eventually be missed.
-        // Stretched over a handful of frames instead, exactly as DoorButton does.
+        // Stretched over a handful of frames instead. Keeping it short means two deliberate pulls
+        // still record as two.
         public float openPulseDuration = 0.15f;
 
         private Collider trigger;
@@ -45,8 +46,9 @@ namespace IterationRoom
 
         // Only the rising edge means anything: the fall is the recorded pulse expiring, not anyone
         // shutting the drawer. Routed straight to Open() rather than through RegisterPlayerOpen, so
-        // a ghost's replayed pull is not re-recorded as if the player had done it - see DoorButton
-        // for what that feedback loop does over a few iterations.
+        // a ghost's replayed pull is not re-recorded as if the player had done it. Route it back
+        // through the player's path and every iteration inherits the last one's pulls, so the
+        // drawer opens earlier and earlier until it opens by itself on frame one.
         public override void SetGhostSignal(GhostReplayer ghost, bool active)
         {
             if (active) Open();
@@ -59,7 +61,7 @@ namespace IterationRoom
         }
 
         // Range is polled rather than driven by OnTriggerEnter/Exit, for the reason documented on
-        // FloorButton and DoorButton: the loop teleports the player by disabling and re-enabling
+        // FloorButton: the loop teleports the player by disabling and re-enabling
         // the CharacterController inside one frame, so the exit callback never arrives and
         // playerInRange would stay true for the rest of the run.
         private void FixedUpdate()

@@ -7,7 +7,6 @@ namespace IterationRoom
     {
         public Camera playerCamera;
         public float moveSpeed = 4.5f;
-        public float mouseSensitivity = 2f;
         public float gravity = -20f;
         public float jumpForce = 6f;
 
@@ -163,10 +162,17 @@ namespace IterationRoom
             playerCamera.transform.localEulerAngles = new Vector3(pitch, 0f, rollDegrees);
         }
 
+        // No deltaTime here, and that is correct rather than an oversight: GetAxis("Mouse X") is
+        // already the delta accumulated since the last frame, so a given sweep of the mouse turns
+        // the view by the same amount however fast the game is running.
+        //
+        // The sensitivity is a player setting rather than a serialized field. It cannot be a
+        // constant - see GameSettings for what WebGL does to the numbers arriving here.
         private void HandleLook()
         {
-            float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity;
-            float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity;
+            float sensitivity = GameSettings.MouseSensitivity;
+            float mouseX = Input.GetAxis("Mouse X") * sensitivity;
+            float mouseY = Input.GetAxis("Mouse Y") * sensitivity;
 
             transform.Rotate(Vector3.up * mouseX);
 

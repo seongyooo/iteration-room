@@ -10,7 +10,7 @@ namespace IterationRoom
     // signal is a *level* (see GhostInteractable), whereas popping is an instant with an identity
     // attached. An event list carries the identity, and a replayer drains every event whose time
     // has passed, so an event survives a ghost skipping several frames in one tick without needing
-    // the pulse-stretching trick DoorButton uses.
+    // the pulse-stretching trick Drawer uses.
     public class RecordedTimeline
     {
         public readonly List<RecordedFrame> frames;

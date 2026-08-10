@@ -12,7 +12,7 @@ namespace IterationRoom
     // The signal is deliberately a *level*, not an event. A ghost scrubs its timeline by elapsed
     // time and can advance several recorded frames in a single tick, so anything recorded as a
     // one-frame pulse would eventually be skipped. Press-type interactables stretch their pulse
-    // (see DoorButton.pressPulseDuration) instead of recording an edge.
+    // (see Drawer.openPulseDuration) instead of recording an edge.
     public abstract class GhostInteractable : MonoBehaviour
     {
         // Sampled by PlayerRecorder each frame. Must reflect the real player only - never a ghost's

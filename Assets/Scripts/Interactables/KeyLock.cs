@@ -2,12 +2,12 @@ using UnityEngine;
 
 namespace IterationRoom
 {
-    // Room2's door is a key door, not a button door: no floor pad, no condition to hold open. You
-    // either have what a balloon gave up or you do not.
+    // Room2's door is a key door: no floor pad, no condition to hold open, and unlike Room1's it
+    // does not open by itself. You either have what a balloon gave up or you do not.
     //
     // NOT a GhostInteractable, and that is the whole design of the thing. The rule the rest of the
-    // room runs on is "record the attempt, re-evaluate the condition" - DoorButton records a press
-    // and re-checks the pad when a ghost replays it. That only holds while the condition being
+    // room runs on is "record the attempt, re-evaluate the condition" - Drawer records a pull and
+    // re-runs it when a ghost replays it. That only holds while the condition being
     // re-evaluated is the one that actually enabled the action. Here the enabling condition is the
     // player HOLDING the key, and a ghost has no pockets: carrying is not part of a recording, and
     // ghosts have no colliders to pick anything up with. An earlier version re-evaluated a ghost's
@@ -64,9 +64,9 @@ namespace IterationRoom
                 }
             }
 
-            // Unlike DoorButton this has never fired on arrival, and DoorButton has now been
-            // brought into line with it: walking into a locked door should not burn the attempt
-            // before the player has understood that it is a lock.
+            // Range only - arriving is deliberately not an attempt. Walking into a locked door
+            // should not burn the try before the player has understood that it is a lock. This is
+            // now the only door in the game that asks for a press at all; Room1's opens on its pad.
             playerInRange = playerCollider != null
                 && playerCollider.enabled
                 && trigger.bounds.Intersects(playerCollider.bounds);

@@ -202,7 +202,7 @@ namespace IterationRoom.EditorTools
             GameObject nightstand = BuildNightstand(room.transform);
             (Drawer drawer, CarryableItem tool) = BuildNightstandDrawer(room.transform, nightstand, propMat);
             FloorButton floorButton = BuildFloorButton(room.transform, propMat);
-            (Door door, DoorButton doorButton) = BuildButtonDoor(room.transform, 0f, floorButton, propMat);
+            Door door = BuildPadDoor(room.transform, 0f, floorButton, propMat);
 
             // Room2: a roomful of balloons and a key door. The key door is not a GhostInteractable -
             // carrying is not part of a recording, so a ghost cannot open it for you. Getting
@@ -217,7 +217,12 @@ namespace IterationRoom.EditorTools
             // The drawer is in it - pulling a drawer needs no inventory, so a ghost can repeat it.
             // The KEY LOCK is deliberately NOT: the condition that lets the player open that door
             // is holding the key, and a ghost cannot hold anything. See the note on KeyLock.
-            GhostInteractable[] ghostInteractables = { floorButton, doorButton, drawer };
+            //
+            // The door button used to sit between these two and has been removed with it; the
+            // drawer therefore moved from bit 2 to bit 1. That is safe only because timelines live
+            // for one session of play and are never persisted - reordering this at runtime would
+            // invalidate every recording made so far.
+            GhostInteractable[] ghostInteractables = { floorButton, drawer };
 
             (GameObject player, FirstPersonController fpc, PlayerRecorder recorder, CameraShaker shaker, PlayerHand hand) = BuildPlayer(bedSpawn, ghostInteractables);
 
@@ -228,9 +233,11 @@ namespace IterationRoom.EditorTools
             wakeUp.wallPanels = wallDisplay;
 
             // Everything E does something to, in the order the player is likely to meet it. The
-            // prompt itself is shown over whichever of these is nearest, exactly once.
+            // prompt is shown over whichever of these is nearest and currently wants it - every
+            // time, not once; see ControlHintDisplay for why that changed. Room1's door is not in
+            // the list any more because it has no control to press.
             BuildControlHints(canvas, player.GetComponentInChildren<Camera>(), hand,
-                new MonoBehaviour[] { drawer, tool, doorButton, keyLock, key });
+                new MonoBehaviour[] { drawer, tool, keyLock, key });
 
             // Last on the canvas, so Escape's overlay covers the HUD, the prompts and the eyelids.
             BuildPauseMenu(canvas, fpc);
@@ -1809,34 +1816,24 @@ namespace IterationRoom.EditorTools
             return (door, indicator, wallInnerZ);
         }
 
-        private static (Door, DoorButton) BuildButtonDoor(Transform parent, float roomCenterZ, FloorButton floorButton, Material mat)
+        // Room1's way out: a powered door with no control of its own, held open by the floor pad.
+        //
+        // There was a DoorButton on the wall beside it until a play-test found nobody could locate
+        // it - testers held the pad, walked to the door and expected it to open. See Door's own note
+        // for why they were right and what removing the button buys. Note the wall beside the door
+        // is now bare, which is part of the point: there is no affordance left to mislead.
+        private static Door BuildPadDoor(Transform parent, float roomCenterZ, FloorButton floorButton, Material mat)
         {
-            (Door door, DoorIndicator indicator, float wallInnerZ) = BuildDoorShell(parent, "Door", roomCenterZ, mat);
+            (Door door, DoorIndicator indicator, float _) = BuildDoorShell(parent, "Door", roomCenterZ, mat);
 
-            // Tracks the condition, not the door: green the moment the floor button is held, so
-            // the lamp tells the player the door is openable before they walk over to try it.
+            // The lamp tracks the condition, not the door, so it goes green the moment the pad is
+            // held. With the button gone it is the room's only readout for that, which makes it
+            // load-bearing rather than decorative: a player standing at the door in iteration 2
+            // watches it turn as a past self steps on.
             indicator.requiredFloorButton = floorButton;
+            door.requiredFloorButton = floorButton;
 
-            GameObject buttonRoot = new GameObject("DoorButton");
-            buttonRoot.transform.SetParent(door.transform, false);
-            // On the LEFT of the door: the slab slides right, so a button on that side would end up
-            // buried behind it. Centred inside a grid cell rather than straddling a groove, at hand
-            // height for a 1.6m eye level.
-            buttonRoot.transform.localPosition = new Vector3(-GridCellWidth, GridCellHeight * 1.5f, wallInnerZ - 0.06f);
-
-            GameObject buttonVisual = Prim(PrimitiveType.Cube, "Visual", buttonRoot.transform, Vector3.zero,
-                new Vector3(0.2f, 0.2f, 0.1f), mat, removeCollider: true);
-
-            BoxCollider trigger = buttonRoot.AddComponent<BoxCollider>();
-            trigger.isTrigger = true;
-            trigger.size = new Vector3(0.8f, 0.8f, 1.2f);
-
-            DoorButton doorButton = buttonRoot.AddComponent<DoorButton>();
-            doorButton.requiredFloorButton = floorButton;
-            doorButton.door = door;
-            doorButton.buttonRenderer = buttonVisual.GetComponent<Renderer>();
-
-            return (door, doorButton);
+            return door;
         }
 
         // Room2's way out. No pad and no condition to hold open, and deliberately not a button:
@@ -2547,6 +2544,16 @@ namespace IterationRoom.EditorTools
             Button toMenu = MakeMenuButton(root.transform, "MenuButton", "MAIN MENU", new Vector2(0f, -40f));
             Button quit = MakeMenuButton(root.transform, "QuitButton", "QUIT", new Vector2(0f, -120f));
 
+            // Below the buttons rather than above them: this is a setting, not an action, and the
+            // three things a paused player most often wants stay where they were.
+            const float settingsY = -200f;
+            MakeRowLabel(root.transform, "SensitivityLabel", "MOUSE SENSITIVITY",
+                new Vector2(-150f, settingsY), new Vector2(260f, 30f), TextAnchor.MiddleLeft);
+            Slider sensitivity = MakeSlider(root.transform, "SensitivitySlider",
+                new Vector2(80f, settingsY), new Vector2(200f, 26f));
+            Text sensitivityValue = MakeRowLabel(root.transform, "SensitivityValue", "0.00",
+                new Vector2(225f, settingsY), new Vector2(80f, 30f), TextAnchor.MiddleLeft);
+
             GameObject hintGO = new GameObject("Hint");
             hintGO.transform.SetParent(root.transform, false);
             Text hint = hintGO.AddComponent<Text>();
@@ -2560,7 +2567,7 @@ namespace IterationRoom.EditorTools
             hintRect.anchorMin = new Vector2(0.5f, 0.5f);
             hintRect.anchorMax = new Vector2(0.5f, 0.5f);
             hintRect.sizeDelta = new Vector2(600f, 36f);
-            hintRect.anchoredPosition = new Vector2(0f, -196f);
+            hintRect.anchoredPosition = new Vector2(0f, -262f);
 
             PauseMenu pause = root.AddComponent<PauseMenu>();
             pause.playerController = playerController;
@@ -2568,6 +2575,131 @@ namespace IterationRoom.EditorTools
             pause.resumeButton = resume;
             pause.menuButton = toMenu;
             pause.quitButton = quit;
+            pause.sensitivitySlider = sensitivity;
+            pause.sensitivityValue = sensitivityValue;
+        }
+
+        private static Text MakeRowLabel(Transform parent, string name, string content,
+                                         Vector2 anchoredPosition, Vector2 size, TextAnchor alignment)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            Text text = go.AddComponent<Text>();
+            text.font = UIFont();
+            text.fontSize = 18;
+            text.alignment = alignment;
+            text.color = new Color(1f, 0.35f, 0.35f, 0.85f);
+            text.text = content;
+            // Overflow, so a rect a shade too narrow cannot break the label across two lines - the
+            // same reason IterationLabel sets it.
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            text.raycastTarget = false;
+
+            RectTransform rect = text.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = size;
+            rect.anchoredPosition = anchoredPosition;
+
+            return text;
+        }
+
+        // A uGUI Slider assembled by hand. Three things about it are not optional, because Slider
+        // drives them itself every frame and gets them from the hierarchy rather than from fields:
+        // the fill must be the child of a container rect (Slider rewrites the fill's anchors within
+        // its parent), the handle likewise, and both must leave their offsets at zero or the value
+        // it computes lands somewhere other than where it draws.
+        private static Slider MakeSlider(Transform parent, string name, Vector2 anchoredPosition, Vector2 size)
+        {
+            const float handleWidth = 22f;
+            Sprite uiSprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
+
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            RectTransform rect = go.AddComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = size;
+            rect.anchoredPosition = anchoredPosition;
+
+            GameObject bgGO = new GameObject("Background");
+            bgGO.transform.SetParent(go.transform, false);
+            Image bg = bgGO.AddComponent<Image>();
+            bg.sprite = uiSprite;
+            bg.type = Image.Type.Sliced;
+            bg.color = new Color(0.16f, 0.04f, 0.04f, 0.9f);
+            RectTransform bgRect = bg.GetComponent<RectTransform>();
+            bgRect.anchorMin = new Vector2(0f, 0.3f);
+            bgRect.anchorMax = new Vector2(1f, 0.7f);
+            bgRect.offsetMin = Vector2.zero;
+            bgRect.offsetMax = Vector2.zero;
+
+            // Inset by half the handle at each end, so the handle's centre reaches the track's ends
+            // at 0 and 1 rather than hanging off them.
+            GameObject fillAreaGO = new GameObject("Fill Area");
+            fillAreaGO.transform.SetParent(go.transform, false);
+            RectTransform fillArea = fillAreaGO.AddComponent<RectTransform>();
+            fillArea.anchorMin = new Vector2(0f, 0.3f);
+            fillArea.anchorMax = new Vector2(1f, 0.7f);
+            fillArea.offsetMin = new Vector2(handleWidth / 2f, 0f);
+            fillArea.offsetMax = new Vector2(-handleWidth / 2f, 0f);
+
+            GameObject fillGO = new GameObject("Fill");
+            fillGO.transform.SetParent(fillAreaGO.transform, false);
+            Image fill = fillGO.AddComponent<Image>();
+            fill.sprite = uiSprite;
+            fill.type = Image.Type.Sliced;
+            fill.color = new Color(0.7f, 0.11f, 0.11f, 0.95f);
+            RectTransform fillRect = fill.GetComponent<RectTransform>();
+            fillRect.offsetMin = Vector2.zero;
+            fillRect.offsetMax = Vector2.zero;
+
+            GameObject handleAreaGO = new GameObject("Handle Slide Area");
+            handleAreaGO.transform.SetParent(go.transform, false);
+            RectTransform handleArea = handleAreaGO.AddComponent<RectTransform>();
+            handleArea.anchorMin = new Vector2(0f, 0f);
+            handleArea.anchorMax = new Vector2(1f, 1f);
+            handleArea.offsetMin = new Vector2(handleWidth / 2f, 0f);
+            handleArea.offsetMax = new Vector2(-handleWidth / 2f, 0f);
+
+            GameObject handleGO = new GameObject("Handle");
+            handleGO.transform.SetParent(handleAreaGO.transform, false);
+            Image handle = handleGO.AddComponent<Image>();
+            handle.sprite = uiSprite;
+            handle.type = Image.Type.Sliced;
+            handle.color = Color.white;
+            RectTransform handleRect = handle.GetComponent<RectTransform>();
+            handleRect.anchorMin = new Vector2(0f, 0f);
+            handleRect.anchorMax = new Vector2(0f, 1f);
+            handleRect.pivot = new Vector2(0.5f, 0.5f);
+            // Only the width is fixed; a zero height against top-and-bottom anchors is full height.
+            handleRect.sizeDelta = new Vector2(handleWidth, 0f);
+            handleRect.anchoredPosition = Vector2.zero;
+
+            Slider slider = go.AddComponent<Slider>();
+            slider.direction = Slider.Direction.LeftToRight;
+            slider.fillRect = fillRect;
+            slider.handleRect = handleRect;
+            slider.targetGraphic = handle;
+            slider.wholeNumbers = false;
+            // The range and the starting value are PauseMenu's to set - they belong to GameSettings,
+            // and seeding them here would put the same number in two places.
+
+            // Same treatment as the buttons: a white graphic tinted by the ColorBlock, since a
+            // multiply against an already-dark handle has nothing left to brighten with.
+            ColorBlock colors = slider.colors;
+            colors.normalColor = new Color(0.62f, 0.1f, 0.1f, 1f);
+            colors.highlightedColor = new Color(0.85f, 0.2f, 0.2f, 1f);
+            colors.pressedColor = new Color(1f, 0.35f, 0.35f, 1f);
+            colors.selectedColor = colors.highlightedColor;
+            colors.fadeDuration = 0.12f;
+            slider.colors = colors;
+
+            return slider;
         }
 
         // The title screen: a camera, a canvas and a still of the room. Deliberately almost
@@ -2851,7 +2983,12 @@ namespace IterationRoom.EditorTools
             rect.anchorMin = new Vector2(1f, 1f);
             rect.anchorMax = new Vector2(1f, 1f);
             rect.pivot = new Vector2(1f, 1f);
-            rect.sizeDelta = new Vector2(168f, 40f);
+            // Wide enough for the label to fit on one line, which it did not: "HOLD [N] - END
+            // CYCLE" is 20 monospace cells, i.e. ~192px at fontSize 16, inside a box that was 168
+            // wide - so uGUI wrapped it onto two cramped lines and it read as decoration next to
+            // the countdown rather than as a control. That is very likely why testers asked for a
+            // skip button that has existed since the first build.
+            rect.sizeDelta = new Vector2(224f, 40f);
             // The countdown is 160 wide, inset 20 from the corner, so it ends 180 in.
             rect.anchoredPosition = new Vector2(-192f, -20f);
 
@@ -2891,6 +3028,11 @@ namespace IterationRoom.EditorTools
             // "HOLD" states the interaction, and the key is advertised because it is the one that
             // works with the cursor locked.
             label.text = "HOLD [N] — END CYCLE";
+            // Belt and braces with the wider rect above: a label that silently rewraps is how this
+            // became unreadable in the first place, and at some resolutions the scaler will shave
+            // a pixel off.
+            label.horizontalOverflow = HorizontalWrapMode.Overflow;
+            label.verticalOverflow = VerticalWrapMode.Overflow;
             label.raycastTarget = false;
             RectTransform labelRect = label.GetComponent<RectTransform>();
             labelRect.anchorMin = Vector2.zero;

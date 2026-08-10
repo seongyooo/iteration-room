@@ -24,6 +24,12 @@ namespace IterationRoom
         public Button menuButton;
         public Button quitButton;
 
+        // The pause overlay is also the settings screen, because it is the only place the player
+        // can reach with the cursor free and the room still in front of them - which is exactly
+        // what tuning a look sensitivity needs. Resume, look around, pause again, adjust.
+        public Slider sensitivitySlider;
+        public Text sensitivityValue;
+
         public bool IsPaused { get; private set; }
 
         // What the loop wanted control to be before the pause. Restored rather than forced true:
@@ -36,7 +42,34 @@ namespace IterationRoom
             if (menuButton != null) menuButton.onClick.AddListener(ToMainMenu);
             if (quitButton != null) quitButton.onClick.AddListener(Quit);
 
+            if (sensitivitySlider != null)
+            {
+                sensitivitySlider.minValue = GameSettings.MinMouseSensitivity;
+                sensitivitySlider.maxValue = GameSettings.MaxMouseSensitivity;
+                // Seeded from the live setting, and without notifying: a Slider raises
+                // onValueChanged on assignment, so seeding after the listener was attached would
+                // write the slider's own starting value straight back over the saved one. This is
+                // the same trap the deleted LightingTuner fell into - a panel that silently
+                // overwrites the thing it was opened to adjust reads exactly like "my change never
+                // went in".
+                sensitivitySlider.SetValueWithoutNotify(GameSettings.MouseSensitivity);
+                sensitivitySlider.onValueChanged.AddListener(SetSensitivity);
+            }
+            ShowSensitivity();
+
             Apply(false);
+        }
+
+        private void SetSensitivity(float value)
+        {
+            GameSettings.MouseSensitivity = value;
+            ShowSensitivity();
+        }
+
+        private void ShowSensitivity()
+        {
+            if (sensitivityValue != null)
+                sensitivityValue.text = GameSettings.MouseSensitivity.ToString("0.00");
         }
 
         // Time scale and the audio pause are global, not per-scene. Leaving either set on the way
@@ -100,6 +133,12 @@ namespace IterationRoom
         private void Apply(bool paused)
         {
             IsPaused = paused;
+
+            // Committed on the way out rather than on every drag frame: onValueChanged fires each
+            // frame the slider is held, and on WebGL each save is a storage flush. Every route out
+            // of the menu - Resume, Main Menu, Quit - passes through here, so none of them can
+            // lose the setting.
+            if (!paused) GameSettings.Save();
 
             Time.timeScale = paused ? 0f : 1f;
             // The announcer and the room tone are not on scaled time and would carry on talking
