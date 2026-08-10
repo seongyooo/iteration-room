@@ -513,6 +513,7 @@ MonoBehaviour:
   strideRate: 4
   maxSwingAngle: 32
   fullSwingSpeed: 4.5
+  popSwingDuration: 0.28
 --- !u!1 &6278000628213264681
 GameObject:
   m_ObjectHideFlags: 0

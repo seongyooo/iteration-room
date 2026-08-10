@@ -13,20 +13,30 @@ namespace IterationRoom
         public float sampleInterval = 0.02f;
 
         private readonly List<RecordedFrame> frames = new List<RecordedFrame>();
+        private readonly List<PopEvent> pops = new List<PopEvent>();
         private float sampleTimer;
         private bool recording;
 
         public void BeginRecording()
         {
             frames.Clear();
+            pops.Clear();
             sampleTimer = 0f;
             recording = true;
         }
 
-        public List<RecordedFrame> EndRecording()
+        public RecordedTimeline EndRecording()
         {
             recording = false;
-            return new List<RecordedFrame>(frames);
+            return new RecordedTimeline(new List<RecordedFrame>(frames), new List<PopEvent>(pops));
+        }
+
+        // Called by BalloonTool the moment the player bursts one. Stamped with the loop clock
+        // rather than Time.time, so it lands on the same timeline the frames are sampled onto.
+        public void RecordPop(int balloonId)
+        {
+            if (!recording || LoopManager.Instance == null) return;
+            pops.Add(new PopEvent(LoopManager.Instance.ElapsedTime, balloonId));
         }
 
         private void Update()

@@ -19,7 +19,15 @@ namespace IterationRoom
         // bit in RecordedFrame.signals, so this must be the same array PlayerRecorder samples.
         // Reordering it invalidates every timeline recorded so far.
         public GhostInteractable[] ghostInteractables;
-        public Door door;
+        // Every door in the run. World state the loop has to rewind, same as the first one always
+        // was - Room2's key door joins Room1's button door here.
+        public Door[] doors;
+        // The nightstand drawer, and whatever the player is carrying. Both are world state too:
+        // leave the tool in the player's hand across a reset and the trip to the drawer stops
+        // costing anything, which is most of what Room2's puzzle is made of.
+        public Drawer[] drawers;
+        public PlayerHand playerHand;
+        public BalloonField balloonField;
         public GhostReplayer ghostPrefab;
         public Transform ghostParent;
         public IterationLabel iterationLabel;
@@ -91,10 +99,21 @@ namespace IterationRoom
                 if (playerController != null && bedSpawnPoint != null)
                     playerController.Teleport(bedSpawnPoint.position, bedSpawnPoint.rotation);
 
-                // The door is world state, so the loop has to rewind it too - and only after the
-                // teleport, so a player standing in the doorway is already back at the bed rather
+                // The doors are world state, so the loop has to rewind them too - and only after
+                // the teleport, so a player standing in a doorway is already back at the bed rather
                 // than inside the slab when it snaps shut.
-                door?.Close();
+                if (doors != null)
+                    foreach (Door d in doors) d?.Close();
+
+                // Order matters here: the hand gives the key back to its parked position first, and
+                // the field then hides it. Reversed, the key would be hidden and then handed back
+                // visible, and it would be lying on the floor of an unpopped room.
+                playerHand?.ReturnAll();
+
+                if (drawers != null)
+                    foreach (Drawer dr in drawers) dr?.Close();
+
+                balloonField?.ResetField();
 
                 // Hidden for the whole wake-up: resetting parks them all on the bed spawn, which is
                 // exactly where the player is about to open their eyes.
@@ -179,7 +198,7 @@ namespace IterationRoom
                 // timestamp - the ghost skipped the lot in a single jump on its final tick.
                 if (playerController != null) playerController.ControlEnabled = false;
 
-                List<RecordedFrame> timeline = playerRecorder != null ? playerRecorder.EndRecording() : null;
+                RecordedTimeline timeline = playerRecorder != null ? playerRecorder.EndRecording() : null;
 
                 // Fired here rather than at the top of the next iteration: this is the moment the
                 // loop takes you, and it has to be heard while the lids are still falling and the
@@ -198,7 +217,7 @@ namespace IterationRoom
                 // And now the room goes out, with nothing to look at while it does.
                 ambience?.PlayPowerDown();
 
-                if (timeline != null && timeline.Count > 0 && ghostPrefab != null)
+                if (timeline != null && timeline.FrameCount > 0 && ghostPrefab != null)
                 {
                     GhostReplayer ghost = Instantiate(ghostPrefab, ghostParent);
                     ghost.Init(timeline, ghostInteractables);

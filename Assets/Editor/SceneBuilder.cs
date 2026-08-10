@@ -180,21 +180,31 @@ namespace IterationRoom.EditorTools
             ConfigureLightingPipeline();
 
             (Transform bed, Transform bedSpawn) = BuildBed(room.transform, propMat);
-            BuildNightstand(room.transform);
+            GameObject nightstand = BuildNightstand(room.transform);
+            (Drawer drawer, CarryableItem tool) = BuildNightstandDrawer(room.transform, nightstand, propMat);
             FloorButton floorButton = BuildFloorButton(room.transform, propMat);
-            (Door door, DoorButton doorButton) = BuildDoor(room.transform, floorButton, propMat);
+            (Door door, DoorButton doorButton) = BuildButtonDoor(room.transform, 0f, floorButton, propMat);
+
+            // Room2: a roomful of balloons and a key door. The key door is not a GhostInteractable -
+            // carrying is not part of a recording, so a ghost cannot open it for you. Getting
+            // yourself to it holding the key is the last thing the room asks.
+            (Door door2, KeyLock keyLock) = BuildKeyDoor(room.transform, RoomPitch, propMat);
+            (BalloonField balloonField, CarryableItem key) = BuildBalloons(room.transform);
 
             // The wire format for ghost playback: an entry's index is its bit in
             // RecordedFrame.signals. The recorder and the loop are handed the same array so the
             // two can never drift out of order.
-            GhostInteractable[] ghostInteractables = { floorButton, doorButton };
+            // Appended, never reordered: an entry's index here is its bit in RecordedFrame.signals.
+            // The drawer and the key lock are in it so a ghost repeats those too - pulling the
+            // drawer open, and unlocking Room2's door if the key was out of its balloon at the time.
+            GhostInteractable[] ghostInteractables = { floorButton, doorButton, drawer, keyLock };
 
-            (GameObject player, FirstPersonController fpc, PlayerRecorder recorder, CameraShaker shaker) = BuildPlayer(bedSpawn, ghostInteractables);
+            (GameObject player, FirstPersonController fpc, PlayerRecorder recorder, CameraShaker shaker, PlayerHand hand) = BuildPlayer(bedSpawn, ghostInteractables);
 
             GhostReplayer ghostPrefab = BuildGhostPrefab();
             GameObject ghostParent = new GameObject("Ghosts");
 
-            (IterationLabel label, WakeUpSequence wakeUp) = BuildUI();
+            (IterationLabel label, WakeUpSequence wakeUp) = BuildUI(hand);
             wakeUp.wallPanels = wallDisplay;
 
             (NarrationDirector narration, RoomAmbience ambience) =
@@ -212,7 +222,10 @@ namespace IterationRoom.EditorTools
             loop.playerRecorder = recorder;
             loop.playerController = fpc;
             loop.ghostInteractables = ghostInteractables;
-            loop.door = door;
+            loop.doors = new[] { door, door2 };
+            loop.drawers = new[] { drawer };
+            loop.playerHand = hand;
+            loop.balloonField = balloonField;
             loop.ghostPrefab = ghostPrefab;
             loop.ghostParent = ghostParent.transform;
             loop.iterationLabel = label;
@@ -716,6 +729,39 @@ namespace IterationRoom.EditorTools
             return mat;
         }
 
+        // A lit material you can see through. Same URP transparent set-up as MakeGhostMaterial -
+        // the blend modes and the _SURFACE_TYPE_TRANSPARENT keyword are BOTH required, and setting
+        // the alpha alone leaves the shader opaque - but on Lit rather than Unlit, because unlike a
+        // ghost these are real objects in a lit room and have to take the ceiling lights.
+        private static Material MakeTranslucentMaterial(string name, Color color, float smoothness)
+        {
+            string path = $"{MaterialsDir}/{name}.mat";
+            Shader lit = OpaqueShader();
+
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(lit);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = lit;
+            mat.color = color;
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+            SetSmoothness(mat, smoothness);
+
+            mat.SetFloat("_Surface", 1f);
+            mat.SetFloat("_Blend", 0f);
+            mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            mat.SetFloat("_ZWrite", 0f);
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.DisableKeyword("_ALPHATEST_ON");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
         private static Material MakeColorMaterial(string name, Color color)
         {
             string path = $"{MaterialsDir}/{name}.mat";
@@ -798,9 +844,13 @@ namespace IterationRoom.EditorTools
             // south wall face each other across the door pocket, each with the same doorway cut out
             // of its panelling, its backing and its collision, so the opening is a real hole.
             BuildRoomShell(parent, "Room1", 0f, floorMat, grooveMat, panelMat, Rect.zero, doorway);
-            BuildRoomShell(parent, "Room2", RoomPitch, floorMat, grooveMat, panelMat, doorway, Rect.zero);
+            BuildRoomShell(parent, "Room2", RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway);
 
-            BuildDoorPocketFill(parent, grooveMat);
+            BuildDoorPocketFill(parent, "DoorPocketFill_1", 0f, grooveMat, capFarSide: false);
+            // Room2's north doorway has no room behind it yet, so its pocket is capped: opening the
+            // key door reveals a sealed reveal rather than a hole to the outside. Adding Room3 is
+            // this flag going false plus another BuildRoomShell at 2 * RoomPitch.
+            BuildDoorPocketFill(parent, "DoorPocketFill_2", RoomPitch, grooveMat, capFarSide: true);
 
             Material fixtureMat = MakeEmissiveMaterial("CeilingFixture", Color.white, 3.5f);
             BuildCeilingLights(parent, "Room1", 0f, fixtureMat, castShadows: true);
@@ -818,12 +868,12 @@ namespace IterationRoom.EditorTools
         // sky at both ends - standing in the doorway and looking sideways showed a 0.1m x 5m slot
         // straight to the outside, which is the "you can see through between the walls" report.
         // Capping it also gives the opening a proper reveal instead of a hollow slot at the jamb.
-        private static void BuildDoorPocketFill(Transform parent, Material mat)
+        private static void BuildDoorPocketFill(Transform parent, string name, float roomCenterZ, Material mat, bool capFarSide)
         {
-            GameObject fill = new GameObject("DoorPocketFill");
+            GameObject fill = new GameObject(name);
             fill.transform.SetParent(parent, false);
 
-            float pocketCenterZ = RoomDepth / 2f + WallDepth + DoorPocketDepth / 2f;
+            float pocketCenterZ = roomCenterZ + RoomDepth / 2f + WallDepth + DoorPocketDepth / 2f;
 
             // Matches the floor and ceiling slabs, so the fill reaches the outer face of the side
             // walls and the divider is closed off at the same plane they are.
@@ -850,6 +900,18 @@ namespace IterationRoom.EditorTools
                     new Vector3(part.width, part.height, DoorPocketDepth),
                     mat, removeCollider: true);
             }
+
+            // Seals the far mouth of the pocket where there is no next room to close it. Without
+            // this the doorway is a hole to the outside once the door slides clear - the same
+            // failure the pocket fill exists to stop, just at the other end of the building. It
+            // KEEPS its collider: this is the end of the world for now, and the player must not be
+            // able to walk out through the door they just unlocked.
+            if (!capFarSide) return;
+
+            Prim(PrimitiveType.Cube, "FarCap", fill.transform,
+                new Vector3(0f, RoomHeight / 2f, pocketCenterZ + DoorPocketDepth / 2f + WallThickness / 2f),
+                new Vector3(halfWidth * 2f, RoomHeight, WallThickness),
+                mat);
         }
 
         private static void BuildRoomShell(Transform parent, string roomName, float zCenter, Material floorMat, Material grooveMat, Material panelMat, Rect southCutout, Rect northCutout)
@@ -1067,6 +1129,253 @@ namespace IterationRoom.EditorTools
             return nightstand;
         }
 
+        // The drawer the balloon tool lives in.
+        //
+        // nightstand.glb bakes its whole body into one mesh (Nightstand_Nightstand_0), so there is
+        // no drawer node in the model to pull out - this is generated geometry sized off the
+        // model's own measured front face so it sits flush with it.
+        private static (Drawer, CarryableItem) BuildNightstandDrawer(Transform parent, GameObject nightstand, Material mat)
+        {
+            Renderer body = null;
+            Transform bodyNode = FindDescendant(nightstand.transform, "Nightstand_Nightstand_0");
+            if (bodyNode != null) body = bodyNode.GetComponent<Renderer>();
+
+            // Measured rather than hardcoded, and logged: the model's units and pivot are both odd
+            // (see PlaceModel), so these numbers are worth being able to read back off a build.
+            Bounds b = body != null ? body.bounds : new Bounds(new Vector3(-0.95f, 0.25f, 1.35f), new Vector3(0.56f, 0.5f, 0.38f));
+            Debug.Log($"[SceneBuilder] Nightstand body bounds min={b.min} max={b.max}");
+
+            // The front face is the one looking down the room, away from the pillow - the model is
+            // placed rotated 180 so its drawers face the foot of the bed, which is where the player
+            // wakes up looking.
+            float frontZ = b.min.z;
+            float width = Mathf.Min(b.size.x * 0.78f, 0.5f);
+            float height = Mathf.Min(b.size.y * 0.26f, 0.14f);
+            float depth = Mathf.Min(b.size.z * 0.8f, 0.34f);
+            float centreY = b.min.y + b.size.y * 0.62f;
+
+            GameObject root = new GameObject("NightstandDrawer");
+            root.transform.SetParent(parent, false);
+            root.transform.position = new Vector3(b.center.x, centreY, frontZ);
+
+            GameObject bodyGO = new GameObject("DrawerBody");
+            bodyGO.transform.SetParent(root.transform, false);
+
+            // A front panel plus a shallow tray behind it. The tray is what the tool sits in, and
+            // it is what makes an open drawer read as open from across the room.
+            Prim(PrimitiveType.Cube, "Front", bodyGO.transform, Vector3.zero,
+                new Vector3(width, height, 0.02f), mat, removeCollider: true);
+            Prim(PrimitiveType.Cube, "TrayBase", bodyGO.transform, new Vector3(0f, -height / 2f + 0.01f, depth / 2f),
+                new Vector3(width * 0.94f, 0.02f, depth), mat, removeCollider: true);
+            Prim(PrimitiveType.Cube, "TrayLeft", bodyGO.transform, new Vector3(-width * 0.47f, 0f, depth / 2f),
+                new Vector3(0.02f, height, depth), mat, removeCollider: true);
+            Prim(PrimitiveType.Cube, "TrayRight", bodyGO.transform, new Vector3(width * 0.47f, 0f, depth / 2f),
+                new Vector3(0.02f, height, depth), mat, removeCollider: true);
+            Prim(PrimitiveType.Cube, "Handle", bodyGO.transform, new Vector3(0f, 0f, -0.03f),
+                new Vector3(width * 0.34f, 0.022f, 0.04f),
+                MakeColorMaterial("DrawerHandle", new Color(0.22f, 0.22f, 0.24f)), removeCollider: true);
+
+            BoxCollider trigger = root.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            trigger.size = new Vector3(width + 0.9f, 1.4f, 1.4f);
+
+            Drawer drawerComp = root.AddComponent<Drawer>();
+            drawerComp.drawerBody = bodyGO.transform;
+            drawerComp.audioSource = MakeSource(root.transform, "DrawerAudio", 1f, 0.8f);
+            drawerComp.openClip = LoadClip(SfxDir, "sfx_drawer_open");
+            // Straight out of the front face, far enough that the tray clears the carcass.
+            drawerComp.openLocalOffset = new Vector3(0f, 0f, -(depth + 0.04f));
+
+            // The tool: a slim pin on a dark handle. Parented to the drawer body, so it rides out
+            // with the drawer instead of hanging in the air in front of a shut one.
+            GameObject toolRoot = new GameObject("BalloonTool");
+            toolRoot.transform.SetParent(bodyGO.transform, false);
+            toolRoot.transform.localPosition = new Vector3(0f, 0.02f, depth * 0.55f);
+
+            Material handleMat = MakeColorMaterial("ToolHandle", new Color(0.16f, 0.16f, 0.18f));
+            Material pinMat = MakeColorMaterial("ToolPin", new Color(0.78f, 0.79f, 0.82f));
+            SetSmoothness(pinMat, 0.7f);
+
+            Prim(PrimitiveType.Cylinder, "Handle", toolRoot.transform, new Vector3(0f, 0f, -0.045f),
+                new Vector3(0.028f, 0.045f, 0.028f), handleMat, removeCollider: true)
+                .transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            Prim(PrimitiveType.Cylinder, "Pin", toolRoot.transform, new Vector3(0f, 0f, 0.05f),
+                new Vector3(0.006f, 0.05f, 0.006f), pinMat, removeCollider: true)
+                .transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+            BoxCollider toolTrigger = toolRoot.AddComponent<BoxCollider>();
+            toolTrigger.isTrigger = true;
+            toolTrigger.size = new Vector3(0.7f, 0.7f, 0.7f);
+
+            CarryableItem toolItem = toolRoot.AddComponent<CarryableItem>();
+            toolItem.itemId = "Tool";
+            toolItem.displayName = "PIN";
+            toolItem.showInHand = true;
+            toolItem.requiresOpenDrawer = drawerComp;
+            toolItem.audioSource = MakeSource(toolRoot.transform, "PickupAudio", 1f, 0.8f);
+            toolItem.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+
+            return (drawerComp, toolItem);
+        }
+
+        // One key shape, used three times over: lying on the floor once its balloon bursts, seen
+        // through the skin of the balloon that holds it, and mounted on Room2's lock so the thing
+        // on the wall says what it wants. Laid out in the XY plane facing -Z.
+        private static void BuildKeyShape(Transform parent, Vector3 centre, float scale, Material mat, Material holeMat)
+        {
+            float z = centre.z;
+
+            // A ring, faked as a disc with a smaller disc of the backing colour punched into it -
+            // without the hole it reads as a lollipop rather than a key.
+            GameObject bow = Prim(PrimitiveType.Cylinder, "Bow", parent,
+                new Vector3(centre.x, centre.y + 0.062f * scale, z),
+                new Vector3(0.078f * scale, 0.005f * scale, 0.078f * scale), mat, removeCollider: true);
+            bow.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+            if (holeMat != null)
+            {
+                GameObject hole = Prim(PrimitiveType.Cylinder, "BowHole", parent,
+                    new Vector3(centre.x, centre.y + 0.062f * scale, z - 0.004f * scale),
+                    new Vector3(0.036f * scale, 0.006f * scale, 0.036f * scale), holeMat, removeCollider: true);
+                hole.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            }
+
+            Prim(PrimitiveType.Cube, "Shaft", parent,
+                new Vector3(centre.x, centre.y - 0.022f * scale, z),
+                new Vector3(0.019f * scale, 0.13f * scale, 0.011f * scale), mat, removeCollider: true);
+
+            // Two teeth, off one side only - a symmetrical bit reads as a cross.
+            Prim(PrimitiveType.Cube, "Tooth1", parent,
+                new Vector3(centre.x + 0.024f * scale, centre.y - 0.048f * scale, z),
+                new Vector3(0.03f * scale, 0.016f * scale, 0.011f * scale), mat, removeCollider: true);
+            Prim(PrimitiveType.Cube, "Tooth2", parent,
+                new Vector3(centre.x + 0.024f * scale, centre.y - 0.081f * scale, z),
+                new Vector3(0.03f * scale, 0.016f * scale, 0.011f * scale), mat, removeCollider: true);
+        }
+
+        // Room2's balloons, pooled rather than spawned. The pool is what makes a balloon's id mean
+        // the same thing in every iteration, which is what a ghost's recorded pops refer to.
+        private static (BalloonField, CarryableItem) BuildBalloons(Transform parent)
+        {
+            const int balloonCount = 70;
+            const int fieldSeed = 20260810;
+
+            Material keyMat = MakeColorMaterial("KeyBrass", new Color(0.85f, 0.68f, 0.24f));
+            SetSmoothness(keyMat, 0.75f);
+            // Darker than the loose key, because it is being read through a pink skin: at the
+            // brass colour it washes out into the balloon and stops being a shape.
+            Material keyVisualMat = MakeColorMaterial("KeyInBalloon", new Color(0.3f, 0.24f, 0.1f));
+
+            GameObject root = new GameObject("BalloonField");
+            root.transform.SetParent(parent, false);
+
+            // Translucent, so whatever is inside a balloon shows through it as a shape. That is
+            // the whole point: the key balloon is now findable by looking rather than by bursting
+            // seventy of them and hoping, which is what made the search luck before.
+            Material pink = MakeTranslucentMaterial("BalloonPink", new Color(0.98f, 0.44f, 0.68f, 0.62f), 0.72f);
+            Material knotMat = MakeColorMaterial("BalloonKnot", new Color(0.76f, 0.28f, 0.5f));
+
+            // Bouncy and slippery. Combine on Maximum so a balloon still bounces off the floor and
+            // the walls, which are plain matte colliders with no bounce of their own.
+            PhysicsMaterial rubber = AssetDatabase.LoadAssetAtPath<PhysicsMaterial>($"{MaterialsDir}/BalloonRubber.physicMaterial");
+            if (rubber == null)
+            {
+                rubber = new PhysicsMaterial("BalloonRubber");
+                AssetDatabase.CreateAsset(rubber, $"{MaterialsDir}/BalloonRubber.physicMaterial");
+            }
+            rubber.bounciness = 0.55f;
+            rubber.dynamicFriction = 0.28f;
+            rubber.staticFriction = 0.28f;
+            rubber.bounceCombine = PhysicsMaterialCombine.Maximum;
+            rubber.frictionCombine = PhysicsMaterialCombine.Minimum;
+            EditorUtility.SetDirty(rubber);
+
+            // Picked from the same fixed seed as the spawn points, so the key is in the same
+            // balloon in every run - which is what makes "I know which one it is" worth having.
+            int keyIndex = new System.Random(fieldSeed).Next(balloonCount);
+            System.Random pitchRng = new System.Random(fieldSeed + 1);
+
+            Balloon[] balloons = new Balloon[balloonCount];
+            for (int i = 0; i < balloonCount; i++)
+            {
+                GameObject go = new GameObject($"Balloon_{i}");
+                go.transform.SetParent(root.transform, false);
+
+                Prim(PrimitiveType.Sphere, "Body", go.transform, Vector3.zero,
+                    new Vector3(0.48f, 0.58f, 0.48f), pink, removeCollider: true);
+                Prim(PrimitiveType.Cube, "Knot", go.transform, new Vector3(0f, -0.3f, 0f),
+                    new Vector3(0.06f, 0.07f, 0.06f), knotMat, removeCollider: true);
+
+                SphereCollider col = go.AddComponent<SphereCollider>();
+                col.radius = 0.27f;
+                col.sharedMaterial = rubber;
+
+                Rigidbody rb = go.AddComponent<Rigidbody>();
+                rb.mass = 0.04f;
+                // Gravity off: Balloon.FixedUpdate applies its own much gentler fall instead. Unity
+                // has no per-body gravity scale, and the alternative - damping a full 9.81 down to
+                // a drift - takes so much damping that the balloons stop bouncing and start
+                // behaving like they are underwater. Low damping plus a small pull is light AND
+                // lively; heavy damping is only slow.
+                rb.useGravity = false;
+                rb.linearDamping = 1.1f;
+                rb.angularDamping = 1.2f;
+                // Parked until the field releases them. Built live, seventy spheres would start the
+                // scene interpenetrating at the origin - which is in Room1, beside the bed.
+                rb.isKinematic = true;
+                col.enabled = false;
+
+                Balloon balloon = go.AddComponent<Balloon>();
+                balloon.id = i;
+                balloon.holdsKey = i == keyIndex;
+
+                // The key, visible through the skin of the one balloon that has it. A child of the
+                // balloon, so Balloon.SetInPlay hides and shows it along with everything else and
+                // it vanishes the moment the balloon bursts.
+                if (balloon.holdsKey) BuildKeyShape(go.transform, Vector3.zero, 0.85f, keyVisualMat, null);
+                balloon.audioSource = MakeSource(go.transform, "PopAudio", 1f, 0.8f);
+                // A fixed detune per balloon, from the field's own seed. One clip across seventy
+                // balloons reads as a machine gun; a balloon keeping the same voice every
+                // iteration is one more thing about the room that stays put.
+                balloon.audioSource.pitch = 0.86f + (float)pitchRng.NextDouble() * 0.3f;
+                balloon.popClip = LoadClip(SfxDir, "sfx_balloon_pop");
+
+                balloons[i] = balloon;
+            }
+
+            // The key. Pocketed rather than held, so picking it up does not knock the tool out of
+            // the hand you needed to get it with.
+            GameObject keyRoot = new GameObject("Key");
+            keyRoot.transform.SetParent(root.transform, false);
+            keyRoot.transform.position = new Vector3(0f, 0.06f, RoomPitch);
+
+            BuildKeyShape(keyRoot.transform, Vector3.zero, 1f, keyMat, null);
+
+            BoxCollider keyTrigger = keyRoot.AddComponent<BoxCollider>();
+            keyTrigger.isTrigger = true;
+            keyTrigger.size = new Vector3(0.9f, 0.9f, 0.9f);
+
+            CarryableItem keyItem = keyRoot.AddComponent<CarryableItem>();
+            keyItem.itemId = "Key";
+            keyItem.displayName = "KEY";
+            keyItem.showInHand = false;
+            keyItem.audioSource = MakeSource(keyRoot.transform, "PickupAudio", 1f, 0.9f);
+            keyItem.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+
+            BalloonField field = root.AddComponent<BalloonField>();
+            field.balloons = balloons;
+            field.key = keyItem;
+            field.seed = fieldSeed;
+            field.roomCenterZ = RoomPitch;
+
+            // Park the pool now rather than waiting for the first iteration to do it. Built objects
+            // sit at their parent's origin, which for these is the middle of Room1.
+            field.ComputeSpawnPoints();
+            field.ResetField();
+
+            return (field, keyItem);
+        }
+
         private static FloorButton BuildFloorButton(Transform parent, Material mat)
         {
             // Root at unit scale so the trigger collider is defined in clean world units;
@@ -1090,10 +1399,17 @@ namespace IterationRoom.EditorTools
             return fb;
         }
 
-        private static (Door, DoorButton) BuildDoor(Transform parent, FloorButton floorButton, Material mat)
+        // The slab, its pocket, and the lamp above it - everything both doors have in common. What
+        // differs is only what unlocks them: Room1's is a button wired to a floor pad, Room2's is a
+        // key lock fed by whatever a balloon gave up.
+        private static (Door door, DoorIndicator indicator, float wallInnerZ) BuildDoorShell(
+            Transform parent, string name, float roomCenterZ, Material mat)
         {
-            GameObject doorRoot = new GameObject("Door");
+            GameObject doorRoot = new GameObject(name);
             doorRoot.transform.SetParent(parent, false);
+            // The root carries the room offset, so every measurement below stays in the same local
+            // frame it was tuned in back when there was only one door.
+            doorRoot.transform.localPosition = new Vector3(0f, 0f, roomCenterZ);
 
             // The slab lives in the pocket between this room's wall and the next room's, so sliding
             // it sideways tucks it inside the wall build-up rather than dragging it across the
@@ -1103,15 +1419,15 @@ namespace IterationRoom.EditorTools
 
             // The slab KEEPS its collider. The doorway is cut out of both walls' collision, so the
             // closed door is the only thing standing between the two rooms - built without one, the
-            // player just walks through it and the whole two-iteration puzzle is bypassable. Once
-            // open the slab sits at x 0.65..1.95, entirely behind the wall's own collision, so it
-            // never blocks the opening it just cleared.
-            GameObject panel = Prim(PrimitiveType.Cube, "DoorPanel", doorRoot.transform, new Vector3(0f, DoorHeight / 2f, slabZ), new Vector3(DoorWidth, DoorHeight, DoorThickness), mat);
+            // player just walks through it and the puzzle is bypassable. Once open the slab sits
+            // entirely behind the wall's own collision, so it never blocks the opening it cleared.
+            GameObject panel = Prim(PrimitiveType.Cube, "DoorPanel", doorRoot.transform,
+                new Vector3(0f, DoorHeight / 2f, slabZ),
+                new Vector3(DoorWidth, DoorHeight, DoorThickness), mat);
 
             // A single lamp block split down the middle: red half on the left, green on the right,
-            // only ever one of them lit. Replaces a sphere, which read as a bauble rather than as
-            // a status light. Both halves share one emissive material and are driven apart by
-            // DoorIndicator through property blocks.
+            // only ever one of them lit. Both halves share one emissive material and are driven
+            // apart by DoorIndicator through property blocks.
             Material lampMat = MakeEmissiveMaterial("IndicatorLamp", Color.white, 1f);
             const float lampWidth = 0.34f, lampHeight = 0.11f, lampDepth = 0.04f;
             float lampY = DoorHeight + 0.28f;
@@ -1129,26 +1445,36 @@ namespace IterationRoom.EditorTools
                 new Vector3(lampWidth / 2f, lampHeight, lampDepth), lampMat, removeCollider: true);
 
             Door door = doorRoot.AddComponent<Door>();
-            // Slides right (+X as seen from inside the loop room) by its own width, so it clears
-            // the opening exactly.
+            // Slides right (+X as seen from inside the room) by its own width, so it clears the
+            // opening exactly.
             door.openLocalOffset = new Vector3(DoorWidth, 0f, 0f);
             door.doorPanel = panel.transform;
+
             DoorIndicator indicator = lampRoot.AddComponent<DoorIndicator>();
             indicator.redHalf = redHalf.GetComponent<Renderer>();
             indicator.greenHalf = greenHalf.GetComponent<Renderer>();
+            indicator.door = door;
+
+            return (door, indicator, wallInnerZ);
+        }
+
+        private static (Door, DoorButton) BuildButtonDoor(Transform parent, float roomCenterZ, FloorButton floorButton, Material mat)
+        {
+            (Door door, DoorIndicator indicator, float wallInnerZ) = BuildDoorShell(parent, "Door", roomCenterZ, mat);
+
             // Tracks the condition, not the door: green the moment the floor button is held, so
             // the lamp tells the player the door is openable before they walk over to try it.
             indicator.requiredFloorButton = floorButton;
-            indicator.door = door;
 
             GameObject buttonRoot = new GameObject("DoorButton");
-            buttonRoot.transform.SetParent(parent, false);
+            buttonRoot.transform.SetParent(door.transform, false);
             // On the LEFT of the door: the slab slides right, so a button on that side would end up
             // buried behind it. Centred inside a grid cell rather than straddling a groove, at hand
             // height for a 1.6m eye level.
             buttonRoot.transform.localPosition = new Vector3(-GridCellWidth, GridCellHeight * 1.5f, wallInnerZ - 0.06f);
 
-            GameObject buttonVisual = Prim(PrimitiveType.Cube, "Visual", buttonRoot.transform, Vector3.zero, new Vector3(0.2f, 0.2f, 0.1f), mat, removeCollider: true);
+            GameObject buttonVisual = Prim(PrimitiveType.Cube, "Visual", buttonRoot.transform, Vector3.zero,
+                new Vector3(0.2f, 0.2f, 0.1f), mat, removeCollider: true);
 
             BoxCollider trigger = buttonRoot.AddComponent<BoxCollider>();
             trigger.isTrigger = true;
@@ -1162,7 +1488,39 @@ namespace IterationRoom.EditorTools
             return (door, doorButton);
         }
 
-        private static (GameObject, FirstPersonController, PlayerRecorder, CameraShaker) BuildPlayer(Transform spawn, GhostInteractable[] ghostInteractables)
+        // Room2's way out. No pad and no condition to hold open, and deliberately not a button:
+        // the shape of the thing on the wall is the puzzle telling you what it wants.
+        private static (Door, KeyLock) BuildKeyDoor(Transform parent, float roomCenterZ, Material mat)
+        {
+            (Door door, DoorIndicator indicator, float wallInnerZ) = BuildDoorShell(parent, "Door2", roomCenterZ, mat);
+
+            GameObject lockRoot = new GameObject("KeyLock");
+            lockRoot.transform.SetParent(door.transform, false);
+            lockRoot.transform.localPosition = new Vector3(-GridCellWidth, GridCellHeight * 1.5f, wallInnerZ - 0.06f);
+
+            // Taller and narrower than the door button next door, and carrying a key cut into its
+            // face - across a room the two have to read as different kinds of thing rather than as
+            // the same switch twice, and the shape is the puzzle saying what it wants.
+            GameObject plate = Prim(PrimitiveType.Cube, "Visual", lockRoot.transform, Vector3.zero,
+                new Vector3(0.2f, 0.3f, 0.09f), mat, removeCollider: true);
+            Material slotMat = MakeColorMaterial("KeySlot", new Color(0.06f, 0.06f, 0.07f));
+            BuildKeyShape(lockRoot.transform, new Vector3(0f, 0.015f, -0.048f), 1f, slotMat, mat);
+
+            BoxCollider trigger = lockRoot.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            trigger.size = new Vector3(0.8f, 0.8f, 1.2f);
+
+            KeyLock keyLock = lockRoot.AddComponent<KeyLock>();
+            keyLock.door = door;
+            keyLock.lockRenderer = plate.GetComponent<Renderer>();
+            // The lamp over this door reports "you are carrying the key" the way the other one
+            // reports "the pad is held".
+            indicator.keyLock = keyLock;
+
+            return (door, keyLock);
+        }
+
+        private static (GameObject, FirstPersonController, PlayerRecorder, CameraShaker, PlayerHand) BuildPlayer(Transform spawn, GhostInteractable[] ghostInteractables)
         {
             GameObject player = new GameObject("Player");
             player.tag = "Player";
@@ -1212,7 +1570,25 @@ namespace IterationRoom.EditorTools
             PlayerRecorder recorder = player.AddComponent<PlayerRecorder>();
             recorder.interactables = ghostInteractables;
 
-            return (player, fpc, recorder, shaker);
+            // Parented under the camera rather than the player, so a carried item rides the view -
+            // including through the wake-up, where WakeUpSequence poses the camera directly and
+            // anything hung off the body would swing independently of where you are looking.
+            GameObject handAnchor = new GameObject("HandAnchor");
+            handAnchor.transform.SetParent(camGO.transform, false);
+
+            PlayerHand hand = player.AddComponent<PlayerHand>();
+            hand.holdAnchor = handAnchor.transform;
+
+            BalloonTool tool = player.AddComponent<BalloonTool>();
+            tool.playerCamera = cam;
+            tool.hand = hand;
+            tool.recorder = recorder;
+            // 2D: this is the player's own arm, not something across the room. The clip slot is
+            // left empty - there is no swing sound generated yet, and borrowing the bed's sheet
+            // rustle for it would be worse than silence. BalloonTool guards on null.
+            tool.audioSource = MakeSource(player.transform, "ToolAudio", 0f, 0.5f);
+
+            return (player, fpc, recorder, shaker, hand);
         }
 
         private static GhostReplayer BuildGhostPrefab()
@@ -1536,7 +1912,37 @@ namespace IterationRoom.EditorTools
             return font != null ? font : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         }
 
-        private static (IterationLabel label, WakeUpSequence wakeUp) BuildUI()
+        // Top-left readout of what is in the player's pockets. Carrying is state the loop rewinds
+        // and the key is invisible once pocketed, so without this "do I still have the key" is only
+        // answerable by walking to the door and trying it.
+        private static void BuildCarriedItems(Transform canvas, PlayerHand hand)
+        {
+            GameObject go = new GameObject("CarriedItems");
+            go.transform.SetParent(canvas, false);
+
+            Text text = go.AddComponent<Text>();
+            text.font = UIFont();
+            text.fontSize = 26;
+            text.alignment = TextAnchor.UpperLeft;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            // Red like the rest of the HUD: the walls are near-white, so white text disappears.
+            text.color = Color.red;
+            text.text = string.Empty;
+
+            RectTransform rect = text.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(0f, 1f);
+            rect.pivot = new Vector2(0f, 1f);
+            rect.sizeDelta = new Vector2(420f, 160f);
+            rect.anchoredPosition = new Vector2(36f, -30f);
+
+            CarriedItemsDisplay display = go.AddComponent<CarriedItemsDisplay>();
+            display.hand = hand;
+            display.label = text;
+        }
+
+        private static (IterationLabel label, WakeUpSequence wakeUp) BuildUI(PlayerHand hand)
         {
             GameObject canvasGO = new GameObject("Canvas");
             Canvas canvas = canvasGO.AddComponent<Canvas>();
@@ -1597,6 +2003,7 @@ namespace IterationRoom.EditorTools
 
             BuildCountdownTimer(canvasGO.transform);
             BuildEndCycleControl(canvasGO.transform);
+            BuildCarriedItems(canvasGO.transform, hand);
 
             // uGUI buttons do nothing without one of these in the scene, and NewScene's default
             // objects are only a camera and a light.

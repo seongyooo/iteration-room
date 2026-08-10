@@ -20,7 +20,14 @@ namespace IterationRoom
         // less, so a ghost standing still stands still instead of marching on the spot.
         public float fullSwingSpeed = 4.5f;
 
+        // How long a ghost's arm stays mid-swing after one of its recorded pops fires. Purely
+        // presentational: without it a balloon bursts near a ghost that is just standing there.
+        public float popSwingDuration = 0.28f;
+
         private List<RecordedFrame> timeline;
+        private List<PopEvent> pops;
+        private int popCursor;
+        private float swingUntil = -1f;
         // Shared with the PlayerRecorder that produced the timeline - an interactable's index here
         // is its bit in RecordedFrame.signals.
         private GhostInteractable[] interactables;
@@ -47,9 +54,10 @@ namespace IterationRoom
                 if (r != null) r.enabled = visible;
         }
 
-        public void Init(List<RecordedFrame> recordedTimeline, GhostInteractable[] ghostInteractables)
+        public void Init(RecordedTimeline recorded, GhostInteractable[] ghostInteractables)
         {
-            timeline = recordedTimeline;
+            timeline = recorded != null ? recorded.frames : null;
+            pops = recorded != null ? recorded.pops : null;
             interactables = ghostInteractables;
             ResetPlayback();
         }
@@ -57,6 +65,8 @@ namespace IterationRoom
         public void ResetPlayback()
         {
             cursor = 0;
+            popCursor = 0;
+            swingUntil = -1f;
             if (timeline != null && timeline.Count > 0)
             {
                 transform.position = timeline[0].position;
@@ -73,6 +83,12 @@ namespace IterationRoom
         public void Tick(float elapsedLoopTime)
         {
             if (timeline == null || timeline.Count == 0) return;
+
+            // Drained before the end-of-timeline check below, not after: a tick can jump past
+            // several recorded frames at once, and the last pops of a recording sit right up
+            // against its final frame. Checked first, a single long frame would retire the ghost
+            // with its closing pops never fired, and those balloons would stay up for good.
+            DrainPops(elapsedLoopTime);
 
             // Once the recording runs out this ghost is done: it lets go of everything and leaves.
             //
@@ -99,7 +115,28 @@ namespace IterationRoom
             transform.position = frame.position;
             transform.rotation = Quaternion.Euler(0f, frame.yaw, 0f);
             ApplySignals(frame.signals);
+
+            // Ghosts are deterministic, so once one of them has walked into Room2 the balloons come
+            // down at the same instant every iteration - which is what keeps every later recording
+            // aligned with the field it was made against.
+            if (BalloonField.Instance != null) BalloonField.Instance.TriggerIfInside(transform.position);
+
             SwingLimbs();
+        }
+
+        // Replays this ghost's pops by balloon identity, so it bursts exactly the balloons the
+        // player did - wherever physics has carried them this iteration. Popping an already-burst
+        // balloon is a no-op, which is what happens when the living player gets to one first.
+        private void DrainPops(float elapsedLoopTime)
+        {
+            if (pops == null) return;
+
+            while (popCursor < pops.Count && pops[popCursor].time <= elapsedLoopTime)
+            {
+                if (BalloonField.Instance != null) BalloonField.Instance.PopById(pops[popCursor].balloonId);
+                popCursor++;
+                swingUntil = Time.time + popSwingDuration;
+            }
         }
 
         // Only recorded position and yaw exist, so the walk is inferred from how far the ghost
@@ -126,6 +163,11 @@ namespace IterationRoom
             // Arms counter-swing against the legs, and less far.
             if (leftArm != null) leftArm.localRotation = Quaternion.Euler(-swing * 0.6f, 0f, 0f);
             if (rightArm != null) rightArm.localRotation = Quaternion.Euler(swing * 0.6f, 0f, 0f);
+
+            // A recent pop overrides the walk swing on the tool arm only, so a ghost bursting
+            // balloons on the move still walks.
+            if (rightArm != null && Time.time < swingUntil)
+                rightArm.localRotation = Quaternion.Euler(-70f, 0f, 0f);
         }
 
         // Reports only the bits that actually changed, so each interactable sees clean edges: a

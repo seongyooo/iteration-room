@@ -15,6 +15,9 @@ namespace IterationRoom
         public Renderer greenHalf;
 
         public FloorButton requiredFloorButton;
+        // Room2's door is a key door with no pad behind it, so the lamp reads the lock instead.
+        // Exactly one of these two is wired per door; both being null just leaves the lamp red.
+        public KeyLock keyLock;
         public Door door;
 
         public Color redColor = new Color(1f, 0.09f, 0.07f);
@@ -44,7 +47,8 @@ namespace IterationRoom
         private void Update()
         {
             bool nowGreen = (door != null && door.IsOpen)
-                         || (requiredFloorButton != null && requiredFloorButton.IsActive);
+                         || (requiredFloorButton != null && requiredFloorButton.IsActive)
+                         || (keyLock != null && keyLock.CanOpen);
 
             if (applied && nowGreen == green) return;
             green = nowGreen;

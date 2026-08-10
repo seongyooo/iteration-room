@@ -439,6 +439,63 @@ def chime():
     return fade_edges(normalize(out, 0.7))
 
 
+def balloon_pop():
+    """A balloon bursting. Three layers, and the order they arrive in is the whole sound.
+
+    A burst is a pressure step, not a tone: the ear identifies it from a transient that is over
+    almost before it starts. The band-passed crack is therefore very short (tau 4ms) and carries
+    most of the level. Under it sits a brief low thump for body - without it the pop is thin and
+    reads as a click on a mic rather than as something in the room. Last is a rubbery flap, the
+    skin whipping back on itself, which is what stops it sounding like a gunshot.
+
+    Kept under a fifth of a second on purpose: seventy of these can be in flight at once, and
+    anything with a tail turns a roomful of balloons into a wash."""
+    rng = random.Random(7717)
+
+    crack = apply_env(bandpass(noise(0.05, rng), 1850.0, q=0.9),
+                      env_decay(int(0.05 * SR), 0.004, attack=0.0004))
+
+    body = apply_env(sine(0.06, 172.0), env_decay(int(0.06 * SR), 0.012, attack=0.0006))
+
+    # The skin letting go. Low-passed and quiet - it is the part you hear only because the crack
+    # has just got out of the way.
+    flap = apply_env(lowpass(noise(0.14, rng), 900.0, q=0.7),
+                     env_decay(int(0.14 * SR), 0.03, attack=0.004))
+
+    out = mix(scale(crack, 1.0), scale(body, 0.45))
+    out = at(out, scale(flap, 0.22), 0.006)
+    return fade_edges(normalize(out, 0.85))
+
+
+def drawer_open():
+    """A drawer sliding out and stopping. Filtered noise that swells as it runs and a soft knock
+    where it reaches its stop - the knock is what makes it read as a drawer rather than a sweep."""
+    rng = random.Random(4242)
+    n = int(0.42 * SR)
+
+    slide = sweep_bandpass(noise(0.42, rng), 420.0, 1250.0, q=1.4)
+    # Rises, then eases off as the hand slows near the end of the travel.
+    env = [math.sin(math.pi * min(1.0, (i / n) ** 0.7)) for i in range(n)]
+    slide = apply_env(slide, env)
+
+    knock = apply_env(lowpass(noise(0.09, rng), 320.0, q=0.8),
+                      env_decay(int(0.09 * SR), 0.02, attack=0.001))
+
+    out = at(scale(slide, 0.5), scale(knock, 0.55), 0.36)
+    return fade_edges(normalize(out, 0.5))
+
+
+def item_pickup():
+    """Taking something off a shelf. Short, bright and dry - it confirms a state change and then
+    gets out of the way, because it fires in the middle of a sixty-second clock."""
+    rng = random.Random(9091)
+    tick = apply_env(bandpass(noise(0.03, rng), 3200.0, q=1.1),
+                     env_decay(int(0.03 * SR), 0.005, attack=0.0004))
+    ring = apply_env(sine(0.12, 1760.0), env_decay(int(0.12 * SR), 0.03, attack=0.001))
+    out = mix(scale(tick, 1.0), scale(ring, 0.3))
+    return fade_edges(normalize(out, 0.45))
+
+
 def main():
     print("Writing SFX to", os.path.normpath(OUT))
     write("sfx_floor_button_press", floor_button_press())
@@ -450,6 +507,9 @@ def main():
     write("sfx_pull_in", pull_in())
     write("sfx_power_down", power_down())
     write("sfx_chime", chime())
+    write("sfx_balloon_pop", balloon_pop())
+    write("sfx_drawer_open", drawer_open())
+    write("sfx_item_pickup", item_pickup())
     print("done")
 
 
