@@ -493,11 +493,15 @@ namespace IterationRoom.EditorTools
                     light.spotAngle = 130f;
                     light.innerSpotAngle = 45f;
                     light.range = 11f;
-                    // Found by eye against Neutral tonemapping. A 130-degree cone from 5m up
-                    // spreads its energy over most of the room, so this is far higher than it
-                    // looks: at 4 the room came out a dim grey. Raised from 11 when the fixture
-                    // count dropped from six to four - fewer sources over the same floor area.
-                    light.intensity = 15f;
+                    // Found by eye against Neutral tonemapping, in play mode (Dev/LightingTuner).
+                    // A 130-degree cone from 5m up spreads its energy over most of the room, so
+                    // this reads lower than it is: at 4 the room came out a dim grey.
+                    //
+                    // History, because it has moved twice for different reasons: 11 with six
+                    // fixtures, then 15 when the count dropped to four, then down to 9 once the
+                    // ambient fill was cut back. The fill was doing more of the lighting than it
+                    // looked, so trimming it left the spots over-driven.
+                    light.intensity = 9f;
                     // Barely off white - clinical rather than domestic, without tinting the room.
                     light.color = new Color(0.99f, 0.99f, 1f);
                     light.shadows = castShadows ? LightShadows.Soft : LightShadows.None;

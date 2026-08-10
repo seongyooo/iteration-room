@@ -20,23 +20,29 @@ namespace IterationRoom
     {
         public KeyCode toggleKey = KeyCode.F1;
 
-        // The values SceneBuilder builds with. Reset puts these back, and Copy diffs against them
-        // so it is obvious what actually moved.
-        public const float DefaultIntensity = 15f;
-        public const float DefaultSky = 0.22f;
-        public const float DefaultEquator = 0.40f;
-        public const float DefaultGround = 0.88f;
-        public const float DefaultExposure = 0f;
-
-        // The blue lift the three ambient colours carry (0.22, 0.22, 0.24). Kept as an offset so a
-        // slider stays one number - dragging three channels to tune brightness is not the job.
+        // The blue lift the three ambient colours carry (0.131, 0.131, 0.151). Kept as an offset so
+        // a slider stays one number - dragging three channels to tune brightness is not the job.
         private const float AmbientBlueLift = 0.02f;
 
-        private float intensity = DefaultIntensity;
-        private float sky = DefaultSky;
-        private float equator = DefaultEquator;
-        private float ground = DefaultGround;
-        private float exposure = DefaultExposure;
+        private float intensity;
+        private float sky;
+        private float equator;
+        private float ground;
+        private float exposure;
+
+        // What the scene was built with, captured in Start. Reset goes back to these.
+        //
+        // These used to be hardcoded constants and that was a real bug, not a tidiness issue: the
+        // panel applies its slider values the frame it opens, so a stale constant *overwrote* the
+        // scene's actual lighting the moment you pressed F1. A tuning pass was lost to it - the
+        // room jumped back to its old brightness on open, the Copy snippet reported the constants
+        // rather than anything that had been tuned, and the whole thing read as "my change did not
+        // go in". Seed from the live scene; never assume what SceneBuilder put there.
+        private float builtIntensity;
+        private float builtSky;
+        private float builtEquator;
+        private float builtGround;
+        private float builtExposure;
 
         private bool open;
         private Light[] fixtures;
@@ -53,6 +59,16 @@ namespace IterationRoom
                 if (light.type == LightType.Spot) found.Add(light);
             fixtures = found.ToArray();
 
+            builtIntensity = fixtures.Length > 0 ? fixtures[0].intensity : 15f;
+            // Read off the red channel: these are greyscale plus AmbientBlueLift by construction.
+            builtSky = RenderSettings.ambientSkyColor.r;
+            builtEquator = RenderSettings.ambientEquatorColor.r;
+            builtGround = RenderSettings.ambientGroundColor.r;
+            intensity = builtIntensity;
+            sky = builtSky;
+            equator = builtEquator;
+            ground = builtGround;
+
             player = FindAnyObjectByType<FirstPersonController>();
 
             Volume volume = FindAnyObjectByType<Volume>();
@@ -65,7 +81,8 @@ namespace IterationRoom
                 {
                     colorAdjustments = adjustments;
                     colorAdjustments.postExposure.overrideState = true;
-                    exposure = colorAdjustments.postExposure.value;
+                    builtExposure = colorAdjustments.postExposure.value;
+                    exposure = builtExposure;
                 }
             }
         }
@@ -183,12 +200,12 @@ namespace IterationRoom
 
         private void Reset()
         {
-            intensity = DefaultIntensity;
-            sky = DefaultSky;
-            equator = DefaultEquator;
-            ground = DefaultGround;
-            exposure = DefaultExposure;
-            status = "reset to built values";
+            intensity = builtIntensity;
+            sky = builtSky;
+            equator = builtEquator;
+            ground = builtGround;
+            exposure = builtExposure;
+            status = "reset to what SceneBuilder built";
         }
 
         // Emits the exact lines to paste back into SceneBuilder, because the point of this panel is
@@ -204,7 +221,7 @@ namespace IterationRoom
             sb.AppendLine($"RenderSettings.ambientEquatorColor = new Color({equator:0.###}f, {equator:0.###}f, {equator + AmbientBlueLift:0.###}f);");
             sb.AppendLine($"RenderSettings.ambientGroundColor  = new Color({ground:0.###}f, {ground:0.###}f, {ground + AmbientBlueLift:0.###}f);");
 
-            if (Mathf.Abs(exposure - DefaultExposure) > 0.001f)
+            if (Mathf.Abs(exposure - builtExposure) > 0.001f)
             {
                 sb.AppendLine("// SceneBuilder.BuildPostProcessing - this override does not exist yet:");
                 sb.AppendLine("color.postExposure.overrideState = true;");
