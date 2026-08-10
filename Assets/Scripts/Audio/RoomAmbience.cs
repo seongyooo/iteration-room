@@ -38,5 +38,30 @@ namespace IterationRoom
         {
             if (machineSource != null && powerDown != null) machineSource.PlayOneShot(powerDown);
         }
+
+        // The ending, and the only thing that ever stops the tone. It has been under every second
+        // of every iteration, so its absence is the quietest and clearest signal that this cycle is
+        // not turning over - which is why it fades rather than cutting. A cut reads as a sound
+        // failing; a fade reads as the room being switched off around you.
+        public void FadeOutTone(float seconds)
+        {
+            if (musicSource == null) return;
+            StopAllCoroutines();
+            StartCoroutine(FadeTone(seconds));
+        }
+
+        private System.Collections.IEnumerator FadeTone(float seconds)
+        {
+            float from = musicSource.volume;
+            float t = 0f;
+            while (t < seconds)
+            {
+                t += Time.deltaTime;
+                musicSource.volume = Mathf.Lerp(from, 0f, seconds > 0f ? t / seconds : 1f);
+                yield return null;
+            }
+            musicSource.volume = 0f;
+            musicSource.Stop();
+        }
     }
 }

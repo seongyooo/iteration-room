@@ -37,6 +37,10 @@ namespace IterationRoom
         public WallPanelDisplay wallPanels;
         public CameraShaker cameraShaker;
 
+        // The way out. Room3's north doorway, and the ending it runs.
+        public EscapeTrigger escapeTrigger;
+        public EndingSequence endingSequence;
+
         // How long before the reset the room starts coming apart: the wall displays blow out and
         // the view begins to judder, both building to the moment the cycle takes you.
         public float collapseLeadTime = 10f;
@@ -60,7 +64,12 @@ namespace IterationRoom
 
         // "The game is accepting player input right now." Every Update that reads a key should
         // gate on this rather than on IterationRunning alone; the two only differ while paused.
-        public bool AcceptsInput => IterationRunning && !IsPaused;
+        public bool AcceptsInput => IterationRunning && !IsPaused && !RunOver;
+
+        // The player got out and the ending is playing. Read by PauseMenu, which must not let
+        // Escape open an overlay over the last thing in the game - Resume would then hand back a
+        // frozen room with no loop left running to unfreeze it.
+        public bool RunOver { get; private set; }
 
         public void SetPaused(bool paused) => IsPaused = paused;
 
@@ -161,7 +170,7 @@ namespace IterationRoom
                 endRequested = false;
                 IterationRunning = true;
 
-                while (ElapsedTime < loopDuration && !endRequested)
+                while (ElapsedTime < loopDuration && !endRequested && !Escaped)
                 {
                     ElapsedTime += Time.deltaTime;
 
@@ -192,6 +201,17 @@ namespace IterationRoom
                 }
 
                 IterationRunning = false;
+
+                // The only way out of the while(true), and it has to be taken HERE - before any of
+                // what follows. Everything below this point is the cycle closing and re-opening:
+                // the collapse held at full, the pull-in, the blink, the panels going out, the
+                // recording becoming another ghost. None of it should happen to a player who just
+                // got out, and the ending is largely defined by their absence.
+                if (Escaped)
+                {
+                    yield return RunEnding();
+                    yield break;
+                }
 
                 // Held at full through the blink shut - the room is still coming apart while the
                 // lids fall, which is what makes the reset feel like it happens *to* the player.
@@ -235,6 +255,51 @@ namespace IterationRoom
                     ghosts.Add(ghost);
                 }
             }
+        }
+
+        private bool Escaped => escapeTrigger != null && escapeTrigger.PlayerEscaped;
+
+        // The run is over. Note what this does NOT do, which is most of its design - see
+        // EndingSequence for the reasoning behind each omission.
+        private IEnumerator RunEnding()
+        {
+            RunOver = true;
+
+            // Taken for good, and taken first: the player is mid-stride through a doorway, and the
+            // ending should not be watching them keep walking into a wall.
+            if (playerController != null) playerController.ControlEnabled = false;
+
+            // Stopped and discarded. The run that got out does not become a ghost - there is no
+            // next iteration for it to haunt, and building one would be the loop's habit outliving
+            // the loop.
+            playerRecorder?.EndRecording();
+
+            // The facility notices. Chimed, because this is the most important thing it ever says.
+            narration?.AnnounceCycleBroken();
+
+            // The collapse lets go rather than peaking. Escaping inside collapseLeadTime means the
+            // room was already coming apart, so this is visible and it is the point: the thing that
+            // takes the player every sixty seconds tries, and stops.
+            const float releaseDuration = 1.1f;
+            float t = 0f;
+            float startFlare = wallPanels != null ? wallPanels.Flare : 0f;
+            while (t < releaseDuration)
+            {
+                t += Time.deltaTime;
+                float k = 1f - Mathf.Clamp01(t / releaseDuration);
+                wallPanels?.SetFlare(startFlare * k);
+                cameraShaker?.SetIntensity(k * k);
+                yield return null;
+            }
+            wallPanels?.SetFlare(0f);
+            cameraShaker?.SetIntensity(0f);
+
+            // And the room tone goes with it. It has been under every second of every iteration,
+            // so its absence is the quietest and clearest signal that this one is not turning over.
+            ambience?.FadeOutTone(3.5f);
+
+            if (endingSequence != null)
+                yield return endingSequence.Play(IterationNumber);
         }
     }
 }

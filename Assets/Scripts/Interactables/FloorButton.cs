@@ -39,6 +39,27 @@ namespace IterationRoom
 
         public bool IsActive => PlayerHolding || ghostsHolding.Count > 0;
 
+        // "Every one of these pads is held right now." Room1's door passes one pad; Room3's passes
+        // two, and since a person can only stand in one place that is the whole of Room3's puzzle -
+        // it takes two past selves, holding at the same moment.
+        //
+        // It lives here, once, rather than in Door and DoorIndicator separately, because the two
+        // must never disagree: the lamp is the readout for exactly this condition, and a lamp that
+        // says "go" on a rule the door does not use is worse than no lamp.
+        //
+        // An empty or null array is NOT active. A door wired to no pads at all should stay shut
+        // rather than stand permanently open, which is what "all zero of them are held" would
+        // otherwise vacuously mean.
+        public static bool AllActive(FloorButton[] pads)
+        {
+            if (pads == null || pads.Length == 0) return false;
+
+            foreach (FloorButton pad in pads)
+                if (pad == null || !pad.IsActive) return false;
+
+            return true;
+        }
+
         // A hold button records the level directly - the ghost stands on it for exactly as long as
         // the player did, which is the whole mechanic (spec §5).
         public override bool PlayerSignal => PlayerHolding;

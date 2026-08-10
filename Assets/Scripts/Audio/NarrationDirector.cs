@@ -21,6 +21,11 @@ namespace IterationRoom
         public AudioClip newCycleLine;
         // Spoken when the player ends a cycle themselves rather than running the clock out.
         public AudioClip cycleTerminatedLine;
+        // The one line the facility only ever says once: the player got out.
+        public AudioClip cycleBrokenLine;
+        // Spoken the first time the player reaches Room3, alongside the same instruction lighting
+        // up on all four of its walls.
+        public AudioClip manualTerminationLine;
         public AudioClip announcementChime;
 
         // No chime in front of this one. It fires at the top of every iteration, which is the one
@@ -57,6 +62,30 @@ namespace IterationRoom
         {
             Chime();
             Speak(cycleTerminatedLine);
+        }
+
+        // "Containment failure. Cycle broken." Chimed, because it is the most important thing the
+        // facility ever says and the only announcement a run hears exactly once. The wording is
+        // deliberately built from the vocabulary the player already knows - every iteration has
+        // opened with a cycle being initialized and some have ended with one terminated, so a cycle
+        // being *broken* lands as the same voice admitting the machine failed.
+        public void AnnounceCycleBroken()
+        {
+            Chime();
+            Speak(cycleBrokenLine);
+        }
+
+        // "Manual termination available. Hold N to end the cycle." Chimed, because it is an
+        // announcement rather than part of the loop's own patter, and because it lands mid-walk
+        // when the player is not expecting the PA to say anything.
+        //
+        // "Termination", not "skip": that is the word this voice has already used for the same act
+        // (see cycleTerminatedLine), and the facility should not start speaking the player's
+        // language three rooms in.
+        public void AnnounceManualTermination()
+        {
+            Chime();
+            Speak(manualTerminationLine);
         }
 
         // Announcements replace each other instead of stacking. The countdown fires once a second

@@ -88,7 +88,17 @@ Write-Line "New cycle initialized." "voice_new_cycle.wav" -2
 # Spoken when the player ends a cycle themselves instead of running the clock out. The distinction
 # matters: a voluntary end skips the countdown entirely, which is otherwise the loop's loudest beat.
 Write-Line "Cycle terminated." "voice_cycle_terminated.wav" -2
-$count += 3
+# The ending, and the only line a run hears exactly once. Built out of the vocabulary the player
+# already has - cycles get initialized and terminated all game - so a cycle being *broken* reads as
+# the same voice admitting the machine failed. Two sentences on purpose: the facility reacting, then
+# the loop's own language closing.
+Write-Line "Containment failure. Cycle broken." "voice_cycle_broken.wav" -2
+# Spoken once, the first time the player reaches Room3, alongside the same instruction appearing on
+# all four walls. "Termination" rather than "skip" because that is the word this voice has already
+# used for the same act ("Cycle terminated."), and the facility should not start speaking the
+# player's language at the end of the game.
+Write-Line "Manual termination available. Hold N to end the cycle." "voice_manual_termination.wav" -2
+$count += 5
 
 Write-Line "10 seconds remaining." "voice_ten_seconds.wav" -1
 $count++

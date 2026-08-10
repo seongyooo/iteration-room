@@ -201,14 +201,57 @@ namespace IterationRoom.EditorTools
             (Transform bed, Transform bedSpawn) = BuildBed(room.transform, propMat);
             GameObject nightstand = BuildNightstand(room.transform);
             (Drawer drawer, CarryableItem tool) = BuildNightstandDrawer(room.transform, nightstand, propMat);
-            FloorButton floorButton = BuildFloorButton(room.transform, propMat);
-            Door door = BuildPadDoor(room.transform, 0f, floorButton, propMat);
+            // Out in the open floor area past the foot of the bed, matching room_layout_sample.png.
+            FloorButton floorButton = BuildFloorButton(room.transform, propMat, "FloorButton",
+                new Vector3(2.8f, 0.03f, -1.75f));
+            Door door = BuildPadDoor(room.transform, "Door", 0f, new[] { floorButton }, propMat);
 
             // Room2: a roomful of balloons and a key door. The key door is not a GhostInteractable -
             // carrying is not part of a recording, so a ghost cannot open it for you. Getting
             // yourself to it holding the key is the last thing the room asks.
             (Door door2, KeyLock keyLock) = BuildKeyDoor(room.transform, RoomPitch, propMat);
             (BalloonField balloonField, CarryableItem key) = BuildBalloons(room.transform);
+
+            // Room3: FOUR pads and one door that needs all of them at once. Deliberately the
+            // plainest room of the three - no items, nothing to search, nothing to carry. Room2
+            // already costs the player a key retrieval every iteration, and a second expensive room
+            // behind it would be unreachable rather than hard. What Room3 costs is ITERATIONS: one
+            // to stand on each pad, and a fifth to walk through while four past selves hold them.
+            //
+            // Laid out as a rectangle rather than scattered. Four things in a regular grid read as
+            // one set at a glance - the player should never have to hunt for the fourth - and the
+            // symmetry says "all of these" where an irregular arrangement would invite guessing
+            // that some subset might do.
+            //
+            // All four sit off the centre line, so the straight walk from the south door to the
+            // north one steps on none of them. Standing on one is the only way to learn what the
+            // others are for, so the room has to show them together and never trigger by accident.
+            const float roomThreeZ = 2f * RoomPitch;
+            FloorButton[] roomThreePads =
+            {
+                BuildFloorButton(room.transform, propMat, "FloorButton3A", new Vector3(-3.2f, 0.03f, roomThreeZ - 3f)),
+                BuildFloorButton(room.transform, propMat, "FloorButton3B", new Vector3(3.2f, 0.03f, roomThreeZ - 3f)),
+                BuildFloorButton(room.transform, propMat, "FloorButton3C", new Vector3(-3.2f, 0.03f, roomThreeZ + 3f)),
+                BuildFloorButton(room.transform, propMat, "FloorButton3D", new Vector3(3.2f, 0.03f, roomThreeZ + 3f)),
+            };
+            Door door3 = BuildPadDoor(room.transform, "Door3", roomThreeZ, roomThreePads, propMat);
+
+            // The way out, and the only exit condition in the game. Sat on Room3's north threshold
+            // rather than past it: the FarCap is right behind that doorway and the pocket in front
+            // of it is too shallow for the controller to stand in, so there is no "through" to
+            // detect. See EscapeTrigger.
+            GameObject escapeGO = new GameObject("EscapeTrigger");
+            escapeGO.transform.SetParent(room.transform, false);
+            escapeGO.transform.localPosition = new Vector3(0f, 0f, roomThreeZ + RoomDepth / 2f);
+            EscapeTrigger escape = escapeGO.AddComponent<EscapeTrigger>();
+            escape.door = door3;
+            // Half the doorway plus a little, so only a player actually in the opening qualifies -
+            // without this, anyone at the same Z anywhere along the north wall would count.
+            escape.halfWidth = DoorWidth / 2f + 0.05f;
+
+            // Room3 is also where the room finally explains the end-cycle control, on all four
+            // walls. Narration is wired after BuildAudio, below.
+            PanelMessage wallMessage = BuildWallMessage(room.transform, roomThreeZ);
 
             // The wire format for ghost playback: an entry's index is its bit in
             // RecordedFrame.signals, so this is appended to and never reordered. The recorder and
@@ -222,7 +265,11 @@ namespace IterationRoom.EditorTools
             // drawer therefore moved from bit 2 to bit 1. That is safe only because timelines live
             // for one session of play and are never persisted - reordering this at runtime would
             // invalidate every recording made so far.
-            GhostInteractable[] ghostInteractables = { floorButton, drawer };
+            GhostInteractable[] ghostInteractables =
+            {
+                floorButton, drawer,
+                roomThreePads[0], roomThreePads[1], roomThreePads[2], roomThreePads[3],
+            };
 
             (GameObject player, FirstPersonController fpc, PlayerRecorder recorder, CameraShaker shaker, PlayerHand hand) = BuildPlayer(bedSpawn, ghostInteractables);
 
@@ -239,11 +286,19 @@ namespace IterationRoom.EditorTools
             BuildControlHints(canvas, player.GetComponentInChildren<Camera>(), hand,
                 new MonoBehaviour[] { drawer, tool, keyLock, key });
 
-            // Last on the canvas, so Escape's overlay covers the HUD, the prompts and the eyelids.
+            // Escape's overlay covers the HUD, the prompts and the eyelids...
             BuildPauseMenu(canvas, fpc);
+            // ...and the ending covers even that. Built last so nothing in the game can draw over
+            // the last thing the player sees. (Pausing is locked out for its duration anyway - see
+            // PauseMenu - but the draw order should not depend on that being true.)
+            EndingSequence ending = BuildEndingScreen(canvas);
 
             (NarrationDirector narration, RoomAmbience ambience) =
-                BuildAudio(player, door, floorButton, wakeUp);
+                BuildAudio(player, new[] { door, door2, door3 },
+                           new[] { floorButton, roomThreePads[0], roomThreePads[1], roomThreePads[2], roomThreePads[3] },
+                           wakeUp);
+
+            wallMessage.narration = narration;
 
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
@@ -252,7 +307,7 @@ namespace IterationRoom.EditorTools
             loop.playerRecorder = recorder;
             loop.playerController = fpc;
             loop.ghostInteractables = ghostInteractables;
-            loop.doors = new[] { door, door2 };
+            loop.doors = new[] { door, door2, door3 };
             loop.drawers = new[] { drawer };
             loop.playerHand = hand;
             loop.balloonField = balloonField;
@@ -264,6 +319,8 @@ namespace IterationRoom.EditorTools
             loop.ambience = ambience;
             loop.wallPanels = wallDisplay;
             loop.cameraShaker = shaker;
+            loop.escapeTrigger = escape;
+            loop.endingSequence = ending;
 
             Directory.CreateDirectory("Assets/Scenes");
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -1176,25 +1233,35 @@ namespace IterationRoom.EditorTools
             // door instead of the door having to fit a whole number of cells.
             Rect doorway = new Rect(-DoorWidth / 2f, 0f, DoorWidth, DoorHeight);
 
-            // Two identical rooms sharing a divider: the loop room's north wall and the next room's
-            // south wall face each other across the door pocket, each with the same doorway cut out
-            // of its panelling, its backing and its collision, so the opening is a real hole.
+            // Three identical rooms in a line, each sharing a divider with the next: a room's north
+            // wall and its neighbour's south wall face each other across the door pocket, each with
+            // the same doorway cut out of its panelling, its backing and its collision, so the
+            // opening is a real hole. Room1 is the only one with no doorway to the south.
             BuildRoomShell(parent, "Room1", 0f, floorMat, grooveMat, panelMat, Rect.zero, doorway);
             BuildRoomShell(parent, "Room2", RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway);
+            BuildRoomShell(parent, "Room3", 2f * RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway);
 
             BuildDoorPocketFill(parent, "DoorPocketFill_1", 0f, grooveMat, capFarSide: false);
-            // Room2's north doorway has no room behind it yet, so its pocket is capped: opening the
-            // key door reveals a sealed reveal rather than a hole to the outside. Adding Room3 is
-            // this flag going false plus another BuildRoomShell at 2 * RoomPitch.
-            BuildDoorPocketFill(parent, "DoorPocketFill_2", RoomPitch, grooveMat, capFarSide: true);
+            BuildDoorPocketFill(parent, "DoorPocketFill_2", RoomPitch, grooveMat, capFarSide: false);
+            // Room3's north doorway has no room behind it yet, so its pocket is capped: opening
+            // that door reveals a sealed reveal rather than a hole to the outside, and the cap
+            // keeps its collider so the player cannot walk out of the world. Adding Room4 - or the
+            // ending, which is what should really go here - is this flag going false plus another
+            // BuildRoomShell at 3 * RoomPitch.
+            BuildDoorPocketFill(parent, "DoorPocketFill_3", 2f * RoomPitch, grooveMat, capFarSide: true);
 
             Material fixtureMat = MakeEmissiveMaterial("CeilingFixture", Color.white, 3.5f);
+            // Shadows only in Room1. Every additional light's shadow shares one atlas, and the
+            // rooms past the first hold nothing that casts a shadow worth the map: Room2 is
+            // balloons, Room3 is two floor pads.
             BuildCeilingLights(parent, "Room1", 0f, fixtureMat, castShadows: true);
             BuildCeilingLights(parent, "Room2", RoomPitch, fixtureMat, castShadows: false);
+            BuildCeilingLights(parent, "Room3", 2f * RoomPitch, fixtureMat, castShadows: false);
 
-            // Built after the lights, so the probe captures the room already lit.
+            // Built after the lights, so the probes capture the rooms already lit.
             BuildReflectionProbe(parent, "Room1", 0f);
             BuildReflectionProbe(parent, "Room2", RoomPitch);
+            BuildReflectionProbe(parent, "Room3", 2f * RoomPitch);
         }
 
         // Fills the cavity between the two rooms' walls, everywhere except the volume the door slab
@@ -1734,14 +1801,13 @@ namespace IterationRoom.EditorTools
             return (field, keyItem);
         }
 
-        private static FloorButton BuildFloorButton(Transform parent, Material mat)
+        private static FloorButton BuildFloorButton(Transform parent, Material mat, string name, Vector3 position)
         {
-            // Root at unit scale so the trigger collider is defined in clean world units;
+            // Root at unit scale so the activation volume is defined in clean world units;
             // the flattened cylinder mesh lives on an unscaled-collider visual child instead.
-            GameObject root = new GameObject("FloorButton");
+            GameObject root = new GameObject(name);
             root.transform.SetParent(parent, false);
-            // Out in the open floor area past the foot of the bed, matching room_layout_sample.png reference.
-            root.transform.localPosition = new Vector3(2.8f, 0.03f, -1.75f);
+            root.transform.localPosition = position;
 
             // Unity's cylinder is 1 unit across, so the X/Z scale is the diameter.
             const float padRadius = 0.35f;
@@ -1816,22 +1882,24 @@ namespace IterationRoom.EditorTools
             return (door, indicator, wallInnerZ);
         }
 
-        // Room1's way out: a powered door with no control of its own, held open by the floor pad.
+        // A powered door with no control of its own, held open while every pad handed to it is
+        // held. Room1 passes one pad, Room3 two.
         //
-        // There was a DoorButton on the wall beside it until a play-test found nobody could locate
-        // it - testers held the pad, walked to the door and expected it to open. See Door's own note
-        // for why they were right and what removing the button buys. Note the wall beside the door
-        // is now bare, which is part of the point: there is no affordance left to mislead.
-        private static Door BuildPadDoor(Transform parent, float roomCenterZ, FloorButton floorButton, Material mat)
+        // There was a DoorButton on the wall beside Room1's until a play-test found nobody could
+        // locate it - testers held the pad, walked to the door and expected it to open. See Door's
+        // own note for why they were right and what removing the button buys. Note the wall beside
+        // these doors is bare, which is part of the point: there is no affordance left to mislead.
+        private static Door BuildPadDoor(Transform parent, string name, float roomCenterZ,
+                                         FloorButton[] pads, Material mat)
         {
-            (Door door, DoorIndicator indicator, float _) = BuildDoorShell(parent, "Door", roomCenterZ, mat);
+            (Door door, DoorIndicator indicator, float _) = BuildDoorShell(parent, name, roomCenterZ, mat);
 
-            // The lamp tracks the condition, not the door, so it goes green the moment the pad is
-            // held. With the button gone it is the room's only readout for that, which makes it
-            // load-bearing rather than decorative: a player standing at the door in iteration 2
-            // watches it turn as a past self steps on.
-            indicator.requiredFloorButton = floorButton;
-            door.requiredFloorButton = floorButton;
+            // The lamp tracks the condition, not the door, so it goes green the moment the pads are
+            // all held. With no button anywhere it is the room's only readout for that, which makes
+            // it load-bearing rather than decorative - and in Room3 it is the only way to tell "one
+            // of my past selves has arrived" from "both have".
+            indicator.requiredFloorButtons = pads;
+            door.requiredFloorButtons = pads;
 
             return door;
         }
@@ -2106,7 +2174,7 @@ namespace IterationRoom.EditorTools
         // aren't there yet resolve to null and every player guards on that, so the scene is fully
         // playable with an empty SFX folder - dropping a correctly-named file in and rebuilding is
         // all it takes to make that cue audible. See Assets/Audio/SFX/README.md for the names.
-        private static (NarrationDirector, RoomAmbience) BuildAudio(GameObject player, Door door, FloorButton floorButton, WakeUpSequence wakeUp)
+        private static (NarrationDirector, RoomAmbience) BuildAudio(GameObject player, Door[] doors, FloorButton[] floorButtons, WakeUpSequence wakeUp)
         {
             GameObject root = new GameObject("Audio");
 
@@ -2135,6 +2203,8 @@ namespace IterationRoom.EditorTools
             narration.countdownLines = countdownLines;
             narration.newCycleLine = LoadClip(VoiceDir, "voice_new_cycle");
             narration.cycleTerminatedLine = LoadClip(VoiceDir, "voice_cycle_terminated");
+            narration.cycleBrokenLine = LoadClip(VoiceDir, "voice_cycle_broken");
+            narration.manualTerminationLine = LoadClip(VoiceDir, "voice_manual_termination");
             narration.announcementChime = LoadClip(SfxDir, "sfx_chime");
 
             // --- room tone and machinery ---
@@ -2148,18 +2218,28 @@ namespace IterationRoom.EditorTools
             ambience.pullIn = LoadClip(SfxDir, "sfx_pull_in");
             ambience.powerDown = LoadClip(SfxDir, "sfx_power_down");
 
-            // --- the floor button ---
-            // Positional and parented to the pad, which is the entire point: the door lamp only
+            // --- the floor pads ---
+            // Positional and parented to each pad, which is the entire point: the door lamp only
             // reports the condition to someone looking at the door, but the clunk reaches you
-            // wherever you are. Hearing a ghost step onto the pad behind you is how the puzzle
-            // tells you the door is live.
-            floorButton.audioSource = MakeSource(floorButton.transform, "FloorButtonAudio", 1f, 0.9f);
-            floorButton.pressClip = LoadClip(SfxDir, "sfx_floor_button_press");
-            floorButton.releaseClip = LoadClip(SfxDir, "sfx_floor_button_release");
+            // wherever you are. Hearing a ghost step onto a pad behind you is how the puzzle tells
+            // you the door is live - and in Room3, where two pads have to go down, it is how you
+            // count them without turning round.
+            AudioClip padPress = LoadClip(SfxDir, "sfx_floor_button_press");
+            AudioClip padRelease = LoadClip(SfxDir, "sfx_floor_button_release");
+            foreach (FloorButton pad in floorButtons)
+            {
+                pad.audioSource = MakeSource(pad.transform, "FloorButtonAudio", 1f, 0.9f);
+                pad.pressClip = padPress;
+                pad.releaseClip = padRelease;
+            }
 
-            // --- the door ---
-            door.audioSource = MakeSource(door.transform, "DoorAudio", 1f, 1f);
-            door.openClip = LoadClip(SfxDir, "sfx_door_open");
+            // --- the doors ---
+            AudioClip doorOpen = LoadClip(SfxDir, "sfx_door_open");
+            foreach (Door d in doors)
+            {
+                d.audioSource = MakeSource(d.transform, "DoorAudio", 1f, 1f);
+                d.openClip = doorOpen;
+            }
 
             // --- the body waking up ---
             // 2D and parented to the player: this is the player's own breath, not a sound in the
@@ -2577,6 +2657,216 @@ namespace IterationRoom.EditorTools
             pause.quitButton = quit;
             pause.sensitivitySlider = sensitivity;
             pause.sensitivityValue = sensitivityValue;
+        }
+
+        // The ending: a full-screen black scrim and a card over it. Two separate CanvasGroups
+        // rather than one, because the whole shape of the ending is that the room goes first and
+        // the card arrives afterwards, with a beat of nothing in between.
+        //
+        // Deliberately NOT the wake-up's eyelids, even though they are black panels over the same
+        // canvas and would have been free. The lids blink, and the blink is the loop taking you -
+        // it is the visual signature of the exact thing that has just failed. Reusing it here would
+        // say the cycle turned over.
+        private static EndingSequence BuildEndingScreen(Transform canvas)
+        {
+            GameObject root = new GameObject("EndingScreen");
+            root.transform.SetParent(canvas, false);
+            Stretch(root.AddComponent<RectTransform>());
+
+            GameObject scrimGO = new GameObject("Scrim");
+            scrimGO.transform.SetParent(root.transform, false);
+            CanvasGroup scrimGroup = scrimGO.AddComponent<CanvasGroup>();
+            scrimGroup.alpha = 0f;
+            // Never a raycast target, unlike the pause scrim. There is nothing underneath left to
+            // click by the time this is up, and blocking would only matter if something could still
+            // be interacted with - which would be a bug, not a thing to defend against here.
+            scrimGroup.blocksRaycasts = false;
+            Stretch(scrimGO.AddComponent<RectTransform>());
+
+            Image scrim = scrimGO.AddComponent<Image>();
+            // Fully opaque, unlike the pause overlay's 0.72: this is not a layer over the room, it
+            // is the room being gone.
+            scrim.color = Color.black;
+            scrim.raycastTarget = false;
+
+            GameObject cardGO = new GameObject("Card");
+            cardGO.transform.SetParent(root.transform, false);
+            CanvasGroup cardGroup = cardGO.AddComponent<CanvasGroup>();
+            cardGroup.alpha = 0f;
+            cardGroup.blocksRaycasts = false;
+            Stretch(cardGO.AddComponent<RectTransform>());
+
+            GameObject headlineGO = new GameObject("Headline");
+            headlineGO.transform.SetParent(cardGO.transform, false);
+            Text headline = headlineGO.AddComponent<Text>();
+            headline.font = UIFont();
+            headline.fontSize = 52;
+            headline.alignment = TextAnchor.MiddleCenter;
+            headline.color = Color.red;
+            // Filled in by EndingSequence, which spaces it out in the string. Seeded here only so
+            // the object is not blank in the saved scene.
+            headline.text = "C Y C L E   B R O K E N";
+            headline.horizontalOverflow = HorizontalWrapMode.Overflow;
+            headline.verticalOverflow = VerticalWrapMode.Overflow;
+            headline.raycastTarget = false;
+            RectTransform headlineRect = headline.GetComponent<RectTransform>();
+            headlineRect.anchorMin = new Vector2(0.5f, 0.5f);
+            headlineRect.anchorMax = new Vector2(0.5f, 0.5f);
+            headlineRect.sizeDelta = new Vector2(1400f, 100f);
+            headlineRect.anchoredPosition = new Vector2(0f, 30f);
+
+            GameObject detailGO = new GameObject("Detail");
+            detailGO.transform.SetParent(cardGO.transform, false);
+            Text detail = detailGO.AddComponent<Text>();
+            detail.font = UIFont();
+            detail.fontSize = 22;
+            detail.alignment = TextAnchor.MiddleCenter;
+            // Dimmer than the headline, and not spaced out: this is the facility's record of the
+            // run rather than its verdict on it, and it is the one number the player earned.
+            detail.color = new Color(1f, 0.35f, 0.35f, 0.75f);
+            detail.text = "ESCAPED ON ITERATION 1";
+            detail.horizontalOverflow = HorizontalWrapMode.Overflow;
+            detail.verticalOverflow = VerticalWrapMode.Overflow;
+            detail.raycastTarget = false;
+            RectTransform detailRect = detail.GetComponent<RectTransform>();
+            detailRect.anchorMin = new Vector2(0.5f, 0.5f);
+            detailRect.anchorMax = new Vector2(0.5f, 0.5f);
+            detailRect.sizeDelta = new Vector2(1000f, 40f);
+            detailRect.anchoredPosition = new Vector2(0f, -40f);
+
+            EndingSequence ending = root.AddComponent<EndingSequence>();
+            ending.scrimGroup = scrimGroup;
+            ending.cardGroup = cardGroup;
+            ending.headline = headline;
+            ending.detail = detail;
+            ending.menuScene = "MainMenu";
+
+            return ending;
+        }
+
+        // Room3 telling the player about the end-cycle control, on all four walls at once.
+        //
+        // World-space canvases hung just proud of the panelling rather than the panels themselves
+        // being lit to spell it. That was the first idea and it does not survive contact with the
+        // grid: a wall is 5 or 6 cells across by 4 tall, so panel-as-pixel gives a 6x4 display and
+        // nothing legible can be written in it. What makes this still read as the wall rather than
+        // as a poster is the dark plate behind the text - a section of white panelling switching to
+        // near-black with red type on it is exactly what a display doing something looks like, and
+        // it is the same red-on-near-black the HUD already uses.
+        private static PanelMessage BuildWallMessage(Transform parent, float roomCenterZ)
+        {
+            GameObject root = new GameObject("WallMessage");
+            root.transform.SetParent(parent, false);
+            root.transform.localPosition = new Vector3(0f, 0f, roomCenterZ);
+
+            // Proud of the panel faces, which sit on the room bound itself. Small enough to read as
+            // printed on the wall, large enough that no camera angle z-fights with it.
+            const float standoff = 0.05f;
+            float halfWidth = RoomWidth / 2f;
+            float halfDepth = RoomDepth / 2f;
+            // Above both doorways (DoorHeight 2.5) so the message never straddles an opening, and
+            // high enough to read as signage rather than as something at eye level.
+            const float y = 3.4f;
+
+            // Each canvas's forward (+Z) points INTO its wall, i.e. away from the room. That reads
+            // backwards and it is the opposite of what was built first, which came out mirrored on
+            // all four walls.
+            //
+            // The rule: a world-space canvas is legible when its forward matches the direction the
+            // viewer is LOOKING, not when it points at the viewer. Unity's own default scene is the
+            // proof - camera at z = -10 looking toward +Z, canvas at the origin unrotated, text the
+            // right way round. So a wall message must face the same way as the eyes reading it, and
+            // a player at the middle of the room looks outwards at every one of these.
+            var faces = new CanvasGroup[4];
+            faces[0] = MakeWallFace(root.transform, "South", new Vector3(0f, y, -halfDepth + standoff), Quaternion.Euler(0f, 180f, 0f));
+            faces[1] = MakeWallFace(root.transform, "North", new Vector3(0f, y, halfDepth - standoff), Quaternion.identity);
+            faces[2] = MakeWallFace(root.transform, "West", new Vector3(-halfWidth + standoff, y, 0f), Quaternion.Euler(0f, -90f, 0f));
+            faces[3] = MakeWallFace(root.transform, "East", new Vector3(halfWidth - standoff, y, 0f), Quaternion.Euler(0f, 90f, 0f));
+
+            PanelMessage message = root.AddComponent<PanelMessage>();
+            message.faces = faces;
+            message.roomCenterZ = roomCenterZ;
+            message.halfDepth = halfDepth;
+            return message;
+        }
+
+        private static CanvasGroup MakeWallFace(Transform parent, string name, Vector3 localPosition, Quaternion localRotation)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            Canvas canvas = go.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+
+            // Authored large and scaled down, which is the standard way to keep world-space UI text
+            // from rendering as a handful of blocky pixels: the font rasterises at the RectTransform
+            // size, not the final world size.
+            RectTransform rect = go.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(1600f, 440f);
+            rect.localScale = Vector3.one * 0.0045f;   // -> 7.2m x 1.98m, inside an 8.75m wall
+
+            // Placed through anchoredPosition3D, set after the Canvas exists. AddComponent<Canvas>()
+            // replaces the GameObject's plain Transform with a RectTransform, and a RectTransform's
+            // local x and y come from its anchored position - so this is the field that means
+            // anything. Anchors centred, so the offset is measured from the parent's origin (a
+            // non-RectTransform parent is treated as a zero-size rect there).
+            //
+            // Worth knowing when verifying this in the saved scene, because it looks exactly like a
+            // bug: a RectTransform's serialized m_LocalPosition is stale - here it stays {0,0,0}
+            // while m_AnchoredPosition carries the real placement, and Unity recomputes the former
+            // on load. Read m_AnchoredPosition, not m_LocalPosition.
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition3D = localPosition;
+            rect.localRotation = localRotation;
+
+            CanvasGroup group = go.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            group.blocksRaycasts = false;
+            group.interactable = false;
+
+            // The plate. This is what makes it a display rather than paint - GrooveDark is the same
+            // near-black that sits at the bottom of every groove in the room.
+            GameObject plateGO = new GameObject("Plate");
+            plateGO.transform.SetParent(go.transform, false);
+            Image plate = plateGO.AddComponent<Image>();
+            plate.color = new Color(0.04f, 0.04f, 0.045f, 0.94f);
+            plate.raycastTarget = false;
+            Stretch(plate.GetComponent<RectTransform>());
+
+            MakeWallLine(go.transform, "Headline", "H O L D   [ N ]", 132, Color.red,
+                new Vector2(0f, 78f), new Vector2(1600f, 190f));
+            // Not spaced out, unlike the headline: this line is 29 characters and spacing it would
+            // put it past the wall. The headline carries the treatment for both.
+            MakeWallLine(go.transform, "Detail", "TO SKIP TO THE NEXT ITERATION", 74,
+                new Color(1f, 0.35f, 0.35f, 0.9f), new Vector2(0f, -90f), new Vector2(1600f, 130f));
+
+            return group;
+        }
+
+        private static void MakeWallLine(Transform parent, string name, string content, int fontSize,
+                                         Color color, Vector2 anchoredPosition, Vector2 size)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            Text text = go.AddComponent<Text>();
+            text.font = UIFont();
+            text.fontSize = fontSize;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.color = color;
+            text.text = content;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            text.raycastTarget = false;
+
+            RectTransform rect = text.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = size;
+            rect.anchoredPosition = anchoredPosition;
         }
 
         private static Text MakeRowLabel(Transform parent, string name, string content,

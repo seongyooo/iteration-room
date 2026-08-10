@@ -7,12 +7,15 @@ namespace IterationRoom
     // Room2's key door LATCHES: KeyLock calls Open() and it stays open for the rest of the
     // iteration, because putting a key in a lock is not something walking away undoes.
     //
-    // Room1's door TRACKS ITS PAD instead, and that difference is the whole puzzle. It has no
-    // control of its own - there was a DoorButton on the wall beside it until a play-test found
-    // that nobody could locate it, and that testers held the pad for an iteration, walked to the
-    // door in the next and simply expected it to open. They were right to. The button was a second
-    // gesture the room never explained and it bought the puzzle nothing: either way the player has
-    // to spend one iteration holding the pad down and be at the door in the next.
+    // Room1's and Room3's doors TRACK THEIR PADS instead. Room1 passes one pad; Room3 passes two
+    // and needs both held at once, which is that room's escalation - one person cannot stand in two
+    // places, so it takes two past selves overlapping in time rather than merely existing.
+    //
+    // Neither has a control of its own. There was a DoorButton on the wall beside Room1's until a
+    // play-test found that nobody could locate it, and that testers held the pad for an iteration,
+    // walked to the door in the next and simply expected it to open. They were right to. The button
+    // was a second gesture the room never explained and it bought the puzzle nothing: either way
+    // the player has to spend one iteration holding the pad down and be at the door in the next.
     //
     // Tracking rather than latching is what keeps that true, and it is not a detail - a door that
     // latched open the instant the pad was touched could be solved in one iteration by stepping on
@@ -31,8 +34,11 @@ namespace IterationRoom
         public AudioSource audioSource;
         public AudioClip openClip;
 
-        // Room1's pad. Room2's key door leaves this null and latches through Open() instead.
-        public FloorButton requiredFloorButton;
+        // The pads that power this door, ALL of which must be held at once. Room1 passes one;
+        // Room3 passes two, which is that room's entire puzzle - one person cannot stand in two
+        // places, so it takes two past selves holding at the same moment. Room2's key door leaves
+        // this empty and latches through Open() instead.
+        public FloorButton[] requiredFloorButtons;
 
         // How close to the opening the player has to be to keep the door from shutting on them.
         // Generous on purpose, and it does double duty: it stops a ghost stepping off the pad from
@@ -74,9 +80,9 @@ namespace IterationRoom
             // and a door moving under a black screen is the machinery showing through.
             bool running = LoopManager.Instance == null || LoopManager.Instance.IterationRunning;
 
-            if (!latched && running && requiredFloorButton != null)
+            if (!latched && running)
             {
-                if (requiredFloorButton.IsActive) target = 1f;
+                if (FloorButton.AllActive(requiredFloorButtons)) target = 1f;
                 // Refuses to shut on the player. A CharacterController is not pushed by a moving
                 // transform, so a slab closing through one leaves the player inside it, to be
                 // squeezed out sideways on the next frame.

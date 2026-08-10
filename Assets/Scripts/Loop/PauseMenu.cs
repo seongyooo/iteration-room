@@ -83,7 +83,13 @@ namespace IterationRoom
 
         private void Update()
         {
-            if (Input.GetKeyDown(KeyCode.Escape))
+            // Locked out once the player has escaped. The ending owns the screen from that point
+            // and there is no loop left running - pausing over it and pressing Resume would hand
+            // back a frozen room with nothing able to unfreeze it, which is a soft lock at the one
+            // moment the game must not have one.
+            bool endingRunning = LoopManager.Instance != null && LoopManager.Instance.RunOver;
+
+            if (Input.GetKeyDown(KeyCode.Escape) && !endingRunning)
             {
                 if (IsPaused) Resume();
                 else Pause();

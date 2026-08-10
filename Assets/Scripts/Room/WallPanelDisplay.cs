@@ -31,6 +31,11 @@ namespace IterationRoom
         private float[] onsets;
         private float powered;
         private float flare;
+
+        // Where the collapse had got to. The ending ramps down from whatever this is rather than
+        // from 1, so escaping at t=52 releases a half-built flare instead of snapping it to full
+        // first and then letting go.
+        public float Flare => flare;
         private MaterialPropertyBlock block;
         // URP/Lit's albedo is _BaseColor. Setting "_Color" here would silently do nothing.
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
