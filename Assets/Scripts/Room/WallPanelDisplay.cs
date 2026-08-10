@@ -36,9 +36,14 @@ namespace IterationRoom
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
         private static readonly int EmissionId = Shader.PropertyToID("_EmissionColor");
 
+        // Lazily, not in Awake: a MaterialPropertyBlock is not serialized, so recompiling a script
+        // while play mode is running nulls it without Awake ever running again, and every
+        // SetPropertyBlock call after that throws. Editor-only, but that is exactly the moment it
+        // bites - mid-session, while tuning something.
+        private MaterialPropertyBlock Block => block ??= new MaterialPropertyBlock();
+
         private void Awake()
         {
-            block = new MaterialPropertyBlock();
             BuildOnsets();
             SetPowered(0f);
         }
@@ -105,10 +110,11 @@ namespace IterationRoom
                 // shouldn't stay dark while the room is blowing out around it.
                 albedo = Color.Lerp(albedo, Color.white, flare);
 
-                panels[i].GetPropertyBlock(block);
-                block.SetColor(BaseColorId, albedo);
-                block.SetColor(EmissionId, emission);
-                panels[i].SetPropertyBlock(block);
+                MaterialPropertyBlock b = Block;
+                panels[i].GetPropertyBlock(b);
+                b.SetColor(BaseColorId, albedo);
+                b.SetColor(EmissionId, emission);
+                panels[i].SetPropertyBlock(b);
             }
         }
 

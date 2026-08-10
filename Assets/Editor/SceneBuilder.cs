@@ -179,6 +179,11 @@ namespace IterationRoom.EditorTools
             (NarrationDirector narration, RoomAmbience ambience) =
                 BuildAudio(player, door, floorButton, wakeUp, nightstand.transform);
 
+            // TEMPORARY. An in-play panel for finding the room's brightness by eye instead of
+            // rebuilding between guesses - press F1 in play mode. Delete this line and the script
+            // once the values are settled and pasted back into SetupLighting/BuildCeilingLights.
+            new GameObject("LightingTuner").AddComponent<LightingTuner>();
+
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
             loop.loopDuration = 60f;

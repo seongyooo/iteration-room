@@ -30,10 +30,11 @@ namespace IterationRoom
         private bool green;
         private bool applied;
 
-        private void Awake()
-        {
-            block = new MaterialPropertyBlock();
-        }
+        // Lazily, not in Awake. A MaterialPropertyBlock is not serialized, so a script reload
+        // while play mode is running nulls this without Awake ever running again - and every
+        // SetPropertyBlock call after that throws. Editor-only, but recompiling mid-session while
+        // tuning something is precisely when it happens.
+        private MaterialPropertyBlock Block => block ??= new MaterialPropertyBlock();
 
         private void Start()
         {
@@ -61,12 +62,13 @@ namespace IterationRoom
         {
             if (half == null) return;
 
-            half.GetPropertyBlock(block);
-            block.SetColor(BaseColorId, lit ? color : color * unlitScale);
+            MaterialPropertyBlock b = Block;
+            half.GetPropertyBlock(b);
+            b.SetColor(BaseColorId, lit ? color : color * unlitScale);
             // Emission carries the "lit" read - albedo alone just looks like coloured plastic.
             // Pushed past 1 so it clears the deliberately high bloom threshold.
-            block.SetColor(EmissionId, lit ? color * litEmission : Color.black);
-            half.SetPropertyBlock(block);
+            b.SetColor(EmissionId, lit ? color * litEmission : Color.black);
+            half.SetPropertyBlock(b);
         }
     }
 }
