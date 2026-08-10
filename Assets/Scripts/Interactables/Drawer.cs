@@ -8,7 +8,7 @@ namespace IterationRoom
     // The drawer is generated geometry rather than a node on the model: nightstand.glb bakes its
     // whole body into a single mesh (Nightstand_Nightstand_0), so there is nothing in it to pull
     // out. SceneBuilder sizes this box from the model's own measured front face instead.
-    public class Drawer : GhostInteractable
+    public class Drawer : GhostInteractable, IInteractHintTarget
     {
         public Transform drawerBody;
         public Vector3 openLocalOffset = new Vector3(0f, 0f, -0.3f);
@@ -37,6 +37,11 @@ namespace IterationRoom
         private float openPulseUntil = -1f;
 
         public override bool PlayerSignal => Time.time < openPulseUntil;
+
+        // Only while it is shut. Once it is open the press that matters is the one on the tool
+        // inside, and that carries its own prompt.
+        public bool WantsInteractHint => playerInRange && !IsOpen;
+        public Transform HintAnchor => drawerBody != null ? drawerBody : transform;
 
         // Only the rising edge means anything: the fall is the recorded pulse expiring, not anyone
         // shutting the drawer. Routed straight to Open() rather than through RegisterPlayerOpen, so

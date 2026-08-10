@@ -17,13 +17,16 @@ namespace IterationRoom
         // Ids rather than references, so callers ask "is the key carried" without needing to hold a
         // pointer to the key object. KeyLock and the balloon tool both read this.
         private readonly HashSet<string> carried = new HashSet<string>();
+        // Everything picked up this iteration, including items since given up. ReturnAll works off
+        // this rather than off `carriedItems`, so a key surrendered to a lock is still put back
+        // where SceneBuilder left it - it must not survive the reset sitting in the keyhole.
         private readonly List<CarryableItem> taken = new List<CarryableItem>();
-        private readonly List<string> carriedNames = new List<string>();
+        private readonly List<CarryableItem> carriedItems = new List<CarryableItem>();
 
         // In pickup order, so the readout reads as a log of what you have done this iteration
-        // rather than as a sorted list. Bumped on every change so the HUD can skip rebuilding its
-        // string on the frames - almost all of them - where nothing happened.
-        public IReadOnlyList<string> CarriedNames => carriedNames;
+        // rather than as a sorted list. Bumped on every change so the HUD can skip rebuilding
+        // itself on the frames - almost all of them - where nothing happened.
+        public IReadOnlyList<CarryableItem> CarriedItems => carriedItems;
         public int Version { get; private set; }
 
         // The one item actually shown in the hand. Small items (the key) are pocketed instead, so
@@ -38,7 +41,7 @@ namespace IterationRoom
 
             carried.Add(item.itemId);
             taken.Add(item);
-            carriedNames.Add(string.IsNullOrEmpty(item.displayName) ? item.itemId : item.displayName);
+            carriedItems.Add(item);
             Version++;
 
             if (item.showInHand && holdAnchor != null)
@@ -52,6 +55,29 @@ namespace IterationRoom
             }
         }
 
+        // Hands an item over for good - the key going into Room2's lock. It stops counting as
+        // carried (so Has() is false and the HUD drops its icon) but stays in `taken`, because the
+        // loop still has to put it back at the top of the next iteration.
+        //
+        // Returns the item so the caller can place it; nobody else knows where it should go.
+        public CarryableItem Surrender(string itemId)
+        {
+            if (!carried.Remove(itemId)) return null;
+
+            CarryableItem given = null;
+            for (int i = carriedItems.Count - 1; i >= 0; i--)
+            {
+                if (carriedItems[i] == null || carriedItems[i].itemId != itemId) continue;
+                given = carriedItems[i];
+                carriedItems.RemoveAt(i);
+                break;
+            }
+
+            if (Held == given) Held = null;
+            Version++;
+            return given;
+        }
+
         public void ReturnAll()
         {
             foreach (CarryableItem item in taken)
@@ -59,7 +85,7 @@ namespace IterationRoom
 
             taken.Clear();
             carried.Clear();
-            carriedNames.Clear();
+            carriedItems.Clear();
             Held = null;
             Version++;
         }

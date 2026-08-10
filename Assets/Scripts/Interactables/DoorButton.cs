@@ -5,7 +5,7 @@ namespace IterationRoom
     // One-touch button: pressing attempts to open the door, but only succeeds
     // while the required FloorButton is active (held by the player or a ghost).
     [RequireComponent(typeof(Collider))]
-    public class DoorButton : GhostInteractable
+    public class DoorButton : GhostInteractable, IInteractHintTarget
     {
         public FloorButton requiredFloorButton;
         public Door door;
@@ -29,6 +29,11 @@ namespace IterationRoom
         // The stretched pulse, not "player is in range" - otherwise a second press made while
         // already standing at the button (tapping E after a denial) would never be recorded.
         public override bool PlayerSignal => Time.time < pressPulseUntil;
+
+        // Worth prompting even when the pad is not held: a denied press is how the player learns
+        // what the pad is for, and the prompt is teaching the key, not the puzzle.
+        public bool WantsInteractHint => playerInRange && (door == null || !door.IsOpen);
+        public Transform HintAnchor => transform;
 
         // Only the rising edge carries meaning. This is a one-touch button, so the fall is just
         // the recorded pulse expiring, not the player letting go of anything.
@@ -56,13 +61,13 @@ namespace IterationRoom
                 if (player != null) playerCollider = player.GetComponent<Collider>();
             }
 
-            bool inRange = playerCollider != null
+            // Arriving is deliberately NOT a press. This used to fire on the rising edge of coming
+            // into range, so walking into the button opened the door - which put it at odds with
+            // KeyLock next door, where walking into a locked door pointedly does not burn the
+            // attempt. Both are now E, and E alone, so the room asks for the same gesture twice.
+            playerInRange = playerCollider != null
                 && playerCollider.enabled
                 && trigger.bounds.Intersects(playerCollider.bounds);
-
-            // One-touch: pressing happens on the rising edge, i.e. the moment the player arrives.
-            if (inRange && !playerInRange) RegisterPlayerPress();
-            playerInRange = inRange;
         }
 
         private void Update()

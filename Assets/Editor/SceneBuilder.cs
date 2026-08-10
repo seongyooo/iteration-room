@@ -26,6 +26,7 @@ namespace IterationRoom.EditorTools
         private static readonly Color WallPanelColor = new Color(0.13f, 0.135f, 0.15f);
 
         private const string TexturesDir = "Assets/Textures";
+        private const string IconsDir = TexturesDir + "/Icons";
         private const string FontsDir = "Assets/Fonts";
         private const string AudioDir = "Assets/Audio";
         private const string VoiceDir = AudioDir + "/Voice";
@@ -34,6 +35,11 @@ namespace IterationRoom.EditorTools
         // Must match the range Tools/generate_narration.ps1 writes out. Past this the announcer
         // falls back to a generic line rather than going silent.
         private const int NarrationIterationLines = 30;
+
+        // Balloons get their own physics layer so the player's CharacterController can exclude it
+        // outright. See FirstPersonController.PushOverlapping for why not colliding with them at
+        // all is the point rather than a shortcut.
+        private const string BalloonLayerName = "Balloon";
 
         // Room shell dimensions. The wall-grid tiling is derived from these (see MakeGridMaterial),
         // so changing a dimension here keeps the grid cells the right physical size automatically -
@@ -192,28 +198,29 @@ namespace IterationRoom.EditorTools
             (BalloonField balloonField, CarryableItem key) = BuildBalloons(room.transform);
 
             // The wire format for ghost playback: an entry's index is its bit in
-            // RecordedFrame.signals. The recorder and the loop are handed the same array so the
-            // two can never drift out of order.
-            // Appended, never reordered: an entry's index here is its bit in RecordedFrame.signals.
-            // The drawer and the key lock are in it so a ghost repeats those too - pulling the
-            // drawer open, and unlocking Room2's door if the key was out of its balloon at the time.
-            GhostInteractable[] ghostInteractables = { floorButton, doorButton, drawer, keyLock };
+            // RecordedFrame.signals, so this is appended to and never reordered. The recorder and
+            // the loop are handed the same array, so the two can never drift out of order.
+            //
+            // The drawer is in it - pulling a drawer needs no inventory, so a ghost can repeat it.
+            // The KEY LOCK is deliberately NOT: the condition that lets the player open that door
+            // is holding the key, and a ghost cannot hold anything. See the note on KeyLock.
+            GhostInteractable[] ghostInteractables = { floorButton, doorButton, drawer };
 
             (GameObject player, FirstPersonController fpc, PlayerRecorder recorder, CameraShaker shaker, PlayerHand hand) = BuildPlayer(bedSpawn, ghostInteractables);
 
             GhostReplayer ghostPrefab = BuildGhostPrefab();
             GameObject ghostParent = new GameObject("Ghosts");
 
-            (IterationLabel label, WakeUpSequence wakeUp) = BuildUI(hand);
+            (IterationLabel label, WakeUpSequence wakeUp, Transform canvas) = BuildUI(hand);
             wakeUp.wallPanels = wallDisplay;
+
+            // Everything E does something to, in the order the player is likely to meet it. The
+            // prompt itself is shown over whichever of these is nearest, exactly once.
+            BuildControlHints(canvas, player.GetComponentInChildren<Camera>(), hand,
+                new MonoBehaviour[] { drawer, tool, doorButton, keyLock, key });
 
             (NarrationDirector narration, RoomAmbience ambience) =
                 BuildAudio(player, door, floorButton, wakeUp);
-
-            // TEMPORARY. An in-play panel for finding the room's brightness by eye instead of
-            // rebuilding between guesses - press F1 in play mode. Delete this line and the script
-            // once the values are settled and pasted back into SetupLighting/BuildCeilingLights.
-            new GameObject("LightingTuner").AddComponent<LightingTuner>();
 
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
@@ -259,6 +266,45 @@ namespace IterationRoom.EditorTools
             if (!AssetDatabase.IsValidFolder(AudioDir)) AssetDatabase.CreateFolder("Assets", "Audio");
             if (!AssetDatabase.IsValidFolder(VoiceDir)) AssetDatabase.CreateFolder(AudioDir, "Voice");
             if (!AssetDatabase.IsValidFolder(SfxDir)) AssetDatabase.CreateFolder(AudioDir, "SFX");
+            if (!AssetDatabase.IsValidFolder(IconsDir)) AssetDatabase.CreateFolder(TexturesDir, "Icons");
+        }
+
+        // Layers have to exist in ProjectSettings/TagManager.asset before anything can be put on
+        // one, and there is no scripting API that creates them - the settings asset is edited
+        // directly. Idempotent by name, so a rebuild reuses the slot instead of burning a new one
+        // every time (there are only 24 user layers, and this runs on every build).
+        private static int EnsureLayer(string layerName)
+        {
+            int existing = LayerMask.NameToLayer(layerName);
+            if (existing >= 0) return existing;
+
+            Object[] assets = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/TagManager.asset");
+            if (assets == null || assets.Length == 0)
+            {
+                Debug.LogWarning($"[SceneBuilder] TagManager.asset unreadable; '{layerName}' stays on Default.");
+                return 0;
+            }
+
+            SerializedObject tagManager = new SerializedObject(assets[0]);
+            SerializedProperty layers = tagManager.FindProperty("layers");
+
+            // 0-7 are Unity's own - Default, TransparentFX, Ignore Raycast, Water, UI and three
+            // reserved blanks. The blanks look free and are not: writing into one is silently
+            // dropped, so the search starts at 8.
+            for (int i = 8; i < layers.arraySize; i++)
+            {
+                SerializedProperty slot = layers.GetArrayElementAtIndex(i);
+                if (!string.IsNullOrEmpty(slot.stringValue)) continue;
+
+                slot.stringValue = layerName;
+                tagManager.ApplyModifiedProperties();
+                AssetDatabase.SaveAssets();
+                Debug.Log($"[SceneBuilder] Created layer '{layerName}' at index {i}.");
+                return i;
+            }
+
+            Debug.LogWarning($"[SceneBuilder] No free user layer for '{layerName}'; staying on Default.");
+            return 0;
         }
 
         // Ambient occlusion is a renderer feature on the URP renderer asset rather than a volume
@@ -452,7 +498,8 @@ namespace IterationRoom.EditorTools
             // Expect the ground colour to bleed onto the walls too - that's spherical harmonics
             // doing what bounce would, and it's why the walls read lit rather than painted.
             //
-            // Tuned in play mode with Dev/LightingTuner, 2026-08-10, over two passes.
+            // Tuned by eye in play mode, 2026-08-10, over two passes. (The IMGUI panel that was
+            // used to find these has since been deleted - the values are settled.)
             //
             // The fixtures came down (15 -> 9) and the floor band with them, but the walls went
             // back UP (0.644) after a pass at 0.138 - at that level the spots' falloff toward the
@@ -529,7 +576,7 @@ namespace IterationRoom.EditorTools
                     light.spotAngle = 130f;
                     light.innerSpotAngle = 45f;
                     light.range = 11f;
-                    // Found by eye against Neutral tonemapping, in play mode (Dev/LightingTuner).
+                    // Found by eye against Neutral tonemapping, in play mode.
                     // A 130-degree cone from over 5m up spreads its energy over most of the room,
                     // so this reads lower than it is: at 4 the room came out a dim grey.
                     //
@@ -650,6 +697,179 @@ namespace IterationRoom.EditorTools
                 h = (h ^ (h >> 13)) * 1274126177;
                 return ((h ^ (h >> 16)) & 0x7fffffff) / (float)0x7fffffff;
             }
+        }
+
+        // A tiny software rasteriser for the HUD's glyphs. They are drawn from code for the same
+        // reason the wall grain and the narration are: everything here has to rebuild from a
+        // script, and a folder of sourced PNGs was exactly the part that could not.
+        //
+        // Shapes are predicates over a 0..1 square with the origin bottom-left, matching Unity's
+        // texture coordinates so a row index needs no flipping. Coverage is supersampled 4x4, which
+        // is the whole reason a 128px disc has a clean edge rather than a staircase.
+        private sealed class IconCanvas
+        {
+            private const int Supersample = 4;
+
+            private readonly int size;
+            private readonly float[] coverage;
+
+            public IconCanvas(int size)
+            {
+                this.size = size;
+                coverage = new float[size * size];
+            }
+
+            // sign -1 cuts back out of what is already drawn - the hole in a key's bow, the hollow
+            // inside the mouse outline. Predicates compose, so an intersection is just &&.
+            public void Shape(System.Func<Vector2, bool> inside, float sign = 1f)
+            {
+                float step = 1f / (size * Supersample);
+                const float samples = Supersample * Supersample;
+
+                for (int y = 0; y < size; y++)
+                {
+                    for (int x = 0; x < size; x++)
+                    {
+                        float hits = 0f;
+                        for (int sy = 0; sy < Supersample; sy++)
+                            for (int sx = 0; sx < Supersample; sx++)
+                            {
+                                Vector2 p = new Vector2(
+                                    (x * Supersample + sx + 0.5f) * step,
+                                    (y * Supersample + sy + 0.5f) * step);
+                                if (inside(p)) hits++;
+                            }
+
+                        if (hits == 0f) continue;
+                        int i = y * size + x;
+                        coverage[i] = Mathf.Clamp01(coverage[i] + sign * (hits / samples));
+                    }
+                }
+            }
+
+            public void Disc(Vector2 centre, float radius, float sign = 1f) =>
+                Shape(p => (p - centre).sqrMagnitude <= radius * radius, sign);
+
+            public void Ring(Vector2 centre, float outer, float inner, float sign = 1f) =>
+                Shape(p =>
+                {
+                    float sqr = (p - centre).sqrMagnitude;
+                    return sqr <= outer * outer && sqr >= inner * inner;
+                }, sign);
+
+            // Described by centre, half extents and an angle rather than by four corners, so the
+            // needle and its handle can share one diagonal.
+            public void Bar(Vector2 centre, Vector2 halfExtents, float degrees = 0f, float sign = 1f)
+            {
+                float rad = -degrees * Mathf.Deg2Rad;
+                float cos = Mathf.Cos(rad), sin = Mathf.Sin(rad);
+
+                Shape(p =>
+                {
+                    Vector2 d = p - centre;
+                    // Un-rotate the sample rather than rotating the rectangle: an axis-aligned
+                    // containment test is the only one that stays trivially correct.
+                    Vector2 local = new Vector2(d.x * cos - d.y * sin, d.x * sin + d.y * cos);
+                    return Mathf.Abs(local.x) <= halfExtents.x && Mathf.Abs(local.y) <= halfExtents.y;
+                }, sign);
+            }
+
+            // White, with the whole shape carried in alpha: the HUD tints these through
+            // Image.color, and a glyph with baked-in colour could not be recoloured to match.
+            public Texture2D ToTexture(string name)
+            {
+                Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { name = name };
+                Color[] pixels = new Color[size * size];
+                for (int i = 0; i < pixels.Length; i++) pixels[i] = new Color(1f, 1f, 1f, coverage[i]);
+                tex.SetPixels(pixels);
+                tex.Apply();
+                return tex;
+            }
+        }
+
+        private static Sprite SaveSprite(IconCanvas canvas, string name)
+        {
+            string path = $"{IconsDir}/{name}.png";
+            Texture2D tex = canvas.ToTexture(name);
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+
+            if (AssetImporter.GetAtPath(path) is TextureImporter importer)
+            {
+                importer.textureType = TextureImporterType.Sprite;
+                importer.spriteImportMode = SpriteImportMode.Single;
+                importer.alphaIsTransparency = true;
+                importer.mipmapEnabled = false;
+                importer.filterMode = FilterMode.Bilinear;
+                importer.wrapMode = TextureWrapMode.Clamp;
+                // Uncompressed: these are a few KB each, and block compression frays the edge of a
+                // glyph that is nothing but alpha.
+                importer.textureCompression = TextureImporterCompression.Uncompressed;
+                importer.SaveAndReimport();
+            }
+
+            return AssetDatabase.LoadAssetAtPath<Sprite>(path);
+        }
+
+        // The pin, as a silhouette: a stubby grip and a long needle on one diagonal. Drawn on the
+        // diagonal rather than upright because upright it reads as a nail, and because a HUD slot
+        // is square - a diagonal uses the corners.
+        private static Sprite PinIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 along = new Vector2(0.7071f, 0.7071f);
+            Vector2 mid = new Vector2(0.5f, 0.5f);
+            // Everything is placed by distance along that one diagonal, so the parts stay in line
+            // however they are resized.
+            System.Func<float, Vector2> at = t => mid + along * t;
+
+            // The needle is deliberately fatter than the real pin is. This is drawn at 128px and
+            // displayed at 58: a truly slim needle lands on one screen pixel and disappears.
+            icon.Bar(at(0.235f), new Vector2(0.030f, 0.185f), -45f);
+            icon.Bar(at(-0.15f), new Vector2(0.058f, 0.19f), -45f);   // grip
+            icon.Disc(at(-0.34f), 0.058f);                            // rounded butt
+            icon.Disc(at(0.045f), 0.045f);                            // ferrule, where the two meet
+            return SaveSprite(icon, "icon_pin");
+        }
+
+        // The same silhouette BuildKeyShape cuts in three dimensions: ring bow, shaft, two teeth
+        // off one side only. A symmetrical bit would read as a cross.
+        private static Sprite KeyIcon()
+        {
+            var icon = new IconCanvas(128);
+            icon.Ring(new Vector2(0.5f, 0.72f), 0.20f, 0.095f);
+            icon.Bar(new Vector2(0.5f, 0.35f), new Vector2(0.045f, 0.20f));
+            icon.Bar(new Vector2(0.60f, 0.26f), new Vector2(0.07f, 0.042f));
+            icon.Bar(new Vector2(0.60f, 0.155f), new Vector2(0.07f, 0.042f));
+            return SaveSprite(icon, "icon_key");
+        }
+
+        // The grey disc both control hints sit on.
+        private static Sprite HintDiscSprite()
+        {
+            var icon = new IconCanvas(128);
+            icon.Disc(new Vector2(0.5f, 0.5f), 0.48f);
+            return SaveSprite(icon, "icon_hint_disc");
+        }
+
+        // A mouse seen from above, outlined, with the left button filled - which is the entire
+        // message. Built from one capsule distance function so the outline, the hollow and the
+        // button are all the same shape at three insets, and none of them can drift apart.
+        private static Sprite MouseLeftIcon()
+        {
+            var icon = new IconCanvas(128);
+            const float radius = 0.215f;
+            const float topY = 0.655f, bottomY = 0.345f;
+
+            System.Func<Vector2, float> toSpine = p =>
+                (p - new Vector2(0.5f, Mathf.Clamp(p.y, bottomY, topY))).magnitude;
+
+            icon.Shape(p => toSpine(p) <= radius);
+            icon.Shape(p => toSpine(p) <= radius - 0.042f, -1f);
+            icon.Shape(p => toSpine(p) <= radius - 0.072f && p.x < 0.484f && p.y > 0.60f);
+            return SaveSprite(icon, "icon_mouse_left");
         }
 
         // tiling is in repeats across one face. URP/Lit drives the normal map's UVs from _BaseMap's
@@ -1210,6 +1430,7 @@ namespace IterationRoom.EditorTools
             CarryableItem toolItem = toolRoot.AddComponent<CarryableItem>();
             toolItem.itemId = "Tool";
             toolItem.displayName = "PIN";
+            toolItem.icon = PinIcon();
             toolItem.showInHand = true;
             toolItem.requiresOpenDrawer = drawerComp;
             toolItem.audioSource = MakeSource(toolRoot.transform, "PickupAudio", 1f, 0.8f);
@@ -1251,6 +1472,20 @@ namespace IterationRoom.EditorTools
             Prim(PrimitiveType.Cube, "Tooth2", parent,
                 new Vector3(centre.x + 0.024f * scale, centre.y - 0.081f * scale, z),
                 new Vector3(0.03f * scale, 0.016f * scale, 0.011f * scale), mat, removeCollider: true);
+        }
+
+        // The hole a key goes into: a round seat for the shaft with a narrow slot under it.
+        // Two flat decals sitting on the plate face rather than a cut - the plate is a 0.09m cube
+        // and boring a hole through it would show the wall behind.
+        private static void BuildKeyholeSlot(Transform parent, Vector3 centre, Material mat)
+        {
+            GameObject seat = Prim(PrimitiveType.Cylinder, "KeyholeSeat", parent, centre,
+                new Vector3(0.055f, 0.002f, 0.055f), mat, removeCollider: true);
+            seat.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+            Prim(PrimitiveType.Cube, "KeyholeSlot", parent,
+                new Vector3(centre.x, centre.y - 0.037f, centre.z),
+                new Vector3(0.022f, 0.055f, 0.004f), mat, removeCollider: true);
         }
 
         // Room2's balloons, pooled rather than spawned. The pool is what makes a balloon's id mean
@@ -1295,11 +1530,17 @@ namespace IterationRoom.EditorTools
             int keyIndex = new System.Random(fieldSeed).Next(balloonCount);
             System.Random pitchRng = new System.Random(fieldSeed + 1);
 
+            // Their own layer, so the player's controller can exclude them outright and there is
+            // never any contact to be lifted by. Set on the root only - the collider lives there,
+            // and the children are visuals.
+            int balloonLayer = EnsureLayer(BalloonLayerName);
+
             Balloon[] balloons = new Balloon[balloonCount];
             for (int i = 0; i < balloonCount; i++)
             {
                 GameObject go = new GameObject($"Balloon_{i}");
                 go.transform.SetParent(root.transform, false);
+                go.layer = balloonLayer;
 
                 Prim(PrimitiveType.Sphere, "Body", go.transform, Vector3.zero,
                     new Vector3(0.48f, 0.58f, 0.48f), pink, removeCollider: true);
@@ -1358,6 +1599,7 @@ namespace IterationRoom.EditorTools
             CarryableItem keyItem = keyRoot.AddComponent<CarryableItem>();
             keyItem.itemId = "Key";
             keyItem.displayName = "KEY";
+            keyItem.icon = KeyIcon();
             keyItem.showInHand = false;
             keyItem.audioSource = MakeSource(keyRoot.transform, "PickupAudio", 1f, 0.9f);
             keyItem.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
@@ -1498,13 +1740,24 @@ namespace IterationRoom.EditorTools
             lockRoot.transform.SetParent(door.transform, false);
             lockRoot.transform.localPosition = new Vector3(-GridCellWidth, GridCellHeight * 1.5f, wallInnerZ - 0.06f);
 
-            // Taller and narrower than the door button next door, and carrying a key cut into its
-            // face - across a room the two have to read as different kinds of thing rather than as
-            // the same switch twice, and the shape is the puzzle saying what it wants.
+            // Taller and narrower than the door button next door: across a room the two have to
+            // read as different kinds of thing rather than as the same switch twice.
             GameObject plate = Prim(PrimitiveType.Cube, "Visual", lockRoot.transform, Vector3.zero,
                 new Vector3(0.2f, 0.3f, 0.09f), mat, removeCollider: true);
+
+            // A plain keyhole, NOT the key silhouette this used to carry. The etching said what the
+            // lock wanted, which was the right idea while nothing could ever be put in it - but the
+            // key is now literally inserted here, and an inserted key sitting on top of an engraved
+            // one reads as two keys. A keyhole says the same thing and leaves the socket empty.
             Material slotMat = MakeColorMaterial("KeySlot", new Color(0.06f, 0.06f, 0.07f));
-            BuildKeyShape(lockRoot.transform, new Vector3(0f, 0.015f, -0.048f), 1f, slotMat, mat);
+            BuildKeyholeSlot(lockRoot.transform, new Vector3(0f, -0.03f, -0.047f), slotMat);
+
+            // Where an accepted key is parked. Slightly proud of the plate and scaled down a
+            // touch, so it sits ON the lock rather than inside it, with its shaft over the hole.
+            GameObject socket = new GameObject("KeySocket");
+            socket.transform.SetParent(lockRoot.transform, false);
+            socket.transform.localPosition = new Vector3(0f, 0.044f, -0.062f);
+            socket.transform.localScale = Vector3.one * 0.85f;
 
             BoxCollider trigger = lockRoot.AddComponent<BoxCollider>();
             trigger.isTrigger = true;
@@ -1512,6 +1765,7 @@ namespace IterationRoom.EditorTools
 
             KeyLock keyLock = lockRoot.AddComponent<KeyLock>();
             keyLock.door = door;
+            keyLock.keySocket = socket.transform;
             keyLock.lockRenderer = plate.GetComponent<Renderer>();
             // The lamp over this door reports "you are carrying the key" the way the other one
             // reports "the pad is held".
@@ -1531,6 +1785,14 @@ namespace IterationRoom.EditorTools
             cc.height = 1.8f;
             cc.radius = 0.3f;
             cc.center = new Vector3(0f, 0.9f, 0f);
+
+            // The controller does not collide with balloons at all. They are still solid to each
+            // other, to the floor and to the walls - this excludes exactly one pair. Without it the
+            // player can stand on one, and the moment a balloon under a standing player takes any
+            // upward push at all, stepOffset walks them up onto it and they ride it to the ceiling.
+            // FirstPersonController pushes them from an overlap query instead of by contact.
+            int balloonLayer = EnsureLayer(BalloonLayerName);
+            cc.excludeLayers = 1 << balloonLayer;
 
             // A rig sits between the player and the camera purely so CameraShaker has somewhere to
             // write. FirstPersonController rewrites the camera's own localPosition and euler angles
@@ -1566,6 +1828,7 @@ namespace IterationRoom.EditorTools
 
             FirstPersonController fpc = player.AddComponent<FirstPersonController>();
             fpc.playerCamera = cam;
+            fpc.pushLayers = 1 << balloonLayer;
 
             PlayerRecorder recorder = player.AddComponent<PlayerRecorder>();
             recorder.interactables = ghostInteractables;
@@ -1917,32 +2180,144 @@ namespace IterationRoom.EditorTools
         // answerable by walking to the door and trying it.
         private static void BuildCarriedItems(Transform canvas, PlayerHand hand)
         {
+            const int slotCount = 4;
+            const float slotSize = 58f, gap = 14f;
+
             GameObject go = new GameObject("CarriedItems");
             go.transform.SetParent(canvas, false);
 
-            Text text = go.AddComponent<Text>();
-            text.font = UIFont();
-            text.fontSize = 26;
-            text.alignment = TextAnchor.UpperLeft;
-            text.horizontalOverflow = HorizontalWrapMode.Overflow;
-            text.verticalOverflow = VerticalWrapMode.Overflow;
-            // Red like the rest of the HUD: the walls are near-white, so white text disappears.
-            text.color = Color.red;
-            text.text = string.Empty;
-
-            RectTransform rect = text.GetComponent<RectTransform>();
+            RectTransform rect = go.AddComponent<RectTransform>();
             rect.anchorMin = new Vector2(0f, 1f);
             rect.anchorMax = new Vector2(0f, 1f);
             rect.pivot = new Vector2(0f, 1f);
-            rect.sizeDelta = new Vector2(420f, 160f);
+            rect.sizeDelta = new Vector2(slotCount * (slotSize + gap), slotSize);
             rect.anchoredPosition = new Vector2(36f, -30f);
+
+            // Four is two more than the puzzle currently has, which is the point: a slot is a few
+            // bytes and growing the pool later means rebuilding the scene.
+            Image[] slots = new Image[slotCount];
+            for (int i = 0; i < slotCount; i++)
+            {
+                GameObject slotGO = new GameObject($"Slot{i}");
+                slotGO.transform.SetParent(go.transform, false);
+
+                Image image = slotGO.AddComponent<Image>();
+                // Red like the rest of the HUD: the walls are near-white, so a white glyph
+                // disappears into them.
+                image.color = Color.red;
+                image.raycastTarget = false;
+                image.preserveAspect = true;
+                image.enabled = false;
+
+                RectTransform slotRect = image.GetComponent<RectTransform>();
+                slotRect.anchorMin = new Vector2(0f, 1f);
+                slotRect.anchorMax = new Vector2(0f, 1f);
+                slotRect.pivot = new Vector2(0f, 1f);
+                slotRect.sizeDelta = new Vector2(slotSize, slotSize);
+                slotRect.anchoredPosition = new Vector2(i * (slotSize + gap), 0f);
+
+                slots[i] = image;
+            }
 
             CarriedItemsDisplay display = go.AddComponent<CarriedItemsDisplay>();
             display.hand = hand;
-            display.label = text;
+            display.slots = slots;
         }
 
-        private static (IterationLabel label, WakeUpSequence wakeUp) BuildUI(PlayerHand hand)
+        // The two control prompts. A grey disc over whatever the player has walked up to, with an
+        // E on it, and a second disc carrying a mouse glyph that appears on the pin the moment it
+        // is in hand. Each is shown once and then retired for good - see ControlHintDisplay.
+        //
+        // Built last of everything on the canvas so it draws over the eyelids and the HUD, and
+        // parented to a full-screen rect so a screen point converts straight to an anchoredPosition.
+        private static void BuildControlHints(Transform canvas, Camera playerCamera, PlayerHand hand,
+                                              MonoBehaviour[] interactTargets)
+        {
+            Sprite disc = HintDiscSprite();
+
+            GameObject root = new GameObject("ControlHints");
+            root.transform.SetParent(canvas, false);
+            RectTransform area = root.AddComponent<RectTransform>();
+            area.anchorMin = Vector2.zero;
+            area.anchorMax = Vector2.one;
+            area.offsetMin = Vector2.zero;
+            area.offsetMax = Vector2.zero;
+
+            (CanvasGroup interactGroup, RectTransform interactRect) =
+                MakeHintBadge(area, "InteractHint", disc);
+            // The key itself, in the HUD's monospace face - the same one the iteration number and
+            // the clock use, because this is the facility labelling its own equipment.
+            GameObject glyphGO = new GameObject("Glyph");
+            glyphGO.transform.SetParent(interactRect, false);
+            Text glyph = glyphGO.AddComponent<Text>();
+            glyph.font = UIFont();
+            glyph.fontSize = 44;
+            glyph.alignment = TextAnchor.MiddleCenter;
+            glyph.color = Color.white;
+            glyph.raycastTarget = false;
+            glyph.text = "E";
+            RectTransform glyphRect = glyph.GetComponent<RectTransform>();
+            glyphRect.anchorMin = Vector2.zero;
+            glyphRect.anchorMax = Vector2.one;
+            glyphRect.offsetMin = Vector2.zero;
+            glyphRect.offsetMax = Vector2.zero;
+
+            (CanvasGroup swingGroup, RectTransform swingRect) = MakeHintBadge(area, "SwingHint", disc);
+            GameObject mouseGO = new GameObject("Glyph");
+            mouseGO.transform.SetParent(swingRect, false);
+            Image mouse = mouseGO.AddComponent<Image>();
+            mouse.sprite = MouseLeftIcon();
+            mouse.color = Color.white;
+            mouse.raycastTarget = false;
+            mouse.preserveAspect = true;
+            RectTransform mouseRect = mouse.GetComponent<RectTransform>();
+            mouseRect.anchorMin = new Vector2(0.5f, 0.5f);
+            mouseRect.anchorMax = new Vector2(0.5f, 0.5f);
+            mouseRect.sizeDelta = new Vector2(48f, 48f);
+            mouseRect.anchoredPosition = Vector2.zero;
+
+            ControlHintDisplay display = root.AddComponent<ControlHintDisplay>();
+            display.playerCamera = playerCamera;
+            display.hand = hand;
+            display.interactTargets = interactTargets;
+            display.area = area;
+            display.interactGroup = interactGroup;
+            display.interactRect = interactRect;
+            display.swingGroup = swingGroup;
+            display.swingRect = swingRect;
+        }
+
+        private static (CanvasGroup, RectTransform) MakeHintBadge(Transform parent, string name, Sprite disc)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            RectTransform rect = go.AddComponent<RectTransform>();
+            // Centred anchors: ControlHintDisplay writes a screen position straight into
+            // anchoredPosition, which only lines up if the anchor is the middle of the parent.
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(78f, 78f);
+
+            CanvasGroup group = go.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            // Never eats input: the end-cycle control is a real uGUI button, and a prompt that
+            // swallowed clicks would be a bug that only shows up when both are on screen.
+            group.blocksRaycasts = false;
+            group.interactable = false;
+
+            Image background = go.AddComponent<Image>();
+            background.sprite = disc;
+            // Grey and translucent - present enough to read against a white wall, quiet enough not
+            // to become the thing you look at.
+            background.color = new Color(0.25f, 0.25f, 0.27f, 0.78f);
+            background.raycastTarget = false;
+
+            return (group, rect);
+        }
+
+        private static (IterationLabel label, WakeUpSequence wakeUp, Transform canvas) BuildUI(PlayerHand hand)
         {
             GameObject canvasGO = new GameObject("Canvas");
             Canvas canvas = canvasGO.AddComponent<Canvas>();
@@ -2011,7 +2386,7 @@ namespace IterationRoom.EditorTools
             eventSystem.AddComponent<UnityEngine.EventSystems.EventSystem>();
             eventSystem.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
 
-            return (label, wakeUp);
+            return (label, wakeUp, canvasGO.transform);
         }
 
         // Two black panels that meet in the middle. They're driven through their anchors at

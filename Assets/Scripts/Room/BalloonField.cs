@@ -29,10 +29,6 @@ namespace IterationRoom
         // hanging in the air where the balloon was.
         public float keyFloorY = 0.06f;
 
-        // True once the balloon holding the key has been burst by anyone this iteration. KeyLock
-        // re-evaluates a ghost's replayed unlock against this.
-        public bool KeyRevealed { get; private set; }
-
         private Vector3[] spawnPoints;
         private Quaternion[] spawnRotations;
         private bool dropped;
@@ -74,7 +70,6 @@ namespace IterationRoom
         public void ResetField()
         {
             dropped = false;
-            KeyRevealed = false;
 
             if (balloons != null)
                 for (int i = 0; i < balloons.Length; i++)
@@ -127,11 +122,7 @@ namespace IterationRoom
             // The key drops to the floor under the burst. Revealed by whoever popped it, ghost or
             // player - a ghost finding it for you is the entire point of spending an iteration
             // searching.
-            if (balloon.holdsKey)
-            {
-                KeyRevealed = true;
-                if (key != null) key.RevealAt(new Vector3(at.x, keyFloorY, at.z));
-            }
+            if (balloon.holdsKey && key != null) key.RevealAt(new Vector3(at.x, keyFloorY, at.z));
         }
     }
 }
