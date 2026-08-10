@@ -8,10 +8,9 @@ namespace IterationRoom
         public Transform doorPanel;
         public Vector3 openLocalOffset = new Vector3(0f, 2.2f, 0f);
         public float openDuration = 1.0f;
-        public Renderer indicatorRenderer;
-        public Color closedColor = Color.red;
-        public Color openColor = new Color(0.2f, 1f, 0.4f);
-
+        // The lamp above the door is not driven from here - see DoorIndicator, which tracks the
+        // floor-button condition rather than this door's open state, so it can go green before the
+        // button is ever pressed.
         public AudioSource audioSource;
         public AudioClip openClip;
 
@@ -21,7 +20,6 @@ namespace IterationRoom
         private void Awake()
         {
             if (doorPanel != null) closedLocalPos = doorPanel.localPosition;
-            SetIndicator(closedColor);
         }
 
         public void Open()
@@ -30,7 +28,6 @@ namespace IterationRoom
             IsOpen = true;
             StopAllCoroutines();
             StartCoroutine(AnimateOpen());
-            SetIndicator(openColor);
 
             if (audioSource != null && openClip != null) audioSource.PlayOneShot(openClip);
         }
@@ -47,7 +44,6 @@ namespace IterationRoom
             StopAllCoroutines();
             IsOpen = false;
             if (doorPanel != null) doorPanel.localPosition = closedLocalPos;
-            SetIndicator(closedColor);
         }
 
         private IEnumerator AnimateOpen()
@@ -63,11 +59,6 @@ namespace IterationRoom
                 yield return null;
             }
             doorPanel.localPosition = end;
-        }
-
-        private void SetIndicator(Color color)
-        {
-            if (indicatorRenderer != null) indicatorRenderer.material.color = color;
         }
     }
 }

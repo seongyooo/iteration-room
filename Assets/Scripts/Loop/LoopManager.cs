@@ -26,6 +26,12 @@ namespace IterationRoom
         public WakeUpSequence wakeUpSequence;
         public NarrationDirector narration;
         public RoomAmbience ambience;
+        public WallPanelDisplay wallPanels;
+        public CameraShaker cameraShaker;
+
+        // How long before the reset the room starts coming apart: the wall displays blow out and
+        // the view begins to judder, both building to the moment the cycle takes you.
+        public float collapseLeadTime = 10f;
 
         // "10 seconds remaining." is cued earlier than ten seconds on purpose. The line runs about
         // two seconds, and from nine down the digit countdown replaces whatever the announcer is
@@ -146,10 +152,24 @@ namespace IterationRoom
                         else if (remaining >= 1 && remaining <= 9) narration?.AnnounceCountdown(remaining);
                     }
 
+                    // Squared, so the collapse is barely there at first and then runs away with
+                    // itself - a linear ramp reads as a slider being dragged.
+                    float toEnd = loopDuration - ElapsedTime;
+                    float collapse = collapseLeadTime > 0f
+                        ? 1f - Mathf.Clamp01(toEnd / collapseLeadTime)
+                        : 0f;
+                    wallPanels?.SetFlare(collapse * collapse);
+                    cameraShaker?.SetIntensity(collapse);
+
                     yield return null;
                 }
 
                 IterationRunning = false;
+
+                // Held at full through the blink shut - the room is still coming apart while the
+                // lids fall, which is what makes the reset feel like it happens *to* the player.
+                wallPanels?.SetFlare(1f);
+                cameraShaker?.SetIntensity(1f);
 
                 // The announcer acknowledges a voluntary end on the spot, because cutting the
                 // clock short skips the countdown - otherwise ending early is silent, and the one
@@ -166,6 +186,11 @@ namespace IterationRoom
 
                 if (wakeUpSequence != null)
                     yield return wakeUpSequence.CloseEyes();
+
+                // Cleared only once the screen is fully black. Stopping the shake while the player
+                // can still see would put a visible full stop on it.
+                cameraShaker?.SetIntensity(0f);
+                wallPanels?.SetFlare(0f);
 
                 if (timeline != null && timeline.Count > 0 && ghostPrefab != null)
                 {

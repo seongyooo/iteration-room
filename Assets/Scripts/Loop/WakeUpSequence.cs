@@ -10,11 +10,37 @@ namespace IterationRoom
         public RectTransform topLid;
         public RectTransform bottomLid;
 
-        public float closeDuration = 0.9f;
         public float heldShutDuration = 0.7f;
-        public float openDuration = 1.1f;
         public float lookAtCeilingDuration = 0.6f;
-        public float riseDuration = 1.6f;
+        public float riseDuration = 1.9f;
+        // A slight lean that leaves level and returns to it, so the horizon isn't nailed down while
+        // the body moves.
+        public float riseRoll = 3.5f;
+
+        // Lid keyframes: x = position to reach (0 open, 1 shut), y = seconds to take getting there.
+        //
+        // Eyes do not close like a shutter. The lids fall, snap part of the way back, fall further,
+        // and only then give out - and that flutter is what makes the loop taking you read as
+        // involuntary rather than as a fade-to-black transition.
+        public Vector2[] blinkShutKeys =
+        {
+            new Vector2(0.80f, 0.16f),
+            new Vector2(0.42f, 0.10f),
+            new Vector2(0.92f, 0.14f),
+            new Vector2(0.60f, 0.08f),
+            new Vector2(1.00f, 0.26f),
+        };
+
+        // Waking is the same shape in reverse, and heavier - the lids keep sagging back before they
+        // finally stay up.
+        public Vector2[] blinkOpenKeys =
+        {
+            new Vector2(0.60f, 0.30f),
+            new Vector2(0.80f, 0.15f),
+            new Vector2(0.20f, 0.32f),
+            new Vector2(0.36f, 0.12f),
+            new Vector2(0.00f, 0.38f),
+        };
 
         // Eye height and pitch while lying on the bed. Negative pitch looks up in Unity.
         public float lyingEyeHeight = 0.5f;
@@ -26,6 +52,10 @@ namespace IterationRoom
         public AudioClip gaspClip;
         public AudioClip sheetRustleClip;
 
+        // Where the lids currently sit, so a blink keyframe can start from wherever the last one
+        // left off rather than assuming fully open or fully shut.
+        private float lidPosition;
+
         private void Awake()
         {
             SetLids(0f);
@@ -33,8 +63,18 @@ namespace IterationRoom
 
         public IEnumerator CloseEyes()
         {
-            yield return Sweep(0f, 1f, closeDuration);
+            yield return Blink(blinkShutKeys);
             yield return new WaitForSeconds(heldShutDuration);
+        }
+
+        private IEnumerator Blink(Vector2[] keys)
+        {
+            if (keys == null || keys.Length == 0) yield break;
+
+            foreach (Vector2 key in keys)
+            {
+                yield return Sweep(lidPosition, key.x, key.y);
+            }
         }
 
         public IEnumerator WakeUp(FirstPersonController player)
@@ -58,7 +98,7 @@ namespace IterationRoom
 
             // Open onto the ceiling first and hold there, so the player registers where they are
             // before anything moves.
-            yield return Sweep(1f, 0f, openDuration);
+            yield return Blink(blinkOpenKeys);
             yield return new WaitForSeconds(lookAtCeilingDuration);
 
             // The room boots as the body sits up, so the two motions happen together rather than
@@ -74,14 +114,25 @@ namespace IterationRoom
                 while (elapsed < riseDuration)
                 {
                     elapsed += Time.deltaTime;
-                    float k = Mathf.SmoothStep(0f, 1f, elapsed / riseDuration);
+                    float k = Mathf.Clamp01(elapsed / riseDuration);
+
+                    // Body and head are deliberately decoupled. The body comes up on an ease-out -
+                    // quick off the pillow, settling as it arrives - while the head lags a quarter
+                    // of the way in and only levels once you are most of the way up. Driving both
+                    // from one SmoothStep, as this used to, is exactly what made it read as a
+                    // camera on rails instead of a person sitting up.
+                    float bodyK = 1f - Mathf.Pow(1f - k, 3f);
+                    float headK = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((k - 0.25f) / 0.75f));
+                    float roll = Mathf.Sin(k * Mathf.PI) * riseRoll;
+
                     player.SetEyePose(
-                        Mathf.Lerp(lyingEyeHeight, player.standingEyeHeight, k),
-                        Mathf.Lerp(lyingPitch, 0f, k));
+                        Mathf.Lerp(lyingEyeHeight, player.standingEyeHeight, bodyK),
+                        Mathf.Lerp(lyingPitch, 0f, headK),
+                        roll);
                     yield return null;
                 }
 
-                player.SetEyePose(player.standingEyeHeight, 0f);
+                player.SetEyePose(player.standingEyeHeight, 0f, 0f);
                 player.ControlEnabled = true;
             }
         }
@@ -108,6 +159,7 @@ namespace IterationRoom
         private void SetLids(float t)
         {
             t = Mathf.Clamp01(t);
+            lidPosition = t;
 
             if (topLid != null)
             {

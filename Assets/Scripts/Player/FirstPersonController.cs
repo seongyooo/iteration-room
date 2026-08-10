@@ -41,12 +41,14 @@ namespace IterationRoom
         // Places the eye at a given height and pitch. Writing back into `pitch` matters: without
         // it, the first mouse movement after control returns would snap the view back to whatever
         // angle the controller last held.
-        public void SetEyePose(float eyeHeight, float pitchDegrees)
+        // roll is cutscene-only: HandleLook writes the camera's euler angles with a zero Z every
+        // frame, so any lean is dropped the instant control returns - which is what we want.
+        public void SetEyePose(float eyeHeight, float pitchDegrees, float rollDegrees = 0f)
         {
             pitch = pitchDegrees;
             if (playerCamera == null) return;
             playerCamera.transform.localPosition = new Vector3(0f, eyeHeight, 0f);
-            playerCamera.transform.localEulerAngles = new Vector3(pitch, 0f, 0f);
+            playerCamera.transform.localEulerAngles = new Vector3(pitch, 0f, rollDegrees);
         }
 
         private void HandleLook()

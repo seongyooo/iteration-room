@@ -88,6 +88,9 @@ namespace IterationRoom.EditorTools
             Camera defaultCam = Camera.main;
             if (defaultCam != null) Object.DestroyImmediate(defaultCam.gameObject);
 
+            // One material for both slabs. Floor and ceiling were split apart for a marble floor;
+            // that was dropped in favour of a plain white one, and with the two surfaces identical
+            // again the split was only duplication.
             Material floorMat = MakeColorMaterial("FloorWhite", Color.white);
             // Sits at the bottom of every groove and inside the door pocket. Near-black so the
             // seams read the way the old painted-on grid lines did.
@@ -97,6 +100,13 @@ namespace IterationRoom.EditorTools
             // iteration, and what the reflection probes bake against. WallPanelDisplay drives them
             // to WallPanelColor and back through a property block at runtime.
             Material panelMat = MakeColorMaterial("PanelWhite", Color.white);
+            // Emission is enabled with a black colour: the keyword has to be compiled in for
+            // WallPanelDisplay's collapse flare to have anything to drive, and a property block
+            // cannot turn a shader keyword on. Black means it contributes nothing until then.
+            panelMat.EnableKeyword("_EMISSION");
+            panelMat.SetColor("_EmissionColor", Color.black);
+            panelMat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+            EditorUtility.SetDirty(panelMat);
 
             // Tiling is per face, and a wall panel's face is roughly 1.7 x 0.9m while a floor slab
             // is 9 x 10.9m - so the two need very different repeat counts to land on the same
@@ -118,6 +128,9 @@ namespace IterationRoom.EditorTools
             // a glazed wall.
             Texture2D surfaceGrain = MakeNoiseNormalMap("SurfaceGrain", 512, 2.5f);
             ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), 0.85f);
+            // Floor and ceiling: plain white, matte, with the same plaster grain the walls get -
+            // just at a far higher repeat count, since a slab face is 9 x 10.9m against a wall
+            // panel's 1.7 x 0.9m.
             ApplySurfaceDetail(floorMat, surfaceGrain, 1.8f, new Vector2(26f, 30f), 0.18f);
 
             GameObject room = new GameObject("Room");
@@ -155,7 +168,7 @@ namespace IterationRoom.EditorTools
             // two can never drift out of order.
             GhostInteractable[] ghostInteractables = { floorButton, doorButton };
 
-            (GameObject player, FirstPersonController fpc, PlayerRecorder recorder) = BuildPlayer(bedSpawn, ghostInteractables);
+            (GameObject player, FirstPersonController fpc, PlayerRecorder recorder, CameraShaker shaker) = BuildPlayer(bedSpawn, ghostInteractables);
 
             GhostReplayer ghostPrefab = BuildGhostPrefab();
             GameObject ghostParent = new GameObject("Ghosts");
@@ -180,6 +193,8 @@ namespace IterationRoom.EditorTools
             loop.wakeUpSequence = wakeUp;
             loop.narration = narration;
             loop.ambience = ambience;
+            loop.wallPanels = wallDisplay;
+            loop.cameraShaker = shaker;
 
             Directory.CreateDirectory("Assets/Scenes");
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -1048,14 +1063,38 @@ namespace IterationRoom.EditorTools
             // never blocks the opening it just cleared.
             GameObject panel = Prim(PrimitiveType.Cube, "DoorPanel", doorRoot.transform, new Vector3(0f, DoorHeight / 2f, slabZ), new Vector3(DoorWidth, DoorHeight, DoorThickness), mat);
 
-            GameObject indicator = Prim(PrimitiveType.Sphere, "DoorIndicatorLight", doorRoot.transform, new Vector3(0f, DoorHeight + 0.35f, wallInnerZ - 0.075f), new Vector3(0.15f, 0.15f, 0.15f), mat, removeCollider: true);
+            // A single lamp block split down the middle: red half on the left, green on the right,
+            // only ever one of them lit. Replaces a sphere, which read as a bauble rather than as
+            // a status light. Both halves share one emissive material and are driven apart by
+            // DoorIndicator through property blocks.
+            Material lampMat = MakeEmissiveMaterial("IndicatorLamp", Color.white, 1f);
+            const float lampWidth = 0.34f, lampHeight = 0.11f, lampDepth = 0.04f;
+            float lampY = DoorHeight + 0.28f;
+            // Proud of the wall surface by half its depth, so it sits on the panelling.
+            float lampZ = wallInnerZ - lampDepth / 2f;
+
+            GameObject lampRoot = new GameObject("DoorIndicator");
+            lampRoot.transform.SetParent(doorRoot.transform, false);
+
+            GameObject redHalf = Prim(PrimitiveType.Cube, "RedHalf", lampRoot.transform,
+                new Vector3(-lampWidth / 4f, lampY, lampZ),
+                new Vector3(lampWidth / 2f, lampHeight, lampDepth), lampMat, removeCollider: true);
+            GameObject greenHalf = Prim(PrimitiveType.Cube, "GreenHalf", lampRoot.transform,
+                new Vector3(lampWidth / 4f, lampY, lampZ),
+                new Vector3(lampWidth / 2f, lampHeight, lampDepth), lampMat, removeCollider: true);
 
             Door door = doorRoot.AddComponent<Door>();
             // Slides right (+X as seen from inside the loop room) by its own width, so it clears
             // the opening exactly.
             door.openLocalOffset = new Vector3(DoorWidth, 0f, 0f);
             door.doorPanel = panel.transform;
-            door.indicatorRenderer = indicator.GetComponent<Renderer>();
+            DoorIndicator indicator = lampRoot.AddComponent<DoorIndicator>();
+            indicator.redHalf = redHalf.GetComponent<Renderer>();
+            indicator.greenHalf = greenHalf.GetComponent<Renderer>();
+            // Tracks the condition, not the door: green the moment the floor button is held, so
+            // the lamp tells the player the door is openable before they walk over to try it.
+            indicator.requiredFloorButton = floorButton;
+            indicator.door = door;
 
             GameObject buttonRoot = new GameObject("DoorButton");
             buttonRoot.transform.SetParent(parent, false);
@@ -1078,7 +1117,7 @@ namespace IterationRoom.EditorTools
             return (door, doorButton);
         }
 
-        private static (GameObject, FirstPersonController, PlayerRecorder) BuildPlayer(Transform spawn, GhostInteractable[] ghostInteractables)
+        private static (GameObject, FirstPersonController, PlayerRecorder, CameraShaker) BuildPlayer(Transform spawn, GhostInteractable[] ghostInteractables)
         {
             GameObject player = new GameObject("Player");
             player.tag = "Player";
@@ -1090,8 +1129,15 @@ namespace IterationRoom.EditorTools
             cc.radius = 0.3f;
             cc.center = new Vector3(0f, 0.9f, 0f);
 
+            // A rig sits between the player and the camera purely so CameraShaker has somewhere to
+            // write. FirstPersonController rewrites the camera's own localPosition and euler angles
+            // every frame, so a shake applied to the camera itself would be wiped instantly.
+            GameObject rigGO = new GameObject("CameraRig");
+            rigGO.transform.SetParent(player.transform, false);
+            CameraShaker shaker = rigGO.AddComponent<CameraShaker>();
+
             GameObject camGO = new GameObject("PlayerCamera");
-            camGO.transform.SetParent(player.transform, false);
+            camGO.transform.SetParent(rigGO.transform, false);
             camGO.transform.localPosition = new Vector3(0f, 1.6f, 0f);
             Camera cam = camGO.AddComponent<Camera>();
             camGO.AddComponent<AudioListener>();
@@ -1121,7 +1167,7 @@ namespace IterationRoom.EditorTools
             PlayerRecorder recorder = player.AddComponent<PlayerRecorder>();
             recorder.interactables = ghostInteractables;
 
-            return (player, fpc, recorder);
+            return (player, fpc, recorder, shaker);
         }
 
         private static GhostReplayer BuildGhostPrefab()
