@@ -85,7 +85,9 @@ namespace IterationRoom
             if (menuGroup != null) menuGroup.blocksRaycasts = false;
 
             // The title and the buttons go, the background stays: the last thing on screen before
-            // the room loads is the room, which is also the first thing after.
+            // the room loads is the room, which is also the first thing after. What greets the
+            // player on the other side is the calibration step, which lives in the room scene -
+            // see SensitivityCalibration for why it is not here.
             yield return Fade(menuGroup, 0f);
 
             if (loadingGroup != null) loadingGroup.alpha = 1f;

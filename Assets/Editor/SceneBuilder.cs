@@ -112,6 +112,12 @@ namespace IterationRoom.EditorTools
         // pocket between them.
         private const float RoomPitch = RoomDepth + 2f * WallDepth + DoorPocketDepth;
 
+        // The sensitivity room. Deliberately NOT a multiple of RoomPitch in the positive direction
+        // - it is not part of the chain and must never be walked into, so it sits behind Room1 with
+        // a room's worth of nothing between them.
+        private const string CalibrationRoomName = "CalibrationRoom";
+        private const float CalibrationRoomZ = -2f * RoomPitch;
+
         [MenuItem("Iteration Room/Build Whitebox Scene")]
         public static void Build()
         {
@@ -181,8 +187,15 @@ namespace IterationRoom.EditorTools
             // "*_Panels" node, so this stays correct without four signature changes.
             var wallPanelRenderers = new System.Collections.Generic.List<Renderer>();
             foreach (Renderer r in room.GetComponentsInChildren<Renderer>())
-                if (r.transform.parent != null && r.transform.parent.name.EndsWith("_Panels"))
-                    wallPanelRenderers.Add(r);
+            {
+                if (r.transform.parent == null || !r.transform.parent.name.EndsWith("_Panels")) continue;
+                // The calibration room is left out. It is seen once, before the loop starts, and
+                // never again - so booting and flaring its ~88 panels would be a per-frame property
+                // block written to renderers nobody can look at. Property blocks already break SRP
+                // batching across this array; there is no reason to make it a third longer.
+                if (InCalibrationRoom(r.transform)) continue;
+                wallPanelRenderers.Add(r);
+            }
 
             GameObject displayGO = new GameObject("WallPanelDisplay");
             WallPanelDisplay wallDisplay = displayGO.AddComponent<WallPanelDisplay>();
@@ -271,7 +284,26 @@ namespace IterationRoom.EditorTools
                 roomThreePads[0], roomThreePads[1], roomThreePads[2], roomThreePads[3],
             };
 
-            (GameObject player, FirstPersonController fpc, PlayerRecorder recorder, CameraShaker shaker, PlayerHand hand) = BuildPlayer(bedSpawn, ghostInteractables);
+            // The player starts in the calibration room, not at the bed. Iteration 1 teleports them
+            // to bedSpawn at the top of RunLoop regardless, so this only decides where they stand
+            // while setting the sensitivity.
+            GameObject calibSpawnGO = new GameObject("CalibrationSpawn");
+            calibSpawnGO.transform.SetParent(room.transform, false);
+            // The SAME offset and facing as the bed spawn, one room over: (0, -0.7) looking at 180.
+            // That is not tidiness, it is the point of the room.
+            //
+            // Turning in place has the same angular rate whatever is in front of you, so the number
+            // being set is identical either way - but how FAST it feels is not. What the eye
+            // actually counts is detail crossing the view, and a far wall puts many more panel
+            // edges in a degree than a near one. An earlier version stood the player 3m from the
+            // south wall facing the length of the room, with 8.25m of wall ahead against the game's
+            // 4.55m: same sensitivity, noticeably quicker to look at. Matching the pose makes the
+            // calibration frame the frame the game opens on.
+            calibSpawnGO.transform.localPosition = new Vector3(0f, 0f, CalibrationRoomZ - 0.7f);
+            calibSpawnGO.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            Transform calibrationSpawn = calibSpawnGO.transform;
+
+            (GameObject player, FirstPersonController fpc, PlayerRecorder recorder, CameraShaker shaker, PlayerHand hand) = BuildPlayer(calibrationSpawn, ghostInteractables);
 
             GhostReplayer ghostPrefab = BuildGhostPrefab();
             GameObject ghostParent = new GameObject("Ghosts");
@@ -292,6 +324,9 @@ namespace IterationRoom.EditorTools
             // the last thing the player sees. (Pausing is locked out for its duration anyway - see
             // PauseMenu - but the draw order should not depend on that being true.)
             EndingSequence ending = BuildEndingScreen(canvas);
+            // Above even that, because it is the first thing the run shows and nothing else is
+            // running while it is up.
+            SensitivityCalibration calibration = BuildCalibrationPage(canvas);
 
             (NarrationDirector narration, RoomAmbience ambience) =
                 BuildAudio(player, new[] { door, door2, door3 },
@@ -321,12 +356,18 @@ namespace IterationRoom.EditorTools
             loop.cameraShaker = shaker;
             loop.escapeTrigger = escape;
             loop.endingSequence = ending;
+            loop.calibration = calibration;
 
             Directory.CreateDirectory("Assets/Scenes");
             EditorSceneManager.SaveScene(scene, ScenePath);
 
-            // Grabbed while the room is still the open scene and before anything else touches it:
-            // this is the frame the title screen sits behind.
+            // Grabbed while the room is still the open scene: this is the frame the title screen
+            // sits behind. The player is posed at the BED for it, not left where they actually
+            // start - since the calibration room they spawn in is an empty white box, and a menu
+            // advertising that would be advertising the wrong game. Safe to move them here because
+            // the scene has already been saved above, and the in-memory edit is discarded when the
+            // room is reopened from disk at the end of this method.
+            player.transform.SetPositionAndRotation(bedSpawn.position, bedSpawn.rotation);
             CaptureMenuBackground(player.GetComponentInChildren<Camera>());
 
             BuildMainMenuScene();
@@ -1250,6 +1291,21 @@ namespace IterationRoom.EditorTools
             // BuildRoomShell at 3 * RoomPitch.
             BuildDoorPocketFill(parent, "DoorPocketFill_3", 2f * RoomPitch, grooveMat, capFarSide: true);
 
+            // A sealed copy of the same shell, well clear of the chain, used for nothing but the
+            // mouse-sensitivity step before iteration 1. Rect.zero for both cutouts, so it has no
+            // doorways at all - the player is meant to look around it, not leave it, and there is
+            // nothing to leave through.
+            //
+            // Empty on purpose: no bed, no pad, no door, no lamp. What is being judged is how fast
+            // the room goes round, and furniture is something to look AT rather than something that
+            // shows motion. The panelling does that better than any prop - it is a regular grid, so
+            // the grooves sweeping past give the eye an unambiguous read on speed.
+            //
+            // Far enough out that no slab or wall overrun can touch Room1: this spans Z -26.95 to
+            // -16.45 against Room1's -5.25 to 5.25.
+            BuildRoomShell(parent, CalibrationRoomName, CalibrationRoomZ,
+                floorMat, grooveMat, panelMat, Rect.zero, Rect.zero);
+
             Material fixtureMat = MakeEmissiveMaterial("CeilingFixture", Color.white, 3.5f);
             // Shadows only in Room1. Every additional light's shadow shares one atlas, and the
             // rooms past the first hold nothing that casts a shadow worth the map: Room2 is
@@ -1257,11 +1313,15 @@ namespace IterationRoom.EditorTools
             BuildCeilingLights(parent, "Room1", 0f, fixtureMat, castShadows: true);
             BuildCeilingLights(parent, "Room2", RoomPitch, fixtureMat, castShadows: false);
             BuildCeilingLights(parent, "Room3", 2f * RoomPitch, fixtureMat, castShadows: false);
+            BuildCeilingLights(parent, CalibrationRoomName, CalibrationRoomZ, fixtureMat, castShadows: false);
 
-            // Built after the lights, so the probes capture the rooms already lit.
+            // Built after the lights, so the probes capture the rooms already lit. The calibration
+            // room needs its own: the walls are at 0.85 smoothness, and without a probe to reflect
+            // they mirror the procedural sky and come out tinted blue.
             BuildReflectionProbe(parent, "Room1", 0f);
             BuildReflectionProbe(parent, "Room2", RoomPitch);
             BuildReflectionProbe(parent, "Room3", 2f * RoomPitch);
+            BuildReflectionProbe(parent, CalibrationRoomName, CalibrationRoomZ);
         }
 
         // Fills the cavity between the two rooms' walls, everywhere except the volume the door slab
@@ -3150,6 +3210,143 @@ namespace IterationRoom.EditorTools
             eventSystem.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
 
             EditorSceneManager.SaveScene(menu, MenuScenePath);
+        }
+
+        // The step between PLAY and the load: move the mouse, watch the room turn, set the number
+        // before the clock has ever started. See SensitivityCalibration for why the pointer is
+        // captured here and why that forces the wheel and the arrow keys instead of a dragged
+        // slider - the pause menu's slider stays as the way to change it later.
+        //
+        // Laid out around the exact middle of the screen, which is where the buttons were: the page
+        // this replaces and the page it becomes occupy the same space, so nothing has to travel.
+        // The sensitivity step, built on the ROOM's canvas rather than the menu's - the player sets
+        // it while standing in the finished room looking through the real camera. See
+        // SensitivityCalibration for the two attempts that came before and why neither worked.
+        //
+        // The readout sits on its own dark plate rather than behind a full-screen scrim, so the
+        // room stays at full brightness behind it. The thing being judged is how the room moves;
+        // dimming it to make the text legible would be dimming the subject.
+        private static SensitivityCalibration BuildCalibrationPage(Transform canvas)
+        {
+            GameObject root = new GameObject("Calibration");
+            root.transform.SetParent(canvas, false);
+            CanvasGroup group = root.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            group.blocksRaycasts = false;
+            Stretch(root.AddComponent<RectTransform>());
+
+            // Sized to the block of text, and low enough in the frame that the middle of the view -
+            // where a player naturally looks while turning - stays clear.
+            GameObject plateGO = new GameObject("Plate");
+            plateGO.transform.SetParent(root.transform, false);
+            Image plate = plateGO.AddComponent<Image>();
+            plate.color = new Color(0.04f, 0.04f, 0.045f, 0.82f);
+            plate.raycastTarget = false;
+            RectTransform plateRect = plate.GetComponent<RectTransform>();
+            plateRect.anchorMin = new Vector2(0.5f, 0.5f);
+            plateRect.anchorMax = new Vector2(0.5f, 0.5f);
+            plateRect.sizeDelta = new Vector2(760f, 330f);
+            plateRect.anchoredPosition = new Vector2(0f, -190f);
+
+            MakeMenuLine(root.transform, "Headline", "M O U S E   S E N S I T I V I T Y", 34,
+                Color.red, new Vector2(0f, -70f), new Vector2(1400f, 60f));
+            MakeMenuLine(root.transform, "Instruction", "LOOK AROUND THE ROOM", 22,
+                new Color(1f, 0.35f, 0.35f, 0.85f), new Vector2(0f, -118f), new Vector2(1200f, 36f));
+
+            Text value = MakeMenuLine(root.transform, "Value", "1.10", 30, Color.red,
+                new Vector2(0f, -172f), new Vector2(400f, 44f));
+
+            // A readout rather than a control: with the pointer captured there is no cursor to drag
+            // a slider with, which is the price of measuring the same deltas the game does. The
+            // draggable one lives in the pause menu.
+            GameObject barGO = new GameObject("Gauge");
+            barGO.transform.SetParent(root.transform, false);
+            Image bar = barGO.AddComponent<Image>();
+            bar.color = new Color(0f, 0f, 0f, 0.6f);
+            bar.raycastTarget = false;
+            RectTransform barRect = bar.GetComponent<RectTransform>();
+            barRect.anchorMin = new Vector2(0.5f, 0.5f);
+            barRect.anchorMax = new Vector2(0.5f, 0.5f);
+            barRect.sizeDelta = new Vector2(620f, 12f);
+            barRect.anchoredPosition = new Vector2(0f, -214f);
+
+            GameObject fillGO = new GameObject("Fill");
+            fillGO.transform.SetParent(barGO.transform, false);
+            Image fill = fillGO.AddComponent<Image>();
+            fill.sprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
+            fill.type = Image.Type.Filled;
+            fill.fillMethod = Image.FillMethod.Horizontal;
+            fill.fillAmount = 0.5f;
+            fill.color = Color.red;
+            fill.raycastTarget = false;
+            Stretch(fill.GetComponent<RectTransform>());
+
+            // Wheel only. Keys are not offered because the player is walking around in here and
+            // both the arrows and A/D are bound to the Horizontal axis - every press that nudged
+            // the number would also strafe them.
+            MakeMenuLine(root.transform, "AdjustHint", "SCROLL TO ADJUST", 20,
+                new Color(1f, 0.35f, 0.35f, 0.7f), new Vector2(0f, -252f), new Vector2(1200f, 36f));
+            // Doubles as the pointer-lock state: a browser can refuse the capture, and this is
+            // where the page says so and asks for the click that fixes it.
+            Text lockHint = MakeMenuLine(root.transform, "LockHint", "[ENTER]  TO BEGIN", 24,
+                Color.red, new Vector2(0f, -300f), new Vector2(1200f, 40f));
+
+            SensitivityCalibration calibration = root.AddComponent<SensitivityCalibration>();
+            calibration.group = group;
+            calibration.fill = fill;
+            calibration.valueLabel = value;
+            calibration.lockHint = lockHint;
+
+            // Everything else on the canvas goes away while this is up. The countdown reading 1:00
+            // and a dimmed END CYCLE control are describing a loop that has not started, and the
+            // player is being asked to judge how the ROOM moves - anything else on screen is
+            // something for the eye to land on instead.
+            //
+            // Expressed as "all but these two" rather than as a list of what to hide, so a HUD
+            // element added later is covered without anyone remembering to come back here. PauseMenu
+            // stays live because a player who wants out must not be trapped by a settings screen.
+            var hidden = new System.Collections.Generic.List<GameObject>();
+            foreach (Transform child in canvas)
+            {
+                if (child == root.transform || child.name == "PauseMenu") continue;
+                hidden.Add(child.gameObject);
+            }
+            calibration.hideWhileActive = hidden.ToArray();
+
+            return calibration;
+        }
+
+        private static Text MakeMenuLine(Transform parent, string name, string content, int fontSize,
+                                         Color color, Vector2 anchoredPosition, Vector2 size)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            Text text = go.AddComponent<Text>();
+            text.font = UIFont();
+            text.fontSize = fontSize;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.color = color;
+            text.text = content;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            text.raycastTarget = false;
+
+            RectTransform rect = text.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = size;
+            rect.anchoredPosition = anchoredPosition;
+
+            return text;
+        }
+
+        private static bool InCalibrationRoom(Transform t)
+        {
+            for (Transform p = t; p != null; p = p.parent)
+                if (p.name == CalibrationRoomName) return true;
+            return false;
         }
 
         private static void Stretch(RectTransform rect)

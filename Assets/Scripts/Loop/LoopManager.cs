@@ -41,6 +41,9 @@ namespace IterationRoom
         public EscapeTrigger escapeTrigger;
         public EndingSequence endingSequence;
 
+        // The sensitivity step, run once before the first iteration. See SensitivityCalibration.
+        public SensitivityCalibration calibration;
+
         // How long before the reset the room starts coming apart: the wall displays blow out and
         // the view begins to judder, both building to the moment the cycle takes you.
         public float collapseLeadTime = 10f;
@@ -111,6 +114,18 @@ namespace IterationRoom
         // once the player has control, so every ghost's timeline covers the same window.
         private IEnumerator RunLoop()
         {
+            // Before anything: look around the room and set the mouse sensitivity. Outside the
+            // while, so it happens exactly once, and before IterationNumber has been incremented -
+            // the clock is stopped, IterationRunning is false, and every interactable is therefore
+            // already inert. The player has full control meanwhile, which is the point; iteration 1
+            // teleports them back to the bed regardless.
+            if (calibration != null)
+            {
+                calibration.Begin();
+                while (!calibration.Confirmed) yield return null;
+                calibration.End();
+            }
+
             while (true)
             {
                 IterationNumber++;

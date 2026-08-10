@@ -46,18 +46,31 @@ namespace IterationRoom
             {
                 sensitivitySlider.minValue = GameSettings.MinMouseSensitivity;
                 sensitivitySlider.maxValue = GameSettings.MaxMouseSensitivity;
-                // Seeded from the live setting, and without notifying: a Slider raises
-                // onValueChanged on assignment, so seeding after the listener was attached would
-                // write the slider's own starting value straight back over the saved one. This is
-                // the same trap the deleted LightingTuner fell into - a panel that silently
-                // overwrites the thing it was opened to adjust reads exactly like "my change never
-                // went in".
-                sensitivitySlider.SetValueWithoutNotify(GameSettings.MouseSensitivity);
+                // The listener is attached AFTER the first seed below, because a Slider raises
+                // onValueChanged on assignment - seeding through an attached listener would write
+                // the slider's own starting value straight back over the saved one.
+                SyncSensitivity();
                 sensitivitySlider.onValueChanged.AddListener(SetSensitivity);
             }
             ShowSensitivity();
 
             Apply(false);
+        }
+
+        // Re-read on every open, not seeded once in Awake, and that distinction is the whole of a
+        // bug this shipped with: Awake runs at scene load, the calibration step runs from
+        // LoopManager.Start() afterwards, so a slider seeded in Awake held the load-time value and
+        // never showed what the player had just set. Opening the pause menu reported the old number
+        // and dragging it snapped away from the real one.
+        //
+        // It is the other half of the lesson the deleted LightingTuner taught. "Seed the panel from
+        // the live state" is not a thing to do once - anything that can change the value behind the
+        // panel's back makes a single seed stale, and here something does.
+        private void SyncSensitivity()
+        {
+            if (sensitivitySlider != null)
+                sensitivitySlider.SetValueWithoutNotify(GameSettings.MouseSensitivity);
+            ShowSensitivity();
         }
 
         private void SetSensitivity(float value)
@@ -107,6 +120,8 @@ namespace IterationRoom
             if (IsPaused) return;
 
             controlBeforePause = playerController == null || playerController.ControlEnabled;
+            // Re-read here, every open. See SyncSensitivity.
+            SyncSensitivity();
             Apply(true);
         }
 
