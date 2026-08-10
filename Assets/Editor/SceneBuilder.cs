@@ -38,6 +38,17 @@ namespace IterationRoom.EditorTools
         // falls back to a generic line rather than going silent.
         private const int NarrationIterationLines = 30;
 
+        // The attribution shown at the bottom of the title screen. Everything in this project is
+        // generated from a script except the two furniture models and the HUD typeface, so this is
+        // the complete list of what came from somewhere else.
+        //
+        // ⚠️ IF THE MODELS ARE CC-BY RATHER THAN CC0 THIS IS NOT YET SUFFICIENT: BY requires the
+        // creator's name, and ideally a link to the source. Fill those in here the moment they are
+        // known - it is one string, and it is the only thing standing between this build and being
+        // properly credited.
+        private const string CreditsLine =
+            "FURNITURE MODELS: CREATIVE COMMONS   ·   TYPE: JETBRAINS MONO (SIL OFL)";
+
         // Balloons get their own physics layer so the player's CharacterController can exclude it
         // outright. See FirstPersonController.PushOverlapping for why not colliding with them at
         // all is the point rather than a shortcut.
@@ -2267,7 +2278,9 @@ namespace IterationRoom.EditorTools
         // this path - JetBrains Mono or IBM Plex Mono are both SIL OFL and drop straight in.
         private static Font UIFont()
         {
-            Font font = AssetDatabase.LoadAssetAtPath<Font>($"{FontsDir}/Consolas.ttf");
+            // The STATIC Regular, not the variable font that ships alongside it: uGUI's legacy
+            // Font has no axis control, so a variable face is a coin toss on which weight renders.
+            Font font = AssetDatabase.LoadAssetAtPath<Font>($"{FontsDir}/JetBrains_Mono/static/JetBrainsMono-Regular.ttf");
             // Falls back rather than throwing: a missing font should leave the UI ugly and legible,
             // not leave the scene unbuildable.
             return font != null ? font : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
@@ -2680,6 +2693,26 @@ namespace IterationRoom.EditorTools
             fill.color = Color.red;
             fill.raycastTarget = false;
             Stretch(fill.GetComponent<RectTransform>());
+
+            // Attribution, bottom centre. Small and dim: it has to be present and it must not
+            // compete with the two buttons. This is the only place it appears - a build that hands
+            // credit somewhere the player has to go looking is not really handing it over.
+            GameObject creditsGO = new GameObject("Credits");
+            creditsGO.transform.SetParent(canvasGO.transform, false);
+            Text credits = creditsGO.AddComponent<Text>();
+            credits.font = UIFont();
+            credits.fontSize = 15;
+            credits.alignment = TextAnchor.LowerCenter;
+            credits.color = new Color(1f, 1f, 1f, 0.42f);
+            credits.text = CreditsLine;
+            credits.horizontalOverflow = HorizontalWrapMode.Overflow;
+            credits.raycastTarget = false;
+            RectTransform creditsRect = credits.GetComponent<RectTransform>();
+            creditsRect.anchorMin = new Vector2(0.5f, 0f);
+            creditsRect.anchorMax = new Vector2(0.5f, 0f);
+            creditsRect.pivot = new Vector2(0.5f, 0f);
+            creditsRect.sizeDelta = new Vector2(1600f, 30f);
+            creditsRect.anchoredPosition = new Vector2(0f, 22f);
 
             MainMenu mainMenu = canvasGO.AddComponent<MainMenu>();
             mainMenu.menuGroup = menuGroup;

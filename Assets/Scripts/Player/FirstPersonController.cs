@@ -75,6 +75,30 @@ namespace IterationRoom
                 return;
             }
 
+            // Browsers only grant pointer lock from inside a user gesture, and refuse it for a
+            // while after the player has pressed Escape to leave it - so the lock requested in
+            // Start is routinely denied on WebGL, and resuming from the pause menu can be denied
+            // too. Clicking asks again, which is the one thing a player with a loose cursor will
+            // naturally do. On desktop this branch never runs.
+            if (Cursor.lockState != CursorLockMode.Locked)
+            {
+                // Visible while loose. The pause menu turns the cursor off on resume, and if that
+                // resume did not get its lock back, an invisible free pointer is the worst of both.
+                Cursor.visible = true;
+
+                if (Input.GetMouseButtonDown(0))
+                {
+                    Cursor.lockState = CursorLockMode.Locked;
+                    Cursor.visible = false;
+                }
+
+                // Looking is skipped entirely while loose: the mouse is a free pointer travelling
+                // across the page, and feeding that motion to the camera swings the view across
+                // the room as it goes.
+                HandleMove();
+                return;
+            }
+
             HandleLook();
             HandleMove();
         }

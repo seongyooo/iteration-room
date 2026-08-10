@@ -66,3 +66,7 @@ Captures/
 
 # Byte-cache from the Tools/ generator scripts.
 __pycache__/
+
+# Burst drops its generated WebGL plugin at the project root during a player build.
+# Build output, not source - the same category as Build/.
+/Data/
