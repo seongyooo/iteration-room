@@ -40,16 +40,30 @@ namespace IterationRoom.EditorTools
         // don't hardcode tiling numbers anywhere else.
         private const float RoomWidth = 8.75f;   // X span, i.e. the door wall
         private const float RoomDepth = 10.5f;   // Z span, i.e. the side walls
-        // A whole number of grid cells (5 x 1m) on purpose: at 4.5m the top row was a half cell,
-        // so the panelling ran off cut in half at the ceiling.
-        private const float RoomHeight = 5f;
         private const float WallThickness = 0.1f;
 
-        // Wall grid cells are deliberately landscape. Because a cell is wider than it is tall, a
-        // square texture cell would stretch the vertical lines relative to the horizontal ones, so
-        // the texture is baked with anisotropic line widths that cancel that out exactly.
+        // Wall grid cells are deliberately landscape, and as of 2026-08-10 they are exactly phi:1.
+        //
+        // Note what that costs and why it is spent on the height. A cell's WIDTH has to divide both
+        // 8.75 and 10.5 exactly, or the last column of a wall overshoots its end (BuildPanelWall
+        // lays cells at fixed GridCellWidth steps after rounding the column count). A cell's HEIGHT
+        // has to divide RoomHeight exactly, or the top row is a part cell and the panelling runs
+        // off cut in half at the ceiling - which is what a 4.5m room height did before.
+        //
+        // Both of those demand a rational ratio, and phi is irrational, so an exact phi cell and a
+        // fixed 8.75 x 10.5 x 5.0 room cannot both hold. Something has to move. The height is by far
+        // the cheapest thing to move: the floor plan carries the bed, the nightstand, the pad, the
+        // spawn point and the door, every one of them placed by eye against a film still, while the
+        // ceiling carries four light fixtures whose one tuned number is easy to re-find.
+        //
+        // So: the width stays at 1.75 (5 columns on the end walls, 6 on the sides), the height is
+        // derived from it, and RoomHeight follows from the row count rather than the other way
+        // round. Do not hand-edit RoomHeight - change GridRows.
+        private const float GoldenRatio = 1.6180339887498948f;
         private const float GridCellWidth = 1.75f;
-        private const float GridCellHeight = 1f;
+        private const float GridCellHeight = GridCellWidth / GoldenRatio;   // 1.0816
+        private const int GridRows = 5;
+        private const float RoomHeight = GridCellHeight * GridRows;         // 5.4078
         private const float GridLineThickness = 0.082f;
 
         // How far the gaps between wall panels are recessed. This is what turns the grid from a
@@ -497,14 +511,20 @@ namespace IterationRoom.EditorTools
                     light.innerSpotAngle = 45f;
                     light.range = 11f;
                     // Found by eye against Neutral tonemapping, in play mode (Dev/LightingTuner).
-                    // A 130-degree cone from 5m up spreads its energy over most of the room, so
-                    // this reads lower than it is: at 4 the room came out a dim grey.
+                    // A 130-degree cone from over 5m up spreads its energy over most of the room,
+                    // so this reads lower than it is: at 4 the room came out a dim grey.
                     //
-                    // History, because it has moved twice for different reasons: 11 with six
-                    // fixtures, then 15 when the count dropped to four, then down to 9 once the
-                    // ambient fill was cut back. The fill was doing more of the lighting than it
-                    // looked, so trimming it left the spots over-driven.
-                    light.intensity = 9f;
+                    // History, because it has moved three times for three different reasons: 11
+                    // with six fixtures, 15 when the count dropped to four, 9 once the ambient fill
+                    // was cut back (the fill had been doing more of the lighting than it looked),
+                    // and now 10.5 because the golden-ratio grid raised the ceiling.
+                    //
+                    // That last one is DERIVED, not tuned: the fixtures moved from 5.0m to 5.408m,
+                    // and 9 * (5.408/5.0)^2 = 10.5 holds the floor at the brightness that was
+                    // signed off at the lower ceiling. Inverse square is an approximation here -
+                    // the cone also spreads wider from higher up - so treat it as a starting point
+                    // and check it by eye.
+                    light.intensity = 10.5f;
                     // Barely off white - clinical rather than domestic, without tinting the room.
                     light.color = new Color(0.99f, 0.99f, 1f);
                     light.shadows = castShadows ? LightShadows.Soft : LightShadows.None;
