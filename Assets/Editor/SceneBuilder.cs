@@ -19,6 +19,13 @@ namespace IterationRoom.EditorTools
         private const string PrefabsDir = "Assets/Prefabs";
         private const string FurnitureDir = "Assets/ArtAssets/Furniture";
         private const string SettingsDir = "Assets/Settings";
+        private const string AudioDir = "Assets/Audio";
+        private const string VoiceDir = AudioDir + "/Voice";
+        private const string SfxDir = AudioDir + "/SFX";
+
+        // Must match the range Tools/generate_narration.ps1 writes out. Past this the announcer
+        // falls back to a generic line rather than going silent.
+        private const int NarrationIterationLines = 30;
 
         // Room shell dimensions. The wall-grid tiling is derived from these (see MakeGridMaterial),
         // so changing a dimension here keeps the grid cells the right physical size automatically -
@@ -92,16 +99,24 @@ namespace IterationRoom.EditorTools
             ConfigureAmbientOcclusion();
 
             (Transform bed, Transform bedSpawn) = BuildBed(room.transform, propMat);
-            BuildNightstand(room.transform);
+            GameObject nightstand = BuildNightstand(room.transform);
             FloorButton floorButton = BuildFloorButton(room.transform, propMat);
             (Door door, DoorButton doorButton) = BuildDoor(room.transform, floorButton, propMat);
 
-            (GameObject player, FirstPersonController fpc, PlayerRecorder recorder) = BuildPlayer(bedSpawn, floorButton);
+            // The wire format for ghost playback: an entry's index is its bit in
+            // RecordedFrame.signals. The recorder and the loop are handed the same array so the
+            // two can never drift out of order.
+            GhostInteractable[] ghostInteractables = { floorButton, doorButton };
+
+            (GameObject player, FirstPersonController fpc, PlayerRecorder recorder) = BuildPlayer(bedSpawn, ghostInteractables);
 
             GhostReplayer ghostPrefab = BuildGhostPrefab();
             GameObject ghostParent = new GameObject("Ghosts");
 
             (IterationLabel label, WakeUpSequence wakeUp) = BuildUI();
+
+            (NarrationDirector narration, RoomAmbience ambience) =
+                BuildAudio(player, door, wakeUp, nightstand.transform);
 
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
@@ -109,11 +124,14 @@ namespace IterationRoom.EditorTools
             loop.bedSpawnPoint = bedSpawn;
             loop.playerRecorder = recorder;
             loop.playerController = fpc;
-            loop.floorButton = floorButton;
+            loop.ghostInteractables = ghostInteractables;
+            loop.door = door;
             loop.ghostPrefab = ghostPrefab;
             loop.ghostParent = ghostParent.transform;
             loop.iterationLabel = label;
             loop.wakeUpSequence = wakeUp;
+            loop.narration = narration;
+            loop.ambience = ambience;
 
             Directory.CreateDirectory("Assets/Scenes");
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -129,6 +147,9 @@ namespace IterationRoom.EditorTools
             if (!AssetDatabase.IsValidFolder(MaterialsDir)) AssetDatabase.CreateFolder("Assets", "Materials");
             if (!AssetDatabase.IsValidFolder(PrefabsDir)) AssetDatabase.CreateFolder("Assets", "Prefabs");
             if (!AssetDatabase.IsValidFolder(SettingsDir)) AssetDatabase.CreateFolder("Assets", "Settings");
+            if (!AssetDatabase.IsValidFolder(AudioDir)) AssetDatabase.CreateFolder("Assets", "Audio");
+            if (!AssetDatabase.IsValidFolder(VoiceDir)) AssetDatabase.CreateFolder(AudioDir, "Voice");
+            if (!AssetDatabase.IsValidFolder(SfxDir)) AssetDatabase.CreateFolder(AudioDir, "SFX");
         }
 
         // Ambient occlusion is a renderer feature on the URP renderer asset rather than a volume
@@ -530,11 +551,12 @@ namespace IterationRoom.EditorTools
 
         // Ships with a lamp and a vase on it, so it restores what was lost when the bed model with
         // the built-in bedside table was swapped out. Z-up in centimetres, like the bed models.
-        private static void BuildNightstand(Transform parent)
+        private static GameObject BuildNightstand(Transform parent)
         {
-            PlaceModel($"{FurnitureDir}/nightstand.glb", parent, "Nightstand",
+            (GameObject nightstand, _) = PlaceModel($"{FurnitureDir}/nightstand.glb", parent, "Nightstand",
                 new Vector3(-0.95f, 0f, 1.35f), 0f, 0.01f, addBoxCollider: true,
                 rotation: Quaternion.Euler(-90f, 180f, 0f));
+            return nightstand;
         }
 
         private static FloorButton BuildFloorButton(Transform parent, Material mat)
@@ -569,7 +591,12 @@ namespace IterationRoom.EditorTools
             float wallInnerZ = RoomDepth / 2f;
             float slabZ = wallInnerZ + WallDepth + DoorPocketDepth / 2f;
 
-            GameObject panel = Prim(PrimitiveType.Cube, "DoorPanel", doorRoot.transform, new Vector3(0f, DoorHeight / 2f, slabZ), new Vector3(DoorWidth, DoorHeight, DoorThickness), mat, removeCollider: true);
+            // The slab KEEPS its collider. The doorway is cut out of both walls' collision, so the
+            // closed door is the only thing standing between the two rooms - built without one, the
+            // player just walks through it and the whole two-iteration puzzle is bypassable. Once
+            // open the slab sits at x 0.65..1.95, entirely behind the wall's own collision, so it
+            // never blocks the opening it just cleared.
+            GameObject panel = Prim(PrimitiveType.Cube, "DoorPanel", doorRoot.transform, new Vector3(0f, DoorHeight / 2f, slabZ), new Vector3(DoorWidth, DoorHeight, DoorThickness), mat);
 
             GameObject indicator = Prim(PrimitiveType.Sphere, "DoorIndicatorLight", doorRoot.transform, new Vector3(0f, DoorHeight + 0.35f, wallInnerZ - 0.075f), new Vector3(0.15f, 0.15f, 0.15f), mat, removeCollider: true);
 
@@ -601,7 +628,7 @@ namespace IterationRoom.EditorTools
             return (door, doorButton);
         }
 
-        private static (GameObject, FirstPersonController, PlayerRecorder) BuildPlayer(Transform spawn, FloorButton floorButton)
+        private static (GameObject, FirstPersonController, PlayerRecorder) BuildPlayer(Transform spawn, GhostInteractable[] ghostInteractables)
         {
             GameObject player = new GameObject("Player");
             player.tag = "Player";
@@ -629,7 +656,7 @@ namespace IterationRoom.EditorTools
             fpc.playerCamera = cam;
 
             PlayerRecorder recorder = player.AddComponent<PlayerRecorder>();
-            recorder.floorButton = floorButton;
+            recorder.interactables = ghostInteractables;
 
             return (player, fpc, recorder);
         }
@@ -774,6 +801,116 @@ namespace IterationRoom.EditorTools
 
             EditorUtility.SetDirty(mat);
             return mat;
+        }
+
+        // Assembles every audio source and resolves its clips by filename convention. Clips that
+        // aren't there yet resolve to null and every player guards on that, so the scene is fully
+        // playable with an empty SFX folder - dropping a correctly-named file in and rebuilding is
+        // all it takes to make that cue audible. See Assets/Audio/SFX/README.md for the names.
+        private static (NarrationDirector, RoomAmbience) BuildAudio(GameObject player, Door door, WakeUpSequence wakeUp, Transform nightstand)
+        {
+            GameObject root = new GameObject("Audio");
+
+            // --- the PA announcer ---
+            GameObject paGO = new GameObject("PA");
+            paGO.transform.SetParent(root.transform, false);
+            NarrationDirector narration = paGO.AddComponent<NarrationDirector>();
+            // 2D on purpose: a room-wide tannoy has no position you could walk away from.
+            narration.voiceSource = MakeSource(paGO.transform, "Voice", 0f, 1f);
+            narration.chimeSource = MakeSource(paGO.transform, "Chime", 0f, 0.7f);
+
+            AudioClip[] iterationLines = new AudioClip[NarrationIterationLines];
+            for (int i = 0; i < iterationLines.Length; i++)
+                iterationLines[i] = LoadClip(VoiceDir, $"voice_iteration_{i + 1:00}");
+            narration.iterationLines = iterationLines;
+            narration.iterationGenericLine = LoadClip(VoiceDir, "voice_iteration_generic");
+            narration.tenSecondsLine = LoadClip(VoiceDir, "voice_ten_seconds");
+
+            // Element 0 is "Nine.", counting down to "One." at the end.
+            AudioClip[] countdownLines = new AudioClip[9];
+            for (int i = 0; i < countdownLines.Length; i++)
+                countdownLines[i] = LoadClip(VoiceDir, $"voice_count_{9 - i}");
+            narration.countdownLines = countdownLines;
+            narration.newCycleLine = LoadClip(VoiceDir, "voice_new_cycle");
+            narration.announcementChime = LoadClip(SfxDir, "sfx_chime");
+
+            // --- room tone and machinery ---
+            GameObject ambienceGO = new GameObject("Ambience");
+            ambienceGO.transform.SetParent(root.transform, false);
+            RoomAmbience ambience = ambienceGO.AddComponent<RoomAmbience>();
+            ambience.musicSource = MakeSource(ambienceGO.transform, "Music", 0f, 0.5f, loop: true);
+            ambience.machineSource = MakeSource(ambienceGO.transform, "Machines", 0f, 0.7f);
+            // Positional, and parented to the nightstand: the rattle is the lamp and vase standing
+            // on it, so it has to come from over there rather than from the middle of your head.
+            ambience.propRattleSource = MakeSource(nightstand, "PropRattle", 1f, 0.9f);
+            ambience.ominousLoop = LoadClip(SfxDir, "sfx_ominous_loop");
+            ambience.resetSting = LoadClip(SfxDir, "sfx_reset_sting");
+            ambience.machinesRev = LoadClip(SfxDir, "sfx_machines_rev");
+            ambience.propRattle = LoadClip(SfxDir, "sfx_glass_rattle");
+
+            // --- footsteps ---
+            // Player only. FootstepPlayer reads nothing but the transform, so the identical
+            // component dropped on the Ghost prefab would give the ghosts footsteps too - left off
+            // deliberately, since ghosts accumulate without limit and so would their steps.
+            FootstepPlayer footsteps = player.AddComponent<FootstepPlayer>();
+            footsteps.source = MakeSource(player.transform, "Footsteps", 0f, 0.8f);
+            footsteps.footstepClips = LoadNumberedClips(SfxDir, "sfx_footstep_", 4);
+
+            // --- the door ---
+            door.audioSource = MakeSource(door.transform, "DoorAudio", 1f, 1f);
+            door.openClip = LoadClip(SfxDir, "sfx_door_open");
+
+            // --- the body waking up ---
+            // 2D and parented to the player: this is the player's own breath, not a sound in the
+            // room. It hangs off the player rather than the WakeUpSequence, which lives on the UI
+            // canvas where a positional source would be meaningless.
+            wakeUp.bodySource = MakeSource(player.transform, "BodyAudio", 0f, 1f);
+            wakeUp.gaspClip = LoadClip(SfxDir, "sfx_gasp");
+            wakeUp.sheetRustleClip = LoadClip(SfxDir, "sfx_sheet_rustle");
+
+            return (narration, ambience);
+        }
+
+        // spatialBlend 0 is 2D (heard the same everywhere), 1 is fully positional.
+        private static AudioSource MakeSource(Transform parent, string name, float spatialBlend, float volume, bool loop = false)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            AudioSource source = go.AddComponent<AudioSource>();
+            source.playOnAwake = false;
+            source.loop = loop;
+            source.spatialBlend = spatialBlend;
+            source.volume = volume;
+            // Linear rather than the logarithmic default: the room is only ~10m across, and the
+            // default curve is still near full volume across the whole of it.
+            source.rolloffMode = AudioRolloffMode.Linear;
+            source.minDistance = 1f;
+            source.maxDistance = 14f;
+            return source;
+        }
+
+        // Extension-agnostic, so a sourced .ogg or .mp3 drops in as readily as a .wav.
+        private static AudioClip LoadClip(string dir, string baseName)
+        {
+            foreach (string ext in new[] { ".wav", ".ogg", ".mp3", ".aif", ".aiff" })
+            {
+                AudioClip clip = AssetDatabase.LoadAssetAtPath<AudioClip>($"{dir}/{baseName}{ext}");
+                if (clip != null) return clip;
+            }
+            return null;
+        }
+
+        // Collects sfx_footstep_1..N, skipping gaps, so partially-filled sets still work.
+        private static AudioClip[] LoadNumberedClips(string dir, string prefix, int count)
+        {
+            var clips = new System.Collections.Generic.List<AudioClip>();
+            for (int i = 1; i <= count; i++)
+            {
+                AudioClip clip = LoadClip(dir, prefix + i);
+                if (clip != null) clips.Add(clip);
+            }
+            return clips.ToArray();
         }
 
         private static (IterationLabel label, WakeUpSequence wakeUp) BuildUI()

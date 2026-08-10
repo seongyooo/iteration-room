@@ -6,7 +6,7 @@ namespace IterationRoom
     // Hold-type button: active only while the real player OR at least one ghost
     // is currently occupying it. No toggle state - releasing deactivates instantly.
     [RequireComponent(typeof(Collider))]
-    public class FloorButton : MonoBehaviour
+    public class FloorButton : GhostInteractable
     {
         public Renderer buttonRenderer;
         public Color inactiveColor = Color.white;
@@ -16,6 +16,10 @@ namespace IterationRoom
         private readonly HashSet<GhostReplayer> ghostsHolding = new HashSet<GhostReplayer>();
 
         public bool IsActive => PlayerHolding || ghostsHolding.Count > 0;
+
+        // A hold button records the level directly - the ghost stands on it for exactly as long as
+        // the player did, which is the whole mechanic (spec §5).
+        public override bool PlayerSignal => PlayerHolding;
 
         private Collider trigger;
         private Collider playerCollider;
@@ -54,9 +58,9 @@ namespace IterationRoom
             }
         }
 
-        public void SetGhostHolding(GhostReplayer ghost, bool holding)
+        public override void SetGhostSignal(GhostReplayer ghost, bool active)
         {
-            if (holding) ghostsHolding.Add(ghost);
+            if (active) ghostsHolding.Add(ghost);
             else ghostsHolding.Remove(ghost);
             UpdateVisual();
         }

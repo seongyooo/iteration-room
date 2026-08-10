@@ -12,6 +12,9 @@ namespace IterationRoom
         public Color closedColor = Color.red;
         public Color openColor = new Color(0.2f, 1f, 0.4f);
 
+        public AudioSource audioSource;
+        public AudioClip openClip;
+
         public bool IsOpen { get; private set; }
         private Vector3 closedLocalPos;
 
@@ -28,6 +31,23 @@ namespace IterationRoom
             StopAllCoroutines();
             StartCoroutine(AnimateOpen());
             SetIndicator(openColor);
+
+            if (audioSource != null && openClip != null) audioSource.PlayOneShot(openClip);
+        }
+
+        // Snaps the door back shut. The loop calls this at the top of every iteration, while the
+        // eyelids are still closed, so the reset is never seen. Without it the door is world state
+        // the loop forgets to rewind: IsOpen stays true, Open() early-outs on it, and every
+        // iteration after the first solve begins with the door already standing open.
+        //
+        // Deliberately silent: this is the loop rewinding world state behind a black screen, not
+        // the door being shut. A sound here would draw attention to the seam.
+        public void Close()
+        {
+            StopAllCoroutines();
+            IsOpen = false;
+            if (doorPanel != null) doorPanel.localPosition = closedLocalPos;
+            SetIndicator(closedColor);
         }
 
         private IEnumerator AnimateOpen()

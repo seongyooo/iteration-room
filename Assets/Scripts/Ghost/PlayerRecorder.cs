@@ -3,12 +3,13 @@ using UnityEngine;
 
 namespace IterationRoom
 {
-    // Samples the player's transform and floor-button hold state at a fixed
-    // interval while a loop is running, so it can be handed to a GhostReplayer
-    // for exact playback next iteration.
+    // Samples the player's transform and interaction signals at a fixed interval while a loop is
+    // running, so the result can be handed to a GhostReplayer for exact playback next iteration.
     public class PlayerRecorder : MonoBehaviour
     {
-        public FloorButton floorButton;
+        // Order matters: an interactable's index here is its bit in RecordedFrame.signals, and
+        // GhostReplayer decodes with the same list. SceneBuilder assigns both from one array.
+        public GhostInteractable[] interactables;
         public float sampleInterval = 0.02f;
 
         private readonly List<RecordedFrame> frames = new List<RecordedFrame>();
@@ -36,12 +37,27 @@ namespace IterationRoom
             if (sampleTimer > 0f) return;
             sampleTimer = sampleInterval;
 
-            bool holding = floorButton != null && floorButton.PlayerHolding;
             frames.Add(new RecordedFrame(
                 LoopManager.Instance.ElapsedTime,
                 transform.position,
                 transform.eulerAngles.y,
-                holding));
+                SampleSignals()));
+        }
+
+        private uint SampleSignals()
+        {
+            if (interactables == null) return 0u;
+
+            uint signals = 0u;
+            // 32 is the width of the mask. Past that an interactable would silently alias onto
+            // another one's bit, so it is dropped instead.
+            int count = Mathf.Min(interactables.Length, 32);
+            for (int i = 0; i < count; i++)
+            {
+                if (interactables[i] != null && interactables[i].PlayerSignal)
+                    signals |= 1u << i;
+            }
+            return signals;
         }
     }
 }

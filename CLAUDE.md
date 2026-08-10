@@ -2,7 +2,7 @@
 
 Unity prototype of a 1-room, first-person time-loop puzzle game (ref: 2016 short film "Iteration 1"). Full design spec: `iteration-game-spec.md`. Layout reference sketch: `iteration_room_layout.png`. `room_layout_sample.png` is an actual film still used as the furniture-placement reference (bed/nightstand/floor-button positions).
 
-**Status**: core loop implemented and manually play-tested as working (hold floor button for a full iteration → next iteration the ghost holds it while the player opens the door). A polish pass (centered furniture, bigger wall grid, real furniture models, shadow-like ghost, jump) has also been applied and rebuilt cleanly.
+**Status**: core loop implemented and manually play-tested as working (hold floor button for a full iteration → next iteration the ghost holds it while the player opens the door). A polish pass (centered furniture, bigger wall grid, real furniture models, shadow-like ghost, jump) has also been applied and rebuilt cleanly. A QA pass (2026-08-09) then found and fixed three defects that a play-test doesn't surface on its own — see **QA findings** below — and an audio/narration layer has been added.
 
 ## Stack
 
@@ -33,7 +33,7 @@ Once Unity MCP is connected in a session, prefer it for incremental/visual tweak
 
 ## Scene layout (current coordinates, all under namespace `IterationRoom`, room shell built in `Assets/Editor/SceneBuilder.cs`)
 
-- **Two rooms**, built by the same `BuildRoomShell` at different Z centres: `Room1` (the loop room, centre Z=0) and `Room2` (identical, empty, centre Z=`RoomPitch`=10.75). They share a divider — Room1's north wall and Room2's south wall sit back to back with the same doorway cut out of both the panelling and the collision, making a walk-through passage. Scene paths are `Room/Room1/...` and `Room/Room2/...`; furniture and buttons still hang off `Room/` directly.
+- **Two rooms**, built by the same `BuildRoomShell` at different Z centres: `Room1` (the loop room, centre Z=0) and `Room2` (identical, empty, centre Z=`RoomPitch`=10.85, i.e. `RoomDepth 10.5 + 2×WallDepth 0.125 + DoorPocketDepth 0.1`). They share a divider — Room1's north wall and Room2's south wall sit back to back with the same doorway cut out of both the panelling and the collision, making a walk-through passage. Scene paths are `Room/Room1/...` and `Room/Room2/...`; furniture and buttons still hang off `Room/` directly.
   - Floor/ceiling slabs span the full `RoomPitch`, not just the interior, so adjacent rooms' floors meet exactly under the divider. Sized to the interior they leave an open gap at the threshold and the player drops through it.
 - Room bounds (each room): X -4.375..4.375 (width 8.75), Z ±5.25 about its centre (depth 10.5), height **5.0**. Door, bed, and spawn all share the X=0 axis (centered layout). `BuildRoomShell`'s minZ/maxZ are derived as `zCenter ± depth/2` — don't hardcode them, it'll decenter the room.
   - The height is a **whole number of grid cells (5 x 1m) on purpose**. At 4.5m the top row was a half cell, so the panelling ran off cut in half at the ceiling. Keep `RoomHeight` an exact multiple of `GridCellHeight`.
@@ -65,13 +65,66 @@ Once Unity MCP is connected in a session, prefer it for incremental/visual tweak
 - `Loop/LoopManager.cs` — singleton driving the 60s loop. The whole loop is **one coroutine (`RunLoop`), not `Update`**: an iteration now opens and closes with the wake-up sequence, and the clock and the ghosts have to stay frozen while that plays. Recording deliberately starts only once the player has control, so every ghost's timeline covers the same window — start it before the wake-up and you get a pile of frames all stamped t=0.
 - `Loop/WakeUpSequence.cs` — the transition between iterations: eyelids (two black UI panels driven through their *anchors*, so they cover any resolution) fall shut as time runs out, then open on the ceiling before the player sits up. It borrows the camera by clearing `FirstPersonController.ControlEnabled` and posing the eye via `SetEyePose(height, pitch)`. Negative pitch looks up.
 - `Loop/IterationLabel.cs` — fades the center-screen "Iteration N" text in/out. The eyelids are built first in `BuildUI` so they sit at the back of the canvas and the label/timer draw on top of the black rather than being covered by it.
-- `Ghost/RecordedFrame.cs`, `Ghost/PlayerRecorder.cs`, `Ghost/GhostReplayer.cs` — records player position/yaw/floor-button-hold state at a fixed sample interval; ghosts scrub through the recorded timeline and report their recorded hold-state directly to the shared `FloorButton` (not via physics — ghosts have no collider).
+- `Ghost/RecordedFrame.cs`, `Ghost/PlayerRecorder.cs`, `Ghost/GhostReplayer.cs`, `Ghost/GhostInteractable.cs` — records player position/yaw plus a **bitmask of interaction signals** at a fixed sample interval; ghosts scrub the timeline and report those signals back (not via physics — **ghosts have no collider at all**, so they can never trigger anything by touching it).
+  - `GhostInteractable` is the abstraction: anything a ghost can operate exposes `PlayerSignal` (sampled into one bit) and `SetGhostSignal` (fed that bit back an iteration later). `FloorButton` and `DoorButton` are the two implementations. **This was originally hardcoded to one `FloorButton`**, which meant a ghost's only possible contribution was standing on that one pad — a play-test found the door never re-opened by itself because the door-button press was never recorded in the first place.
+  - **Bit position is the object's index in `LoopManager.ghostInteractables`**, and `PlayerRecorder.interactables` must be the same array in the same order. `SceneBuilder` builds one array and hands it to both. Reordering it invalidates every timeline recorded so far.
+  - **Signals are levels, not events.** A ghost advances its cursor by elapsed time and can skip several recorded frames in one tick, so a one-frame pulse would eventually be missed. Press-type interactables therefore stretch their pulse (`DoorButton.pressPulseDuration`, 0.15s) instead of recording an edge, and act on the rising edge at replay.
+  - **Only the real player's actions may raise a signal.** `DoorButton.RegisterPlayerPress` sets the pulse; a ghost's replayed press goes straight to `TryPress` and deliberately bypasses it. Route a ghost through the recording path and each iteration inherits every press of the one before — the door would open earlier and earlier until it opened on frame one.
   - The ghost is a **rough human silhouette assembled from primitives** (head/torso/2 arms/2 legs), not a capsule. It's held at alpha 0.16 near-black on an unlit transparent material (`GhostFaint`), which is low enough that the crudeness of the primitives never reads — only the outline does. Unlit matters: a lit ghost picks up shading and specular that give the primitives away.
   - Limbs hang off **empty pivots at the shoulders and hips**, because a primitive's own pivot is at its centre — rotating the capsule directly would spin it about its middle instead of swinging from the joint.
   - Only position and yaw are recorded, so the walk is **inferred from distance travelled** (`GhostReplayer.SwingLimbs`). Phase advances with distance rather than time, which keeps stride length constant instead of the legs spinning faster the quicker the ghost moves, and the amplitude scales with speed so a stationary ghost stands still rather than marching on the spot.
 - `Interactables/FloorButton.cs` — hold-type; active if the real player OR any ghost is currently holding it. The player side is **polled in `FixedUpdate` (bounds overlap), deliberately not `OnTriggerEnter/Exit`**. `Teleport` disables and re-enables the CharacterController inside a single frame, so a player standing on the button when the iteration ended never generated the exit callback: the button stayed lit forever with nobody on it, and since `PlayerRecorder` samples `PlayerHolding`, every ghost recorded after that held it forever too. Don't "simplify" this back to trigger events.
 - `Interactables/DoorButton.cs` — one-touch (trigger enter, or `E` while in range); only opens the door if the linked `FloorButton.IsActive`.
-- `Interactables/Door.cs` — slides the door panel by `openLocalOffset` and swaps the indicator light colour when opened. `SceneBuilder` sets that offset to +X, i.e. sideways into the wall pocket — the field's own default is still a vertical slide, so read the built value, not the declaration.
+- `Interactables/Door.cs` — slides the door panel by `openLocalOffset` and swaps the indicator light colour when opened. `SceneBuilder` sets that offset to +X, i.e. sideways into the wall pocket — the field's own default is still a vertical slide, so read the built value, not the declaration. `Close()` snaps it shut again and is called by the loop every iteration.
+- `Audio/NarrationDirector.cs`, `Audio/RoomAmbience.cs`, `Audio/FootstepPlayer.cs` — the PA announcer, the room tone/machinery, and distance-paced footsteps. See the **Audio** section for the cue schedule and why the clip slots are allowed to be null.
+
+## Audio
+
+The room has a diegetic PA announcer, taken from the reference film: every iteration is announced on a fixed schedule. That schedule is the whole system — four cue types per loop.
+
+| Cue | When | Method |
+| --- | --- | --- |
+| "Iteration N, 60 seconds remaining." | after the wake-up, as the clock starts | `NarrationDirector.AnnounceIteration` |
+| "10 seconds remaining." | `LoopManager.tenSecondCueAt` (T-12, not T-10) | `AnnounceTenSeconds` |
+| "Nine." … "One." | one per whole second, T-9 to T-1 | `AnnounceCountdown` |
+| "New cycle initialized." | top of the next iteration, under the closed eyelids | `AnnounceNewCycle` |
+
+- **The T-10 line is cued at T-12 on purpose.** It runs about two seconds, and from T-9 the digit countdown replaces whatever the announcer is saying every second, so cueing it at a literal T-10 clips it after one word. `tenSecondCueAt` is serialized — retune it if the line is ever re-recorded at a different length.
+- Cues are **pushed from `LoopManager.RunLoop`, not polled** by the director. The loop already owns `ElapsedTime`, and the announcer has to stay silent through the wake-up, which sits outside the timed window. The counting loop guards on a *falling* whole second, so it fires exactly once per second at any frame rate.
+- Iteration 1 gets no "New cycle initialized" and no reset sting — it opens the run rather than resetting it.
+- **Announcements replace each other** (`Stop()` + `Play()`), never `PlayOneShot`. The countdown fires once a second and one-shots would leave the digits slurring over each other.
+
+### Where the audio comes from
+
+- **Narration is generated, not sourced.** `Tools/generate_narration.ps1` drives the Windows built-in synthesizer (`Microsoft Zira Desktop`, en-US female) to write all 42 lines into `Assets/Audio/Voice/` as 22 kHz 16-bit mono WAV. It costs nothing, runs offline, and keeps the voice track in the same "reproducible from a script" category as the rest of the project. The flat synthetic delivery happens to suit a facility tannoy. To replace them with better-acted takes, keep the filenames — no C# refers to how they were made. `SceneBuilder.NarrationIterationLines` must match the range the script writes (currently 30, then a generic line stands in).
+- **SFX are dropped in by hand and resolved by filename** — see `Assets/Audio/SFX/README.md` for the table of names. `SceneBuilder.BuildAudio` looks each one up via `LoadClip`, which is extension-agnostic (`.wav/.ogg/.mp3/.aif/.aiff`). **A missing file resolves to `null` and every player guards on it**, so an empty SFX folder is a valid, playable state — narration plays and the SFX channel is simply silent. Dropping a correctly-named file in and rebuilding is the entire wiring step.
+- Unity MCP's `generate_audio` is **not** an option for the voice: it does music/SFX only, no speech. It also needs a fal.ai key that is not configured on this machine.
+
+### Sources and spatialisation
+
+`SceneBuilder.MakeSource` builds every `AudioSource` with linear rolloff (`maxDistance` 14) rather than Unity's logarithmic default, which stays near full volume across a room this small.
+
+- **2D** (`spatialBlend` 0): the PA voice and chime (a room-wide tannoy has no position to walk away from), the music bed, the machines, the player's own footsteps and breath.
+- **3D**: the door, and the prop rattle — which is parented to the **nightstand** so it comes from the lamp and vase standing on it.
+- `FootstepPlayer` paces steps by **distance travelled**, not by a timer, for the same reason `GhostReplayer.SwingLimbs` does. It reads nothing but the transform, which means the identical component works on a ghost — deliberately left off the Ghost prefab, since ghosts accumulate without limit and so would their footsteps. It also ignores any frame faster than `teleportSpeed`, so the loop's reset teleport doesn't fire a burst of steps.
+- `Door.Close()` is **deliberately silent** — that's the loop rewinding world state behind a black screen, not the door being shut. A sound there draws attention to the seam.
+- Exactly **one `AudioListener`** exists, on the player camera. Adding a second is a Unity warning and breaks positional audio.
+
+## QA findings
+
+A full QA pass on 2026-08-09 (build verification + code review + scene-file inspection + spec conformance). Fixed:
+
+1. **The closed door had no collider.** `SceneBuilder` built `DoorPanel` with `removeCollider: true`, and `BuildPanelWall` cuts the doorway out of *both* walls' collision — so the two rooms were permanently connected and the player could walk straight through the closed door, bypassing the puzzle entirely and violating spec §2's "단일 iteration만으로는 절대 풀 수 없다". Invisible while Room2 was still a dead-end recess. The slab now keeps its collider; once open it sits at x 0.65..1.95, entirely behind the wall's own collision, so it never blocks the opening it just cleared.
+2. **The door was world state the loop never rewound.** `Door.IsOpen` stayed true forever and `Open()` early-outs on it, so every iteration after the first solve began with the door already open. `Door.Close()` now snaps it back, called from `RunLoop` *after* the teleport so a player standing in the doorway is already back at the bed.
+3. **`DoorButton.playerInRange` got stuck true**, the same defect already documented on `FloorButton`: `Teleport` disables and re-enables the CharacterController inside one frame, so `OnTriggerExit` never arrives. Standing at the button when an iteration ended left `E` opening the door from anywhere in the room, including from the bed. Now polled in `FixedUpdate` via bounds overlap, pressing on the rising edge.
+
+Still open (found, not fixed):
+
+- **Floor button's activation zone is much larger than it looks.** Its trigger is `radius 0.5, height 0.5` — height < 2×radius, so Unity clamps it to a *sphere* — and `FloorButton` tests AABB overlap, so with the player's 0.3 radius the real condition is a ±0.8 m box against a visible disc of radius 0.35. You can stand ~0.5 m clear of it and it lights.
+- **Control and recording stay live through `CloseEyes()`** (~1.6 s of blind walking), and those frames all stamp `ElapsedTime ≈ 60.0`, so the ghost skips them in one jump on its final tick.
+- **`EditorBuildSettings.m_Scenes` is empty** — a standalone build would ship no scenes.
+- **Every rebuild regenerates all fileIDs**, so `IterationRoom.unity` shows ~6,675 changed lines (26% of the file) with zero semantic change. Since `SceneBuilder` is the source of truth, `.gitignore`-ing the generated scene would be the consistent move.
+- Spec deviations: the door button flashes red on denial where spec §5 says "아무 반응 없음"; the floor button sits on the bed's left where spec §3 says right (it follows `room_layout_sample.png` instead); the ghost reset of spec §4.6 is not implemented at all.
 
 ## Art assets
 
@@ -102,4 +155,4 @@ The prototype's core loop (spec section 5) is **done and play-tested**. What's l
 2. **Ghost reset trigger.** Spec section 4.6 says a reset exists but deliberately leaves the trigger undecided. Ghosts accumulate forever right now, so after ~10 iterations the room fills with replaying figures. Needs both a trigger condition and a presentation.
 3. **Room2 puzzle content.** Spec section 7's multi-step accumulation idea (investigate drawer/cup/lamp → learn something → act on it in a later iteration). Depends on 1 and 2 being settled.
 
-**This project is not under version control** (no `.git`). Every tuning value in this file was found by eye over long sessions and there is no undo beyond the editor's — worth `git init` before the next round of changes. Note that `messy_bed.glb` is 59MB, over GitHub's 50MB warning threshold, so pushing to a remote wants Git LFS for `*.glb`.
+**This project is under git** as of the initial commit, with **Git LFS already configured for `*.glb`** (`.gitattributes`) — verified working, both furniture models are committed as pointers. `.git` is ~90MB. Every tuning value in this file was found by eye over long sessions, so the editor's undo is no longer the only safety net.

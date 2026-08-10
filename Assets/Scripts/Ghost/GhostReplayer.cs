@@ -21,16 +21,18 @@ namespace IterationRoom
         public float fullSwingSpeed = 4.5f;
 
         private List<RecordedFrame> timeline;
-        private FloorButton floorButton;
+        // Shared with the PlayerRecorder that produced the timeline - an interactable's index here
+        // is its bit in RecordedFrame.signals.
+        private GhostInteractable[] interactables;
         private int cursor;
-        private bool holdingButton;
+        private uint activeSignals;
         private Vector3 lastPosition;
         private float walkPhase;
 
-        public void Init(List<RecordedFrame> recordedTimeline, FloorButton button)
+        public void Init(List<RecordedFrame> recordedTimeline, GhostInteractable[] ghostInteractables)
         {
             timeline = recordedTimeline;
-            floorButton = button;
+            interactables = ghostInteractables;
             ResetPlayback();
         }
 
@@ -44,7 +46,9 @@ namespace IterationRoom
             }
             lastPosition = transform.position;
             walkPhase = 0f;
-            SetHolding(false);
+            // Release everything before replaying from the top, so a ghost that ended the previous
+            // pass standing on a button doesn't leave it stuck on.
+            ApplySignals(0u);
         }
 
         public void Tick(float elapsedLoopTime)
@@ -57,7 +61,7 @@ namespace IterationRoom
             RecordedFrame frame = timeline[cursor];
             transform.position = frame.position;
             transform.rotation = Quaternion.Euler(0f, frame.yaw, 0f);
-            SetHolding(frame.floorButtonHeld);
+            ApplySignals(frame.signals);
             SwingLimbs();
         }
 
@@ -87,16 +91,29 @@ namespace IterationRoom
             if (rightArm != null) rightArm.localRotation = Quaternion.Euler(swing * 0.6f, 0f, 0f);
         }
 
-        private void SetHolding(bool holding)
+        // Reports only the bits that actually changed, so each interactable sees clean edges: a
+        // hold button gets one add and one remove, and a one-touch button fires once per rise
+        // rather than every frame the pulse is up.
+        private void ApplySignals(uint signals)
         {
-            if (holding == holdingButton) return;
-            holdingButton = holding;
-            if (floorButton != null) floorButton.SetGhostHolding(this, holding);
+            if (interactables != null)
+            {
+                int count = Mathf.Min(interactables.Length, 32);
+                for (int i = 0; i < count; i++)
+                {
+                    uint bit = 1u << i;
+                    bool now = (signals & bit) != 0u;
+                    if (now == ((activeSignals & bit) != 0u)) continue;
+                    if (interactables[i] != null) interactables[i].SetGhostSignal(this, now);
+                }
+            }
+
+            activeSignals = signals;
         }
 
         private void OnDestroy()
         {
-            if (floorButton != null) floorButton.SetGhostHolding(this, false);
+            ApplySignals(0u);
         }
     }
 }

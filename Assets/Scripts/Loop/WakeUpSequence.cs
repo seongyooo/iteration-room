@@ -20,6 +20,10 @@ namespace IterationRoom
         public float lyingEyeHeight = 0.5f;
         public float lyingPitch = -80f;
 
+        public AudioSource bodySource;
+        public AudioClip gaspClip;
+        public AudioClip sheetRustleClip;
+
         private void Awake()
         {
             SetLids(0f);
@@ -41,6 +45,11 @@ namespace IterationRoom
                 player.SetEyePose(lyingEyeHeight, lyingPitch);
             }
 
+            // The gasp lands on the eyes starting to open, not on the rise - it's the reaction to
+            // being back, which is the same beat the film puts between "New cycle initialized"
+            // and the iteration announcement.
+            PlayBody(gaspClip);
+
             // Open onto the ceiling first and hold there, so the player registers where they are
             // before anything moves.
             yield return Sweep(1f, 0f, openDuration);
@@ -48,6 +57,8 @@ namespace IterationRoom
 
             if (player != null)
             {
+                PlayBody(sheetRustleClip);
+
                 float elapsed = 0f;
                 while (elapsed < riseDuration)
                 {
@@ -62,6 +73,11 @@ namespace IterationRoom
                 player.SetEyePose(player.standingEyeHeight, 0f);
                 player.ControlEnabled = true;
             }
+        }
+
+        private void PlayBody(AudioClip clip)
+        {
+            if (bodySource != null && clip != null) bodySource.PlayOneShot(clip);
         }
 
         private IEnumerator Sweep(float from, float to, float duration)
