@@ -26,6 +26,7 @@ namespace IterationRoom.EditorTools
         private static readonly Color WallPanelColor = new Color(0.13f, 0.135f, 0.15f);
 
         private const string TexturesDir = "Assets/Textures";
+        private const string FontsDir = "Assets/Fonts";
         private const string AudioDir = "Assets/Audio";
         private const string VoiceDir = AudioDir + "/Voice";
         private const string SfxDir = AudioDir + "/SFX";
@@ -1487,6 +1488,28 @@ namespace IterationRoom.EditorTools
             return null;
         }
 
+        // The HUD face. Monospace on purpose, and for two reasons at once.
+        //
+        // Diegetically, everything on screen belongs to the facility rather than to the player -
+        // the iteration number, the clock, the control that ends a cycle - and a terminal face says
+        // that where a proportional one reads as a game's own UI. The room is built out of wall
+        // *displays* for the same reason.
+        //
+        // Practically, the countdown is a number that changes every second: in a proportional font
+        // its digits are different widths, so it reflows and twitches on the spot every tick. In a
+        // monospace one it does not move at all.
+        //
+        // NOTE ON LICENSING: Consolas is Microsoft's, copied out of C:/Windows/Fonts. Fine for a
+        // prototype that never leaves this machine, NOT fine to ship. Swapping it is one file and
+        // this path - JetBrains Mono or IBM Plex Mono are both SIL OFL and drop straight in.
+        private static Font UIFont()
+        {
+            Font font = AssetDatabase.LoadAssetAtPath<Font>($"{FontsDir}/Consolas.ttf");
+            // Falls back rather than throwing: a missing font should leave the UI ugly and legible,
+            // not leave the scene unbuildable.
+            return font != null ? font : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        }
+
         private static (IterationLabel label, WakeUpSequence wakeUp) BuildUI()
         {
             GameObject canvasGO = new GameObject("Canvas");
@@ -1516,15 +1539,24 @@ namespace IterationRoom.EditorTools
             RectTransform rect = groupGO.AddComponent<RectTransform>();
             rect.anchorMin = new Vector2(0.5f, 0.5f);
             rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(600f, 100f);
-            rect.anchoredPosition = new Vector2(0f, 150f);
+            // Dead centre. It used to sit 150px above, which read as a subtitle floating over the
+            // room; the label is the iteration announcing itself, so it belongs on the middle of
+            // the screen with nothing else on it.
+            rect.sizeDelta = new Vector2(1200f, 140f);
+            rect.anchoredPosition = Vector2.zero;
 
             GameObject textGO = new GameObject("Label");
             textGO.transform.SetParent(groupGO.transform, false);
             Text text = textGO.AddComponent<Text>();
-            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            text.fontSize = 42;
+            text.font = UIFont();
+            // Bigger than it was, because the letters are now spaced out (see IterationLabel) and
+            // tracked-out text at 42 reads as small print rather than as a title card.
+            text.fontSize = 54;
             text.alignment = TextAnchor.MiddleCenter;
+            // Never wrap. The spaced-out string is full of spaces, so a rect a shade too narrow
+            // would break the label across two lines mid-word - "ITERATIO / N 12".
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
             // Red, not white - the room walls are near-white, so white text is invisible.
             text.color = Color.red;
             RectTransform textRect = text.GetComponent<RectTransform>();
@@ -1598,7 +1630,7 @@ namespace IterationRoom.EditorTools
             rect.anchoredPosition = new Vector2(-20f, -20f);
 
             Text text = go.AddComponent<Text>();
-            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.font = UIFont();
             text.fontSize = 32;
             text.alignment = TextAnchor.UpperRight;
             text.color = Color.red;
@@ -1651,7 +1683,7 @@ namespace IterationRoom.EditorTools
             GameObject labelGO = new GameObject("Label");
             labelGO.transform.SetParent(go.transform, false);
             Text label = labelGO.AddComponent<Text>();
-            label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            label.font = UIFont();
             label.fontSize = 16;
             label.alignment = TextAnchor.MiddleCenter;
             label.color = Color.red;
