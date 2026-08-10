@@ -1327,6 +1327,9 @@ namespace IterationRoom.EditorTools
             // 2D on purpose: a room-wide tannoy has no position you could walk away from.
             narration.voiceSource = MakeSource(paGO.transform, "Voice", 0f, 1f);
             narration.chimeSource = MakeSource(paGO.transform, "Chime", 0f, 0.7f);
+            // Both go through the same speaker, so both get the same treatment.
+            AddTannoyFilters(narration.voiceSource);
+            AddTannoyFilters(narration.chimeSource);
 
             AudioClip[] iterationLines = new AudioClip[NarrationIterationLines];
             for (int i = 0; i < iterationLines.Length; i++)
@@ -1379,6 +1382,63 @@ namespace IterationRoom.EditorTools
             wakeUp.sheetRustleClip = LoadClip(SfxDir, "sfx_sheet_rustle");
 
             return (narration, ambience);
+        }
+
+        // Turns a clean AudioSource into a wall-mounted PA horn firing into a hard, empty room.
+        //
+        // Done as a runtime filter chain rather than baked into the WAVs on purpose: the clips stay
+        // clean masters, the treatment is one Inspector tweak away from being retuned, and a
+        // replacement take dropped into Assets/Audio/Voice/ inherits the whole thing for free.
+        //
+        // Component order IS the signal chain - Unity runs the filters top to bottom on the
+        // GameObject, so these are added in the order they should process. Reverb last: putting it
+        // ahead of the distortion would grit up the tail as well as the voice, which reads as a
+        // broken speaker rather than a room.
+        private static void AddTannoyFilters(AudioSource source)
+        {
+            GameObject go = source.gameObject;
+
+            // Band-limit first. A horn driver has no bottom and no top, and losing both is most of
+            // what makes a voice read as "coming out of a speaker" rather than as narration - the
+            // ear identifies the channel long before it identifies the reverb.
+            AudioHighPassFilter hp = go.AddComponent<AudioHighPassFilter>();
+            hp.cutoffFrequency = 340f;
+            hp.highpassResonanceQ = 1f;
+
+            AudioLowPassFilter lp = go.AddComponent<AudioLowPassFilter>();
+            lp.cutoffFrequency = 3600f;
+            // Slightly resonant rather than flat: a real horn has a peak up there, and that peak is
+            // the nasal honk of every station announcement ever made.
+            lp.lowpassResonanceQ = 1.6f;
+
+            // Just enough drive to suggest an overdriven line. Past ~0.3 the words stop being
+            // intelligible, and the announcer has actual information in them (the iteration number).
+            AudioDistortionFilter dist = go.AddComponent<AudioDistortionFilter>();
+            dist.distortionLevel = 0.17f;
+
+            // The slap off the far wall. 105ms is roughly the round trip across a room this size,
+            // so it reads as this room rather than as an effect.
+            AudioEchoFilter echo = go.AddComponent<AudioEchoFilter>();
+            echo.delay = 105f;
+            echo.decayRatio = 0.22f;
+            echo.dryMix = 1f;
+            echo.wetMix = 0.33f;
+
+            // And the tail. Preset is set to User first: assigning any individual property switches
+            // it there anyway, and setting it explicitly keeps the intent readable.
+            AudioReverbFilter verb = go.AddComponent<AudioReverbFilter>();
+            verb.reverbPreset = AudioReverbPreset.User;
+            verb.dryLevel = 0f;
+            verb.room = -350f;
+            // Dark tail. Hard painted panels absorb almost nothing low and quite a lot high, and a
+            // bright tail would fight the band-limiting the horn just did.
+            verb.roomHF = -900f;
+            verb.decayTime = 2.1f;
+            verb.decayHFRatio = 0.55f;
+            verb.reflectionsLevel = -650f;
+            verb.reverbLevel = 250f;
+            verb.diffusion = 100f;
+            verb.density = 100f;
         }
 
         // spatialBlend 0 is 2D (heard the same everywhere), 1 is fully positional.

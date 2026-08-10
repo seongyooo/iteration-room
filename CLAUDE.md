@@ -4,7 +4,7 @@ Unity prototype of a 1-room, first-person time-loop puzzle game (ref: 2016 short
 
 **Status**: core loop implemented and manually play-tested as working (hold floor button for a full iteration → next iteration the ghost holds it while the player opens the door). A polish pass (centered furniture, bigger wall grid, real furniture models, shadow-like ghost, jump) has also been applied and rebuilt cleanly. A QA pass (2026-08-09) then found and fixed three defects that a play-test doesn't surface on its own — see **QA findings** below — and an audio/narration layer has been added. A presentation pass (2026-08-10) added the **end-of-cycle collapse** (panel flare + camera shake), replaced the eyelid sweep with a **blink**, decoupled the sit-up, and made the door lamp a **condition readout**; it is built and committed, but **has not been play-tested end to end** — it was verified only by a clean headless build.
 
-One thing to know before judging how the game sounds or plays: **`Assets/Audio/SFX/` currently holds nothing but its README**, so every sound effect resolves to `null` and the whole SFX channel — footsteps, door, gasp, room tone, reset sting, announcement chime — is silent. That is a supported state (see **Audio**), not a bug; only the generated narration is audible today.
+The presentation pass has since been play-tested and signed off, and the full SFX set now exists (generated — see **Audio**). **The scene file is no longer tracked in git**: `SceneBuilder` is the source of truth and Unity re-randomises every fileID on rebuild, so run the build to produce it after a fresh clone.
 
 ## Stack
 
@@ -17,6 +17,7 @@ One thing to know before judging how the game sounds or plays: **`Assets/Audio/S
 
 There is **no manual scene editing history** — the entire scene is assembled by one script, run headlessly. This is the pattern to keep using:
 
+0. **A fresh clone has no scene** — `Assets/Scenes/IterationRoom.unity` is git-ignored build output. Run the build below before expecting to open anything.
 1. Edit C# under `Assets/Scripts/` and/or `Assets/Editor/SceneBuilder.cs`.
 2. Rebuild headlessly:
    ```
@@ -127,10 +128,24 @@ The room has a diegetic PA announcer, taken from the reference film: every itera
 - Iteration 1 gets no "New cycle initialized" and no reset sting — it opens the run rather than resetting it.
 - **Announcements replace each other** (`Stop()` + `Play()`), never `PlayOneShot`. The countdown fires once a second and one-shots would leave the digits slurring over each other.
 
+### The PA treatment
+
+The announcer is not played dry — `SceneBuilder.AddTannoyFilters` puts the voice **and** the chime through a five-stage filter chain so they read as a horn on the wall of a hard, empty room rather than as narration over the top of the game.
+
+- **It is a runtime chain on the `AudioSource`, not baked into the WAVs.** The clips stay clean masters, retuning is an Inspector drag rather than a regeneration, and a better-acted take dropped into `Assets/Audio/Voice/` inherits the whole treatment for free.
+- **Component order on the GameObject *is* the signal chain** — Unity runs filters top to bottom, so they are added in processing order. Reverb goes last: ahead of the distortion it grits up the tail as well as the voice, which reads as a broken speaker rather than as a room.
+- Band-limiting does most of the work, not the reverb. High-pass **340 Hz** / low-pass **3600 Hz** with the low-pass left slightly resonant (`Q` 1.6) — a horn driver has no bottom and no top, and that resonant peak is the nasal honk of every station announcement ever made. The ear identifies the *channel* long before it identifies the space.
+- Distortion is **0.17**. Past ~0.3 the words stop being intelligible, and the announcer is carrying actual information (the iteration number).
+- Echo **105 ms** at `decayRatio` 0.22 / `wetMix` 0.33 — roughly the round trip across a room this size, so it reads as *this* room. Reverb is `AudioReverbPreset.User`, `decayTime` 2.1s with `roomHF` -900 and `decayHFRatio` 0.55, i.e. a deliberately dark tail: hard painted panels absorb little low and plenty high, and a bright tail would undo the band-limiting.
+- **`Tools/preview_pa_voice.py` renders the same chain offline** so it can be judged without launching the Editor (`python Tools/preview_pa_voice.py voice_count_3`). It is an approximation — Unity's reverb is FMOD's, this is a plain Schroeder network — so trust it for "how much echo" and "can I still make out the number", not for the exact tail. **Its constants mirror `AddTannoyFilters`; change one and change the other**, or it stops predicting anything.
+
 ### Where the audio comes from
 
 - **Narration is generated, not sourced.** `Tools/generate_narration.ps1` drives the Windows built-in synthesizer (`Microsoft Zira Desktop`, en-US female) to write all 43 lines into `Assets/Audio/Voice/` (30 numbered iteration lines + a generic stand-in, 9 countdown digits, the T-10 line, "New cycle initialized." and "Cycle terminated.") as 22 kHz 16-bit mono WAV. It costs nothing, runs offline, and keeps the voice track in the same "reproducible from a script" category as the rest of the project. The flat synthetic delivery happens to suit a facility tannoy. To replace them with better-acted takes, keep the filenames — no C# refers to how they were made. `SceneBuilder.NarrationIterationLines` must match the range the script writes (currently 30, then a generic line stands in).
-- **SFX are dropped in by hand and resolved by filename** — see `Assets/Audio/SFX/README.md` for the table of names. `SceneBuilder.BuildAudio` looks each one up via `LoadClip`, which is extension-agnostic (`.wav/.ogg/.mp3/.aif/.aiff`). **A missing file resolves to `null` and every player guards on it**, so an empty SFX folder is a valid, playable state — narration plays and the SFX channel is simply silent. Dropping a correctly-named file in and rebuilding is the entire wiring step. **As of 2026-08-10 the folder is still empty**, so that is the state the project is actually in — the narration carries the whole soundtrack.
+- **SFX are generated too**, by `Tools/generate_sfx.py` — twelve clips (4 footsteps, door, gasp, sheet rustle, room-tone loop, reset sting, machines, glass rattle, chime), synthesised from scratch with the Python standard library, no numpy and no downloads. Each is seeded, so re-running the script reproduces the identical set. See `Assets/Audio/SFX/README.md` for the filename table.
+  - This is the same bargain the narration and the wall grain make: everything in the project has to rebuild from a script, and a folder of sourced CC0 clips was the one part that could not. They sound synthetic, which a tannoy-equipped facility gets away with.
+  - **The room-tone loop is the one with a real constraint on it.** `RoomAmbience` plays it on `loop`, so a seam is a click every 8 seconds for the whole session. Every partial in it is a multiple of 1/8 Hz so the tone wraps exactly, and the noise layer is wrapped by crossfading its own tail back over its head (`seamless()`). Verified numerically: the sample step across the wrap is smaller than the largest step inside the clip, i.e. no discontinuity.
+  - `SceneBuilder.BuildAudio` resolves each one via `LoadClip`, which is extension-agnostic (`.wav/.ogg/.mp3/.aif/.aiff`). **A missing file resolves to `null` and every player guards on it**, so an emptied SFX folder is still a valid, playable state. Overwriting a generated clip with a recorded take under the same name is the entire swap.
 - Unity MCP's `generate_audio` is **not** an option for the voice: it does music/SFX only, no speech. It also needs a fal.ai key that is not configured on this machine.
 
 ### Sources and spatialisation
@@ -157,10 +172,10 @@ A follow-up pass then fixed four more:
 5. **Control and recording stayed live through `CloseEyes()`** — ~1.6s of blind walking, and since `ElapsedTime` is frozen at `loopDuration` by then, every one of those frames recorded at the same timestamp and the ghost skipped the lot in one jump on its final tick. Both now stop before the eyelids start closing.
 6. **`EditorBuildSettings.m_Scenes` was empty** — a standalone build would have shipped no scenes. `Build()` now reasserts it every run, since the list lives in ProjectSettings and nothing else maintains it.
 7. **`CanvasScaler` was on the default `ConstantPixelSize`**, pinning UI text to a fixed point size. Now `ScaleWithScreenSize` against a 1920×1080 reference.
+8. **The generated scene was tracked in git.** Unity re-randomises the fileID of all ~1,700 objects on every rebuild, so a one-line script change produced an 11,000-line scene diff with no semantic content, and any merge of two rebuilds was a guaranteed conflict over noise. `Assets/Scenes/*.unity` is now ignored — `SceneBuilder` is the source of truth, so the scene is build output. **The `.meta` is deliberately still tracked**: it pins the scene's GUID, which `ProjectSettings/EditorBuildSettings.asset` stores by value, so dropping it would make every clone regenerate a different GUID and dirty that file.
 
 Still open (found, not fixed):
 
-- **Every rebuild regenerates all fileIDs**, so `IterationRoom.unity` shows ~6,675 changed lines (26% of the file) with zero semantic change. Since `SceneBuilder` is the source of truth, `.gitignore`-ing the generated scene would be the consistent move.
 - Spec deviations: the door button flashes red on denial where spec §5 says "아무 반응 없음"; the floor button sits on the bed's left where spec §3 says right (it follows `room_layout_sample.png` instead); the ghost reset of spec §4.6 is not implemented at all.
 
 ## Art assets
@@ -206,7 +221,6 @@ Multi-room expansion has **started**: a second identical room shell now sits bey
 
 The prototype's core loop (spec section 5) is **done and play-tested**. What's left:
 
-0. **Play-test the 2026-08-10 presentation pass.** The collapse, the blink and the door lamp are all timing/feel changes verified only by a clean build — nobody has watched a cycle end since. Two things to look at specifically: whether `collapseLeadTime` 10s makes the last third of every iteration tiring rather than tense, and whether the flare (`WallPanelDisplay.flareEmission` 7, past the 1.2 bloom threshold) whites the room out so hard that the final seconds become unplayable rather than alarming. Both are single serialized numbers.
 1. **Escape detection + ending — nothing happens when you solve the puzzle.** `LoopManager.RunLoop` is an unconditional `while (true)`: it never checks whether the player got out, so opening the door and walking into Room2 still yanks them back to the bed at 60s. The puzzle currently has no win state at all. Smallest scope, biggest payoff — the prototype can't be "finished" by a player until this exists. Spec section 7 leaves the ending undefined, so the shape of it is a design decision to make first.
 2. **Ghost reset trigger.** Spec section 4.6 says a reset exists but deliberately leaves the trigger undecided. Ghosts accumulate forever right now, so after ~10 iterations the room fills with replaying figures. Needs both a trigger condition and a presentation.
 3. **Room2 puzzle content.** Spec section 7's multi-step accumulation idea (investigate drawer/cup/lamp → learn something → act on it in a later iteration). Depends on 1 and 2 being settled.

@@ -53,3 +53,16 @@ _setup_logs/
 Captures/
 [Aa]ssets/[Ss]creenshots/
 [Aa]ssets/[Ss]creenshots.meta
+
+# The scene is generated, not authored. SceneBuilder.Build() is the source of truth for
+# every object in it, and Unity assigns fresh fileIDs to all ~1,700 of them on each rebuild -
+# so a one-line change to a script produced an 11,000-line scene diff with no semantic content,
+# and any merge of two rebuilds was a guaranteed conflict over noise. Run the build to get it:
+#   Unity.exe -batchmode -nographics -projectPath . -executeMethod IterationRoom.EditorTools.SceneBuilder.Build -quit
+# The .meta is deliberately NOT ignored: it pins the scene's GUID, which
+# ProjectSettings/EditorBuildSettings.asset stores. Drop it and every clone regenerates a
+# different GUID and dirties that file.
+[Aa]ssets/[Ss]cenes/*.unity
+
+# Byte-cache from the Tools/ generator scripts.
+__pycache__/
