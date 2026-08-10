@@ -40,31 +40,37 @@ namespace IterationRoom.EditorTools
         // don't hardcode tiling numbers anywhere else.
         private const float RoomWidth = 8.75f;   // X span, i.e. the door wall
         private const float RoomDepth = 10.5f;   // Z span, i.e. the side walls
+        // Not a round number, and worth knowing why: this is what the golden-ratio pass left the
+        // room at, when it was five phi-proportioned cells tall. The cells have since been made
+        // taller and the ratio has gone, but the height itself was deliberately kept - it is what
+        // the fixture intensity and the two reflection probes are tuned against, and moving it
+        // would invalidate both for no gain.
+        private const float RoomHeight = 5.4077968f;
         private const float WallThickness = 0.1f;
 
-        // Wall grid cells are deliberately landscape, and as of 2026-08-10 they are exactly phi:1.
+        // Wall grid cells are deliberately landscape: 1.75 x 1.3519, a ratio of about 1.29.
         //
-        // Note what that costs and why it is spent on the height. A cell's WIDTH has to divide both
-        // 8.75 and 10.5 exactly, or the last column of a wall overshoots its end (BuildPanelWall
-        // lays cells at fixed GridCellWidth steps after rounding the column count). A cell's HEIGHT
-        // has to divide RoomHeight exactly, or the top row is a part cell and the panelling runs
-        // off cut in half at the ceiling - which is what a 4.5m room height did before.
+        // Two hard constraints sit behind these numbers. A cell's WIDTH has to divide both 8.75 and
+        // 10.5 exactly, or the last column of a wall overshoots its end (BuildPanelWall lays cells
+        // at fixed GridCellWidth steps after rounding the column count). A cell's HEIGHT has to
+        // divide RoomHeight exactly, or the top row is a part cell and the panelling runs off cut
+        // in half at the ceiling - which is what a 4.5m room height once did.
         //
-        // Both of those demand a rational ratio, and phi is irrational, so an exact phi cell and a
-        // fixed 8.75 x 10.5 x 5.0 room cannot both hold. Something has to move. The height is by far
-        // the cheapest thing to move: the floor plan carries the bed, the nightstand, the pad, the
-        // spawn point and the door, every one of them placed by eye against a film still, while the
-        // ceiling carries four light fixtures whose one tuned number is easy to re-find.
+        // The height constraint is enforced by construction rather than by care: RoomHeight is the
+        // fixed dimension and the cell height is derived from it. To change how tall the cells are,
+        // change GridRows - four rows instead of five is what took them from 1.0816 to 1.3519.
         //
-        // So: the width stays at 1.75 (5 columns on the end walls, 6 on the sides), the height is
-        // derived from it, and RoomHeight follows from the row count rather than the other way
-        // round. Do not hand-edit RoomHeight - change GridRows.
-        private const float GoldenRatio = 1.6180339887498948f;
+        // The cells were briefly exactly phi:1 (1.75 x 1.0816, five rows). That is where the odd
+        // room height below comes from, and the ratio went when the cells were made taller; phi
+        // could not have survived the change anyway, since it needs a specific height and this asks
+        // for a different one.
         private const float GridCellWidth = 1.75f;
-        private const float GridCellHeight = GridCellWidth / GoldenRatio;   // 1.0816
-        private const int GridRows = 5;
-        private const float RoomHeight = GridCellHeight * GridRows;         // 5.4078
-        private const float GridLineThickness = 0.082f;
+        private const int GridRows = 4;
+        private const float GridCellHeight = RoomHeight / GridRows;         // 1.3519
+        // Wide enough to read as a real reveal between panels rather than as a drawn line. It was
+        // 0.082 while the cells were shorter; the taller the panel, the more groove it takes to
+        // keep the same visual weight.
+        private const float GridLineThickness = 0.05f;
 
         // How far the gaps between wall panels are recessed. This is what turns the grid from a
         // drawing into geometry: the recesses catch real shadow and ambient occlusion.
