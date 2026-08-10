@@ -327,79 +327,95 @@ def ominous_loop():
     return normalize(mix(tone, air), 0.55)
 
 
-def reset_sting():
-    """Over the loop boundary, under the closed eyelids. A cluster swells, a riser runs up under it,
-    and the whole thing lands on a low hit that decays away into the next iteration."""
-    rng = random.Random(53)
-    dur = 3.2
+def pull_in():
+    """The loop taking you: something narrow opening underneath the room and everything being drawn
+    down into it.
+
+    Two motions against each other, which is what sells it. A noise band climbs and tightens while a
+    tone falls away underneath - up and down at once reads as being pulled *through* something,
+    where either alone is just a riser or just a drop. Then it is swallowed: a hard cut, a beat of
+    almost-nothing, and the sub arriving late on the other side."""
+    rng = random.Random(101)
+    swell = 2.0
+
+    # The climb. Exponential sweep and a squared amplitude ramp, so almost all of it happens in the
+    # last half second - a linear riser reads as a slider being dragged, the same trap the collapse
+    # ramp in LoopManager documents.
+    air = sweep_bandpass(noise(swell, rng), 220, 5200, q=1.5)
+    an = len(air)
+    air = apply_env(air, [(i / an) ** 2.2 for i in range(an)])
+
+    # The room falling away underneath. Pitch drops as the noise rises.
+    n = int(swell * SR)
+    ph = 0.0
+    drop = [0.0] * n
+    for i in range(n):
+        f = 260.0 * (55.0 / 260.0) ** ((i / n) ** 0.7)
+        ph += 2.0 * math.pi * f / SR
+        drop[i] = 0.6 * math.sin(ph) + 0.25 * math.sin(2 * ph)
+    drop = apply_env(lowpass(drop, 1200, q=1.2), [0.5 + 0.5 * (i / n) for i in range(n)])
+
+    out = mix(scale(air, 0.75), scale(drop, 0.55))
+
+    # Swallowed. The cut is the point - the sound does not decay, it stops, and the low end arrives
+    # a beat later as if from the other side of it.
+    cut = int(swell * SR)
+    for i in range(cut - int(0.012 * SR), cut):
+        out[i] *= (cut - i) / (0.012 * SR)
+
+    sub_len = 1.1
+    sn = int(sub_len * SR)
+    sub = mix(apply_env(sine(sub_len, 38), env_decay(sn, 0.22, attack=0.006)),
+              apply_env(lowpass(noise(sub_len, rng), 260), scale(env_decay(sn, 0.16), 0.5)))
+    out = at(out, scale(sub, 0.8), swell + 0.09)
+
+    return fade_edges(normalize(out, 0.8))
+
+
+def power_down():
+    """The facility switching the cell off. Plays under the closed eyelids, and the wall panels
+    booting back up during the wake-up is the other half of it.
+
+    A contactor drops out, then everything that was spinning runs down: the motor falls away in
+    pitch while its filter closes, and a thin electrical whine slides down over the top and dies
+    first. It ends in actual silence rather than a fade, because that is what switching off is."""
+    rng = random.Random(103)
+    dur = 2.6
     n = int(dur * SR)
 
-    # A minor second - the interval that refuses to settle.
-    cluster = mix(apply_env(sine(dur, 110.0), env_ar(n, 1.4, 1.2)),
-                  apply_env(sine(dur, 116.5), env_ar(n, 1.6, 1.2)),
-                  apply_env(sine(dur, 220.0), scale(env_ar(n, 1.8, 1.0), 0.4)))
+    # The contactor. Dry and mechanical, no ring.
+    clunk = mix(apply_env(sine(0.2, 96), env_decay(int(0.2 * SR), 0.035, attack=0.001)),
+                apply_env(lowpass(noise(0.2, rng), 800), scale(env_decay(int(0.2 * SR), 0.02), 0.7)))
 
-    riser = sweep_bandpass(noise(1.9, rng), 400, 5200, q=2.2)
-    rn = len(riser)
-    riser = apply_env(riser, [0.5 * (i / rn) ** 2.2 for i in range(rn)])
-
-    hn = int(1.4 * SR)
-    hit = mix(apply_env(sine(1.4, 55), env_decay(hn, 0.35)),
-              apply_env(sine(1.4, 41.2), env_decay(hn, 0.5)),
-              apply_env(lowpass(noise(1.4, rng), 900), scale(env_decay(hn, 0.12), 0.5)))
-
-    out = at(scale(cluster, 0.7), riser, 0.0)
-    out = at(out, scale(hit, 0.9), 1.85)
-    return fade_edges(normalize(out, 0.78))
-
-
-def machines_rev():
-    """The facility spinning the cell back up. The loud part is the climb rather than the top, so it
-    lands under the wake-up instead of arriving after it."""
-    rng = random.Random(67)
-    dur = 2.4
-    n = int(dur * SR)
-
+    # The motor running down. Pitch and amplitude fall together, and the harmonics go first.
     ph = 0.0
     motor = [0.0] * n
     for i in range(n):
-        # Fast climb, levelling off as the machine reaches speed.
-        f = 48 + 145 * (1 - math.exp(-3.4 * (i / n)))
+        k = i / n
+        f = 30.0 + 165.0 * math.exp(-3.2 * k)
         ph += 2.0 * math.pi * f / SR
-        motor[i] = (0.55 * math.sin(ph) + 0.3 * math.sin(2 * ph)
-                    + 0.18 * math.sin(3 * ph) + 0.1 * math.sin(5 * ph))
-    motor = lowpass(motor, 1400, q=1.1)
+        motor[i] = (0.55 * math.sin(ph) + 0.3 * math.sin(2 * ph) * (1 - k)
+                    + 0.15 * math.sin(3 * ph) * (1 - k) ** 2)
+    motor = apply_env(lowpass(motor, 900, q=1.1),
+                      [math.exp(-2.1 * (i / n)) for i in range(n)])
 
-    # Turbine air, opening up as the motor climbs.
-    air = bandpass(noise(dur, rng), 1800, q=0.6)
-    air = [v * 0.3 * (i / n) for i, v in enumerate(air)]
+    # The electrical whine over the top - the thing you notice stopping. Gone by a third of the way
+    # in, well before the motor.
+    whine_len = 1.0
+    whine = sweep_bandpass(noise(whine_len, rng), 3400, 700, q=14)
+    wn = len(whine)
+    whine = apply_env(whine, [0.5 * math.exp(-3.4 * (i / wn)) for i in range(wn)])
 
-    return fade_edges(normalize(soft_clip(apply_env(mix(motor, air), env_ar(n, 0.12, 0.55)), 1.4), 0.68))
+    out = at(scale(motor, 0.9), scale(clunk, 0.8), 0.0)
+    out = at(out, scale(whine, 0.35), 0.02)
 
+    # One tick of something cooling, well after everything else has stopped. It is what makes the
+    # silence afterwards read as "off" rather than as the clip ending.
+    tick = apply_env(bandpass(noise(0.03, rng), 2600, q=3.0),
+                     env_decay(int(0.03 * SR), 0.006, attack=0.0004))
+    out = at(out, scale(tick, 0.12), 2.05)
 
-def glass_rattle():
-    """The lamp and the vase answering the machines. High-Q pings on a scatter of small impacts, so
-    it reads as two objects knocking rather than as one struck bell."""
-    rng = random.Random(71)
-    out = silence(1.5)
-
-    # Two objects, each with its own set of resonances.
-    bodies = [[1180, 2360, 3510], [1640, 2960, 4820]]
-
-    t = 0.03
-    while t < 1.1:
-        body = bodies[rng.randrange(len(bodies))]
-        pn = int(0.22 * SR)
-        click = noise(0.22, rng)
-        ping = [0.0] * pn
-        for j, f in enumerate(body):
-            partial = bandpass(click, f * rng.uniform(0.99, 1.01), q=22 - j * 5)
-            partial = apply_env(partial, env_decay(pn, 0.05 / (j + 1), attack=0.0004))
-            ping = mix(ping, scale(partial, 1.0 / (j + 1)))
-        out = at(out, scale(ping, (1.0 - t / 1.25) * rng.uniform(0.5, 1.0)), t)
-        t += rng.uniform(0.035, 0.14)
-
-    return fade_edges(normalize(out, 0.55))
+    return fade_edges(normalize(out, 0.72))
 
 
 def chime():
@@ -431,9 +447,8 @@ def main():
     write("sfx_gasp", gasp())
     write("sfx_sheet_rustle", sheet_rustle())
     write("sfx_ominous_loop", ominous_loop())
-    write("sfx_reset_sting", reset_sting())
-    write("sfx_machines_rev", machines_rev())
-    write("sfx_glass_rattle", glass_rattle())
+    write("sfx_pull_in", pull_in())
+    write("sfx_power_down", power_down())
     write("sfx_chime", chime())
     print("done")
 

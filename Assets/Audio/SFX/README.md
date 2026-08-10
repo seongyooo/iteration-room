@@ -26,9 +26,8 @@ valid state: the scene runs silent on the SFX channel while the narration plays.
 | `sfx_gasp` | Waking up, on the eyes starting to open. | `WakeUpSequence` |
 | `sfx_sheet_rustle` | Bedding, as the body sits up. | `WakeUpSequence` |
 | `sfx_ominous_loop` | The room tone bed. Loops continuously — **make sure it's seamless.** The generated one is 8s, and every partial in it is a multiple of 1/8 Hz so the tone wraps exactly; the noise layer is wrapped by crossfading its own tail over its head. A replacement that isn't seamless clicks every 8 seconds, forever. | `RoomAmbience` |
-| `sfx_reset_sting` | Music sting over the loop boundary — *(suspenseful music)*. | `RoomAmbience.PlayResetSting` |
-| `sfx_machines_rev` | *(machines rev)* at the reset. | `RoomAmbience.PlayResetSting` |
-| `sfx_glass_rattle` | *(glass/bottle rattles)*. Positional, plays from the nightstand props. | `RoomAmbience.PlayResetSting` |
+| `sfx_pull_in` | The loop taking you. Fires as the eyelids start to fall, so it plays against the collapse rather than after it. | `RoomAmbience.PlayPullIn` |
+| `sfx_power_down` | The room switching off, under the black. The wall panels booting during the wake-up are the other half of it. | `RoomAmbience.PlayPowerDown` |
 | `sfx_chime` | *(bell dings)* / *(machine beeps)* ahead of an announcement. Plays before the iteration line and the "10 seconds remaining" line, but **not** before each countdown digit. | `NarrationDirector` |
 
 ## Narration is generated, not dropped here

@@ -159,7 +159,7 @@ namespace IterationRoom.EditorTools
             ConfigureLightingPipeline();
 
             (Transform bed, Transform bedSpawn) = BuildBed(room.transform, propMat);
-            GameObject nightstand = BuildNightstand(room.transform);
+            BuildNightstand(room.transform);
             FloorButton floorButton = BuildFloorButton(room.transform, propMat);
             (Door door, DoorButton doorButton) = BuildDoor(room.transform, floorButton, propMat);
 
@@ -177,7 +177,7 @@ namespace IterationRoom.EditorTools
             wakeUp.wallPanels = wallDisplay;
 
             (NarrationDirector narration, RoomAmbience ambience) =
-                BuildAudio(player, door, floorButton, wakeUp, nightstand.transform);
+                BuildAudio(player, door, floorButton, wakeUp);
 
             // TEMPORARY. An in-play panel for finding the room's brightness by eye instead of
             // rebuilding between guesses - press F1 in play mode. Delete this line and the script
@@ -418,15 +418,17 @@ namespace IterationRoom.EditorTools
             // Expect the ground colour to bleed onto the walls too - that's spherical harmonics
             // doing what bounce would, and it's why the walls read lit rather than painted.
             //
-            // Tuned in play mode with Dev/LightingTuner, 2026-08-10. The fixtures stayed at 15 and
-            // all three ambient bands came down hard - so what was too bright was never the lights,
-            // it was the fill. The walls in particular went 0.40 -> 0.138: at 0.40 the equator band
-            // was competing with the spots, which flattened the very falloff toward the corners the
-            // fixtures exist to create. The ceiling stays much the highest of the three (0.719),
-            // because nothing else in the room lights an upward-facing surface at all.
+            // Tuned in play mode with Dev/LightingTuner, 2026-08-10, over two passes.
+            //
+            // The fixtures came down (15 -> 9) and the floor band with them, but the walls went
+            // back UP (0.644) after a pass at 0.138 - at that level the spots' falloff toward the
+            // corners was reading as gloom rather than as shape, and the room lost the clinical
+            // evenness it is supposed to have. So the shape of it is: floor lowest (0.155, the
+            // spots already hammer it), walls and ceiling high and close together (0.644 / 0.719),
+            // which is what a room lit by recessed panels and white paint actually looks like.
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor     = new Color(0.131f, 0.131f, 0.151f);
-            RenderSettings.ambientEquatorColor = new Color(0.138f, 0.138f, 0.158f);
+            RenderSettings.ambientSkyColor     = new Color(0.155f, 0.155f, 0.175f);
+            RenderSettings.ambientEquatorColor = new Color(0.644f, 0.644f, 0.664f);
             RenderSettings.ambientGroundColor  = new Color(0.719f, 0.719f, 0.739f);
             RenderSettings.ambientIntensity = 1f;
             // Assigning the colours does NOT rebuild the ambient probe. Without this they are
@@ -1332,7 +1334,7 @@ namespace IterationRoom.EditorTools
         // aren't there yet resolve to null and every player guards on that, so the scene is fully
         // playable with an empty SFX folder - dropping a correctly-named file in and rebuilding is
         // all it takes to make that cue audible. See Assets/Audio/SFX/README.md for the names.
-        private static (NarrationDirector, RoomAmbience) BuildAudio(GameObject player, Door door, FloorButton floorButton, WakeUpSequence wakeUp, Transform nightstand)
+        private static (NarrationDirector, RoomAmbience) BuildAudio(GameObject player, Door door, FloorButton floorButton, WakeUpSequence wakeUp)
         {
             GameObject root = new GameObject("Audio");
 
@@ -1369,13 +1371,10 @@ namespace IterationRoom.EditorTools
             RoomAmbience ambience = ambienceGO.AddComponent<RoomAmbience>();
             ambience.musicSource = MakeSource(ambienceGO.transform, "Music", 0f, 0.5f, loop: true);
             ambience.machineSource = MakeSource(ambienceGO.transform, "Machines", 0f, 0.7f);
-            // Positional, and parented to the nightstand: the rattle is the lamp and vase standing
-            // on it, so it has to come from over there rather than from the middle of your head.
-            ambience.propRattleSource = MakeSource(nightstand, "PropRattle", 1f, 0.9f);
             ambience.ominousLoop = LoadClip(SfxDir, "sfx_ominous_loop");
-            ambience.resetSting = LoadClip(SfxDir, "sfx_reset_sting");
-            ambience.machinesRev = LoadClip(SfxDir, "sfx_machines_rev");
-            ambience.propRattle = LoadClip(SfxDir, "sfx_glass_rattle");
+            // The two halves of the loop boundary, split across the blackout by LoopManager.
+            ambience.pullIn = LoadClip(SfxDir, "sfx_pull_in");
+            ambience.powerDown = LoadClip(SfxDir, "sfx_power_down");
 
             // --- the floor button ---
             // Positional and parented to the pad, which is the entire point: the door lamp only

@@ -9,14 +9,10 @@ namespace IterationRoom
     {
         public AudioSource musicSource;
         public AudioSource machineSource;
-        // Positional, parented to the nightstand, so the rattle comes from the props standing on
-        // it rather than from nowhere.
-        public AudioSource propRattleSource;
 
         public AudioClip ominousLoop;
-        public AudioClip resetSting;
-        public AudioClip machinesRev;
-        public AudioClip propRattle;
+        public AudioClip pullIn;
+        public AudioClip powerDown;
 
         private void Start()
         {
@@ -26,13 +22,21 @@ namespace IterationRoom
             musicSource.Play();
         }
 
-        // Fired at the loop boundary, under the closed eyelids: the machines spin the room back
-        // up, the glass on the nightstand rattles with them, and a sting cuts over the bed.
-        public void PlayResetSting()
+        // The loop boundary is two sounds, not one, and they are deliberately split across the
+        // blackout: the pull starts while the player can still see, the shutdown lands once they
+        // cannot. Together with the panels booting during the wake-up that gives the reset a shape -
+        // taken, switched off, switched back on - rather than one undifferentiated noise.
+
+        // As the eyelids begin to fall, so it is heard against the collapse rather than after it.
+        public void PlayPullIn()
         {
-            if (musicSource != null && resetSting != null) musicSource.PlayOneShot(resetSting);
-            if (machineSource != null && machinesRev != null) machineSource.PlayOneShot(machinesRev);
-            if (propRattleSource != null && propRattle != null) propRattleSource.PlayOneShot(propRattle);
+            if (musicSource != null && pullIn != null) musicSource.PlayOneShot(pullIn);
+        }
+
+        // Under the black. Nothing to look at, which is the point - you only hear the room go out.
+        public void PlayPowerDown()
+        {
+            if (machineSource != null && powerDown != null) machineSource.PlayOneShot(powerDown);
         }
     }
 }

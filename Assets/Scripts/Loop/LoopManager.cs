@@ -104,14 +104,11 @@ namespace IterationRoom
                     ghost.SetVisible(false);
                 }
 
-                // The machines spin the room back up, then the announcer confirms it - both under
-                // the closed eyelids. Iteration 1 opens the run rather than resetting it, so it
-                // gets neither.
-                if (IterationNumber > 1)
-                {
-                    ambience?.PlayResetSting();
-                    narration?.AnnounceNewCycle();
-                }
+                // The announcer confirms the reset under the closed eyelids. Iteration 1 opens the
+                // run rather than resetting it, so it gets no line. (The pull and the shutdown that
+                // precede this are fired at the *end* of the previous iteration, below, which is
+                // why they need no such guard - there is always an iteration before them.)
+                if (IterationNumber > 1) narration?.AnnounceNewCycle();
 
                 iterationLabel?.ShowIteration(IterationNumber);
 
@@ -184,6 +181,12 @@ namespace IterationRoom
 
                 List<RecordedFrame> timeline = playerRecorder != null ? playerRecorder.EndRecording() : null;
 
+                // Fired here rather than at the top of the next iteration: this is the moment the
+                // loop takes you, and it has to be heard while the lids are still falling and the
+                // room is still flaring. Held until after the blackout it becomes an explanation of
+                // something that already happened.
+                ambience?.PlayPullIn();
+
                 if (wakeUpSequence != null)
                     yield return wakeUpSequence.CloseEyes();
 
@@ -191,6 +194,9 @@ namespace IterationRoom
                 // can still see would put a visible full stop on it.
                 cameraShaker?.SetIntensity(0f);
                 wallPanels?.SetFlare(0f);
+
+                // And now the room goes out, with nothing to look at while it does.
+                ambience?.PlayPowerDown();
 
                 if (timeline != null && timeline.Count > 0 && ghostPrefab != null)
                 {
