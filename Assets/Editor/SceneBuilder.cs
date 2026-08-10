@@ -177,7 +177,7 @@ namespace IterationRoom.EditorTools
             wakeUp.wallPanels = wallDisplay;
 
             (NarrationDirector narration, RoomAmbience ambience) =
-                BuildAudio(player, door, wakeUp, nightstand.transform);
+                BuildAudio(player, door, floorButton, wakeUp, nightstand.transform);
 
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
@@ -1316,7 +1316,7 @@ namespace IterationRoom.EditorTools
         // aren't there yet resolve to null and every player guards on that, so the scene is fully
         // playable with an empty SFX folder - dropping a correctly-named file in and rebuilding is
         // all it takes to make that cue audible. See Assets/Audio/SFX/README.md for the names.
-        private static (NarrationDirector, RoomAmbience) BuildAudio(GameObject player, Door door, WakeUpSequence wakeUp, Transform nightstand)
+        private static (NarrationDirector, RoomAmbience) BuildAudio(GameObject player, Door door, FloorButton floorButton, WakeUpSequence wakeUp, Transform nightstand)
         {
             GameObject root = new GameObject("Audio");
 
@@ -1361,13 +1361,14 @@ namespace IterationRoom.EditorTools
             ambience.machinesRev = LoadClip(SfxDir, "sfx_machines_rev");
             ambience.propRattle = LoadClip(SfxDir, "sfx_glass_rattle");
 
-            // --- footsteps ---
-            // Player only. FootstepPlayer reads nothing but the transform, so the identical
-            // component dropped on the Ghost prefab would give the ghosts footsteps too - left off
-            // deliberately, since ghosts accumulate without limit and so would their steps.
-            FootstepPlayer footsteps = player.AddComponent<FootstepPlayer>();
-            footsteps.source = MakeSource(player.transform, "Footsteps", 0f, 0.8f);
-            footsteps.footstepClips = LoadNumberedClips(SfxDir, "sfx_footstep_", 4);
+            // --- the floor button ---
+            // Positional and parented to the pad, which is the entire point: the door lamp only
+            // reports the condition to someone looking at the door, but the clunk reaches you
+            // wherever you are. Hearing a ghost step onto the pad behind you is how the puzzle
+            // tells you the door is live.
+            floorButton.audioSource = MakeSource(floorButton.transform, "FloorButtonAudio", 1f, 0.9f);
+            floorButton.pressClip = LoadClip(SfxDir, "sfx_floor_button_press");
+            floorButton.releaseClip = LoadClip(SfxDir, "sfx_floor_button_release");
 
             // --- the door ---
             door.audioSource = MakeSource(door.transform, "DoorAudio", 1f, 1f);
@@ -1469,18 +1470,6 @@ namespace IterationRoom.EditorTools
                 if (clip != null) return clip;
             }
             return null;
-        }
-
-        // Collects sfx_footstep_1..N, skipping gaps, so partially-filled sets still work.
-        private static AudioClip[] LoadNumberedClips(string dir, string prefix, int count)
-        {
-            var clips = new System.Collections.Generic.List<AudioClip>();
-            for (int i = 1; i <= count; i++)
-            {
-                AudioClip clip = LoadClip(dir, prefix + i);
-                if (clip != null) clips.Add(clip);
-            }
-            return clips.ToArray();
         }
 
         private static (IterationLabel label, WakeUpSequence wakeUp) BuildUI()

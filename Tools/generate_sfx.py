@@ -189,23 +189,47 @@ def write(name, samples):
 
 # ---------------------------------------------------------------- the sounds
 
-def footstep(index):
-    """A soft-soled step on a hard panel floor: body weight landing, the sole itself, and a short
-    tail. Each variant moves the sole's centre frequency and the thump's pitch - that is what keeps
-    four samples from sounding like one sample played four times."""
-    rng = random.Random(1000 + index)
-    dur = 0.16
+def floor_button_press():
+    """The floor pad taking weight: a spring-loaded plate travelling a few millimetres and bottoming
+    out on its stop. Three parts, and the order of them is the whole sound - the detent lets go
+    first, the plate lands second, and the housing rings under it."""
+    rng = random.Random(83)
+    dur = 0.45
     n = int(dur * SR)
 
-    click_freq = [2100, 2600, 1750, 3000][index % 4]
-    thump_freq = [58, 64, 52, 69][index % 4]
+    # The detent releasing. Short, bright, and slightly before everything else.
+    detent = apply_env(bandpass(noise(0.05, rng), 3400, q=1.3),
+                       env_decay(int(0.05 * SR), 0.008, attack=0.0004))
 
-    click = apply_env(bandpass(noise(dur, rng), click_freq, q=1.1),
-                      env_decay(n, 0.022, attack=0.0008))
-    body = apply_env(bandpass(noise(dur, rng), 420, q=0.8), env_decay(n, 0.055, attack=0.003))
-    thump = apply_env(sine(dur, thump_freq), env_decay(n, 0.045, attack=0.001))
+    # The plate hitting its stop: the body of the sound.
+    plate = mix(apply_env(sine(dur, 96), env_decay(n, 0.055, attack=0.0012)),
+                apply_env(sine(dur, 143), scale(env_decay(n, 0.035, attack=0.0012), 0.5)),
+                apply_env(lowpass(noise(dur, rng), 1100), scale(env_decay(n, 0.03), 0.55)))
 
-    return fade_edges(normalize(mix(scale(click, 0.55), scale(body, 0.45), scale(thump, 0.9)), 0.62))
+    # A little metal in the housing, so it reads as installed hardware rather than as a knock.
+    ring = [0.0] * n
+    for j, f in enumerate((820, 1930)):
+        ring = mix(ring, scale(apply_env(bandpass(noise(dur, rng), f, q=17 - j * 5),
+                                         env_decay(n, 0.12 / (j + 1), attack=0.001)), 0.5 / (j + 1)))
+
+    out = at(scale(plate, 0.9), scale(detent, 0.5), 0.0)
+    out = mix(out, scale(ring, 0.35))
+    return fade_edges(normalize(out, 0.72))
+
+
+def floor_button_release():
+    """The pad coming back up. Lighter, higher and quicker than the press - a spring returning an
+    unloaded plate, not a body landing on it. Deliberately much less of an event: the press is the
+    one that means something."""
+    rng = random.Random(89)
+    dur = 0.3
+    n = int(dur * SR)
+
+    spring = apply_env(bandpass(noise(dur, rng), 2600, q=2.2), env_decay(n, 0.045, attack=0.0006))
+    seat = mix(apply_env(sine(dur, 168), env_decay(n, 0.03, attack=0.001)),
+               apply_env(lowpass(noise(dur, rng), 1500), scale(env_decay(n, 0.018), 0.5)))
+
+    return fade_edges(normalize(mix(scale(spring, 0.45), scale(seat, 0.7)), 0.5))
 
 
 def door_open():
@@ -401,8 +425,8 @@ def chime():
 
 def main():
     print("Writing SFX to", os.path.normpath(OUT))
-    for i in range(1, 5):
-        write("sfx_footstep_%d" % i, footstep(i - 1))
+    write("sfx_floor_button_press", floor_button_press())
+    write("sfx_floor_button_release", floor_button_release())
     write("sfx_door_open", door_open())
     write("sfx_gasp", gasp())
     write("sfx_sheet_rustle", sheet_rustle())

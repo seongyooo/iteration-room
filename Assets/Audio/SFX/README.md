@@ -20,7 +20,8 @@ valid state: the scene runs silent on the SFX channel while the narration plays.
 
 | Filename | Cue | Fired by |
 |---|---|---|
-| `sfx_footstep_1` … `sfx_footstep_4` | Footsteps. Multiple variants get picked at random with pitch jitter, never the same one twice running. Fewer than 4 is fine. | `FootstepPlayer` |
+| `sfx_floor_button_press` | The floor pad going down. Fires for a **ghost** stepping on it as well as the player — it's a physical plate, and hearing one go down behind you is how the puzzle reports itself. | `FloorButton` |
+| `sfx_floor_button_release` | The pad coming back up. Deliberately a much smaller event than the press. | `FloorButton` |
 | `sfx_door_open` | The pocket door sliding open — the film's *(door swishes)*. | `Door.Open` |
 | `sfx_gasp` | Waking up, on the eyes starting to open. | `WakeUpSequence` |
 | `sfx_sheet_rustle` | Bedding, as the body sits up. | `WakeUpSequence` |
