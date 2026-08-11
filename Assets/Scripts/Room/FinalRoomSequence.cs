@@ -32,11 +32,15 @@ namespace IterationRoom
         // this is not a place you leave.
         public Door doorBehind;
 
+        // The wall panels, which stop being walls and become screens. The break spreads out from
+        // the plinth, so the origin handed over is the thing the player just pressed.
         public WallPanelDisplay wallPanels;
-        // ERROR on all four of this room's walls, built exactly like Room3's message - see
-        // SceneBuilder.MakeWallFace for why a world-space canvas on a dark plate reads as the wall
-        // rather than as a poster.
-        public CanvasGroup[] errorFaces;
+
+        // The same shake the last ten seconds of every cycle has, run again over the break. It is
+        // the one piece of the collapse the ending deliberately borrows: LoopManager has just
+        // released it to nothing on the way in here, so the building going back to shaking is the
+        // player's doing rather than the loop's.
+        public CameraShaker cameraShaker;
 
         public NarrationDirector narration;
 
@@ -48,10 +52,11 @@ namespace IterationRoom
         public float riseDelay = 0.8f;
         public float riseDuration = 2.4f;
 
-        // How long the room stays broken before the scrim starts. Long enough to read ERROR and see
-        // the colour, short enough that it does not become the ending itself.
-        public float breakHold = 3.4f;
-        public float errorFadeIn = 0.35f;
+        // Press to scrim. A floor rather than a pause: the door takes a second to seal and the
+        // panels take `glitchOnset` to fail across the building, and at the 3.4s this was first
+        // built with, all of it was still arriving when the screen went black. The room has to be
+        // seen broken or the last thing the player did has no visible consequence.
+        public float breakDuration = 10f;
 
         // True once the plinth is up. FinalRoomButton reads it, so the plate cannot be pressed
         // through the floor on the way up.
@@ -102,14 +107,14 @@ namespace IterationRoom
             // the doorway: walking into a room is not what breaks a cycle, this is.
             narration?.AnnounceCycleBroken();
 
-            wallPanels?.BeginGlitch();
-            yield return FadeErrors(1f, errorFadeIn);
-            yield return Wait(breakHold);
+            wallPanels?.BeginGlitch(plinth != null ? plinth.position : transform.position);
 
-            // Left broken. EndingSequence's scrim comes up over a room that is still tearing itself
-            // apart, which is the opposite of the loop's power-down and deliberately so: the panels
-            // going dark is the facility switching the cell off before switching it back on, and
-            // that would say the cycle continued.
+            yield return Break();
+
+            // Left broken. EndingSequence's scrim comes up over a room that is still failing, which
+            // is the opposite of the loop's power-down and deliberately so: the panels going dark is
+            // the facility switching the cell off before switching it back on, and that would say
+            // the cycle continued.
         }
 
         private IEnumerator Rise()
@@ -129,21 +134,20 @@ namespace IterationRoom
             plinth.localPosition = plinthUpPosition;
         }
 
-        private IEnumerator FadeErrors(float target, float duration)
+        // The shake builds over the whole break and peaks as the scrim starts, which is exactly the
+        // curve LoopManager runs over the last seconds of a cycle - linear intensity, same shaker.
+        // A player who has felt the collapse dozens of times knows what this means without being
+        // told, and that is the only reason to reuse it rather than invent a motion for the ending.
+        private IEnumerator Break()
         {
-            if (errorFaces == null) yield break;
-
             float t = 0f;
-            while (t < duration)
+            while (t < breakDuration)
             {
                 t += Time.unscaledDeltaTime;
-                float a = Mathf.Lerp(0f, target, duration > 0f ? t / duration : 1f);
-                foreach (CanvasGroup face in errorFaces)
-                    if (face != null) face.alpha = a;
+                cameraShaker?.SetIntensity(breakDuration > 0f ? Mathf.Clamp01(t / breakDuration) : 1f);
                 yield return null;
             }
-            foreach (CanvasGroup face in errorFaces)
-                if (face != null) face.alpha = target;
+            cameraShaker?.SetIntensity(1f);
         }
 
         private static IEnumerator Wait(float seconds)

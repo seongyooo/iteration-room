@@ -207,6 +207,10 @@ namespace IterationRoom.EditorTools
             wallDisplay.panels = wallPanelRenderers.ToArray();
             wallDisplay.offColor = WallPanelColor;
             wallDisplay.onColor = Color.white;
+            // What a panel shows once it fails. Generated rather than sourced, like every other
+            // texture in this build.
+            wallDisplay.testCard = MakeTestCardTexture("TvTestCard");
+            wallDisplay.staticNoise = MakeStaticTexture("TvStatic", 64);
 
             // Four recessed downlights per room, plus Trilight ambient standing in for the bounce
             // URP is not computing. The scene's default Directional Light is deleted rather than
@@ -344,7 +348,7 @@ namespace IterationRoom.EditorTools
             // Room4 and the plate that ends the run. Its narration is wired after BuildAudio below;
             // control is LoopManager's to take, at the scrim, so nothing here needs the player.
             FinalRoomSequence finalRoom = BuildFinalRoom(room.transform, 3f * RoomPitch, propMat,
-                                                        door3, wallDisplay);
+                                                        door3, wallDisplay, shaker);
 
             // Appended after the fact because both buttons live in rooms built later than the hint
             // display. They are the two E fixtures OUTSIDE the loop - one before the first
@@ -866,6 +870,145 @@ namespace IterationRoom.EditorTools
         //
         // Multi-octave value noise, made *tileable* by wrapping the lattice at each octave's period
         // (see Hash). Mathf.PerlinNoise is not tileable and would seam at every repeat.
+        // The picture every wall panel shows once it fails: seven colour bars with a dark band
+        // under them carrying the word ERROR.
+        //
+        // A TEST CARD rather than a warning sign, and that is the whole idea. A sign is something a
+        // room PUTS UP, and a facility still capable of putting a sign up has not failed. This is
+        // the image a display shows when it has nothing left to show - so a room built entirely out
+        // of displays does not report the fault, it becomes it.
+        //
+        // 126 x 100 for seven exact 18px bars, uncompressed and point-filtered: block colour with
+        // hard edges is precisely what DXT smears, and a soft test card is a poster of one.
+        private static Texture2D MakeTestCardTexture(string name)
+        {
+            const int w = 126, h = 100;
+            const int bandHeight = 30;          // the dark strip along the bottom
+            const int bars = 7;
+
+            // The broadcast order, brightest to darkest by luma - which is what makes a row of them
+            // read as a test card rather than as a row of coloured squares.
+            Color[] bar =
+            {
+                Color.white,
+                new Color(1f, 1f, 0f),
+                new Color(0f, 1f, 1f),
+                new Color(0f, 1f, 0f),
+                new Color(1f, 0f, 1f),
+                new Color(1f, 0f, 0f),
+                new Color(0f, 0f, 1f),
+            };
+
+            Color band = new Color(0.04f, 0.04f, 0.045f);   // GrooveDark, like every dark plate here
+            Color ink = new Color(1f, 0.13f, 0.11f);        // and the same red as every display
+
+            Color[] px = new Color[w * h];
+            for (int y = 0; y < h; y++)
+            {
+                for (int x = 0; x < w; x++)
+                {
+                    px[y * w + x] = y < bandHeight
+                        ? band
+                        : bar[Mathf.Clamp(x * bars / w, 0, bars - 1)];
+                }
+            }
+
+            // ERROR, drawn from a 5x7 bitmap because there is no font rasteriser to hand when the
+            // target is a Texture2D. Three glyphs is all five letters need.
+            const int glyphScale = 3;
+            int textWidth = (5 * 5 + 4) * glyphScale;       // five glyphs, four one-pixel gaps
+            int originX = (w - textWidth) / 2;
+            int originY = (bandHeight - 7 * glyphScale) / 2;
+            string word = "ERROR";
+            for (int c = 0; c < word.Length; c++)
+                BlitGlyph(px, w, h, word[c], originX + c * 6 * glyphScale, originY, glyphScale, ink);
+
+            return WriteTexture(name, w, h, px, TextureWrapMode.Repeat, FilterMode.Point);
+        }
+
+        // Rows top-to-bottom, so a glyph reads the right way up when it is written into a texture
+        // whose y = 0 is the BOTTOM.
+        private static void BlitGlyph(Color[] px, int w, int h, char c, int x0, int y0, int scale, Color ink)
+        {
+            string[] rows;
+            switch (c)
+            {
+                case 'E': rows = new[] { "11111", "10000", "10000", "11110", "10000", "10000", "11111" }; break;
+                case 'R': rows = new[] { "11110", "10001", "10001", "11110", "10100", "10010", "10001" }; break;
+                case 'O': rows = new[] { "01110", "10001", "10001", "10001", "10001", "10001", "01110" }; break;
+                default: return;
+            }
+
+            for (int row = 0; row < rows.Length; row++)
+            {
+                for (int col = 0; col < 5; col++)
+                {
+                    if (rows[row][col] != '1') continue;
+                    for (int sy = 0; sy < scale; sy++)
+                    {
+                        for (int sx = 0; sx < scale; sx++)
+                        {
+                            int x = x0 + col * scale + sx;
+                            int y = y0 + (rows.Length - 1 - row) * scale + sy;
+                            if (x < 0 || x >= w || y < 0 || y >= h) continue;
+                            px[y * w + x] = ink;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Monochrome grain, tiled several times across a panel and scrolled a whole texture at a
+        // time between frames. Deterministic through System.Random rather than UnityEngine.Random,
+        // which BuildOnsets depends on being left alone.
+        private static Texture2D MakeStaticTexture(string name, int size)
+        {
+            var rng = new System.Random(20260812);
+            Color[] px = new Color[size * size];
+            for (int i = 0; i < px.Length; i++)
+            {
+                // Weighted toward the dark end. Even static is mostly black - an even spread comes
+                // out as flat grey at any distance and stops reading as noise at all.
+                float v = (float)rng.NextDouble();
+                v *= v;
+                px[i] = new Color(v, v, v);
+            }
+
+            return WriteTexture(name, size, size, px, TextureWrapMode.Repeat, FilterMode.Point);
+        }
+
+        private static Texture2D WriteTexture(string name, int w, int h, Color[] pixels,
+                                              TextureWrapMode wrap, FilterMode filter)
+        {
+            string path = $"{TexturesDir}/{name}.png";
+
+            Texture2D tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            tex.SetPixels(pixels);
+            tex.Apply();
+
+            Directory.CreateDirectory(TexturesDir);
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (importer != null)
+            {
+                importer.textureType = TextureImporterType.Default;
+                importer.sRGBTexture = true;
+                importer.wrapMode = wrap;
+                importer.filterMode = filter;
+                // NPOT sizes are rescaled to the nearest power of two by default, which would turn
+                // 126 x 100 into 128 x 128 and put the seven exact bars back on fractional pixels.
+                importer.npotScale = TextureImporterNPOTScale.None;
+                // Block colour with hard edges is the worst case for DXT, and this is nothing else.
+                importer.textureCompression = TextureImporterCompression.Uncompressed;
+                importer.SaveAndReimport();
+            }
+
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+
         private static Texture2D MakeNoiseNormalMap(string name, int size, float bumpStrength)
         {
             string path = $"{TexturesDir}/{name}.png";
@@ -3274,7 +3417,8 @@ namespace IterationRoom.EditorTools
         // impossible to check without pressing Play.
         private static FinalRoomSequence BuildFinalRoom(Transform parent, float roomCenterZ,
                                                         Material propMat, Door doorBehind,
-                                                        WallPanelDisplay wallPanels)
+                                                        WallPanelDisplay wallPanels,
+                                                        CameraShaker cameraShaker)
         {
             GameObject root = new GameObject("FinalRoom");
             root.transform.SetParent(parent, false);
@@ -3337,53 +3481,32 @@ namespace IterationRoom.EditorTools
             button.audioSource = MakeSource(buttonRoot.transform, "ButtonAudio", 1f, 0.8f);
             button.pressClip = LoadClip(SfxDir, "sfx_floor_button_press");
 
-            // --- ERROR, on all four walls ---
-            //
-            // The same fixture as Room3's message, at the same height and the same standoff, for the
-            // same reason: two walls are in view at once from most of this room and there is no wall
-            // the player reliably looks at. It reuses MakeWallFace, so the canvas-facing rule (the
-            // forward points INTO the wall, or the type renders mirrored) is stated in one place.
-            GameObject errorRoot = new GameObject("ErrorMessage");
-            errorRoot.transform.SetParent(root.transform, false);
-
-            const float standoff = 0.05f;
-            const float messageY = 3.95f;
-            float halfWidth = RoomWidth / 2f;
-            float halfDepth = RoomDepth / 2f;
-
-            var faces = new CanvasGroup[4];
-            faces[0] = MakeWallFace(errorRoot.transform, "South", new Vector3(0f, messageY, -halfDepth + standoff), Quaternion.Euler(0f, 180f, 0f), "E R R O R", "CYCLE INTEGRITY LOST");
-            faces[1] = MakeWallFace(errorRoot.transform, "North", new Vector3(0f, messageY, halfDepth - standoff), Quaternion.identity, "E R R O R", "CYCLE INTEGRITY LOST");
-            faces[2] = MakeWallFace(errorRoot.transform, "West", new Vector3(-halfWidth + standoff, messageY, 0f), Quaternion.Euler(0f, -90f, 0f), "E R R O R", "CYCLE INTEGRITY LOST");
-            faces[3] = MakeWallFace(errorRoot.transform, "East", new Vector3(halfWidth - standoff, messageY, 0f), Quaternion.Euler(0f, 90f, 0f), "E R R O R", "CYCLE INTEGRITY LOST");
-
+            // NO ERROR SIGN ON THE WALLS. It was four wall-sized canvases like Room3's message, and
+            // that was the wrong instrument: a sign is something the room PUTS UP, and a facility
+            // that can still put a sign up has not failed. The word lives on the panels themselves
+            // now - every one of them a screen showing a test card with ERROR on it - so the room
+            // does not report the fault, it IS the fault. See WallPanelDisplay.
             FinalRoomSequence sequence = root.AddComponent<FinalRoomSequence>();
             sequence.plinth = plinth.transform;
             sequence.button = button;
             sequence.doorBehind = doorBehind;
             sequence.wallPanels = wallPanels;
-            sequence.errorFaces = faces;
+            sequence.cameraShaker = cameraShaker;
             // Clears the floor by a hair with the button's own height counted in, so nothing shows
             // through the slab before it is meant to.
             sequence.riseHeight = plinthHeight + plateProud + buttonHalfHeight * 2f + 0.04f;
-            sequence.errorFadeIn = 0.35f;
             // TEN SECONDS from the press to the scrim starting, and that is a floor rather than a
-            // pause: the door takes 1s to seal, the panels take 0.25s to break and the ERROR plates
-            // 0.35s to come up, and at the 3.4s this was first built at all of that was still
-            // arriving when the screen went black. The room has to be seen broken, or the last
+            // pause: the door takes 1s to seal and the panels take glitchOnset 6.5s to fail across
+            // the whole building. At the 3.4s this was first built at, all of that was still
+            // arriving when the screen went black. The room has to be SEEN broken, or the last
             // thing the player did has no visible consequence.
-            sequence.breakHold = 10f - sequence.errorFadeIn;
+            sequence.breakDuration = 10f;
 
             button.sequence = sequence;
             return sequence;
         }
 
-        // The two lines are arguments rather than constants because Room4 hangs the same fixture -
-        // same plate, same face, same standoff - with ERROR on it. A second copy of this method
-        // would be a second place for the canvas-facing rule below to be got wrong.
-        private static CanvasGroup MakeWallFace(Transform parent, string name, Vector3 localPosition, Quaternion localRotation,
-                                               string headline = "H O L D   [ N ]",
-                                               string detail = "TO SKIP TO THE NEXT ITERATION")
+        private static CanvasGroup MakeWallFace(Transform parent, string name, Vector3 localPosition, Quaternion localRotation)
         {
             GameObject go = new GameObject(name);
             go.transform.SetParent(parent, false);
@@ -3428,11 +3551,11 @@ namespace IterationRoom.EditorTools
             plate.raycastTarget = false;
             Stretch(plate.GetComponent<RectTransform>());
 
-            MakeWallLine(go.transform, "Headline", headline, 132, Color.red,
+            MakeWallLine(go.transform, "Headline", "H O L D   [ N ]", 132, Color.red,
                 new Vector2(0f, 78f), new Vector2(1600f, 190f));
-            // Not spaced out, unlike the headline: the longest of these is 29 characters and
-            // spacing it would put it past the wall. The headline carries the treatment for both.
-            MakeWallLine(go.transform, "Detail", detail, 74,
+            // Not spaced out, unlike the headline: this line is 29 characters and spacing it would
+            // put it past the wall. The headline carries the treatment for both.
+            MakeWallLine(go.transform, "Detail", "TO SKIP TO THE NEXT ITERATION", 74,
                 new Color(1f, 0.35f, 0.35f, 0.9f), new Vector2(0f, -90f), new Vector2(1600f, 130f));
 
             return group;
