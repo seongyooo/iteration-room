@@ -2805,9 +2805,43 @@ namespace IterationRoom.EditorTools
                 slots[i] = image;
             }
 
+            // The Tab prompt, under the row rather than out in the middle of the screen: it
+            // explains this readout - one icon bright, the rest dimmed - so it belongs on it. A
+            // child of the row, so moving the row moves the label with it.
+            GameObject hintGO = new GameObject("SwapHint");
+            hintGO.transform.SetParent(go.transform, false);
+
+            CanvasGroup hintGroup = hintGO.AddComponent<CanvasGroup>();
+            hintGroup.alpha = 0f;
+            hintGroup.blocksRaycasts = false;
+            hintGroup.interactable = false;
+
+            Text hint = hintGO.AddComponent<Text>();
+            hint.font = UIFont();
+            hint.fontSize = 16;
+            hint.alignment = TextAnchor.UpperLeft;
+            hint.color = Color.red;
+            // Bracketed key then the verb, the same shape as the end-cycle control's label.
+            hint.text = "[TAB] — SWAP ITEM";
+            // 0.6 * 16 * 17 is about 163px against a 300px rect, but overflow is set anyway - a
+            // silently rewrapping HUD label has bitten this project twice.
+            hint.horizontalOverflow = HorizontalWrapMode.Overflow;
+            hint.verticalOverflow = VerticalWrapMode.Overflow;
+            hint.raycastTarget = false;
+
+            RectTransform hintRect = hint.GetComponent<RectTransform>();
+            hintRect.anchorMin = new Vector2(0f, 1f);
+            hintRect.anchorMax = new Vector2(0f, 1f);
+            hintRect.pivot = new Vector2(0f, 1f);
+            hintRect.sizeDelta = new Vector2(300f, 22f);
+            // anchoredPosition, never localPosition: the latter is stale on a RectTransform, and
+            // it must be written AFTER AddComponent<Text> replaced the Transform.
+            hintRect.anchoredPosition = new Vector2(0f, -(slotSize + 10f));
+
             CarriedItemsDisplay display = go.AddComponent<CarriedItemsDisplay>();
             display.hand = hand;
             display.slots = slots;
+            display.swapHint = hintGroup;
         }
 
         // The two control prompts. A grey disc over whatever the player has walked up to, with an

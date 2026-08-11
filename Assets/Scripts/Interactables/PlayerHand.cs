@@ -86,9 +86,17 @@ namespace IterationRoom
             if (Input.GetKeyDown(KeyCode.Tab)) CycleHeld();
         }
 
+        // How many times the player has actually swapped, ever - not reset at the loop boundary,
+        // because learning a control is not state the iteration rewinds. The swap prompt retires
+        // against this rather than against having been shown: "shown once" did not teach the door
+        // button either. See CarriedItemsDisplay.
+        public int CycleCount { get; private set; }
+
         public void CycleHeld()
         {
             if (carriedItems.Count == 0) return;
+
+            CycleCount++;
 
             int current = Held == null ? carriedItems.Count : carriedItems.IndexOf(Held);
             // count is the empty-hands slot: index count-1 -> count (empty) -> wraps to 0.
