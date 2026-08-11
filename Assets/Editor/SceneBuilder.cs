@@ -588,7 +588,12 @@ namespace IterationRoom.EditorTools
             so.FindProperty("m_Settings.Samples").enumValueIndex = 0;
             so.FindProperty("m_Settings.NormalSamples").enumValueIndex = 0;
             so.FindProperty("m_Settings.BlurQuality").enumValueIndex = 0;
-            so.FindProperty("m_Settings.Downsample").boolValue = false;
+            // HALF RESOLUTION. SSAO is a full-screen pass and this is a WebGL build; running it at
+            // full res was costing a lot for very little, because the radius above is 0.045 - the
+            // occlusion it draws is a thin contact line under objects, and a thin line survives
+            // being resolved at half res. Turn this back off if the contact shading starts to
+            // crawl along the door edges.
+            so.FindProperty("m_Settings.Downsample").boolValue = true;
             so.ApplyModifiedPropertiesWithoutUndo();
 
             EditorUtility.SetDirty(ssao);
@@ -684,11 +689,27 @@ namespace IterationRoom.EditorTools
             SetIfPresent(so, "m_AdditionalLightShadowsSupported", true);
             // Also an enum, not a pixel count - assigning 2048 as an int throws "enum index is out
             // of range". One shared atlas holds every additional light's shadow map.
-            // 4096, not 2048: six shadowed fixtures share one atlas, and at 2048 URP logs
-            // "Reduced additional punctual light shadows resolution by 2 to make 6 shadow maps
-            // fit" and quietly drops each map to 512.
-            SetEnumByName(so, "m_AdditionalLightsShadowmapResolution", "_4096");
+            //
+            // 2048. This was 4096 on the grounds that SIX shadowed fixtures shared the atlas and
+            // 2048 made URP log "Reduced additional punctual light shadows resolution by 2 to make
+            // 6 shadow maps fit" and drop each map to 512. **There are four now** - only Room1's
+            // ceiling casts, and the count has moved since - so 2048 gives each of them a 1024 map
+            // with no reduction, at a quarter of the atlas. If the shadowed count ever climbs past
+            // four, watch the console for that exact warning and put this back.
+            SetEnumByName(so, "m_AdditionalLightsShadowmapResolution", "_2048");
             SetIfPresent(so, "m_SoftShadowsSupported", true);
+
+            // OFF, because there is no main light. URP's main light is the brightest DIRECTIONAL
+            // light and this project deletes the scene's - the rooms are sealed boxes with a
+            // ceiling slab, so a sun has no way in. Keeping its shadows enabled reserved a 2048 map
+            // and a shadow pass for a light that does not exist.
+            SetIfPresent(so, "m_MainLightShadowsSupported", false);
+
+            // 15, not 30. Shadows are cast only in Room1, which is 10.5m deep - 30m of shadow
+            // distance was reaching two rooms past anything that casts. Halving it also doubles the
+            // effective texel density of what is left, so this is a quality gain as much as a cost
+            // one.
+            SetFloatIfPresent(so, "m_ShadowDistance", 15f);
 
             // GhostFaint samples _CameraDepthTexture to fade where a ghost crosses solid geometry,
             // and that texture only exists if something asks for it. SSAO happens to request depth
@@ -722,6 +743,12 @@ namespace IterationRoom.EditorTools
                 return;
             }
             p.enumValueIndex = index;
+        }
+
+        private static void SetFloatIfPresent(SerializedObject so, string path, float value)
+        {
+            SerializedProperty p = so.FindProperty(path);
+            if (p != null && p.propertyType == SerializedPropertyType.Float) p.floatValue = value;
         }
 
         private static void SetIfPresent(SerializedObject so, string path, bool value)

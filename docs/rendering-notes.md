@@ -52,6 +52,36 @@ Fixture placement and ambient tuning, materials, probes, and the art rules the r
   - The other three transparent-looking materials are not transparent at all - `BedSheet`,
     `BedPillow` and `KeyGold` are `_Surface 0`, queue 2000, no transparent keyword. Their `_SrcBlend`
     does nothing whichever value it holds.
+### Cost, and what was cut for WebGL
+
+The first itch build came back "laggy everywhere, regardless of room", and *everywhere* is the
+diagnostic: a draw-call bottleneck would make Room2 with its 71 balloons far worse than an empty
+room. Uniform cost points at the full-screen passes and fill rate instead.
+
+- **Additional-light shadow atlas 4096 → 2048.** The 4096 was set because *six* fixtures shared the
+  atlas and 2048 made URP log `Reduced additional punctual light shadows resolution by 2 ...` and
+  drop each map to 512. **There are four now** — only Room1 casts — so 2048 gives each a 1024 map
+  with no reduction. If the shadowed count ever climbs past four, watch for that warning and put it
+  back.
+- **Main light shadows OFF.** URP's main light is the brightest *directional* light, and this project
+  deletes the scene's because the rooms are sealed boxes with a ceiling slab. Its shadows had been
+  enabled the whole time, reserving a 2048 map and a pass for a light that does not exist.
+- **Shadow distance 30 → 15.** Shadows are cast only in Room1, which is 10.5m deep. Halving the
+  distance also doubles the texel density of what is left, so it is a quality gain as much as a cost
+  one.
+- **SSAO at half resolution** (`Downsample`). The radius is 0.045, so what it draws is a thin contact
+  line under objects, and a thin line survives being resolved at half res. Turn it back off if the
+  contact shading starts to crawl along the door edges.
+- **Soft shadow quality was already Medium**, not High — nothing to win there, despite the guess.
+- **Still on the table, both visible**: MSAA is `4x`, and this room is black grid lines on white
+  panelling, which is the worst case there is for aliasing — `2x` is the compromise. `renderScale` is
+  1.0 and 0.85 would take about 30% of the fill rate. Neither has been touched.
+
+**Do not trust a screenshot taken straight after a scene rebuild.** The glb furniture instantiates
+behind the build, and a capture that races it shows Room1 with the bed missing and its shadow still
+lying on the floor — which reads exactly like a rendering regression and is not one. Capture a second
+time before believing it.
+
 - **Gloss only works because of the reflection probes.** Raising smoothness without them paints the blue procedural sky over every white panel — the exact failure the old "0.03 smoothness everywhere" rule existed to dodge. Note that **a mirror of a white room is still white**: the gloss reads as sheen and falloff rather than visible reflected objects. If a harder "switched-off display" look is wanted, the panels need a *darker* albedo.
 - **One baked reflection probe per room** (`BuildReflectionProbe`), box-projected and sized to the room so a reflected wall stays on the wall instead of sliding with the camera. `reflectionIntensity` is **1.0**.
   - **Baked during `Build()`** via `Lightmapping.BakeReflectionProbe`, writing `Assets/Textures/*_Reflection.exr`. A Realtime probe was tried first, reasoning that rebuilds would invalidate baked data — but **a realtime probe renders nothing until play mode**, so `probe.texture` came back EMPTY and the glossy walls had nothing to reflect. Baking in the build gets a real asset regenerated in lockstep with the geometry it captures.
