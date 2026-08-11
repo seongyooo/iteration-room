@@ -25,5 +25,23 @@ Things that cost a session to discover once. Do not rediscover them.
 - **A world-space Canvas is legible when its forward (+Z) matches the direction the viewer is LOOKING** — not when it points at the viewer. Unity's default scene is the proof: camera at z=-10 looking toward +Z, canvas unrotated, text the right way round. So a wall message must face **away from the room, into its wall**. Getting it backwards renders the text mirrored, which is what happened to all four of Room3's messages. "Face the normal inwards" is the intuition to distrust — it is what you would do for a physical sign.
 - **A `RectTransform`'s serialized `m_LocalPosition` is stale, and reading it will convince you a correct build is broken.** Its x and y come from `m_AnchoredPosition`; Room3's wall messages all serialize as `{0,0,0}` while sitting exactly where they should. **Inspect `m_AnchoredPosition`.** Related: `AddComponent<Canvas>()` (or any UI component) *replaces* a plain `Transform` with a `RectTransform`, so a position written before that call is discarded.
 - **There is no scripting API that creates a layer.** `EnsureLayer` edits `ProjectSettings/TagManager.asset` through a `SerializedObject`, so the build has a side effect **outside the scene** — expect that file in a diff after a fresh clone's first build. It is idempotent by name. Indices **0-7 are Unity's own**; three look blank and are not, and writing into one is silently dropped, so the search starts at 8.
+- **Rewriting the URP asset during a build can cost that build's very next render.** The menu
+  background is captured mid-`Build()`, and the one build that also rewrote `IterationURP` (main
+  light shadows off, shadow atlas 4096→2048, shadow distance, SSAO downsample) captured a frame with
+  **the skybox and nothing else** — every lit surface missing, and the unlit `BEGIN` label two rooms
+  away showing through the wall that should have hidden it. URP drops and rebuilds its pipeline
+  instance when its asset changes, and the render request went in during that window. It does not
+  reproduce once the pipeline is warm: the identical code, rebuilt, captured correctly.
+  - **The camera was never in the wrong place.** The mirrored `BEGIN` read like a camera fault and
+    is not one — the label faces the calibration spawn, so seeing it *through* Room1's missing south
+    wall shows it from behind. Confirm placement before blaming it: `bedSpawnPoint` is
+    `Room/BedSpawnPoint`, world `(0, 0.05, -0.7)`, euler `(0, 180, 0)`, scale 1.
+  - **What made this shippable was that nothing failed.** The build logged success and a skybox went
+    to itch.io behind the title screen. `CaptureMenuBackground` now clears to magenta instead of the
+    skybox and rejects any frame more than 1% clear colour, keeping the previous PNG and logging an
+    **error** — the rooms are sealed boxes with the camera inside one, so a correct frame measures
+    zero stray pixels out of 1920×1080. Retries once first, which is all the pipeline window needs.
+  - Generalises: **anything that renders inside a build must check what came back.** A render request
+    that returns garbage returns it silently.
 - **`-nographics` cannot render anything**, which is why the menu capture checks `SystemInfo.graphicsDeviceType`. Anything else needing a real render must make the same check or the canonical headless build stops working.
 - A fresh Unity project via `-createProject` does **not** include uGUI — `"com.unity.ugui": "2.0.0"` had to go into `Packages/manifest.json` before any `Text`/`Canvas` script would compile.

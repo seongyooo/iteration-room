@@ -34,6 +34,12 @@ namespace IterationRoom.EditorTools
         private const string TexturesDir = "Assets/Textures";
         private const string IconsDir = TexturesDir + "/Icons";
         private const string MenuBackgroundPath = TexturesDir + "/MenuBackground.png";
+        // The menu capture's tripwire colour, and how much of it a frame is allowed to show.
+        // Magenta because the room is white panelling and black grooves and cannot produce it; the
+        // threshold is 1% against a measured 0 stray pixels out of 1920x1080, so the margin is
+        // slack, not a tuned number. Why a tripwire at all: `docs/gotchas.md`.
+        private static readonly Color MenuCaptureTripwire = Color.magenta;
+        private const float MenuCaptureMaxStray = 0.01f;
         private const string FontsDir = "Assets/Fonts";
         private const string AudioDir = "Assets/Audio";
         private const string VoiceDir = AudioDir + "/Voice";
@@ -440,7 +446,8 @@ namespace IterationRoom.EditorTools
         // Regenerated on every build that can render, so the menu can never advertise a room that
         // no longer exists. Under `-nographics` there is no device to render with: the capture is
         // SKIPPED and the previous PNG stands, because a stale background is a far better outcome
-        // than a failed build.
+        // than a failed build. A frame that renders but comes back WRONG is held to the same rule,
+        // and the tripwire below is what makes "wrong" something this can actually tell.
         private static void CaptureMenuBackground(Camera cam)
         {
             if (cam == null)
@@ -461,40 +468,85 @@ namespace IterationRoom.EditorTools
             RenderTexture rt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             RenderTexture previousActive = RenderTexture.active;
             RenderTexture previousTarget = cam.targetTexture;
+            CameraClearFlags previousFlags = cam.clearFlags;
+            Color previousBackground = cam.backgroundColor;
             Texture2D shot = null;
+            byte[] png = null;
+            float stray = 1f;
 
             try
             {
                 cam.targetTexture = rt;
 
-                // URP does not support a bare Camera.Render() from arbitrary code - a render
-                // request is the supported route, and it is also what actually runs the volume
-                // stack (tonemapping, bloom, vignette) the room's look is tuned against. The
-                // fallback is there for a pipeline that does not advertise the request.
-                var request = new UniversalRenderPipeline.SingleCameraRequest { destination = rt };
-                if (RenderPipeline.SupportsRenderRequest(cam, request))
-                    RenderPipeline.SubmitRenderRequest(cam, request);
-                else
-                    cam.Render();
+                // The tripwire. The camera clears to Skybox in play, and the rooms are sealed boxes
+                // with the camera INSIDE one, so a correct frame is geometry edge to edge and the
+                // clear never shows - which means the clear colour reaching the PNG is proof that
+                // something did not draw, or that the camera is not where it should be. Clearing to
+                // magenta instead makes that proof readable. It cannot change a good frame, because
+                // a good frame contains none of it.
+                cam.clearFlags = CameraClearFlags.SolidColor;
+                cam.backgroundColor = MenuCaptureTripwire;
 
-                RenderTexture.active = rt;
                 shot = new Texture2D(width, height, TextureFormat.RGB24, false);
-                shot.ReadPixels(new Rect(0f, 0f, width, height), 0, 0);
-                shot.Apply();
 
-                File.WriteAllBytes(MenuBackgroundPath, shot.EncodeToPNG());
+                // Rendered up to TWICE. The frame this has been seen to get wrong was the first one
+                // after the URP asset was rewritten earlier in the same build: URP drops and
+                // rebuilds its pipeline instance when its asset changes, and a request submitted
+                // into that window came back as bare skybox with every lit surface missing. A
+                // second request is enough, and costs one frame on the build that needs it.
+                const int attempts = 2;
+                for (int attempt = 1; attempt <= attempts && png == null; attempt++)
+                {
+                    // URP does not support a bare Camera.Render() from arbitrary code - a render
+                    // request is the supported route, and it is also what actually runs the volume
+                    // stack (tonemapping, bloom, vignette) the room's look is tuned against. The
+                    // fallback is there for a pipeline that does not advertise the request.
+                    var request = new UniversalRenderPipeline.SingleCameraRequest { destination = rt };
+                    if (RenderPipeline.SupportsRenderRequest(cam, request))
+                        RenderPipeline.SubmitRenderRequest(cam, request);
+                    else
+                        cam.Render();
+
+                    RenderTexture.active = rt;
+                    shot.ReadPixels(new Rect(0f, 0f, width, height), 0, 0);
+                    shot.Apply();
+
+                    stray = StrayClearFraction(shot);
+                    if (stray <= MenuCaptureMaxStray)
+                        png = shot.EncodeToPNG();
+                    else if (attempt < attempts)
+                        Debug.LogWarning($"[SceneBuilder] Menu background attempt {attempt}: {stray:P1} of the "
+                                       + "frame is clear colour, so the room did not render. Retrying.");
+                }
             }
             finally
             {
                 // Restored in a finally: leaving a target texture on the player camera would mean
                 // the game renders into a RenderTexture instead of the screen, and the saved scene
-                // would carry it.
+                // would carry it. The clear flags go back for the same reason - the room is sealed
+                // so it would never show, but the scene should not carry a setting made for a
+                // one-off capture.
                 cam.targetTexture = previousTarget;
+                cam.clearFlags = previousFlags;
+                cam.backgroundColor = previousBackground;
                 RenderTexture.active = previousActive;
                 if (shot != null) Object.DestroyImmediate(shot);
                 rt.Release();
                 Object.DestroyImmediate(rt);
             }
+
+            // Nothing written, so the previous PNG stands - same call as `-nographics`. An ERROR
+            // rather than a warning because this one already shipped once: a skybox went to itch.io
+            // behind the title screen and the build reported success.
+            if (png == null)
+            {
+                Debug.LogError($"[SceneBuilder] Menu background NOT captured - {stray:P1} of the frame came back "
+                             + "clear colour on both attempts. The previous PNG is kept. Build again from the "
+                             + "Editor; if it persists, the camera is no longer inside the room.");
+                return;
+            }
+
+            File.WriteAllBytes(MenuBackgroundPath, png);
 
             AssetDatabase.ImportAsset(MenuBackgroundPath, ImportAssetOptions.ForceUpdate);
             if (AssetImporter.GetAtPath(MenuBackgroundPath) is TextureImporter importer)
@@ -507,6 +559,23 @@ namespace IterationRoom.EditorTools
             }
 
             Debug.Log($"[SceneBuilder] Menu background captured to {MenuBackgroundPath}");
+        }
+
+        // What fraction of the frame is still wearing the camera's clear colour. Compared with a
+        // tolerance rather than for equality because the readback is sRGB-converted, and only on the
+        // two channels that separate magenta from anything the room contains.
+        private static float StrayClearFraction(Texture2D shot)
+        {
+            Color32 want = MenuCaptureTripwire;
+            Color32[] pixels = shot.GetPixels32();
+            int stray = 0;
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                Color32 p = pixels[i];
+                if (Mathf.Abs(p.r - want.r) < 56 && Mathf.Abs(p.g - want.g) < 56 && Mathf.Abs(p.b - want.b) < 56)
+                    stray++;
+            }
+            return pixels.Length == 0 ? 1f : (float)stray / pixels.Length;
         }
 
         private static void EnsureFolders()
