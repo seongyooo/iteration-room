@@ -20,3 +20,13 @@ build loop is in CLAUDE.md section 5; this is the rest of it.
 - **A batchmode build fails outright if the Editor has the project open.** Drive the build through MCP instead: `execute_menu_item("Iteration Room/Build Whitebox Scene")`, then `read_console`. **Clear the console first** — stale entries look exactly like fresh failures. If the Editor is in Play mode, `manage_editor(action:"stop")` first; `NewScene` throws during play.
 - **Player Settings → Run In Background must stay ON.** Without it play mode stops ticking when the Editor loses focus, so any MCP-driven test captures a stale frame and looks like the change did nothing. `Build()` sets it, since setting it during play mode does not persist.
 - Prefer MCP for incremental visual tweaks; keep `SceneBuilder.cs` authoritative for anything structural.
+
+## Shipping a WebGL build
+
+1. Build the scenes first — `PlayerBuilder` reads `EditorBuildSettings.scenes`, so a stale scene ships as-is.
+2. **`Iteration Room > Build WebGL Player`** (`Assets/Editor/PlayerBuilder.cs`). ~13 min from a cold target switch, ~49 MB out. The MCP call **will time out** long before it finishes and that is not a failure — watch `Logs/Editor.log` for `[PlayerBuilder] WebGL build SUCCEEDED`.
+   - Switching the active build target reimports every asset and runs URP's material validator, which rewrites four `.mat` files every time. See `rendering-notes.md`.
+3. **`powershell -NoProfile -File Tools\make_webgl_zip.ps1`** → `Build/iteration-webgl.zip`. Do **not** substitute `Compress-Archive`; see `gotchas.md` for the backslash that broke the first upload.
+4. Upload by hand. **There is no butler on this machine** and no stored credentials, so this step cannot be automated from here.
+   - itch.io project settings that matter: Classification **Games**, Kind of project **HTML**, tick **"This file will be played in the browser"**, viewport **1280x720** (the UI scales against a 1920x1080 reference), **fullscreen button on**, **mobile off**, and leave *automatically start on page load* **off** so the pointer lock happens inside a user gesture.
+

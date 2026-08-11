@@ -6,6 +6,16 @@ Things that cost a session to discover once. Do not rediscover them.
 
 ## Gotchas (don't rediscover these)
 
+- **Windows cannot make a valid zip with the obvious tools.** Both `Compress-Archive` and
+  `[IO.Compression.ZipFile]::CreateFromDirectory` write `Path.DirectorySeparatorChar` into the entry
+  names, so every path in the archive comes out as `Build\WebGL.loader.js`. The ZIP spec requires
+  forward slashes, and **itch.io takes the backslash literally** - it creates one file whose NAME
+  contains a backslash rather than a `Build/` directory. The symptom is the cruel one: `index.html`
+  loads perfectly and everything it references 404s, so the page looks like it is nearly working.
+  `Tools/make_webgl_zip.ps1` builds the entry names by hand and refuses to finish if any of them
+  still holds a backslash.
+  - **Verify the ARCHIVE, never the folder.** This shipped because the folder was listed and found
+    correct - which it was, and always had been. The archive was the thing that was wrong.
 - **A Unity cube's opposite faces carry opposite U directions**, so the same texture on the east wall
   is the mirror of the one on the west - and north against south likewise. Wall panels are cubes, and
   this went unnoticed for the whole project because nothing had ever put a texture on one: flat
