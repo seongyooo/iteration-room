@@ -2,14 +2,18 @@ using UnityEngine;
 
 namespace IterationRoom
 {
-    // The last doorway. Standing in it with the door open ends the run - this is the only exit
+    // The last doorway. Standing in it with the door open STOPS THE LOOP - this is the only exit
     // condition in the game, and the only thing that ever breaks LoopManager's while(true).
     //
-    // The volume sits ON the threshold rather than past it, and that is not a shortcut. Behind that
-    // doorway is the FarCap, and the pocket in front of it is 0.1m deep against a controller of
-    // radius 0.3 - so there is physically no "through" to stand in and nothing to detect there. The
-    // ending takes control on the frame this fires, so the player never reaches the wall they were
-    // walking into and never learns it was there.
+    // It is not the end of the game, only the end of the clock. Room4 is through this doorway and
+    // the player walks into it under their own control, with nothing left that can pull them back
+    // to the bed; what actually ends the run is the plate in there. See FinalRoomSequence.
+    //
+    // The volume sits ON the threshold rather than past it. That used to be forced - the FarCap was
+    // directly behind this doorway and the pocket in front of it was 0.1m against a controller of
+    // radius 0.3, so there was physically no "through" to stand in. Room4 replaced the cap, and
+    // firing here is now a choice: the loop has to be beyond reach BEFORE the player is in the last
+    // room, or a sixty-second timer runs out in the middle of the ending and teleports them to bed.
     //
     // Two gates, and both matter:
     //   - the door has to be OPEN, so walking up to a shut one ends nothing. The pads are what open

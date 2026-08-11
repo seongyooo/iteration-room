@@ -8,11 +8,12 @@ How to keep that split working is §6.
 
 ## Current state
 
-Complete end to end — three rooms, a win state, an ending, a title screen, a sensitivity
-calibration step. The core loop and Rooms 1–2 are play-tested.
+Complete end to end — three puzzle rooms, a fourth room that is the ending, a title screen, a
+sensitivity calibration step. The core loop, Rooms 1–2, Tab-to-switch and the ghost drop are
+play-tested.
 
-**The full run has never been played through by a human.** Room3, the ending, the wall messages,
-ghost possession, Tab-to-switch and the insert-and-turn are all built and verified in code only.
+**The full run has never been played through by a human.** Room3's pads, Room4 and its plinth, the
+wall messages, ghost possession and the insert-and-turn are built and verified in code only.
 Shipped to itch.io once; several scene-affecting passes have landed since.
 
 ---
@@ -74,8 +75,11 @@ made against it.
 
 `LoopManager.AcceptsInput` = `IterationRunning && !IsPaused && !RunOver`. A zero `timeScale` does not
 stop `Update`, and `HandleLook` uses no `deltaTime` at all. **Any new interactable reading input must
-use this gate.** The one deliberate exception is `CalibrationStartButton`, which runs before the loop
-and gates on `SensitivityCalibration.Active`.
+use this gate.** The deliberate exceptions are the two `PressPlate`s, which are the only fixtures
+OUTSIDE the loop: `CalibrationStartButton` runs before the first iteration and gates on
+`SensitivityCalibration.Active`, `FinalRoomButton` runs after the last and gates on
+`FinalRoomSequence.ButtonLive`. `ControlHintDisplay` has to be told about both, or their prompts
+never appear.
 
 ### 1.9 Reset ordering
 
@@ -101,6 +105,7 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `ItemRegistry` | id → object, id → socket, and the reset sweep |
 | `IItemSocket` | Anything that accepts an item and keeps it |
 | Room components | One puzzle's rule, nothing else |
+| `FinalRoomSequence` | Room4: the plinth, the last press, and the break before the ending card |
 
 **Values live in `SceneBuilder`, mechanisms live in components.** Shaders and scripts take the
 number; they do not choose it.

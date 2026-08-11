@@ -97,7 +97,7 @@ Bed at (0, 0.7) (`messy_bed.glb`, head toward the door); nightstand at (-0.95, 1
 - **The lock's face is a keyhole, not a key** (`BuildKeyholeSlot` — a round seat and a slot, flat decals rather than a bored hole, which would show the wall behind). An etched key was right while nothing could be put in it; with a real key in the socket, an inserted key over an engraved one reads as two keys.
 - `DoorIndicator` takes an optional `keyLock` so this lamp reports "you are carrying the key" the way Room1's reports "the pad is held".
 
-### Room3 — two pads, and the way out
+### Room3 — two pads, and the way out (into Room4)
 
 **Two floor pads at (±3.2, 21.7) — one against each side wall, facing each other across the room's mid-depth; `Door3` needs BOTH held at once.** One person cannot stand in two places, so it takes **two past selves overlapping in time** — the thing Room1 does not ask for. Room1 proves a past self can do a job; Room3 asks you to make two of them do it *simultaneously*.
 

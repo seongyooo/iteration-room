@@ -34,6 +34,11 @@ namespace IterationRoom
         // meets the game's own disc, in the game's own position, before the game.
         public SensitivityCalibration calibration;
 
+        // And the same again at the other end of the run: the final room's plate is live while
+        // AcceptsInput is false, because the loop has already stopped. Without this the one
+        // fixture the last room has would have no prompt over it.
+        public FinalRoomSequence finalRoom;
+
         // The item whose arrival in the hand introduces the mouse button.
         public string swingItemId = "Tool";
 
@@ -71,7 +76,8 @@ namespace IterationRoom
             // Silent through the wake-up, like everything else the facility does: the player has no
             // control then, so a prompt would be describing a button that does nothing.
             bool running = LoopManager.Instance == null || LoopManager.Instance.AcceptsInput
-                        || (calibration != null && calibration.Active);
+                        || (calibration != null && calibration.Active)
+                        || (finalRoom != null && finalRoom.Active);
 
             Show(interactGroup, interactRect, running ? NearestWantingHint() : null, ref interactAlpha);
             Show(swingGroup, swingRect, running ? SwingAnchor() : null, ref swingAlpha);

@@ -28,9 +28,27 @@ namespace IterationRoom
         // deliberately high bloom threshold and the whole room floods.
         public float flareEmission = 7f;
 
+        // THE BREAK, at the very end of the run: every panel a different saturated hue, resampled
+        // several times a second, with a scatter of dead black cells through it. A dropped-signal
+        // pattern rather than anything the facility would ever choose to display - which is the
+        // only way a room built entirely out of working displays can show that it has stopped
+        // working. See FinalRoomSequence.
+        //
+        // Deliberately NOT the power-down. That is the loop's signature, the cell being switched
+        // off before being switched back on, and using it here would say the cycle continued.
+        public float glitchEmission = 3.2f;
+        // Resamples per second. Low enough to read as discrete broken frames rather than as noise;
+        // at 60 it greys out into an average and the colour stops being visible at all.
+        public float glitchSpeed = 11f;
+        // Fraction of cells black on any given frame. The dark is what makes it read as a signal
+        // failing rather than as a colourful screensaver.
+        public float glitchDropout = 0.16f;
+        public float glitchRamp = 0.25f;
+
         private float[] onsets;
         private float powered;
         private float flare;
+        private float glitch;
 
         // Where the collapse had got to. The ending ramps down from whatever this is rather than
         // from 1, so escaping at t=52 releases a half-built flare instead of snapping it to full
@@ -116,7 +134,10 @@ namespace IterationRoom
         {
             if (panels == null || onsets == null) return;
 
-            Color emission = Color.white * (flare * flare * flareEmission);
+            Color flareColor = Color.white * (flare * flare * flareEmission);
+            // One step index for the whole wall, so every panel resamples on the same frame. Per
+            // panel it would smear into continuous noise and stop reading as broken FRAMES.
+            int step = glitch > 0f ? Mathf.FloorToInt(Time.unscaledTime * glitchSpeed) : 0;
 
             for (int i = 0; i < panels.Length; i++)
             {
@@ -130,12 +151,58 @@ namespace IterationRoom
                 // The flare overrides the boot state entirely - a panel still dark from the sweep
                 // shouldn't stay dark while the room is blowing out around it.
                 albedo = Color.Lerp(albedo, Color.white, flare);
+                Color emission = flareColor;
+
+                if (glitch > 0f)
+                {
+                    // Full saturation and value: this is a signal, not a light, and a washed-out
+                    // hue reads as a tinted wall rather than as a broken screen.
+                    Color bar = Color.HSVToRGB(Hash(i, step), 1f, 1f);
+                    bool dead = Hash(i + 977, step) < glitchDropout;
+                    albedo = Color.Lerp(albedo, dead ? Color.black : bar, glitch);
+                    emission = Color.Lerp(emission, dead ? Color.black : bar * glitchEmission, glitch);
+                }
 
                 MaterialPropertyBlock b = Block;
                 panels[i].GetPropertyBlock(b);
                 b.SetColor(BaseColorId, albedo);
                 b.SetColor(EmissionId, emission);
                 panels[i].SetPropertyBlock(b);
+            }
+        }
+
+        // Integer hash rather than Random, and that is not a micro-optimisation: BuildOnsets is
+        // careful to save and restore Random.state so the panel scatter is identical every run,
+        // and pulling thousands of samples a second out of the global generator here would undo
+        // exactly what that care is for.
+        private static float Hash(int a, int b)
+        {
+            uint h = (uint)(a * 73856093) ^ (uint)(b * 19349663);
+            h ^= h >> 13;
+            h *= 1274126177u;
+            h ^= h >> 16;
+            return (h & 0xFFFFFFu) / 16777216f;
+        }
+
+        // Starts the break and never stops it. There is nothing after this - EndingSequence's
+        // scrim comes up over a room still coming apart, and the scene is unloaded from under it.
+        public void BeginGlitch()
+        {
+            StopAllCoroutines();
+            StartCoroutine(GlitchRoutine());
+        }
+
+        private IEnumerator GlitchRoutine()
+        {
+            float t = 0f;
+            while (true)
+            {
+                // Unscaled: the ending must not be freezable, and Apply has to run every frame or
+                // the resample never lands on screen.
+                t += Time.unscaledDeltaTime;
+                glitch = glitchRamp > 0f ? Mathf.Clamp01(t / glitchRamp) : 1f;
+                Apply();
+                yield return null;
             }
         }
 

@@ -71,16 +71,31 @@ namespace IterationRoom
                 : closedLocalPos;
         }
 
+        // Set by Seal() while the final room is shutting this door in view. Update stands off
+        // entirely for the duration: the pads are irrelevant by then (ghosts are still standing on
+        // Room3's), and two things driving openAmount would fight for it every frame.
+        private bool sealing;
+
         private void Update()
         {
+            if (sealing) return;
+
             float target = latched ? 1f : 0f;
 
-            // Silent and still through the wake-up, like everything else the facility does: the
+            // Silent and STILL through the wake-up, like everything else the facility does: the
             // loop closes the doors and releases every ghost's signal behind the closed eyelids,
             // and a door moving under a black screen is the machinery showing through.
+            //
+            // Frozen outright, not merely stopped from tracking its pads. Falling through with
+            // an untracked target of 0 slides an open door shut on its own the instant the loop
+            // stops - which was invisible while the ending faded out on the same frame, and is
+            // not now: the run ends on Room3's threshold and the player then walks into Room4
+            // with this door standing open behind them. Shutting it is the last button's job
+            // (Seal), and it must not have happened already.
             bool running = LoopManager.Instance == null || LoopManager.Instance.IterationRunning;
+            if (!running) return;
 
-            if (!latched && running)
+            if (!latched)
             {
                 if (FloorButton.AllActive(requiredFloorButtons)) target = 1f;
                 // Refuses to shut on the player. A CharacterController is not pushed by a moving
@@ -123,6 +138,35 @@ namespace IterationRoom
             latched = false;
             openAmount = 0f;
             Apply();
+        }
+
+        // Slides shut IN VIEW, at the end of the run, with the player watching it - which is why
+        // this exists next to Close() rather than being a call to it. Close() snaps and is
+        // deliberately silent because it is the loop rewinding world state behind a black screen;
+        // this is the way back closing, and it has to move and be heard.
+        //
+        // Unscaled, like everything else in the ending: nothing should be able to freeze it, and
+        // PauseMenu is locked out for the duration anyway.
+        public void Seal()
+        {
+            latched = false;
+            sealing = true;
+            // The slab's own motor, the same sound it opened with. The class note's reason for a
+            // silent close does not hold here: it says the shutting is announced by the pad's
+            // clunk, and nothing has touched a pad - this door is being shut AT the player.
+            if (audioSource != null && openClip != null) audioSource.PlayOneShot(openClip);
+            StartCoroutine(SealRoutine());
+        }
+
+        private System.Collections.IEnumerator SealRoutine()
+        {
+            while (openAmount > 0f)
+            {
+                float step = openDuration > 0f ? Time.unscaledDeltaTime / openDuration : 1f;
+                openAmount = Mathf.MoveTowards(openAmount, 0f, step);
+                Apply();
+                yield return null;
+            }
         }
 
         private void Apply()

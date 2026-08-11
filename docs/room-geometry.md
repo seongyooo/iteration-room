@@ -6,7 +6,7 @@ Shell construction, the wall grid, and doors. Every constant here was measured o
 
 ## Room shells and geometry
 
-**Four shells**, all from `BuildRoomShell` at different Z centres: `Room1` (Z=0), `Room2` (Z=`RoomPitch`=10.85), `Room3` (Z=`2·RoomPitch`=21.7), and a sealed `CalibrationRoom` at `-2·RoomPitch` used only for the sensitivity step. `RoomPitch` = `RoomDepth 10.5 + 2×WallDepth 0.125 + DoorPocketDepth 0.1`.
+**Five shells**, all from `BuildRoomShell` at different Z centres: `Room1` (Z=0), `Room2` (Z=`RoomPitch`=10.85), `Room3` (Z=`2·RoomPitch`=21.7), `Room4` (Z=`3·RoomPitch`=32.55), and a sealed `CalibrationRoom` at `-2·RoomPitch` used only for the sensitivity step. **Room4 is the ending** — it has a doorway south and none north, so it is the end of the building, and `DoorPocketFill_3` is uncapped now that there is a room behind Room3's north door rather than a sealed reveal. `RoomPitch` = `RoomDepth 10.5 + 2×WallDepth 0.125 + DoorPocketDepth 0.1`.
 
 - Adjacent rooms share a divider: one room's north wall and its neighbour's south wall sit back to back with the same doorway cut out of the panelling, the backing **and** the collision. Scene paths are `Room/Room1/...`; furniture and pads hang off `Room/` directly.
 - **Floor/ceiling slabs span the full `RoomPitch`**, not the interior, so adjacent floors meet exactly under the divider. Sized to the interior they leave a gap at the threshold and the player drops through it. They are also pushed **out by half their thickness** so their inner faces sit on the room bounds.
@@ -16,7 +16,7 @@ Shell construction, the wall grid, and doors. Every constant here was measured o
 
 ### The wall grid
 
-**Cells are 1.75 × 1.3519m**, 5 columns on end walls, 6 on sides, **4 rows** — 88 panels per room, **367 in the scene**.
+**Cells are 1.75 × 1.3519m**, 5 columns on end walls, 6 on sides, **4 rows** — 88 panels per room before doorway cutouts, **458 in the scene**, of which **370** (Rooms 1–4, not the calibration room) are driven by `WallPanelDisplay`.
 
 - Two hard constraints: a cell's *width* must divide both 8.75 and 10.5 exactly or the last column overshoots (`BuildPanelWall` lays fixed steps after rounding the column count); a cell's *height* must divide `RoomHeight` exactly, now enforced by construction.
 - **The cells were briefly exactly φ:1**, which is where `RoomHeight`'s 5.4078 comes from. An exact φ cell and a fixed room *cannot* both hold — both constraints demand a rational ratio and φ is irrational. If φ is ever wanted back: rebuild the floor plan around it (8.75 × 10.5 → **8.09 × 9.71**, moving all furniture), or approximate with **0.583 × 0.357** (+0.95% off, indistinguishable) — but that takes the panel count from 110 to 924 per room, and `WallPanelDisplay` drives every panel through its own property block.

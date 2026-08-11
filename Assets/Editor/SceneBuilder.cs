@@ -259,10 +259,12 @@ namespace IterationRoom.EditorTools
             };
             Door door3 = BuildPadDoor(room.transform, "Door3", roomThreeZ, roomThreePads, propMat);
 
-            // The way out, and the only exit condition in the game. Sat on Room3's north threshold
-            // rather than past it: the FarCap is right behind that doorway and the pocket in front
-            // of it is too shallow for the controller to stand in, so there is no "through" to
-            // detect. See EscapeTrigger.
+            // The way out, and the only exit condition in the game. Still sat ON Room3's north
+            // threshold rather than past it, though the reason has changed: it used to be that the
+            // FarCap was right behind that doorway with no "through" to stand in, and now there is
+            // a whole room through it. Firing here is what lets the player walk into Room4 with the
+            // clock already stopped - the loop ends on the threshold, and the ending happens after.
+            // See EscapeTrigger and FinalRoomSequence.
             GameObject escapeGO = new GameObject("EscapeTrigger");
             escapeGO.transform.SetParent(room.transform, false);
             escapeGO.transform.localPosition = new Vector3(0f, 0f, roomThreeZ + RoomDepth / 2f);
@@ -339,16 +341,24 @@ namespace IterationRoom.EditorTools
             SensitivityCalibration calibration = BuildCalibrationPage(canvas);
             CalibrationStartButton startButton = BuildCalibrationWall(room.transform, CalibrationRoomZ, calibration);
 
-            // Appended after the fact because the button lives in a room built later than the hint
-            // display. It is the only E fixture the player meets before the loop starts, and it
-            // gets the same grey disc as every other one - which is the point: they meet the
-            // game's prompt before the game.
+            // Room4 and the plate that ends the run. Built here because it needs the player's
+            // controller, which does not exist until BuildPlayer above; its narration is wired
+            // after BuildAudio, below.
+            FinalRoomSequence finalRoom = BuildFinalRoom(room.transform, 3f * RoomPitch, propMat,
+                                                        door3, wallDisplay, fpc);
+
+            // Appended after the fact because both buttons live in rooms built later than the hint
+            // display. They are the two E fixtures OUTSIDE the loop - one before the first
+            // iteration, one after the last - and they get the same grey disc as every other one,
+            // which is the point: the run opens and closes on the game's own prompt.
             var hintTargets = new System.Collections.Generic.List<MonoBehaviour>(hints.interactTargets)
             {
                 startButton,
+                finalRoom.button,
             };
             hints.interactTargets = hintTargets.ToArray();
             hints.calibration = calibration;
+            hints.finalRoom = finalRoom;
 
             (NarrationDirector narration, RoomAmbience ambience) =
                 BuildAudio(player, new[] { door, door2, door3 },
@@ -356,6 +366,9 @@ namespace IterationRoom.EditorTools
                            wakeUp);
 
             wallMessage.narration = narration;
+            // Announced at the PRESS rather than when the player stepped through the doorway:
+            // walking into a room is not what breaks a cycle. See FinalRoomSequence.
+            finalRoom.narration = narration;
 
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
@@ -377,6 +390,7 @@ namespace IterationRoom.EditorTools
             loop.wallPanels = wallDisplay;
             loop.cameraShaker = shaker;
             loop.escapeTrigger = escape;
+            loop.finalRoom = finalRoom;
             loop.endingSequence = ending;
             loop.calibration = calibration;
 
@@ -1324,22 +1338,29 @@ namespace IterationRoom.EditorTools
             // door instead of the door having to fit a whole number of cells.
             Rect doorway = new Rect(-DoorWidth / 2f, 0f, DoorWidth, DoorHeight);
 
-            // Three identical rooms in a line, each sharing a divider with the next: a room's north
+            // Four identical rooms in a line, each sharing a divider with the next: a room's north
             // wall and its neighbour's south wall face each other across the door pocket, each with
             // the same doorway cut out of its panelling, its backing and its collision, so the
-            // opening is a real hole. Room1 is the only one with no doorway to the south.
+            // opening is a real hole. Room1 is the only one with no doorway to the south, and
+            // ROOM4 THE ONLY ONE WITH NONE TO THE NORTH - it is the end of the building, and there
+            // is deliberately nothing past it to look at or walk to.
             BuildRoomShell(parent, "Room1", 0f, floorMat, grooveMat, panelMat, Rect.zero, doorway);
             BuildRoomShell(parent, "Room2", RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway);
             BuildRoomShell(parent, "Room3", 2f * RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway);
+            // Identical to the others in every way, and that is the point rather than a saving:
+            // the room the player finally gets out into is the same white cell they have been in
+            // for the whole run.
+            BuildRoomShell(parent, "Room4", 3f * RoomPitch, floorMat, grooveMat, panelMat, doorway, Rect.zero);
 
             BuildDoorPocketFill(parent, "DoorPocketFill_1", 0f, grooveMat, capFarSide: false);
             BuildDoorPocketFill(parent, "DoorPocketFill_2", RoomPitch, grooveMat, capFarSide: false);
-            // Room3's north doorway has no room behind it yet, so its pocket is capped: opening
-            // that door reveals a sealed reveal rather than a hole to the outside, and the cap
-            // keeps its collider so the player cannot walk out of the world. Adding Room4 - or the
-            // ending, which is what should really go here - is this flag going false plus another
-            // BuildRoomShell at 3 * RoomPitch.
-            BuildDoorPocketFill(parent, "DoorPocketFill_3", 2f * RoomPitch, grooveMat, capFarSide: true);
+            // Uncapped now that Room4 is behind it. It was capped while Room3's north door opened
+            // onto nothing, so that the doorway showed a sealed reveal with a collider rather than
+            // a hole out of the world; there is a room through it now, and a cap would be a wall
+            // across the only way to the ending.
+            BuildDoorPocketFill(parent, "DoorPocketFill_3", 2f * RoomPitch, grooveMat, capFarSide: false);
+            // Room4 needs no pocket of its own: its north wall has no doorway cut in it, so there
+            // is no cavity there to close - the same reason the calibration room has none.
 
             // A sealed copy of the same shell, well clear of the chain, used for nothing but the
             // mouse-sensitivity step before iteration 1. Rect.zero for both cutouts, so it has no
@@ -1363,6 +1384,7 @@ namespace IterationRoom.EditorTools
             BuildCeilingLights(parent, "Room1", 0f, fixtureMat, castShadows: true);
             BuildCeilingLights(parent, "Room2", RoomPitch, fixtureMat, castShadows: false);
             BuildCeilingLights(parent, "Room3", 2f * RoomPitch, fixtureMat, castShadows: false);
+            BuildCeilingLights(parent, "Room4", 3f * RoomPitch, fixtureMat, castShadows: false);
             BuildCeilingLights(parent, CalibrationRoomName, CalibrationRoomZ, fixtureMat, castShadows: false);
 
             // Built after the lights, so the probes capture the rooms already lit. The calibration
@@ -1371,6 +1393,7 @@ namespace IterationRoom.EditorTools
             BuildReflectionProbe(parent, "Room1", 0f);
             BuildReflectionProbe(parent, "Room2", RoomPitch);
             BuildReflectionProbe(parent, "Room3", 2f * RoomPitch);
+            BuildReflectionProbe(parent, "Room4", 3f * RoomPitch);
             BuildReflectionProbe(parent, CalibrationRoomName, CalibrationRoomZ);
         }
 
@@ -3239,7 +3262,116 @@ namespace IterationRoom.EditorTools
             return message;
         }
 
-        private static CanvasGroup MakeWallFace(Transform parent, string name, Vector3 localPosition, Quaternion localRotation)
+        // Room4 - the room past the last door, and everything in it.
+        //
+        // The shell is a plain white cell like the other three (BuildShell), and that is the point
+        // rather than a saving: the room the player finally gets out into looks exactly like the one
+        // they have been trying to get out of. What makes it the ending is that NOTHING ELSE IS IN
+        // IT. One object, and it is not there when they walk in - it comes up out of the floor, the
+        // only thing in the game that does, so there is nothing to look for and nowhere else to go.
+        //
+        // The plinth is authored in its RAISED position and sunk at runtime by FinalRoomSequence.
+        // Authoring it underground instead would leave a scene whose one prop is invisible and
+        // impossible to check without pressing Play.
+        private static FinalRoomSequence BuildFinalRoom(Transform parent, float roomCenterZ,
+                                                        Material propMat, Door doorBehind,
+                                                        WallPanelDisplay wallPanels,
+                                                        FirstPersonController playerController)
+        {
+            GameObject root = new GameObject("FinalRoom");
+            root.transform.SetParent(parent, false);
+            root.transform.localPosition = new Vector3(0f, 0f, roomCenterZ);
+
+            // Waist height, so the plate on top is looked DOWN at from a 1.6m eye rather than
+            // squared up to like the calibration wall's. The two plates are the same fixture at
+            // opposite ends of the run, and the difference in how you stand over them is the only
+            // thing separating "begin" from "end".
+            const float plinthHeight = 1.05f;
+            const float plinthWidth = 1.15f;
+            const float plateProud = 0.02f;
+            const float buttonHalfHeight = 0.015f;
+
+            Material plateMat = MakeColorMaterial("FinalPlate", new Color(0.05f, 0.05f, 0.055f));
+            // The keyword has to be compiled in for the press flash; a property block cannot turn a
+            // shader keyword on. Black means it contributes nothing until E is pressed.
+            plateMat.EnableKeyword("_EMISSION");
+            plateMat.SetColor("_EmissionColor", Color.black);
+            plateMat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+            EditorUtility.SetDirty(plateMat);
+
+            GameObject plinth = new GameObject("Plinth");
+            plinth.transform.SetParent(root.transform, false);
+            plinth.transform.localPosition = Vector3.zero;
+
+            // Keeps its collider - it is a solid object in the middle of the room, and the player
+            // has to walk round it to the plate. Rising through someone standing exactly on the
+            // centre would shove them aside on the next frame, which is ugly but not reachable: the
+            // rise starts as they clear the doorway, six metres away.
+            Prim(PrimitiveType.Cube, "Body", plinth.transform,
+                new Vector3(0f, plinthHeight / 2f, 0f),
+                new Vector3(plinthWidth, plinthHeight, plinthWidth), propMat);
+
+            // The dark inset the button sits in, so the top of the plinth reads as a switched-off
+            // display among white surfaces - the same near-black as every groove in the building.
+            Prim(PrimitiveType.Cube, "TopPlate", plinth.transform,
+                new Vector3(0f, plinthHeight + plateProud / 2f, 0f),
+                new Vector3(plinthWidth * 0.78f, plateProud, plinthWidth * 0.78f), plateMat,
+                removeCollider: true);
+
+            GameObject buttonRoot = new GameObject("Button");
+            buttonRoot.transform.SetParent(plinth.transform, false);
+            buttonRoot.transform.localPosition = new Vector3(0f, plinthHeight + plateProud, 0f);
+
+            GameObject buttonVisual = Prim(PrimitiveType.Cylinder, "Visual", buttonRoot.transform,
+                new Vector3(0f, buttonHalfHeight, 0f),
+                new Vector3(0.36f, buttonHalfHeight, 0.36f), plateMat, removeCollider: true);
+
+            FinalRoomButton button = buttonRoot.AddComponent<FinalRoomButton>();
+            button.buttonRenderer = buttonVisual.GetComponent<Renderer>();
+            button.audioSource = MakeSource(buttonRoot.transform, "ButtonAudio", 1f, 0.8f);
+            button.pressClip = LoadClip(SfxDir, "sfx_floor_button_press");
+
+            // --- ERROR, on all four walls ---
+            //
+            // The same fixture as Room3's message, at the same height and the same standoff, for the
+            // same reason: two walls are in view at once from most of this room and there is no wall
+            // the player reliably looks at. It reuses MakeWallFace, so the canvas-facing rule (the
+            // forward points INTO the wall, or the type renders mirrored) is stated in one place.
+            GameObject errorRoot = new GameObject("ErrorMessage");
+            errorRoot.transform.SetParent(root.transform, false);
+
+            const float standoff = 0.05f;
+            const float messageY = 3.95f;
+            float halfWidth = RoomWidth / 2f;
+            float halfDepth = RoomDepth / 2f;
+
+            var faces = new CanvasGroup[4];
+            faces[0] = MakeWallFace(errorRoot.transform, "South", new Vector3(0f, messageY, -halfDepth + standoff), Quaternion.Euler(0f, 180f, 0f), "E R R O R", "CYCLE INTEGRITY LOST");
+            faces[1] = MakeWallFace(errorRoot.transform, "North", new Vector3(0f, messageY, halfDepth - standoff), Quaternion.identity, "E R R O R", "CYCLE INTEGRITY LOST");
+            faces[2] = MakeWallFace(errorRoot.transform, "West", new Vector3(-halfWidth + standoff, messageY, 0f), Quaternion.Euler(0f, -90f, 0f), "E R R O R", "CYCLE INTEGRITY LOST");
+            faces[3] = MakeWallFace(errorRoot.transform, "East", new Vector3(halfWidth - standoff, messageY, 0f), Quaternion.Euler(0f, 90f, 0f), "E R R O R", "CYCLE INTEGRITY LOST");
+
+            FinalRoomSequence sequence = root.AddComponent<FinalRoomSequence>();
+            sequence.plinth = plinth.transform;
+            sequence.button = button;
+            sequence.doorBehind = doorBehind;
+            sequence.wallPanels = wallPanels;
+            sequence.errorFaces = faces;
+            sequence.playerController = playerController;
+            // Clears the floor by a hair with the button's own height counted in, so nothing shows
+            // through the slab before it is meant to.
+            sequence.riseHeight = plinthHeight + plateProud + buttonHalfHeight * 2f + 0.04f;
+
+            button.sequence = sequence;
+            return sequence;
+        }
+
+        // The two lines are arguments rather than constants because Room4 hangs the same fixture -
+        // same plate, same face, same standoff - with ERROR on it. A second copy of this method
+        // would be a second place for the canvas-facing rule below to be got wrong.
+        private static CanvasGroup MakeWallFace(Transform parent, string name, Vector3 localPosition, Quaternion localRotation,
+                                               string headline = "H O L D   [ N ]",
+                                               string detail = "TO SKIP TO THE NEXT ITERATION")
         {
             GameObject go = new GameObject(name);
             go.transform.SetParent(parent, false);
@@ -3284,11 +3416,11 @@ namespace IterationRoom.EditorTools
             plate.raycastTarget = false;
             Stretch(plate.GetComponent<RectTransform>());
 
-            MakeWallLine(go.transform, "Headline", "H O L D   [ N ]", 132, Color.red,
+            MakeWallLine(go.transform, "Headline", headline, 132, Color.red,
                 new Vector2(0f, 78f), new Vector2(1600f, 190f));
-            // Not spaced out, unlike the headline: this line is 29 characters and spacing it would
-            // put it past the wall. The headline carries the treatment for both.
-            MakeWallLine(go.transform, "Detail", "TO SKIP TO THE NEXT ITERATION", 74,
+            // Not spaced out, unlike the headline: the longest of these is 29 characters and
+            // spacing it would put it past the wall. The headline carries the treatment for both.
+            MakeWallLine(go.transform, "Detail", detail, 74,
                 new Color(1f, 0.35f, 0.35f, 0.9f), new Vector2(0f, -90f), new Vector2(1600f, 130f));
 
             return group;

@@ -37,8 +37,11 @@ namespace IterationRoom
         public WallPanelDisplay wallPanels;
         public CameraShaker cameraShaker;
 
-        // The way out. Room3's north doorway, and the ending it runs.
+        // The way out. Room3's north doorway, the room past it, and the card that closes the run.
         public EscapeTrigger escapeTrigger;
+        // Room4, which the loop cannot reach. The player keeps control inside it - see
+        // FinalRoomSequence - so this runs between the loop stopping and the ending card.
+        public FinalRoomSequence finalRoom;
         public EndingSequence endingSequence;
 
         // The sensitivity step, run once before the first iteration. See SensitivityCalibration.
@@ -294,17 +297,16 @@ namespace IterationRoom
         {
             RunOver = true;
 
-            // Taken for good, and taken first: the player is mid-stride through a doorway, and the
-            // ending should not be watching them keep walking into a wall.
-            if (playerController != null) playerController.ControlEnabled = false;
+            // CONTROL IS NOT TAKEN HERE, and it used to be. Behind that doorway was a sealed cap,
+            // so the player was mid-stride into a wall and the kindest thing was to stop them.
+            // There is a room there now: the loop has stopped, nothing can pull them back to the
+            // bed, and letting them walk in on their own feet is what makes the last thing in the
+            // game an action rather than a cutscene. FinalRoomSequence takes control at the press.
 
             // Stopped and discarded. The run that got out does not become a ghost - there is no
             // next iteration for it to haunt, and building one would be the loop's habit outliving
             // the loop.
             playerRecorder?.EndRecording();
-
-            // The facility notices. Chimed, because this is the most important thing it ever says.
-            narration?.AnnounceCycleBroken();
 
             // The collapse lets go rather than peaking. Escaping inside collapseLeadTime means the
             // room was already coming apart, so this is visible and it is the point: the thing that
@@ -326,6 +328,23 @@ namespace IterationRoom
             // And the room tone goes with it. It has been under every second of every iteration,
             // so its absence is the quietest and clearest signal that this one is not turning over.
             ambience?.FadeOutTone(3.5f);
+
+            // The final room: the plinth, the plate, and the break. It announces the cycle broken
+            // itself, at the press, because walking into a room is not what breaks one.
+            if (finalRoom != null)
+            {
+                yield return finalRoom.Run();
+            }
+            else
+            {
+                // No final room wired - the pre-Room4 ending, kept so this does not depend on a
+                // scene object existing. Chimed, because it is the most important thing the
+                // facility ever says.
+                narration?.AnnounceCycleBroken();
+            }
+
+            // Taken for good by now either way. The press does it first, and this is the backstop.
+            if (playerController != null) playerController.ControlEnabled = false;
 
             if (endingSequence != null)
                 yield return endingSequence.Play(IterationNumber);
