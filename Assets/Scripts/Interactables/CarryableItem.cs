@@ -42,6 +42,11 @@ namespace IterationRoom
         // Optional gate. The tool sits inside the drawer, so it cannot be taken through a shut one.
         public Drawer requiresOpenDrawer;
 
+        // Resting height once this is put down. The floor of every room is y=0, so the number is
+        // the object's own half-thickness, not a room measurement - which is why it lives here and
+        // not in whatever code happens to drop it.
+        public float floorY = 0.06f;
+
         public Vector3 handLocalPosition = new Vector3(0.28f, -0.24f, 0.42f);
         public Vector3 handLocalEuler = new Vector3(12f, -8f, 18f);
 
@@ -192,13 +197,21 @@ namespace IterationRoom
         // Put down where it stands, still in play. This is what a ghost's timeline running out has
         // to do with whatever it was holding - a recording made from an iteration ended at t=5
         // retires at t=5 of every iteration after it, and it must not take the key with it.
+        //
+        // ON THE FLOOR UNDER where it stood, not at the height it was let go from. Only the XZ of
+        // the argument is used. A ghost's grip is a wrist bone about a metre up, so dropping at the
+        // hand's own position left the item hanging in mid-air: a carryable has no Rigidbody, and
+        // deliberately so - the loop has to be able to put every object back exactly, and a
+        // simulated fall settles somewhere slightly different every time. Placing it is the same
+        // answer BalloonField already gave for a key coming out of a burst balloon, which is why
+        // the height now lives on the item and both paths read it.
         public void DropAt(Vector3 worldPosition)
         {
             HeldByGhost = null;
             IsCarried = false;
 
             transform.SetParent(originParent, true);
-            transform.position = worldPosition;
+            transform.position = new Vector3(worldPosition.x, floorY, worldPosition.z);
             transform.localRotation = originLocalRotation;
             SetVisible(true);
             if (trigger != null) trigger.enabled = true;

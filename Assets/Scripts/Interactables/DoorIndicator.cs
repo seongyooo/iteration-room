@@ -9,8 +9,8 @@ namespace IterationRoom
     // right now" - which turns the lamp into the puzzle's readout. The player can see the moment a
     // ghost steps onto a pad from across the room, rather than having to walk over and find out.
     //
-    // This matters most in Room3, where the condition is THREE pads held at once: standing at the
-    // door watching the lamp stay red tells you that not all of your past selves have arrived, and
+    // This matters most in Room3, where the condition is TWO pads held at once: standing at the
+    // door watching the lamp stay red tells you that only one of your past selves has arrived, and
     // that is information the room has no other way to give.
     public class DoorIndicator : MonoBehaviour
     {

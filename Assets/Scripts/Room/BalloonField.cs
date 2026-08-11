@@ -25,9 +25,9 @@ namespace IterationRoom
         public float lowestSpawnY = 3.1f;
         public float highestSpawnY = 5.1f;
 
-        // Where the key ends up once its balloon bursts: on the floor under the burst, rather than
-        // hanging in the air where the balloon was.
-        public float keyFloorY = 0.06f;
+        // Where the key ends up once its balloon bursts is CarryableItem.floorY now - the same
+        // number a ghost dropping something lands at, and one owner for it rather than two
+        // constants that have to agree.
 
         private Vector3[] spawnPoints;
         private Quaternion[] spawnRotations;
@@ -122,7 +122,7 @@ namespace IterationRoom
             // The key drops to the floor under the burst. Revealed by whoever popped it, ghost or
             // player - a ghost finding it for you is the entire point of spending an iteration
             // searching.
-            if (balloon.holdsKey && key != null) key.RevealAt(new Vector3(at.x, keyFloorY, at.z));
+            if (balloon.holdsKey && key != null) key.RevealAt(new Vector3(at.x, key.floorY, at.z));
         }
     }
 }

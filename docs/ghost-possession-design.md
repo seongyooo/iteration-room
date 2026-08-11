@@ -166,13 +166,15 @@ nothing. Queued in `TODO.md`. Reverting instead is `requirePopTool = false`.
 
 The pin is the first item that is carried but never delivered, and it needed two rules relaxed: the completed-errand rule (§4) had to be scoped to socketed items, and `DropCarried` on retire had to be the normal end of its life rather than an edge case. A tool that is picked up, used, and dropped where the ghost stops is the general shape — the key, which goes somewhere and stays, is the special one.
 
+**A dropped item lands on the FLOOR under where it stood, not at the height it was let go from.** `DropAt` takes a world position and uses only its XZ, putting the object at `CarryableItem.floorY`. A ghost's grip is a wrist bone about a metre up, so dropping at the hand's own position left the item hanging in mid-air — there is nothing to make it fall. **A carryable has no `Rigidbody`, and deliberately so:** the loop has to put every object back exactly at the top of an iteration, and a simulated fall settles somewhere slightly different each time. Placing it is also the answer `BalloonField` already gave for a key coming out of a burst balloon, which is why `floorY` now lives on the item and both paths read it rather than two constants having to agree.
+
 ---
 
 ## 7. What Room2 becomes
 
 The door now opens **when the ghost gets there, not when the player arrives.** As the run gets faster the player will reach Room2 before the ghost does, and wait.
 
-Room2's cost converts from *retrieving the key* (work) to *waiting for a past self* (clock). That is the same beat Room3 already builds toward — "standing at the door watching three past selves converge is the intended beat" — so it is at least consistent with the game's own language. Whether waiting is better than fetching is a play-test question, not a design one.
+Room2's cost converts from *retrieving the key* (work) to *waiting for a past self* (clock). That is the same beat Room3 already builds toward — "standing at the door watching two past selves converge is the intended beat" — so it is at least consistent with the game's own language. Whether waiting is better than fetching is a play-test question, not a design one.
 
 ## 8. Consequences to watch
 
