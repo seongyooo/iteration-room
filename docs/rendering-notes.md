@@ -41,9 +41,14 @@ Fixture placement and ambient tuning, materials, probes, and the art rules the r
   `SrcAlpha` multiplies alpha twice and washes them grey; keyword off makes the bodies **disappear**,
   because with premultiply off the diffuse is no longer carrying them and only the opaque knots are
   left. So the keyword stays and the blend follows it.
-  - `SceneBuilder.MakeTranslucentMaterial` currently forces `SrcAlpha` and does not touch the
-    keyword, so a scene build leaves the washed-out pairing and a build-target switch puts it back.
-    **The Editor shows something duller than the player does.** Queued in `TODO.md`.
+  - **`MakeTranslucentMaterial` now writes the whole pairing**, so a scene build and a build-target
+    switch finally agree and the `.mat` stops churning. It used to force `SrcAlpha` and never touch
+    the keyword, which left the Editor duller than the player.
+  - **Do not write `_Blend = 1` (Premultiply) to say so.** It looks like the tidy way to declare the
+    intent and it backfires: URP re-derives the keywords when the material is saved and **disables**
+    `_ALPHAPREMULTIPLY_ON`, leaving `One` blending over non-premultiplied colour - the balloons come
+    out washed toward white. `_Blend` stays **0 (Alpha)** with the keyword forced on, which is the
+    pairing the asset has carried all along. Caught by capturing the room again after the change.
   - The other three transparent-looking materials are not transparent at all - `BedSheet`,
     `BedPillow` and `KeyGold` are `_Surface 0`, queue 2000, no transparent keyword. Their `_SrcBlend`
     does nothing whichever value it holds.

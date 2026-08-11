@@ -1390,12 +1390,29 @@ namespace IterationRoom.EditorTools
             SetSmoothness(mat, smoothness);
 
             mat.SetFloat("_Surface", 1f);
-            mat.SetFloat("_Blend", 0f);
-            mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
-            mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
             mat.SetFloat("_ZWrite", 0f);
             mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             mat.DisableKeyword("_ALPHATEST_ON");
+
+            // PREMULTIPLIED alpha, and all three of the keyword, the _Blend enum and the blend
+            // factors have to say so together. They did not: the keyword had been on the asset
+            // since before the first ship while this forced SrcAlpha, so a scene build left alpha
+            // multiplied TWICE and URP's material validator undid it again on the next build-target
+            // switch. The Editor showed duller balloons than the player did, and four .mat files
+            // turned up modified after every WebGL build.
+            //
+            // Settled by capture, three ways: premultiplied + One reads as pink translucent
+            // balloons; premultiplied + SrcAlpha washes them grey; keyword off makes the bodies
+            // very nearly VANISH, because without it the diffuse no longer carries them and only
+            // the opaque knots are left. So the keyword stays and everything else follows it.
+            mat.EnableKeyword("_ALPHAPREMULTIPLY_ON");
+            // _Blend stays 0 (Alpha). Writing 1 (Premultiply) makes URP re-derive the keywords on
+            // save and it DISABLES _ALPHAPREMULTIPLY_ON, leaving One blending over non-premultiplied
+            // colour - the balloons come out washed toward white. 0 with the keyword forced on is
+            // the pairing that has always been on the asset and the one that renders correctly.
+            mat.SetFloat("_Blend", 0f);
+            mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+            mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
             mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
 
             EditorUtility.SetDirty(mat);

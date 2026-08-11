@@ -92,6 +92,15 @@ namespace IterationRoom
         private float glitchTime;
         private float[] convertAt;
 
+        // What Apply last actually painted. LoopManager calls SetFlare EVERY FRAME OF EVERY
+        // ITERATION - not just through the collapse - and for the first fifty seconds of each one
+        // the value it passes is zero, unchanged, sixty times a second. Against 370 renderers that
+        // was twenty-two thousand property-block round trips per second painting nothing.
+        //
+        // NaN rather than 0 so the first call always lands: 0 is a legitimate value for both.
+        private float paintedPowered = float.NaN;
+        private float paintedFlare = float.NaN;
+
         private MaterialPropertyBlock block;
         // URP/Lit's albedo is _BaseColor. Setting "_Color" here would silently do nothing.
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
@@ -177,8 +186,19 @@ namespace IterationRoom
         {
             if (panels == null || onsets == null) return;
 
-            Color flareColor = Color.white * (flare * flare * flareEmission);
             bool breaking = convertAt != null;
+            // THE GUARD, and it lives here rather than in the setters so that Awake's first
+            // SetPowered(0) still lands - `powered` starts at 0, so a setter-side guard would
+            // skip it and leave every panel at the material's white instead of driving it dark.
+            // The NaN sentinels are what make that work.
+            //
+            // While breaking, every frame genuinely differs - the pattern is time-driven - so the
+            // guard deliberately does not apply.
+            if (!breaking && powered == paintedPowered && flare == paintedFlare) return;
+            paintedPowered = powered;
+            paintedFlare = flare;
+
+            Color flareColor = Color.white * (flare * flare * flareEmission);
 
             // One slot index for the whole wall, so a burst hits every panel on the same frame.
             // Per panel it would smear into continuous noise and stop reading as broken FRAMES.
@@ -193,10 +213,13 @@ namespace IterationRoom
                 if (panels[i] == null) continue;
 
                 MaterialPropertyBlock b = Block;
-                panels[i].GetPropertyBlock(b);
 
                 if (breaking && glitchTime >= convertAt[i])
                 {
+                    // Read back first here, and only here: PaintScreen's three branches each write
+                    // a different subset, so a panel showing the card must not inherit the textures
+                    // of whichever panel used the shared block before it.
+                    panels[i].GetPropertyBlock(b);
                     PaintScreen(b, i, slot, staticChance, deadChance, burst);
                     panels[i].SetPropertyBlock(b);
                     continue;

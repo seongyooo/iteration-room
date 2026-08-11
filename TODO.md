@@ -24,18 +24,9 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
    chosen from which wall the panel is on, computed once in `BeginGlitch`.
    The shipped 2026-08-11 itch build has the mirroring in it.
 
-2. **`BalloonPink` flips its blend mode back and forth on every build.** `MakeTranslucentMaterial`
-   forces `_SrcBlend = SrcAlpha` without touching `_ALPHAPREMULTIPLY_ON`, which the material has
-   carried since before the first ship; URP's material validator then rewrites it to `One` on every
-   build-target switch. **The Editor therefore shows something duller than the build does** - alpha
-   multiplied twice - and four `.mat` files turn up modified after every WebGL build. Verified by
-   capture, three ways: premultiplied + `One` is right, premultiplied + `SrcAlpha` washes out, and
-   turning the keyword off makes the balloons vanish almost entirely. **The fix is `SceneBuilder`
-   writing `One`, not disabling the keyword.** See `docs/rendering-notes.md`.
-
-3. **The drawer reads as a slab sliding out of a solid box.** `nightstand.glb` bakes its whole body into one mesh, so `BuildNightstandDrawer` bolts a generated drawer onto the front face — there is no recess for it to come out of. Fix either way: build the nightstand procedurally (it is a box with a drawer; the room is already procedural everywhere else), or source a model with a real drawer node. **Sourcing is the smaller job but adds a dependency on someone else's topology; building it is more work and matches how the rest of the room is made.**
-4. **The pin's left-click prompt should retire after N swings**, not persist forever. Note this is a *partial* return of the retiring that play-testing removed, and the distinction is the point: "shown once" did not teach, but "shown until the player has actually done it several times" both teaches and stops nagging. Count the action, not the display — same rule as the old `interactRetired`.
-5. **Shift to crouch, Ctrl to sprint.** ⚠️ This is **inverted from the near-universal convention** (shift=sprint, ctrl=crouch), so expect testers to fight it — flagging it now so the decision is deliberate rather than discovered in a play-test. Both also interact with things already tuned: sprint changes the 7.7m/1.7s margin the pad-to-door close is checked against (see Room1), and crouch changes the eye height the near-clip corner analysis assumed.
+2. **The drawer reads as a slab sliding out of a solid box.** `nightstand.glb` bakes its whole body into one mesh, so `BuildNightstandDrawer` bolts a generated drawer onto the front face — there is no recess for it to come out of. Fix either way: build the nightstand procedurally (it is a box with a drawer; the room is already procedural everywhere else), or source a model with a real drawer node. **Sourcing is the smaller job but adds a dependency on someone else's topology; building it is more work and matches how the rest of the room is made.**
+3. **The pin's left-click prompt should retire after N swings**, not persist forever. Note this is a *partial* return of the retiring that play-testing removed, and the distinction is the point: "shown once" did not teach, but "shown until the player has actually done it several times" both teaches and stops nagging. Count the action, not the display — same rule as the old `interactRetired`.
+4. **Shift to crouch, Ctrl to sprint.** ⚠️ This is **inverted from the near-universal convention** (shift=sprint, ctrl=crouch), so expect testers to fight it — flagging it now so the decision is deliberate rather than discovered in a play-test. Both also interact with things already tuned: sprint changes the 7.7m/1.7s margin the pad-to-door close is checked against (see Room1), and crouch changes the eye height the near-clip corner analysis assumed.
 
 ## Pin supply — mitigation for the pop gate
 
