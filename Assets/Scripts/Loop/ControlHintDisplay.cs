@@ -28,6 +28,12 @@ namespace IterationRoom
         // SceneBuilder fills this the same way it fills LoopManager.ghostInteractables.
         public MonoBehaviour[] interactTargets;
 
+        // The calibration step runs before the loop does, so AcceptsInput is false for all of it -
+        // but the start button on that room's wall is an IInteractHintTarget and wants this prompt.
+        // Letting it through here rather than giving that step a prompt of its own means the player
+        // meets the game's own disc, in the game's own position, before the game.
+        public SensitivityCalibration calibration;
+
         // The item whose arrival in the hand introduces the mouse button.
         public string swingItemId = "Tool";
 
@@ -64,7 +70,8 @@ namespace IterationRoom
         {
             // Silent through the wake-up, like everything else the facility does: the player has no
             // control then, so a prompt would be describing a button that does nothing.
-            bool running = LoopManager.Instance == null || LoopManager.Instance.AcceptsInput;
+            bool running = LoopManager.Instance == null || LoopManager.Instance.AcceptsInput
+                        || (calibration != null && calibration.Active);
 
             Show(interactGroup, interactRect, running ? NearestWantingHint() : null, ref interactAlpha);
             Show(swingGroup, swingRect, running ? SwingAnchor() : null, ref swingAlpha);

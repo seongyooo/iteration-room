@@ -5,18 +5,22 @@ namespace IterationRoom
     // Room2's door is a key door: no floor pad, no condition to hold open, and unlike Room1's it
     // does not open by itself. You either have what a balloon gave up or you do not.
     //
-    // NOT a GhostInteractable, and that is the whole design of the thing. The rule the rest of the
-    // room runs on is "record the attempt, re-evaluate the condition" - Drawer records a pull and
-    // re-runs it when a ghost replays it. That only holds while the condition being
-    // re-evaluated is the one that actually enabled the action. Here the enabling condition is the
-    // player HOLDING the key, and a ghost has no pockets: carrying is not part of a recording, and
-    // ghosts have no colliders to pick anything up with. An earlier version re-evaluated a ghost's
-    // unlock against "has the key's balloon been burst yet", which is a different and much weaker
-    // fact, and it quietly let a ghost do the one thing a ghost demonstrably cannot.
+    // Still NOT a GhostInteractable - a signal is a level sampled into a bit, and this is an act
+    // performed with an object. But A GHOST CAN OPEN IT, through AcceptFromGhost.
+    //
+    // That reverses what this file used to say. The rule everything here runs on is "record the
+    // attempt, re-evaluate the condition", and it only holds while the condition re-evaluated is the
+    // one that actually enabled the action. The enabling condition is the key IN HAND. An early
+    // version re-evaluated a ghost's unlock against "has the key's balloon been burst yet" - a
+    // different and much weaker fact - and that was taken as proof that a ghost could never do this
+    // at all. It was only ever proof that the wrong condition had been chosen. Possession is
+    // recorded state now, so the right one is available: AcceptFromGhost fires only when the ghost
+    // is genuinely holding the key it recorded picking up, and has it equipped rather than stowed -
+    // exactly what the living player has to do. See docs/ghost-possession-design.md.
     //
     // Range is polled, not driven by trigger callbacks - see FloorButton for why.
     [RequireComponent(typeof(Collider))]
-    public class KeyLock : MonoBehaviour, IInteractHintTarget
+    public class KeyLock : MonoBehaviour, IInteractHintTarget, IItemSocket
     {
         public Door door;
         public string requiredItemId = "Key";
@@ -26,30 +30,98 @@ namespace IterationRoom
         public Color deniedColor = Color.red;
         public Color grantedColor = new Color(0.2f, 1f, 0.4f);
 
-        // Where an accepted key is parked, over the keyhole on the plate. The insertion is literal
-        // - the key object leaves the player's pocket and appears here - so that "a ghost cannot do
-        // this" is visible on screen rather than only true in the code.
+        // Where an accepted key ends up, seated in the keyhole. The insertion is literal - the key
+        // object leaves the player's pocket and goes in - so that "a ghost cannot do this" is
+        // visible on screen rather than only true in the code.
+        //
+        // The socket's frame is set up by SceneBuilder.BuildKeyModel: +Z is into the lock, so the
+        // insertion is a slide along local Z and the turn is a roll about it. Nothing here has to
+        // know which way the model was authored.
         public Transform keySocket;
+
+        // Metres the key travels on the way in - the length of it that ends up buried. Set from the
+        // model's own measurements at build time rather than picked.
+        public float insertTravel = 0.13f;
+        public float insertDuration = 0.35f;
+        // A beat with the key seated and not yet turning. Without it the slide and the turn read as
+        // one continuous swipe; with it, the key arrives, and then it is turned.
+        public float settleDuration = 0.08f;
+        public float turnDuration = 0.3f;
+        // Clockwise from where the player stands. Positive about +Z is clockwise seen from behind,
+        // which is where the player is.
+        public float turnAngle = 90f;
 
         private Collider trigger;
         private Collider playerCollider;
         private PlayerHand hand;
         private bool playerInRange;
+        private bool inserting;
+        private CarryableItem insertingItem;
+
+        // `inserting` is set by a coroutine, and a coroutine only discovers that the world moved
+        // underneath it on its NEXT frame. An iteration can end mid-turn, and the reset takes the
+        // key straight back out of the socket - between those two moments the flag says an insertion
+        // is in progress when the key is already back in its balloon, and every gate below refuses.
+        //
+        // In the running game the wake-up hands over dozens of frames and the coroutine always wins
+        // that race. This makes it not a race: the key having left the socket IS the end of the
+        // insertion, whatever the flag still says.
+        private bool Inserting
+        {
+            get
+            {
+                if (inserting && (insertingItem == null || insertingItem.transform.parent != keySocket))
+                    inserting = false;
+                return inserting;
+            }
+        }
 
         // Read by DoorIndicator so the lamp above this door reports "you are carrying the key" the
         // same way the other one reports "the pad is held".
-        public bool CanOpen => hand != null && hand.Has(requiredItemId);
+        //
+        // HOLDING, not Has. The key has to be OUT - Tab it into your hand and then put it in the
+        // hole. Carrying it in a pocket is no longer enough: the lock is operated with an object
+        // rather than satisfied by an inventory check.
+        //
+        // True through the insertion as well, and that is not a fudge: the key is in the lock, so
+        // the door can open. Reading it off the hand alone would drop the lamp to red for the three
+        // quarters of a second between the key leaving the player and the door moving - announcing
+        // a failure in the middle of a success.
+        public bool CanOpen => Inserting || (hand != null && hand.Holding(requiredItemId));
 
-        public bool WantsInteractHint => playerInRange && !IsSpent;
+        public bool WantsInteractHint => playerInRange && !IsSpent && !Inserting;
         public Transform HintAnchor => transform;
 
         // Once the door is open there is nothing left for E to do here. The loop shuts the door
         // again and takes the key back, so this is per-iteration, not permanent.
         private bool IsSpent => door != null && door.IsOpen;
 
+        public string AcceptedItemId => requiredItemId;
+
         private void Awake()
         {
             trigger = GetComponent<Collider>();
+        }
+
+        private void OnEnable() => ItemRegistry.RegisterSocket(this);
+        private void OnDisable() => ItemRegistry.UnregisterSocket(this);
+
+        // A past self putting the key in. The player does not have to be anywhere near, and after
+        // the first iteration that solves Room2 they never have to do it again - which is the point
+        // of the change, and what a play-tester expected the room to do in the first place.
+        //
+        // Refuses rather than throws when there is nothing to do: another ghost may already have
+        // opened this door, and a second key going into an open lock would be two keys. The refusal
+        // is a real outcome - the ghost keeps carrying, and drops the key when its timeline ends.
+        public bool AcceptFromGhost(CarryableItem item)
+        {
+            if (item == null || keySocket == null) return false;
+            if (item.itemId != requiredItemId) return false;
+            if (IsSpent || Inserting) return false;
+
+            item.InsertInto(keySocket);
+            StartCoroutine(InsertAndTurn(item));
+            return true;
         }
 
         private void FixedUpdate()
@@ -74,7 +146,10 @@ namespace IterationRoom
 
         private void Update()
         {
-            if (!playerInRange || IsSpent) return;
+            // inserting is in the guard as well as in WantsInteractHint: the door is not open yet
+            // during the animation, so IsSpent is still false and a second press would surrender a
+            // key the player no longer has and start the whole thing again on top of itself.
+            if (!playerInRange || IsSpent || Inserting) return;
             if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
 
             if (Input.GetKeyDown(KeyCode.E)) TryUnlock();
@@ -88,14 +163,76 @@ namespace IterationRoom
                 return;
             }
 
-            // Surrendered before the door moves, so the order on screen is the order of cause:
-            // the key goes in, and then the door opens. It leaves the player's inventory for good
-            // this iteration - the loop is what hands it back, at the top of the next one.
+            // Surrendered before anything moves, so the order on screen is the order of cause: the
+            // key leaves the player, goes in, is turned, and then the door opens. It is gone from
+            // the inventory for good this iteration - the loop hands it back at the top of the next.
             CarryableItem key = hand.Surrender(requiredItemId);
             key?.InsertInto(keySocket);
 
+            // CanOpen said yes, so the door owes the player an opening whatever happened to the
+            // object. Without the fallback a missing key would leave a lock that accepts the press
+            // and does nothing, which is the worst failure this door has.
+            if (key == null || keySocket == null)
+            {
+                Flash(grantedColor);
+                door?.Open();
+                return;
+            }
+
+            StartCoroutine(InsertAndTurn(key));
+        }
+
+        // Slide in, settle, turn, and only then open. Scaled time throughout, like everything else
+        // that moves in this room - pausing mid-turn freezes the key with it.
+        private System.Collections.IEnumerator InsertAndTurn(CarryableItem key)
+        {
+            inserting = true;
+            insertingItem = key;
+
+            Transform t = key.transform;
+            Vector3 seated = Vector3.zero;
+            Vector3 offered = new Vector3(0f, 0f, -insertTravel);
+            Quaternion straight = Quaternion.identity;
+            Quaternion turned = Quaternion.Euler(0f, 0f, turnAngle);
+
+            t.localPosition = offered;
+            t.localRotation = straight;
+
+            for (float e = 0f; e < insertDuration; e += Time.deltaTime)
+            {
+                if (!StillInSocket(key)) { inserting = false; yield break; }
+                // Eased out, because a key does not arrive at a constant speed: it goes in fast and
+                // the last few millimetres are the pins taking it.
+                float u = Mathf.Clamp01(e / insertDuration);
+                t.localPosition = Vector3.Lerp(offered, seated, 1f - (1f - u) * (1f - u));
+                yield return null;
+            }
+            t.localPosition = seated;
+
+            yield return new WaitForSeconds(settleDuration);
+
+            for (float e = 0f; e < turnDuration; e += Time.deltaTime)
+            {
+                if (!StillInSocket(key)) { inserting = false; yield break; }
+                t.localRotation = Quaternion.Slerp(straight, turned,
+                    Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(e / turnDuration)));
+                yield return null;
+            }
+            t.localRotation = turned;
+
+            inserting = false;
             Flash(grantedColor);
+            // The door's own sound lands here rather than a separate lock click, which is the right
+            // read anyway: the turn is what releases the door, so the door is what you hear.
             door?.Open();
+        }
+
+        // An iteration can end mid-turn. PlayerHand.ReturnAll reparents the key back to where it
+        // came from, and a coroutine still writing localPosition would drag it off across the room
+        // - and then open a door the loop had just shut. Losing the socket is the signal to stop.
+        private bool StillInSocket(CarryableItem key)
+        {
+            return key != null && keySocket != null && key.transform.parent == keySocket;
         }
 
         private void Flash(Color color)

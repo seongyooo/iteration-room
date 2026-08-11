@@ -69,6 +69,22 @@ namespace IterationRoom
             }
 
             float span = Mathf.Max(0.001f, maxY - minY);
+
+            // THE INVARIANT: every onset must be <= 1 - panelFade, because PowerUpRoutine stops at
+            // powered = 1 and a panel only finishes when (powered - onset) / panelFade reaches 1.
+            //
+            // Getting this wrong does not look like a bug, which is why it shipped. The formula was
+            // height * (1 - panelFade) + jitter, so the top row could land as high as 0.90 against
+            // a 0.78 ceiling - those panels froze at k = 0.45, i.e. albedo 0.506, and simply stayed
+            // MID GREY for the rest of the run. Half of the top row's 66 panels, in a room whose
+            // whole point is that it is white.
+            //
+            // The jitter is subtracted from the ramp rather than clamped off the top, so the
+            // scatter survives intact at the ceiling instead of half the top row landing on exactly
+            // the same onset.
+            float ceiling = Mathf.Max(0f, 1f - panelFade);
+            float ramp = Mathf.Max(0f, ceiling - onsetJitter);
+
             Random.State previous = Random.state;
             // Fixed seed: the scatter should be arbitrary but identical on every run.
             Random.InitState(20260810);
@@ -76,7 +92,7 @@ namespace IterationRoom
             {
                 if (panels[i] == null) continue;
                 float height = (panels[i].bounds.center.y - minY) / span;
-                onsets[i] = Mathf.Clamp01(height * (1f - panelFade) + Random.Range(-onsetJitter, onsetJitter));
+                onsets[i] = Mathf.Clamp(height * ramp + Random.Range(-onsetJitter, onsetJitter), 0f, ceiling);
             }
             Random.state = previous;
         }

@@ -8,18 +8,16 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: GhostFaint
-  m_Shader: {fileID: 4800000, guid: 650dd9526735d5b46b79224bc6e94025, type: 3}
+  m_Shader: {fileID: 4800000, guid: f2374dd70296ca4439a15ea1c6949137, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
-  m_ValidKeywords:
-  - _SURFACE_TYPE_TRANSPARENT
+  m_ValidKeywords: []
   m_InvalidKeywords: []
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
   m_CustomRenderQueue: 3000
-  stringTagMap:
-    RenderType: Transparent
+  stringTagMap: {}
   disabledShaderPasses:
   - MOTIONVECTORS
   - DepthOnly
@@ -43,20 +41,26 @@ Material:
     - _AlphaToMask: 0
     - _Blend: 0
     - _BlendOp: 0
+    - _BottomFade: 0.35
+    - _CoreAlpha: 0.06
     - _Cull: 2
     - _Cutoff: 0.5
     - _DstBlend: 10
     - _DstBlendAlpha: 10
     - _QueueOffset: 0
+    - _RimAlpha: 0.75
+    - _RimPower: 2.2
     - _SampleGI: 0
+    - _SoftFade: 0.12
     - _SrcBlend: 5
     - _SrcBlendAlpha: 1
     - _Surface: 1
     - _XRMotionVectorsPass: 1
     - _ZWrite: 0
     m_Colors:
-    - _BaseColor: {r: 0.02, g: 0.02, b: 0.03, a: 0.16}
+    - _BaseColor: {r: 0.44520125, g: 0.5394796, b: 0.71569365, a: 1}
     - _Color: {r: 0.02, g: 0.02, b: 0.03, a: 0.16}
+    - _RimColor: {r: 0.74540436, g: 0.8468733, b: 1, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
 --- !u!114 &8261441838705704222

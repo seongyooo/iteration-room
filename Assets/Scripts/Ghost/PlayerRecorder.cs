@@ -14,6 +14,7 @@ namespace IterationRoom
 
         private readonly List<RecordedFrame> frames = new List<RecordedFrame>();
         private readonly List<PopEvent> pops = new List<PopEvent>();
+        private readonly List<CarryEvent> carries = new List<CarryEvent>();
         private float sampleTimer;
         private bool recording;
 
@@ -21,6 +22,7 @@ namespace IterationRoom
         {
             frames.Clear();
             pops.Clear();
+            carries.Clear();
             sampleTimer = 0f;
             recording = true;
         }
@@ -28,7 +30,8 @@ namespace IterationRoom
         public RecordedTimeline EndRecording()
         {
             recording = false;
-            return new RecordedTimeline(new List<RecordedFrame>(frames), new List<PopEvent>(pops));
+            return new RecordedTimeline(new List<RecordedFrame>(frames), new List<PopEvent>(pops),
+                new List<CarryEvent>(carries));
         }
 
         // Called by BalloonTool the moment the player bursts one. Stamped with the loop clock
@@ -37,6 +40,14 @@ namespace IterationRoom
         {
             if (!recording || LoopManager.Instance == null) return;
             pops.Add(new PopEvent(LoopManager.Instance.ElapsedTime, balloonId));
+        }
+
+        // Called by PlayerHand on every take and surrender of an item flagged ghostCarryable.
+        // Stamped off the loop clock for the same reason pops are.
+        public void RecordCarry(string itemId, CarryKind kind)
+        {
+            if (!recording || LoopManager.Instance == null || string.IsNullOrEmpty(itemId)) return;
+            carries.Add(new CarryEvent(LoopManager.Instance.ElapsedTime, itemId, kind));
         }
 
         private void Update()

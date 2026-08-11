@@ -21,8 +21,15 @@ namespace IterationRoom
         // than destroyed, so a pickup costs no allocation mid-iteration.
         public Image[] slots;
 
+        // The item actually in the hand is drawn at full strength and the stowed ones are dimmed.
+        // Tab makes this readout answer a second question - not just "what do I have" but "what am
+        // I about to use" - and a lock that refuses a key you are carrying is unreadable without it.
+        public Color heldColor = Color.white;
+        public Color stowedColor = new Color(1f, 1f, 1f, 0.33f);
+
         // Rebuilt only when the hand actually changes. The work is trivial, but this runs every
         // frame of a sixty-second loop and the answer is the same on almost all of them.
+        // PlayerHand bumps Version on equip as well as on pickup, so a Tab press lands here.
         private int lastVersion = -1;
 
         private void Update()
@@ -41,6 +48,7 @@ namespace IterationRoom
                 Sprite icon = item != null ? item.icon : null;
 
                 slot.sprite = icon;
+                slot.color = item != null && item == hand.Held ? heldColor : stowedColor;
                 // Disabled rather than made transparent: an empty inventory is the resting state of
                 // most of an iteration, and it should cost nothing to draw.
                 slot.enabled = icon != null;

@@ -140,10 +140,24 @@ namespace IterationRoom
                 if (doors != null)
                     foreach (Door d in doors) d?.Close();
 
-                // Order matters here: the hand gives the key back to its parked position first, and
-                // the field then hides it. Reversed, the key would be hidden and then handed back
-                // visible, and it would be lying on the floor of an unpopped room.
+                // Ghosts let go first, then the player, then the field hides what it owns. All three
+                // orderings matter and for the same reason: an item has to be back at its parked
+                // position BEFORE the thing that hides it runs, or it ends up visible on the floor
+                // of a room whose balloons have not been popped yet.
+                //
+                // The ghost pass is separate from ResetPlayback below rather than folded into it,
+                // because ResetPlayback runs after ResetField - by then the key is already hidden,
+                // and handing it back at that point would un-hide it.
+                foreach (var ghost in ghosts) ghost.ReleaseCarried();
+
                 playerHand?.ReturnAll();
+
+                // The catch-all, and it is not redundant with the two lines above. Those clear the
+                // holders' own bookkeeping; this puts every object back. A key a GHOST left in the
+                // lock belongs to neither list - it is not in the player's `taken` and the ghost let
+                // go of it the moment the socket accepted it - so before this it stayed in the
+                // keyhole with IsCarried true and no ghost could ever pick it up again.
+                ItemRegistry.ReturnAllToOrigin();
 
                 if (drawers != null)
                     foreach (Drawer dr in drawers) dr?.Close();

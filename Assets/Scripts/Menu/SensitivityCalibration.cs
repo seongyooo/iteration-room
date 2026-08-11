@@ -20,34 +20,51 @@ namespace IterationRoom
     // ceiling 0.690 to 0.734. The room is a white box, so its reflection probe is a blank field.
     // That probe exists to be smeared across glossy walls, not to be looked at.
     //
-    // Here there is nothing to fake. The player is standing at the foot of the bed in the finished,
-    // lit room, looking through the actual player camera with the actual look code - so there is no
-    // fov to keep matched, no exposure to guess, and the thing being calibrated is the thing being
-    // used. Control is left fully on, walking included: the loop teleports everyone back to the bed
-    // at the top of iteration 1 anyway, Room1's door will not open while the clock is stopped, and
-    // feeling the movement speed is no bad thing either.
+    // Here there is nothing to fake. The player is in a purpose-built room looking through the
+    // actual player camera with the actual look code - so there is no fov to keep matched, no
+    // exposure to guess, and the thing being calibrated is the thing being used. Control is left
+    // fully on, walking included: the loop teleports everyone to the bed at the top of iteration 1
+    // anyway, and feeling the movement speed is no bad thing either.
+    //
+    // ALMOST NONE OF IT IS ON THE SCREEN. The control list, the gauge and the value are on the
+    // room's south wall - the wall the player spawns facing - and the step is ended by pressing E
+    // at a plate below that display (CalibrationStartButton). The room is built out of wall
+    // displays, so the facility explaining itself on one is the same move Room3 makes, and it
+    // leaves the screen carrying a single line that only appears when the browser has refused
+    // pointer capture, which is the one thing the wall cannot usefully say.
     //
     // Every other control is already silent here, because they all gate on
     // LoopManager.AcceptsInput and the clock has not started - E opens nothing, N charges nothing,
-    // the mouse swings nothing.
+    // the mouse swings nothing. The sensitivity buttons are the deliberate exception.
     public class SensitivityCalibration : MonoBehaviour
     {
+        // The one thing still drawn on the screen: the prompt to begin, which doubles as the
+        // pointer-lock readout. Everything else moved onto the room's own wall - but this has to be
+        // legible whatever the player happens to be facing, since it is how they leave.
         public CanvasGroup group;
-        public Image fill;
-        public Text valueLabel;
         public Text lockHint;
 
+        // The wall display: the control list, the gauge and the value, on the calibration room's
+        // south wall. The gauge and the value live here rather than on the screen because the
+        // buttons that drive them are on that wall too - readout and control in one place.
+        public CanvasGroup wallGroup;
+        public Image fill;
+        public Text valueLabel;
+
         // The rest of the HUD, switched off for the duration. See the note where SceneBuilder
-        // fills it in for why it is "everything but two" rather than a list.
+        // fills it in for what is left on.
         public GameObject[] hideWhileActive;
 
-        // The wheel is the ONLY way to change the value, and the reason is that the player is
-        // walking around while they do it. Arrow keys and A/D were offered at first and had to go:
-        // both are bound to the Horizontal axis, so every press that nudged the number also
-        // strafed the player, which reads as the setting having moved the room.
+        // Arrow keys and A/D were tried for this and had to go - both are bound to the Horizontal
+        // axis, so every press that nudged the number also strafed the player. The wheel is the one
+        // input on a mouse that is not already spoken for while looking around.
         public float wheelStep = 0.2f;
 
         public bool Confirmed { get; private set; }
+
+        // Read by CalibrationButton, which cannot use LoopManager.AcceptsInput like everything else -
+        // that is false for the whole of calibration, which is exactly when the ball must answer.
+        public bool Active => active;
 
         private bool active;
 
@@ -59,9 +76,10 @@ namespace IterationRoom
             {
                 group.alpha = 1f;
                 // Nothing here is clickable - with the pointer captured there is no cursor to click
-                // with, which is the whole reason the wheel does the adjusting.
+                // with, which is why the sensitivity is on physical buttons in the room instead.
                 group.blocksRaycasts = false;
             }
+            if (wallGroup != null) wallGroup.alpha = 1f;
             SetHudVisible(false);
             Show();
         }
@@ -70,6 +88,7 @@ namespace IterationRoom
         {
             active = false;
             if (group != null) group.alpha = 0f;
+            if (wallGroup != null) wallGroup.alpha = 0f;
             SetHudVisible(true);
             // Committed to disk here rather than on every wheel notch, for the reason GameSettings
             // documents: each save is a storage flush on WebGL. This is the one exit from the page,
@@ -85,23 +104,29 @@ namespace IterationRoom
             // pointer capture inside a user gesture, so the one it asks for on Start is routinely
             // refused. All this does is say so, since a player looking at a room that will not turn
             // has no way to guess that a click is what fixes it.
+            // The screen carries ONE line, and only when it has something to say. Pointer capture
+            // is the browser's to give and it is routinely refused; a player looking at a room that
+            // will not turn has no way to guess that a click fixes it. Everything else the step has
+            // to tell them is on the wall.
             bool locked = Cursor.lockState == CursorLockMode.Locked;
-            if (lockHint != null)
-                lockHint.text = locked ? "[ENTER]  TO BEGIN" : "CLICK TO ENABLE MOUSE LOOK";
+            if (lockHint != null) lockHint.text = locked ? string.Empty : "CLICK TO ENABLE MOUSE LOOK";
 
             Adjust();
             Show();
+        }
 
-            // Gated on the capture, so nobody can confirm a number they were never able to test.
-            if (locked && (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter)))
-                Confirmed = true;
+        // Called by CalibrationStartButton, which is the only way out of this step. Gated on the
+        // pointer being captured, so nobody can commit a number they were never able to test - if
+        // the browser has refused the lock the button does nothing and the screen line says why.
+        public void Confirm()
+        {
+            if (Cursor.lockState == CursorLockMode.Locked) Confirmed = true;
         }
 
         private void Adjust()
         {
             float delta = Input.mouseScrollDelta.y * wheelStep;
-            if (!Mathf.Approximately(delta, 0f))
-                GameSettings.MouseSensitivity += delta;
+            if (!Mathf.Approximately(delta, 0f)) GameSettings.MouseSensitivity += delta;
         }
 
         private void SetHudVisible(bool visible)

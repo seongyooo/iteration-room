@@ -18,6 +18,11 @@ namespace IterationRoom.EditorTools
         private const string MenuScenePath = "Assets/Scenes/MainMenu.unity";
         private const string MaterialsDir = "Assets/Materials";
         private const string PrefabsDir = "Assets/Prefabs";
+        private const string ShadersDir = "Assets/Shaders";
+        // Item ids are a WIRE VALUE - KeyLock asks for "Key", BalloonTool and GhostReplayer both
+        // ask for "Tool". Declared once so a rename cannot silently disarm one side of a gate.
+        private const string ToolItemId = "Tool";
+        private const string KeyItemId = "Key";
         private const string FurnitureDir = "Assets/ArtAssets/Furniture";
         private const string SettingsDir = "Assets/Settings";
         // Wall panel albedo. Near-white is the reference film's clinical room; the dark value reads
@@ -315,7 +320,7 @@ namespace IterationRoom.EditorTools
             // prompt is shown over whichever of these is nearest and currently wants it - every
             // time, not once; see ControlHintDisplay for why that changed. Room1's door is not in
             // the list any more because it has no control to press.
-            BuildControlHints(canvas, player.GetComponentInChildren<Camera>(), hand,
+            ControlHintDisplay hints = BuildControlHints(canvas, player.GetComponentInChildren<Camera>(), hand,
                 new MonoBehaviour[] { drawer, tool, keyLock, key });
 
             // Escape's overlay covers the HUD, the prompts and the eyelids...
@@ -327,6 +332,18 @@ namespace IterationRoom.EditorTools
             // Above even that, because it is the first thing the run shows and nothing else is
             // running while it is up.
             SensitivityCalibration calibration = BuildCalibrationPage(canvas);
+            CalibrationStartButton startButton = BuildCalibrationWall(room.transform, CalibrationRoomZ, calibration);
+
+            // Appended after the fact because the button lives in a room built later than the hint
+            // display. It is the only E fixture the player meets before the loop starts, and it
+            // gets the same grey disc as every other one - which is the point: they meet the
+            // game's prompt before the game.
+            var hintTargets = new System.Collections.Generic.List<MonoBehaviour>(hints.interactTargets)
+            {
+                startButton,
+            };
+            hints.interactTargets = hintTargets.ToArray();
+            hints.calibration = calibration;
 
             (NarrationDirector narration, RoomAmbience ambience) =
                 BuildAudio(player, new[] { door, door2, door3 },
@@ -650,6 +667,12 @@ namespace IterationRoom.EditorTools
             // fit" and quietly drops each map to 512.
             SetEnumByName(so, "m_AdditionalLightsShadowmapResolution", "_4096");
             SetIfPresent(so, "m_SoftShadowsSupported", true);
+
+            // GhostFaint samples _CameraDepthTexture to fade where a ghost crosses solid geometry,
+            // and that texture only exists if something asks for it. SSAO happens to request depth
+            // as a pass input today, which is exactly the kind of accident that breaks the day the
+            // renderer feature is retuned - so the dependency is declared here rather than relied on.
+            SetIfPresent(so, "m_RequireDepthTexture", true);
 
             so.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(urp);
@@ -1048,8 +1071,9 @@ namespace IterationRoom.EditorTools
             return SaveSprite(icon, "icon_pin");
         }
 
-        // The same silhouette BuildKeyShape cuts in three dimensions: ring bow, shaft, two teeth
-        // off one side only. A symmetrical bit would read as a cross.
+        // The key's silhouette at HUD size: ring bow, shaft, two teeth off one side only. A
+        // symmetrical bit would read as a cross. Drawn rather than rendered from gold_key.glb,
+        // because at 58px the model's bit resolves to a smudge - the same call the pin icon makes.
         private static Sprite KeyIcon()
         {
             var icon = new IconCanvas(128);
@@ -1084,6 +1108,26 @@ namespace IterationRoom.EditorTools
             icon.Shape(p => toSpine(p) <= radius - 0.042f, -1f);
             icon.Shape(p => toSpine(p) <= radius - 0.072f && p.x < 0.484f && p.y > 0.60f);
             return SaveSprite(icon, "icon_mouse_left");
+        }
+
+        // The same mouse with no button filled - the calibration page's "look around" row, where
+        // highlighting a button would say "click", which is the one thing that row does not mean.
+        // The two seams are what keep it from reading as a plain capsule.
+        private static Sprite MouseIcon()
+        {
+            var icon = new IconCanvas(128);
+            const float radius = 0.215f;
+            const float topY = 0.655f, bottomY = 0.345f;
+
+            System.Func<Vector2, float> toSpine = p =>
+                (p - new Vector2(0.5f, Mathf.Clamp(p.y, bottomY, topY))).magnitude;
+
+            icon.Shape(p => toSpine(p) <= radius);
+            icon.Shape(p => toSpine(p) <= radius - 0.042f, -1f);
+            const float hollow = radius - 0.042f;
+            icon.Shape(p => toSpine(p) <= hollow && Mathf.Abs(p.y - 0.605f) < 0.017f);
+            icon.Shape(p => toSpine(p) <= hollow && p.y > 0.605f && Mathf.Abs(p.x - 0.5f) < 0.017f);
+            return SaveSprite(icon, "icon_mouse");
         }
 
         // tiling is in repeats across one face. URP/Lit drives the normal map's UVs from _BaseMap's
@@ -1163,7 +1207,8 @@ namespace IterationRoom.EditorTools
             return mat;
         }
 
-        // A lit material you can see through. Same URP transparent set-up as MakeGhostMaterial -
+        // A lit material you can see through. The URP transparent set-up needs all of _Surface,
+        // _SrcBlend, _DstBlend and _ZWrite AND the keyword -
         // the blend modes and the _SURFACE_TYPE_TRANSPARENT keyword are BOTH required, and setting
         // the alpha alone leaves the shader opaque - but on Lit rather than Unlit, because unlike a
         // ghost these are real objects in a lit room and have to take the ceiling lights.
@@ -1671,10 +1716,11 @@ namespace IterationRoom.EditorTools
             toolTrigger.size = new Vector3(0.7f, 0.7f, 0.7f);
 
             CarryableItem toolItem = toolRoot.AddComponent<CarryableItem>();
-            toolItem.itemId = "Tool";
+            toolItem.itemId = ToolItemId;
             toolItem.displayName = "PIN";
             toolItem.icon = PinIcon();
-            toolItem.showInHand = true;
+            // The pin keeps CarryableItem's default hand pose - it is the one that was tuned by eye
+            // and play-tested, and Tab must not move it.
             toolItem.requiresOpenDrawer = drawerComp;
             toolItem.audioSource = MakeSource(toolRoot.transform, "PickupAudio", 1f, 0.8f);
             toolItem.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
@@ -1685,36 +1731,159 @@ namespace IterationRoom.EditorTools
         // One key shape, used three times over: lying on the floor once its balloon bursts, seen
         // through the skin of the balloon that holds it, and mounted on Room2's lock so the thing
         // on the wall says what it wants. Laid out in the XY plane facing -Z.
-        private static void BuildKeyShape(Transform parent, Vector3 centre, float scale, Material mat, Material holeMat)
+        private const string GoldKeyPath = FurnitureDir + "/gold_key.glb";
+
+        // Measured off the glb at scale 1, logged on every build so a re-export that moves them is
+        // caught rather than discovered: the key runs 8.00 along Y with the BOW at +Y and the bit
+        // at -Y, and its shaft turns about the line x=0, z=-0.03.
+        private const float KeyModelLength = 8.0f;
+        private const float KeyModelTipY = -7.493f;
+        // Where the bow stops being a ring and becomes shaft. This is the waterline: everything
+        // below it goes into the lock, everything above it stays out where the player can see it.
+        private const float KeyModelBowJunctionY = -2.3f;
+        private const float KeyModelShaftAxisZ = -0.03f;
+
+        // 0.20m overall, which is what the five primitives it replaces measured. Not a coincidence
+        // and not a free choice: Room2's puzzle is spotting the key THROUGH a balloon from across
+        // the room, and that was play-tested at this size. A prop key rather than a real 6cm one.
+        private const float KeyLength = 0.20f;
+        private const float KeyScale = KeyLength / KeyModelLength;
+        // Distance from the bow junction to the tip - i.e. how much key there is to push in.
+        private const float KeyInsertTravel = (KeyModelBowJunctionY - KeyModelTipY) * KeyScale;
+
+        // How the key hangs when it is NOT in the lock: bow up, bit down, turned off-axis. Only the
+        // resting pose - CarryableItem.InsertInto zeroes the root's rotation, which is exactly the
+        // frame the insert-and-turn animation wants, and ReturnToOrigin puts this back.
+        private static readonly Quaternion KeyRestRotation = Quaternion.Euler(90f, 35f, 0f);
+
+        // The gold key model, laid into its parent so that +Z is "into the lock" and a roll about
+        // local Z is "turn the key". Everything downstream - the socket, the insertion, the turn -
+        // depends on this frame, so it is established once here rather than at each call site.
+        private static GameObject BuildKeyModel(Transform parent, float scaleMul, Material overrideMat,
+                                                bool centreOnParent = false)
         {
-            float z = centre.z;
-
-            // A ring, faked as a disc with a smaller disc of the backing colour punched into it -
-            // without the hole it reads as a lollipop rather than a key.
-            GameObject bow = Prim(PrimitiveType.Cylinder, "Bow", parent,
-                new Vector3(centre.x, centre.y + 0.062f * scale, z),
-                new Vector3(0.078f * scale, 0.005f * scale, 0.078f * scale), mat, removeCollider: true);
-            bow.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-
-            if (holeMat != null)
+            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(GoldKeyPath);
+            if (source == null)
             {
-                GameObject hole = Prim(PrimitiveType.Cylinder, "BowHole", parent,
-                    new Vector3(centre.x, centre.y + 0.062f * scale, z - 0.004f * scale),
-                    new Vector3(0.036f * scale, 0.006f * scale, 0.036f * scale), holeMat, removeCollider: true);
-                hole.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                Debug.LogError($"[SceneBuilder] Key model missing at {GoldKeyPath}");
+                return null;
             }
 
-            Prim(PrimitiveType.Cube, "Shaft", parent,
-                new Vector3(centre.x, centre.y - 0.022f * scale, z),
-                new Vector3(0.019f * scale, 0.13f * scale, 0.011f * scale), mat, removeCollider: true);
+            GameObject model = (GameObject)PrefabUtility.InstantiatePrefab(source, parent);
+            model.name = "KeyModel";
 
-            // Two teeth, off one side only - a symmetrical bit reads as a cross.
-            Prim(PrimitiveType.Cube, "Tooth1", parent,
-                new Vector3(centre.x + 0.024f * scale, centre.y - 0.048f * scale, z),
-                new Vector3(0.03f * scale, 0.016f * scale, 0.011f * scale), mat, removeCollider: true);
-            Prim(PrimitiveType.Cube, "Tooth2", parent,
-                new Vector3(centre.x + 0.024f * scale, centre.y - 0.081f * scale, z),
-                new Vector3(0.03f * scale, 0.016f * scale, 0.011f * scale), mat, removeCollider: true);
+            float scale = KeyScale * scaleMul;
+            model.transform.localScale = Vector3.one * scale;
+
+            // Two rotations, composed in this order and NOT written as one Euler: Unity evaluates
+            // Euler as Y*X*Z, so a single triple would apply the roll before the lay-down and put
+            // the bit back where it started.
+            //   -90 about X  lays the key down, bow toward -Z (out at the player), bit into +Z.
+            //   +90 about Z  rolls it so the flat of the bit stands VERTICAL, matching the
+            //                keyhole's vertical slot. A key entering a slot sideways is the wrong
+            //                key, and the slot is the one part of the lock that says which way up.
+            model.transform.localRotation = Quaternion.AngleAxis(90f, Vector3.forward)
+                                          * Quaternion.AngleAxis(-90f, Vector3.right);
+
+            // Put the shaft's own axis on the parent's Z axis. Without this the turn is a wobble
+            // about a line 0.75mm off the shaft - small, but it is the difference between a key
+            // turning and a key being waggled.
+            Vector3 axisPoint = new Vector3(0f, 0f, KeyModelShaftAxisZ) * scale;
+            model.transform.localPosition = -(model.transform.localRotation * axisPoint);
+
+            // The origin left by the line above is the BOW, which is what the lock wants - it is the
+            // point that seats on the plate face, and CarryableItem.InsertInto drops the root exactly
+            // there. It is wrong for the balloon: the key hangs off the origin by 0.09 and ends up
+            // shouldered against one side of a 0.24-radius sphere instead of suspended in it, which
+            // reads as a key stuck to the skin rather than one floating inside. Measured and
+            // subtracted rather than hardcoded, so it survives the key being rescaled.
+            if (centreOnParent)
+            {
+                Renderer[] centred = model.GetComponentsInChildren<Renderer>();
+                Bounds local = new Bounds(parent.InverseTransformPoint(centred[0].bounds.center), Vector3.zero);
+                foreach (Renderer r in centred)
+                {
+                    local.Encapsulate(parent.InverseTransformPoint(r.bounds.min));
+                    local.Encapsulate(parent.InverseTransformPoint(r.bounds.max));
+                }
+                model.transform.localPosition -= local.center;
+            }
+
+            if (overrideMat != null)
+                foreach (Renderer r in model.GetComponentsInChildren<Renderer>(true))
+                {
+                    Material[] mats = r.sharedMaterials;
+                    for (int i = 0; i < mats.Length; i++) mats[i] = overrideMat;
+                    r.sharedMaterials = mats;
+                }
+
+            // Logged the way the nightstand's bounds are, and for the same reason: every constant
+            // above is a measurement off this file, and a re-export that moves them should show up
+            // in the build log rather than as a key sticking out of a wall.
+            if (scaleMul >= 1f)
+            {
+                Renderer[] rs = model.GetComponentsInChildren<Renderer>();
+                Bounds b = rs[0].bounds;
+                for (int i = 1; i < rs.Length; i++) b.Encapsulate(rs[i].bounds);
+                // Longest axis, not Z: the loose key's root carries KeyRestRotation, so which world
+                // axis the length lands on depends on where this was called from.
+                float longest = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
+                Debug.Log($"[SceneBuilder] Key model size={b.size} longest={longest:0.000} (expects {KeyLength:0.000})");
+            }
+
+            return model;
+        }
+
+        // A CLONE of the glb's own Gold, because glb materials are sub-assets regenerated on every
+        // reimport and anything written to them is lost - the same trap DisableBakedOcclusion works
+        // around for the bed. `tint` scales the base colour: 1 for the loose key, dark for the copy
+        // inside a balloon, which is read through a pink translucent skin and washes out at gold.
+        //
+        // THE ONE VALUE CHANGED IS metallicFactor, 1.0 -> 0.3, and it is not a style preference.
+        // A fully metallic surface has NO diffuse term: every photon it shows is a reflection of
+        // its surroundings. Reflections here come from a baked probe, and whatever this room's
+        // probes are handing a metal it is not the white box they were baked in - the key rendered
+        // BLACK with a thin gold rim (the rim being the only direct specular), floating in the
+        // middle of a bright white room. Verified it was the metalness and not the lighting: with
+        // occlusionTexture_strength forced to 0 nothing changed, and at 0.3 the key came back gold.
+        //
+        // This departs from "keep the glTF materials these ship with". That rule exists to stop a
+        // hand-rolled URP/Lit stand-in dropping a model's metallic/roughness MAPS - and this model
+        // has no textures at all, only factors, so there is nothing to drop. It is also the more
+        // robust setting for this room: a key with a diffuse term reads as gold wherever it is put,
+        // where a mirror only reads as gold where the probe happens to be right.
+        private static Material KeyMaterial(string assetName, float tint)
+        {
+            Material gold = null;
+            foreach (Object o in AssetDatabase.LoadAllAssetsAtPath(GoldKeyPath))
+                if (o is Material m && !m.name.StartsWith("__preview__")) { gold = m; break; }
+
+            if (gold == null)
+            {
+                Debug.LogWarning($"[SceneBuilder] gold_key.glb has no material - {assetName} left flat");
+                return MakeColorMaterial(assetName, new Color(0.85f, 0.68f, 0.24f) * tint);
+            }
+
+            string path = $"{MaterialsDir}/{assetName}.mat";
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(gold);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = gold.shader;
+            mat.CopyPropertiesFromMaterial(gold);
+            mat.shaderKeywords = gold.shaderKeywords;
+
+            mat.SetFloat("metallicFactor", 0.3f);
+            // Tinted by scaling rather than by setting a chosen triple, so it stays correct
+            // whichever colour space the glTF shader reads baseColorFactor in.
+            const string baseColor = "baseColorFactor";
+            if (tint != 1f && mat.HasProperty(baseColor))
+                mat.SetColor(baseColor, gold.GetColor(baseColor) * tint);
+
+            EditorUtility.SetDirty(mat);
+            return mat;
         }
 
         // The hole a key goes into: a round seat for the shaft with a narrow slot under it.
@@ -1738,11 +1907,8 @@ namespace IterationRoom.EditorTools
             const int balloonCount = 70;
             const int fieldSeed = 20260810;
 
-            Material keyMat = MakeColorMaterial("KeyBrass", new Color(0.85f, 0.68f, 0.24f));
-            SetSmoothness(keyMat, 0.75f);
-            // Darker than the loose key, because it is being read through a pink skin: at the
-            // brass colour it washes out into the balloon and stops being a shape.
-            Material keyVisualMat = MakeColorMaterial("KeyInBalloon", new Color(0.3f, 0.24f, 0.1f));
+            Material keyMat = KeyMaterial("KeyGold", 1f);
+            Material keyVisualMat = KeyMaterial("KeyInBalloon", 0.36f);
 
             GameObject root = new GameObject("BalloonField");
             root.transform.SetParent(parent, false);
@@ -1816,7 +1982,16 @@ namespace IterationRoom.EditorTools
                 // The key, visible through the skin of the one balloon that has it. A child of the
                 // balloon, so Balloon.SetInPlay hides and shows it along with everything else and
                 // it vanishes the moment the balloon bursts.
-                if (balloon.holdsKey) BuildKeyShape(go.transform, Vector3.zero, 0.85f, keyVisualMat, null);
+                // The key, visible through the skin of the one balloon that has it. Hung off its own
+                // child so it keeps the bow-up resting pose: BuildKeyModel lays the key along +Z
+                // for the lock, and a key floating horizontally inside a balloon reads as debris.
+                if (balloon.holdsKey)
+                {
+                    GameObject keyVisual = new GameObject("KeyVisual");
+                    keyVisual.transform.SetParent(go.transform, false);
+                    keyVisual.transform.localRotation = KeyRestRotation;
+                    BuildKeyModel(keyVisual.transform, 0.85f, keyVisualMat, centreOnParent: true);
+                }
                 balloon.audioSource = MakeSource(go.transform, "PopAudio", 1f, 0.8f);
                 // A fixed detune per balloon, from the field's own seed. One clip across seventy
                 // balloons reads as a machine gun; a balloon keeping the same voice every
@@ -1832,18 +2007,28 @@ namespace IterationRoom.EditorTools
             GameObject keyRoot = new GameObject("Key");
             keyRoot.transform.SetParent(root.transform, false);
             keyRoot.transform.position = new Vector3(0f, 0.06f, RoomPitch);
+            // The resting pose lives on the ROOT, not on the model, and that is load-bearing:
+            // InsertInto zeroes the root's rotation, which is precisely the frame KeyLock's
+            // insert-and-turn works in, and ReturnToOrigin restores this at the top of the loop.
+            keyRoot.transform.localRotation = KeyRestRotation;
 
-            BuildKeyShape(keyRoot.transform, Vector3.zero, 1f, keyMat, null);
+            BuildKeyModel(keyRoot.transform, 1f, keyMat);
 
             BoxCollider keyTrigger = keyRoot.AddComponent<BoxCollider>();
             keyTrigger.isTrigger = true;
             keyTrigger.size = new Vector3(0.9f, 0.9f, 0.9f);
 
             CarryableItem keyItem = keyRoot.AddComponent<CarryableItem>();
-            keyItem.itemId = "Key";
+            keyItem.itemId = KeyItemId;
             keyItem.displayName = "KEY";
             keyItem.icon = KeyIcon();
-            keyItem.showInHand = false;
+            // In the hand the key points the way it goes into a lock - teeth forward, bit vertical
+            // - because the root's identity rotation IS the seated orientation (see BuildKeyModel).
+            // Held nose-first means walking up to the lock and pressing E needs no mental rotation.
+            // Angled up slightly and further from the eye than the pin, which is a short stub where
+            // this is 0.20m long and would otherwise cross the middle of the screen.
+            keyItem.handLocalPosition = new Vector3(0.3f, -0.26f, 0.46f);
+            keyItem.handLocalEuler = new Vector3(-12f, -14f, 0f);
             keyItem.audioSource = MakeSource(keyRoot.transform, "PickupAudio", 1f, 0.9f);
             keyItem.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
 
@@ -1986,12 +2171,21 @@ namespace IterationRoom.EditorTools
             Material slotMat = MakeColorMaterial("KeySlot", new Color(0.06f, 0.06f, 0.07f));
             BuildKeyholeSlot(lockRoot.transform, new Vector3(0f, -0.03f, -0.047f), slotMat);
 
-            // Where an accepted key is parked. Slightly proud of the plate and scaled down a
-            // touch, so it sits ON the lock rather than inside it, with its shaft over the hole.
+            // Where an accepted key ends up: SEATED, not parked on the surface. The key used to be
+            // laid flat against the plate like a sticker, which is what "insert" meant when the
+            // key was five primitives. It is a real key now and it goes IN.
+            //
+            // The plate is a 0.09-deep cube, so its face is at z -0.045. Putting the bow junction
+            // exactly on that face leaves the bow standing proud where it can be seen and everything
+            // from the shaft down inside the plate - and behind the plate is 0.015 of air and then
+            // 0.125 of wall, so the 0.13 of shaft and bit has somewhere to be and is hidden the
+            // whole way. Nothing is clipped and nothing reaches Room3 (the tip stops 0.10 short).
+            const float plateFaceZ = -0.045f;
+            float bowJunction = -KeyModelBowJunctionY * KeyScale;
             GameObject socket = new GameObject("KeySocket");
             socket.transform.SetParent(lockRoot.transform, false);
-            socket.transform.localPosition = new Vector3(0f, 0.044f, -0.062f);
-            socket.transform.localScale = Vector3.one * 0.85f;
+            // Y matches the keyhole seat below, so the shaft runs into the hole rather than past it.
+            socket.transform.localPosition = new Vector3(0f, -0.03f, plateFaceZ - bowJunction);
 
             BoxCollider trigger = lockRoot.AddComponent<BoxCollider>();
             trigger.isTrigger = true;
@@ -2000,6 +2194,10 @@ namespace IterationRoom.EditorTools
             KeyLock keyLock = lockRoot.AddComponent<KeyLock>();
             keyLock.door = door;
             keyLock.keySocket = socket.transform;
+            // How far back the key is presented before it slides in - exactly the length of key
+            // that ends up buried, so it starts with its tip at the hole rather than at a distance
+            // someone picked.
+            keyLock.insertTravel = KeyInsertTravel;
             keyLock.lockRenderer = plate.GetComponent<Renderer>();
             // The lamp over this door reports "you are carrying the key" the way the other one
             // reports "the pad is held".
@@ -2075,6 +2273,9 @@ namespace IterationRoom.EditorTools
 
             PlayerHand hand = player.AddComponent<PlayerHand>();
             hand.holdAnchor = handAnchor.transform;
+            // Takes and surrenders go into the same timeline the frames do, so a past self can
+            // repeat them. Only items flagged ghostCarryable are written.
+            hand.recorder = recorder;
 
             BalloonTool tool = player.AddComponent<BalloonTool>();
             tool.playerCamera = cam;
@@ -2088,30 +2289,116 @@ namespace IterationRoom.EditorTools
             return (player, fpc, recorder, shaker, hand);
         }
 
+        private const string GhostModelPath = "Assets/ArtAssets/Smooth_Male_Casual@Walking.fbx";
+
+        // The ghosts are real people now - a rigged, animated, opaque figure rather than the six
+        // faint primitives that came before. That is a deliberate change of what a ghost IS: it
+        // used to read as an afterimage of you, and it now reads as a person who was here. The
+        // reference film shows past selves as people, so this is the faithful reading; the cost is
+        // that six of them in a room is a crowd rather than a memory.
+        //
+        // The model is Quaternius' Smooth Male Casual (CC0), 7,932 triangles with twelve clips
+        // baked in. Its own materials are already flat-colour URP/Lit with no textures, which is
+        // exactly what this room wants - the walls carry the detail, the figures do not.
+        // Transform.Find only walks one level and takes a path; a rig's bone can be at any depth
+        // under any number of exporter-invented parents, so this searches by name instead.
+        private static Transform FindDeep(Transform root, string name)
+        {
+            foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
+                if (t.name == name) return t;
+            return null;
+        }
+
         private static GhostReplayer BuildGhostPrefab()
         {
             string prefabPath = $"{PrefabsDir}/Ghost.prefab";
 
-            Material ghostMat = MakeGhostMaterial();
+            GameObject model = AssetDatabase.LoadAssetAtPath<GameObject>(GhostModelPath);
+            if (model == null)
+            {
+                Debug.LogError($"[SceneBuilder] Ghost model missing at {GhostModelPath}");
+                return null;
+            }
 
-            // A rough human silhouette rather than a capsule. It's held at such a low alpha that
-            // the crudeness of the primitives never reads - only the outline does. Laid out from
-            // the feet up, because the recorded position is the player's transform, which sits at
-            // floor level (the CharacterController is what's centred at mid-body).
             GameObject ghost = new GameObject("Ghost");
-            Prim(PrimitiveType.Sphere, "Head", ghost.transform, new Vector3(0f, 1.6f, 0f), new Vector3(0.23f, 0.25f, 0.23f), ghostMat, removeCollider: true);
-            Prim(PrimitiveType.Capsule, "Torso", ghost.transform, new Vector3(0f, 1.17f, 0f), new Vector3(0.34f, 0.32f, 0.23f), ghostMat, removeCollider: true);
+            GameObject body = (GameObject)PrefabUtility.InstantiatePrefab(model);
+            body.transform.SetParent(ghost.transform, false);
+            body.name = "Body";
 
-            Transform leftArm = BuildGhostLimb(ghost.transform, "LeftArm", new Vector3(-0.235f, 1.45f, 0f), 0.6f, 0.1f, ghostMat);
-            Transform rightArm = BuildGhostLimb(ghost.transform, "RightArm", new Vector3(0.235f, 1.45f, 0f), 0.6f, 0.1f, ghostMat);
-            Transform leftLeg = BuildGhostLimb(ghost.transform, "LeftLeg", new Vector3(-0.105f, 0.88f, 0f), 0.86f, 0.14f, ghostMat);
-            Transform rightLeg = BuildGhostLimb(ghost.transform, "RightLeg", new Vector3(0.105f, 0.88f, 0f), 0.86f, 0.14f, ghostMat);
+            // Measured, not guessed: the rig stands 4.739m at scale 1 (bone extents, verified in
+            // the editor), so 0.377 puts it at 1.75m - a hair under the player's 1.8m controller
+            // and right for the 1.6m eye height they are seen from.
+            body.transform.localScale = Vector3.one * 0.377f;
+
+            // Colliders would break the game outright: a ghost is something you walk THROUGH, and
+            // one that pushed the player would change the recording being made against it.
+            foreach (Collider c in body.GetComponentsInChildren<Collider>(true))
+                Object.DestroyImmediate(c);
+
+            SkinnedMeshRenderer skin = body.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (skin != null)
+            {
+                skin.sharedMaterials = GhostMaterials(skin.sharedMaterials);
+                // Shadows are OFF again, and that reverses a call made when the ghosts were opaque
+                // ("a person with no shadow reads as a bug"). It does not survive the figures
+                // becoming afterimages: a hollow rim that throws a solid, fully detailed shadow on
+                // the floor puts every piece of detail this shader exists to remove straight back
+                // into the room, in the one place the eye is guaranteed to read it as real.
+                skin.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                skin.receiveShadows = false;
+                // The bounds Unity computes for a skinned mesh are the bind pose's, and this rig's
+                // are wrong enough that ghosts vanish when their origin leaves the frustum.
+                skin.updateWhenOffscreen = true;
+            }
+
+            Animator animator = body.GetComponent<Animator>();
+            if (animator == null) animator = body.AddComponent<Animator>();
+            animator.runtimeAnimatorController = GhostAnimatorController();
+            animator.applyRootMotion = false;
 
             GhostReplayer replayer = ghost.AddComponent<GhostReplayer>();
-            replayer.leftArm = leftArm;
-            replayer.rightArm = rightArm;
-            replayer.leftLeg = leftLeg;
-            replayer.rightLeg = rightLeg;
+            replayer.animator = animator;
+            // A ghost pops only while holding the tool, the same test BalloonTool applies to the
+            // player. Same constant on both sides so the two gates cannot drift apart.
+            replayer.popToolItemId = ToolItemId;
+
+            // Where a carried item rides. Hung off the rig's right hand so the key swings with the
+            // arm through the walk cycle - parented to the ghost's root it would slide along beside
+            // the figure, which reads as an object being dragged rather than carried. The offset is
+            // in the bone's own frame and the bone is inside a 0.377 scale, hence the small numbers.
+            Transform handBone = FindDeep(body.transform, "MiddleHand.R");
+            GameObject carry = new GameObject("CarryAnchor");
+            carry.transform.SetParent(handBone != null ? handBone : ghost.transform, false);
+            if (handBone == null)
+                Debug.LogWarning("[SceneBuilder] ghost rig has no MiddleHand.R - carried items will ride the root");
+
+            // THE OUTER NODE CANCELS THE RIG'S SCALE, and it has to. This FBX has a `HumanArmature`
+            // node at scale 100 inside a body scaled to 0.377, so a bone's lossyScale is 37.7:
+            // parent a 0.2m key to it and you get a 7.5m key, flung metres away because its local
+            // offset is multiplied by the same number.
+            //
+            // It also stays at localPosition ZERO. A grip offset written here would be in the bone's
+            // 37.7x space too - 3cm would come out as 1.13m - so the offset goes on a CHILD, below,
+            // where the scale is already 1 and centimetres mean centimetres. That is the whole
+            // reason this is two objects instead of one.
+            carry.name = "CarryScale";
+            Vector3 rigScale = carry.transform.lossyScale;
+            carry.transform.localPosition = Vector3.zero;
+            carry.transform.localScale = new Vector3(
+                Mathf.Approximately(rigScale.x, 0f) ? 1f : 1f / rigScale.x,
+                Mathf.Approximately(rigScale.y, 0f) ? 1f : 1f / rigScale.y,
+                Mathf.Approximately(rigScale.z, 0f) ? 1f : 1f / rigScale.z);
+
+            GameObject grip = new GameObject("CarryAnchor");
+            grip.transform.SetParent(carry.transform, false);
+            // Metres, in the hand's own frame. Just past the wrist so the key sits in the fist
+            // rather than inside it. This is the one place to tune a ghost's grip.
+            grip.transform.localPosition = new Vector3(0f, -0.03f, 0.04f);
+
+            Debug.Log($"[SceneBuilder] Ghost carry anchor: rig scale {rigScale.x:0.###} -> "
+                + $"{grip.transform.lossyScale.x:0.###} (expects 1)");
+
+            replayer.carryAnchor = grip.transform;
 
             GameObject prefabAsset = PrefabUtility.SaveAsPrefabAsset(ghost, prefabPath);
             Object.DestroyImmediate(ghost);
@@ -2119,10 +2406,117 @@ namespace IterationRoom.EditorTools
             return prefabAsset.GetComponent<GhostReplayer>();
         }
 
-        // The bed model ships with two pillows, both sitting off the centre line. Hide one and slide
-        // the survivor onto the bed's axis. They're separate nodes in the glb, so this is a transform
-        // tweak, not a mesh edit - if a future bed model bakes its pillows into the bedding mesh,
-        // this can't work and the model has to change instead.
+        // ONE material across every submesh, where the opaque version cloned six (Skin, Shirt,
+        // Pants, Hair, Eyes, Socks). Keeping them tinted apart would have survived the fresnel and
+        // handed back the very thing the change removes: a rim that still says shirt-here,
+        // trousers-there is a legible person, just a see-through one. The array still has to be
+        // the submesh count long, so the same material is handed to every slot.
+        //
+        // The old Assets/Materials/Ghost*.mat are left on disk and simply unreferenced - they are
+        // the FBX's own colours and cost nothing, and going back means pointing at them again.
+        private static Material[] GhostMaterials(Material[] source)
+        {
+            Material faint = GhostFaintMaterial();
+            var result = new Material[source.Length];
+            for (int i = 0; i < source.Length; i++) result[i] = faint;
+            return result;
+        }
+
+        // Tuning lives here rather than in the .shader's defaults, for the same reason every other
+        // number in this project does: the shader is the mechanism, SceneBuilder is the value.
+        private static Material GhostFaintMaterial()
+        {
+            string path = $"{MaterialsDir}/GhostFaint.mat";
+            Shader shader = AssetDatabase.LoadAssetAtPath<Shader>($"{ShadersDir}/GhostFaint.shader");
+            if (shader == null)
+            {
+                Debug.LogError($"[SceneBuilder] GhostFaint.shader missing from {ShadersDir}");
+                return MakeColorMaterial("GhostFaintFallback", new Color(0.7f, 0.76f, 0.86f));
+            }
+
+            // GhostFaint.mat already exists from the era of the six faint primitives, on URP/Lit.
+            // Reassigning the shader on the existing asset keeps its GUID, so nothing that
+            // referenced it has to be found and repointed.
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = shader;
+            // The asset arrives carrying _SURFACE_TYPE_TRANSPARENT from its URP/Lit days. Swapping
+            // the shader does not drop it - it just moves to m_InvalidKeywords and sits in the
+            // diff forever. This shader declares no keywords at all, so the set is emptied.
+            mat.shaderKeywords = new string[0];
+
+            // Cool and desaturated, not white: at white the rim reads as a highlight on the wall
+            // panelling behind it, which is the one colour in the room it must not be confused for.
+            // Written through .linear - the project renders linear and SetColor takes the value
+            // as-is, so an sRGB triple passed straight in comes out pale.
+            mat.SetColor("_BaseColor", ((Color)new Color32(178, 194, 220, 255)).linear);
+            mat.SetColor("_RimColor", ((Color)new Color32(224, 237, 255, 255)).linear);
+            mat.SetFloat("_RimPower", 2.2f);
+            mat.SetFloat("_RimAlpha", 0.75f);
+            mat.SetFloat("_CoreAlpha", 0.06f);
+            mat.SetFloat("_BottomFade", 0.35f);
+            mat.SetFloat("_SoftFade", 0.12f);
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        // Three states, no transitions, because GhostReplayer scrubs each of them by hand - it
+        // pins animator.speed at 0 and writes the normalized time itself. See the note there for
+        // why the walk has to advance with distance rather than with the clock.
+        private static RuntimeAnimatorController GhostAnimatorController()
+        {
+            string path = $"{PrefabsDir}/GhostAnimator.controller";
+            var controller = AssetDatabase.LoadAssetAtPath<UnityEditor.Animations.AnimatorController>(path);
+            if (controller == null)
+                controller = UnityEditor.Animations.AnimatorController.CreateAnimatorControllerAtPath(path);
+
+            var machine = controller.layers[0].stateMachine;
+            // Rebuilt from scratch each time, since adding is not idempotent and a retried build
+            // would otherwise stack duplicate states - the same failure ConfigureAmbientOcclusion
+            // guards against with the SSAO feature.
+            foreach (var child in machine.states) machine.RemoveState(child.state);
+
+            AddGhostState(machine, "Walk", "Man_Walk", true);
+            AddGhostState(machine, "Idle", "Man_Idle", false);
+            AddGhostState(machine, "Swing", "Man_SwordSlash", false);
+
+            EditorUtility.SetDirty(controller);
+            return controller;
+        }
+
+        private static void AddGhostState(UnityEditor.Animations.AnimatorStateMachine machine,
+                                          string stateName, string clipSuffix, bool isDefault)
+        {
+            AnimationClip clip = null;
+            foreach (Object o in AssetDatabase.LoadAllAssetsAtPath(GhostModelPath))
+            {
+                var candidate = o as AnimationClip;
+                if (candidate == null) continue;
+
+                // LoadAllAssetsAtPath hands back the editor's hidden "__preview__" copies of every
+                // clip alongside the real ones, and they sort first. Binding a state to one leaves
+                // an animator that works in the editor and has nothing to play in a build - it
+                // looked completely correct until the states were dumped and read.
+                if (candidate.name.StartsWith("__preview__")) continue;
+
+                // Clips arrive named "HumanArmature|Man_Walk", so match the tail rather than the
+                // whole string - the armature prefix is the exporter's, not ours.
+                if (candidate.name.EndsWith(clipSuffix)) { clip = candidate; break; }
+            }
+            if (clip == null) Debug.LogWarning($"[SceneBuilder] ghost clip '{clipSuffix}' not found");
+
+            var state = machine.AddState(stateName);
+            state.motion = clip;
+            state.writeDefaultValues = true;
+            if (isDefault) machine.defaultState = state;
+        }
+
         private static void UseSinglePillow(GameObject bed, string keepName, string hideName, float centreX)
         {
             Transform hide = FindDescendant(bed.transform, hideName);
@@ -2178,62 +2572,6 @@ namespace IterationRoom.EditorTools
             return null;
         }
 
-        // The limb mesh hangs off an empty pivot placed at the shoulder or hip, so rotating it
-        // swings the limb from that joint. Rotating the capsule directly would spin it about its
-        // own centre, which is where a primitive's pivot sits.
-        private static Transform BuildGhostLimb(Transform parent, string name, Vector3 jointLocalPos, float length, float thickness, Material mat)
-        {
-            GameObject pivot = new GameObject(name);
-            pivot.transform.SetParent(parent, false);
-            pivot.transform.localPosition = jointLocalPos;
-
-            // Unity's capsule is 2 units tall and 1 wide, so halve the length and pass thickness
-            // straight through as the diameter.
-            Prim(PrimitiveType.Capsule, name + "Mesh", pivot.transform,
-                new Vector3(0f, -length / 2f, 0f), new Vector3(thickness, length / 2f, thickness),
-                mat, removeCollider: true);
-
-            return pivot.transform;
-        }
-
-        private static Material MakeGhostMaterial()
-        {
-            string path = $"{MaterialsDir}/GhostFaint.mat";
-            Shader unlit = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Sprites/Default");
-
-            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (mat == null)
-            {
-                mat = new Material(unlit);
-                AssetDatabase.CreateAsset(mat, path);
-            }
-            mat.shader = unlit;
-
-            // Unlit on purpose: a lit ghost picks up shading and specular that would give the
-            // primitives away as primitives. Alpha this low leaves only a suggestion of a figure.
-            Color faint = new Color(0.02f, 0.02f, 0.03f, 0.16f);
-            mat.color = faint;
-            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", faint);
-
-            // Standard URP transparent set-up. Without the keyword and blend modes the shader
-            // stays opaque and the ghost renders as a solid black mannequin.
-            mat.SetFloat("_Surface", 1f);
-            mat.SetFloat("_Blend", 0f);
-            mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
-            mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-            mat.SetFloat("_ZWrite", 0f);
-            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            mat.DisableKeyword("_ALPHATEST_ON");
-            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
-
-            EditorUtility.SetDirty(mat);
-            return mat;
-        }
-
-        // Assembles every audio source and resolves its clips by filename convention. Clips that
-        // aren't there yet resolve to null and every player guards on that, so the scene is fully
-        // playable with an empty SFX folder - dropping a correctly-named file in and rebuilding is
-        // all it takes to make that cue audible. See Assets/Audio/SFX/README.md for the names.
         private static (NarrationDirector, RoomAmbience) BuildAudio(GameObject player, Door[] doors, FloorButton[] floorButtons, WakeUpSequence wakeUp)
         {
             GameObject root = new GameObject("Audio");
@@ -2478,7 +2816,7 @@ namespace IterationRoom.EditorTools
         //
         // Built last of everything on the canvas so it draws over the eyelids and the HUD, and
         // parented to a full-screen rect so a screen point converts straight to an anchoredPosition.
-        private static void BuildControlHints(Transform canvas, Camera playerCamera, PlayerHand hand,
+        private static ControlHintDisplay BuildControlHints(Transform canvas, Camera playerCamera, PlayerHand hand,
                                               MonoBehaviour[] interactTargets)
         {
             Sprite disc = HintDiscSprite();
@@ -2533,6 +2871,7 @@ namespace IterationRoom.EditorTools
             display.interactRect = interactRect;
             display.swingGroup = swingGroup;
             display.swingRect = swingRect;
+            return display;
         }
 
         private static (CanvasGroup, RectTransform) MakeHintBadge(Transform parent, string name, Sprite disc)
@@ -2824,13 +3163,24 @@ namespace IterationRoom.EditorTools
             const float standoff = 0.05f;
             float halfWidth = RoomWidth / 2f;
             float halfDepth = RoomDepth / 2f;
-            // Above both doorways (DoorHeight 2.5) so the message never straddles an opening, and
-            // high enough to read as signage rather than as something at eye level.
-            const float y = 3.4f;
+            // Set so the plate's BOTTOM edge clears the door lamp, not merely the doorway. The
+            // plate is 1.98m tall, so at 3.95 it spans 2.96..4.94: above the lamp at 2.725..2.835
+            // by 0.125m and under the 5.408 ceiling by 0.47. At the 3.4 it was first built at it
+            // covered the lamp on the north wall completely - which in Room3 is the only way to
+            // tell three past selves having arrived from four.
+            //
+            // All four faces share the height even though only the north one has a lamp under it:
+            // two walls are in view at once from most of this room, and a sign that changes height
+            // between them reads as a mistake.
+            const float y = 3.95f;
 
+            // All four walls. The player enters with their back to the south wall, walks a diagonal
+            // to a pad and turns to face the door - there is no wall they reliably look at, and a
+            // message on the wrong one is a message nobody reads. It is only ever shown once (see
+            // PanelMessage), so the cost of covering four walls is paid for one visit.
+            //
             // Each canvas's forward (+Z) points INTO its wall, i.e. away from the room. That reads
-            // backwards and it is the opposite of what was built first, which came out mirrored on
-            // all four walls.
+            // backwards and it is the opposite of what was built first, which came out mirrored.
             //
             // The rule: a world-space canvas is legible when its forward matches the direction the
             // viewer is LOOKING, not when it points at the viewer. Unity's own default scene is the
@@ -3235,66 +3585,19 @@ namespace IterationRoom.EditorTools
             group.blocksRaycasts = false;
             Stretch(root.AddComponent<RectTransform>());
 
-            // Sized to the block of text, and low enough in the frame that the middle of the view -
-            // where a player naturally looks while turning - stays clear.
-            GameObject plateGO = new GameObject("Plate");
-            plateGO.transform.SetParent(root.transform, false);
-            Image plate = plateGO.AddComponent<Image>();
-            plate.color = new Color(0.04f, 0.04f, 0.045f, 0.82f);
-            plate.raycastTarget = false;
-            RectTransform plateRect = plate.GetComponent<RectTransform>();
-            plateRect.anchorMin = new Vector2(0.5f, 0.5f);
-            plateRect.anchorMax = new Vector2(0.5f, 0.5f);
-            plateRect.sizeDelta = new Vector2(760f, 330f);
-            plateRect.anchoredPosition = new Vector2(0f, -190f);
-
-            MakeMenuLine(root.transform, "Headline", "M O U S E   S E N S I T I V I T Y", 34,
-                Color.red, new Vector2(0f, -70f), new Vector2(1400f, 60f));
-            MakeMenuLine(root.transform, "Instruction", "LOOK AROUND THE ROOM", 22,
-                new Color(1f, 0.35f, 0.35f, 0.85f), new Vector2(0f, -118f), new Vector2(1200f, 36f));
-
-            Text value = MakeMenuLine(root.transform, "Value", "1.10", 30, Color.red,
-                new Vector2(0f, -172f), new Vector2(400f, 44f));
-
-            // A readout rather than a control: with the pointer captured there is no cursor to drag
-            // a slider with, which is the price of measuring the same deltas the game does. The
-            // draggable one lives in the pause menu.
-            GameObject barGO = new GameObject("Gauge");
-            barGO.transform.SetParent(root.transform, false);
-            Image bar = barGO.AddComponent<Image>();
-            bar.color = new Color(0f, 0f, 0f, 0.6f);
-            bar.raycastTarget = false;
-            RectTransform barRect = bar.GetComponent<RectTransform>();
-            barRect.anchorMin = new Vector2(0.5f, 0.5f);
-            barRect.anchorMax = new Vector2(0.5f, 0.5f);
-            barRect.sizeDelta = new Vector2(620f, 12f);
-            barRect.anchoredPosition = new Vector2(0f, -214f);
-
-            GameObject fillGO = new GameObject("Fill");
-            fillGO.transform.SetParent(barGO.transform, false);
-            Image fill = fillGO.AddComponent<Image>();
-            fill.sprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
-            fill.type = Image.Type.Filled;
-            fill.fillMethod = Image.FillMethod.Horizontal;
-            fill.fillAmount = 0.5f;
-            fill.color = Color.red;
-            fill.raycastTarget = false;
-            Stretch(fill.GetComponent<RectTransform>());
-
-            // Wheel only. Keys are not offered because the player is walking around in here and
-            // both the arrows and A/D are bound to the Horizontal axis - every press that nudged
-            // the number would also strafe them.
-            MakeMenuLine(root.transform, "AdjustHint", "SCROLL TO ADJUST", 20,
-                new Color(1f, 0.35f, 0.35f, 0.7f), new Vector2(0f, -252f), new Vector2(1200f, 36f));
-            // Doubles as the pointer-lock state: a browser can refuse the capture, and this is
-            // where the page says so and asks for the click that fixes it.
+            // Almost nothing is drawn here any more: the control list, the gauge and the value
+            // all moved onto the calibration room's own south wall, which is the wall the player
+            // spawns facing. What is left on the SCREEN is the one line that has to follow the eye
+            // wherever it goes, because it is how the player leaves.
+            //
+            // No plate behind it. The line is empty for all of a normal run - it only appears
+            // when the browser has refused pointer capture - and a plate under an empty string is
+            // a black bar across the bottom of the screen for no reason.
             Text lockHint = MakeMenuLine(root.transform, "LockHint", "[ENTER]  TO BEGIN", 24,
-                Color.red, new Vector2(0f, -300f), new Vector2(1200f, 40f));
+                Color.red, new Vector2(0f, -400f), new Vector2(1200f, 40f));
 
             SensitivityCalibration calibration = root.AddComponent<SensitivityCalibration>();
             calibration.group = group;
-            calibration.fill = fill;
-            calibration.valueLabel = value;
             calibration.lockHint = lockHint;
 
             // Everything else on the canvas goes away while this is up. The countdown reading 1:00
@@ -3308,7 +3611,9 @@ namespace IterationRoom.EditorTools
             var hidden = new System.Collections.Generic.List<GameObject>();
             foreach (Transform child in canvas)
             {
-                if (child == root.transform || child.name == "PauseMenu") continue;
+                // ControlHints stays on as well as PauseMenu: the start button on the wall is an
+                // IInteractHintTarget, so the E disc has to be able to appear over it.
+                if (child == root.transform || child.name == "PauseMenu" || child.name == "ControlHints") continue;
                 hidden.Add(child.gameObject);
             }
             calibration.hideWhileActive = hidden.ToArray();
@@ -3316,8 +3621,297 @@ namespace IterationRoom.EditorTools
             return calibration;
         }
 
+        // The calibration room's south wall - the one the player spawns facing - carrying the
+        // control list, the sensitivity gauge and the value, plus two physical plates below it that
+        // raise and lower the setting.
+        //
+        // On the wall rather than on the screen because the room is built out of displays, so the
+        // facility explaining itself on one is the same move Room3 makes. It also puts the readout
+        // and the control that drives it in the same place: the player presses E at a plate and
+        // watches the number above it move, which no screen overlay can do.
+        //
+        // The plates carry a second job. They are the only thing in the room E can be pressed at,
+        // so the control list above can name E and have it be true in the same room. A practice
+        // ball existed for exactly that and was deleted once these took the work over - one fixture
+        // doing two jobs beats two doing one each.
+        private static CalibrationStartButton BuildCalibrationWall(Transform parent, float roomCenterZ,
+                                                                   SensitivityCalibration calibration)
+        {
+            GameObject root = new GameObject("CalibrationWall");
+            root.transform.SetParent(parent, false);
+
+            float wallZ = roomCenterZ - RoomDepth / 2f;   // inner face of the south wall
+
+            // --- the display ---
+            GameObject faceGO = new GameObject("Display");
+            faceGO.transform.SetParent(root.transform, false);
+
+            Canvas canvas = faceGO.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+
+            RectTransform rect = faceGO.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(1600f, 660f);
+            rect.localScale = Vector3.one * 0.004f;       // -> 6.4m x 2.64m on an 8.75m wall
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            // Set through anchoredPosition3D and AFTER the Canvas exists - see MakeWallFace for the
+            // two traps in that sentence.
+            rect.anchoredPosition3D = new Vector3(0f, 3.05f, wallZ + 0.05f);
+            // Forward points INTO the wall: a world-space canvas is legible when its forward matches
+            // the direction the viewer is LOOKING, and a player in this room looks south at it.
+            rect.localRotation = Quaternion.Euler(0f, 180f, 0f);
+
+            CanvasGroup wallGroup = faceGO.AddComponent<CanvasGroup>();
+            wallGroup.alpha = 0f;
+            wallGroup.blocksRaycasts = false;
+            wallGroup.interactable = false;
+
+            GameObject plateGO = new GameObject("Plate");
+            plateGO.transform.SetParent(faceGO.transform, false);
+            Image plate = plateGO.AddComponent<Image>();
+            plate.color = new Color(0.04f, 0.04f, 0.045f, 0.94f);
+            plate.raycastTarget = false;
+            Stretch(plate.GetComponent<RectTransform>());
+
+            // --- controls, upper half ---
+            // Sized in canvas units; at 0.004 scale a 62px cap is 0.25m of wall.
+            const float key = 62f, gap = 7f, step = key + gap, capGap = 30f;
+            const float keysW = 3f * key + 2f * gap;   // 200
+            Color wallText = new Color(1f, 0.4f, 0.4f, 0.95f);
+
+            const float keysX = -430f;
+            // Spaced from the edges of what sits on each row, not by a uniform pitch: the W/A/S/D
+            // block is two caps deep and straddles its row where SPACE is a single 44px bar. A
+            // uniform pitch is what put the bar inside the A/S/D row twice on the screen version.
+            const float rowMove = 240f;         // A/S/D bottom 174.5
+            const float rowJump = 134.5f;       // SPACE 112.5..156.5, so 18 clear of A/S/D
+            const float rowInteract = 63.5f;    // E 32.5..94.5, so 18 clear of SPACE
+
+            MakeKeyCap(faceGO.transform, "KeyW", "W", new Vector2(keysX, rowMove + step / 2f), new Vector2(key, key), 28);
+            MakeKeyCap(faceGO.transform, "KeyA", "A", new Vector2(keysX - step, rowMove - step / 2f), new Vector2(key, key), 28);
+            MakeKeyCap(faceGO.transform, "KeyS", "S", new Vector2(keysX, rowMove - step / 2f), new Vector2(key, key), 28);
+            MakeKeyCap(faceGO.transform, "KeyD", "D", new Vector2(keysX + step, rowMove - step / 2f), new Vector2(key, key), 28);
+            MakeKeyCap(faceGO.transform, "KeySpace", "SPACE", new Vector2(keysX, rowJump), new Vector2(keysW, 44f), 20);
+            MakeKeyCap(faceGO.transform, "KeyE", "E", new Vector2(keysX, rowInteract), new Vector2(key, key), 28);
+
+            const float keyCaptionX = keysX + keysW / 2f + capGap;
+            MakeCaption(faceGO.transform, "MoveLabel", "MOVE", new Vector2(keyCaptionX, rowMove), wallText);
+            MakeCaption(faceGO.transform, "JumpLabel", "JUMP", new Vector2(keyCaptionX, rowJump), wallText);
+            MakeCaption(faceGO.transform, "InteractLabel", "INTERACT", new Vector2(keyCaptionX, rowInteract), wallText);
+
+            const float glyph = 78f;
+            const float glyphX = 300f;
+            // Level with the middle of the keyboard block, which spans 32.5 to 305.5.
+            const float rowLook = 169f;
+
+            GameObject mouseGO = new GameObject("MouseGlyph");
+            mouseGO.transform.SetParent(faceGO.transform, false);
+            Image mouse = mouseGO.AddComponent<Image>();
+            mouse.sprite = MouseIcon();
+            mouse.color = wallText;
+            mouse.raycastTarget = false;
+            RectTransform mouseRect = mouse.GetComponent<RectTransform>();
+            mouseRect.anchorMin = new Vector2(0.5f, 0.5f);
+            mouseRect.anchorMax = new Vector2(0.5f, 0.5f);
+            mouseRect.sizeDelta = new Vector2(glyph, glyph);
+            mouseRect.anchoredPosition = new Vector2(glyphX, rowLook);
+
+            MakeCaption(faceGO.transform, "LookLabel", "LOOK AROUND",
+                new Vector2(glyphX + glyph / 2f + capGap, rowLook), wallText);
+
+            // --- sensitivity, lower half ---
+            MakeMenuLine(faceGO.transform, "Headline", "M O U S E   S E N S I T I V I T Y", 40,
+                Color.red, new Vector2(0f, -60f), new Vector2(1500f, 60f));
+
+            Text value = MakeMenuLine(faceGO.transform, "Value", "1.10", 46, Color.red,
+                new Vector2(0f, -140f), new Vector2(500f, 60f));
+
+            GameObject barGO = new GameObject("Gauge");
+            barGO.transform.SetParent(faceGO.transform, false);
+            Image bar = barGO.AddComponent<Image>();
+            bar.color = new Color(0f, 0f, 0f, 0.6f);
+            bar.raycastTarget = false;
+            RectTransform barRect = bar.GetComponent<RectTransform>();
+            barRect.anchorMin = new Vector2(0.5f, 0.5f);
+            barRect.anchorMax = new Vector2(0.5f, 0.5f);
+            barRect.sizeDelta = new Vector2(880f, 22f);
+            barRect.anchoredPosition = new Vector2(0f, -210f);
+
+            GameObject fillGO = new GameObject("Fill");
+            fillGO.transform.SetParent(barGO.transform, false);
+            Image fill = fillGO.AddComponent<Image>();
+            fill.sprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
+            fill.type = Image.Type.Filled;
+            fill.fillMethod = Image.FillMethod.Horizontal;
+            fill.fillAmount = 0.5f;
+            fill.color = Color.red;
+            fill.raycastTarget = false;
+            Stretch(fill.GetComponent<RectTransform>());
+
+            MakeMenuLine(faceGO.transform, "AdjustHint", "SCROLL TO ADJUST", 26,
+                new Color(1f, 0.35f, 0.35f, 0.75f), new Vector2(0f, -252f), new Vector2(1400f, 40f));
+            MakeMenuLine(faceGO.transform, "BeginHint", "PRESS [E] AT THE PANEL BEHIND YOU", 30,
+                Color.red, new Vector2(0f, -300f), new Vector2(1400f, 44f));
+
+            calibration.wallGroup = wallGroup;
+            calibration.fill = fill;
+            calibration.valueLabel = value;
+
+            // --- the start button, on the OPPOSITE wall ---
+            // The display is on the south wall and this is on the north, six metres behind the
+            // player's back. That separation is the point: reading the panel and reaching the way
+            // out costs a full 180 turn and a walk, which is exactly the thing the step is asking
+            // the player to judge. Adjust at the display, turn, feel it, press - and if it was
+            // wrong, turn back.
+            //
+            // It is one CELL OF THE WALL GRID rather than a box stuck on the wall: panel-sized,
+            // sat 15mm proud, dark where its neighbours are white. The room's fiction is that the
+            // panels are displays, so a single cell lit up and asking to be pressed is the room
+            // speaking its own language - where a green slab was an object from another game.
+            Material plateMat = MakeColorMaterial("CalibrationPlate", new Color(0.05f, 0.05f, 0.055f));
+            // The keyword has to be compiled in for the press flash; a property block cannot turn a
+            // shader keyword on. Black means it contributes nothing until E is pressed.
+            plateMat.EnableKeyword("_EMISSION");
+            plateMat.SetColor("_EmissionColor", Color.black);
+            plateMat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+            EditorUtility.SetDirty(plateMat);
+
+            const float panelW = GridCellWidth - GridLineThickness;    // 1.70, the visible face
+            const float panelH = GridCellHeight - GridLineThickness;   // 1.3019
+            const float proud = 0.03f;
+            // Column 2 of 5 and row 1 of 4 on an end wall, i.e. dead centre horizontally at the
+            // second row up. Cell centres are (i + 0.5) * cell, so this is 2.028m - head height,
+            // which is where a wall panel worth reading belongs. Reach is a horizontal test, so
+            // the height costs nothing.
+            float buttonY = 1.5f * GridCellHeight;
+            float northWallZ = roomCenterZ + RoomDepth / 2f;
+
+            GameObject buttonRoot = new GameObject("StartButton");
+            buttonRoot.transform.SetParent(root.transform, false);
+            buttonRoot.transform.localPosition = new Vector3(0f, buttonY, northWallZ - proud / 2f);
+
+            GameObject visual = Prim(PrimitiveType.Cube, "Visual", buttonRoot.transform, Vector3.zero,
+                new Vector3(panelW, panelH, proud), plateMat, removeCollider: true);
+
+            // The word, on the cell itself. Same treatment as every other display in the project:
+            // spaced caps in the string, since uGUI has no tracking control and a space is one cell
+            // of a monospace face.
+            GameObject labelGO = new GameObject("Label");
+            labelGO.transform.SetParent(buttonRoot.transform, false);
+            Canvas labelCanvas = labelGO.AddComponent<Canvas>();
+            labelCanvas.renderMode = RenderMode.WorldSpace;
+
+            RectTransform labelRect = labelGO.GetComponent<RectTransform>();
+            labelRect.sizeDelta = new Vector2(850f, 650f);
+            labelRect.localScale = Vector3.one * 0.002f;               // -> 1.70m x 1.30m
+            labelRect.anchorMin = new Vector2(0.5f, 0.5f);
+            labelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            labelRect.pivot = new Vector2(0.5f, 0.5f);
+            // anchoredPosition3D and AFTER the Canvas - see MakeWallFace for both traps.
+            labelRect.anchoredPosition3D = new Vector3(0f, 0f, -(proud / 2f + 0.004f));
+            // Identity: this wall faces north, so a player reading it is looking along +Z, and a
+            // world-space canvas is legible when its forward matches the viewer's look direction.
+            labelRect.localRotation = Quaternion.identity;
+
+            MakeMenuLine(labelGO.transform, "Text", "B E G I N", 150, Color.red,
+                Vector2.zero, new Vector2(850f, 220f));
+
+            CalibrationStartButton button = buttonRoot.AddComponent<CalibrationStartButton>();
+            button.calibration = calibration;
+            button.buttonRenderer = visual.GetComponent<Renderer>();
+            button.audioSource = MakeSource(buttonRoot.transform, "ButtonAudio", 1f, 0.8f);
+            button.pressClip = LoadClip(SfxDir, "sfx_floor_button_press");
+            return button;
+        }
+
+        private static RectTransform MakePlate(Transform parent, string name, Vector2 anchoredPosition, Vector2 size)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            Image plate = go.AddComponent<Image>();
+            // GrooveDark, the same near-black that sits at the bottom of every groove in the room -
+            // so a panel of UI reads as part of the facility rather than as an overlay.
+            plate.color = new Color(0.04f, 0.04f, 0.045f, 0.82f);
+            plate.raycastTarget = false;
+
+            RectTransform rect = plate.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = size;
+            rect.anchoredPosition = anchoredPosition;
+            return rect;
+        }
+
+        // A key cap: a red rounded rect with a near-black one inset inside it, which is a border
+        // without needing a border sprite. uGUI's own UISprite is 9-sliced, so one sprite gives
+        // every size of cap the same corner radius - a square W and a wide SPACE bar included.
+        private static void MakeKeyCap(Transform parent, string name, string label,
+                                       Vector2 anchoredPosition, Vector2 size, int fontSize = 26)
+        {
+            Sprite rounded = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
+
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            Image outer = go.AddComponent<Image>();
+            outer.sprite = rounded;
+            outer.type = Image.Type.Sliced;
+            outer.color = new Color(0.75f, 0.14f, 0.14f, 0.95f);
+            outer.raycastTarget = false;
+            RectTransform rect = outer.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = size;
+            rect.anchoredPosition = anchoredPosition;
+
+            GameObject faceGO = new GameObject("Face");
+            faceGO.transform.SetParent(go.transform, false);
+            Image face = faceGO.AddComponent<Image>();
+            face.sprite = rounded;
+            face.type = Image.Type.Sliced;
+            face.color = new Color(0.06f, 0.05f, 0.06f, 0.98f);
+            face.raycastTarget = false;
+            RectTransform faceRect = face.GetComponent<RectTransform>();
+            faceRect.anchorMin = Vector2.zero;
+            faceRect.anchorMax = Vector2.one;
+            // Inset on all four sides, so the outer colour shows as an even rim at any cap size.
+            faceRect.offsetMin = new Vector2(3f, 3f);
+            faceRect.offsetMax = new Vector2(-3f, -3f);
+
+            GameObject textGO = new GameObject("Label");
+            textGO.transform.SetParent(go.transform, false);
+            Text text = textGO.AddComponent<Text>();
+            text.font = UIFont();
+            text.fontSize = fontSize;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.color = new Color(1f, 0.45f, 0.45f, 1f);
+            text.text = label;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            text.raycastTarget = false;
+            Stretch(text.GetComponent<RectTransform>());
+        }
+
+        // The word beside a key or a glyph. Takes the x its text should START at, since every
+        // caption in a column has to begin at the same place whatever its length - the rect is
+        // centred, so the offset below is half its width. 190 fits the longest of these
+        // ("LOOK AROUND", 11 monospace cells) at either size it is used in.
+        //
+        // The colour is a parameter because these appear on two very different backgrounds: the
+        // wall display puts a near-black plate under them and wants the HUD's light red, where
+        // anything drawn straight onto the room's white panelling needs a much darker one.
+        private static void MakeCaption(Transform parent, string name, string content, Vector2 leftEdge,
+                                        Color? color = null, int fontSize = 22) =>
+            MakeMenuLine(parent, name, content, fontSize, color ?? new Color(0.7f, 0.06f, 0.06f, 1f),
+                leftEdge + new Vector2(95f, 0f), new Vector2(190f, 30f), TextAnchor.MiddleLeft);
+
         private static Text MakeMenuLine(Transform parent, string name, string content, int fontSize,
-                                         Color color, Vector2 anchoredPosition, Vector2 size)
+                                         Color color, Vector2 anchoredPosition, Vector2 size,
+                                         TextAnchor alignment = TextAnchor.MiddleCenter)
         {
             GameObject go = new GameObject(name);
             go.transform.SetParent(parent, false);
@@ -3325,7 +3919,7 @@ namespace IterationRoom.EditorTools
             Text text = go.AddComponent<Text>();
             text.font = UIFont();
             text.fontSize = fontSize;
-            text.alignment = TextAnchor.MiddleCenter;
+            text.alignment = alignment;
             text.color = color;
             text.text = content;
             text.horizontalOverflow = HorizontalWrapMode.Overflow;

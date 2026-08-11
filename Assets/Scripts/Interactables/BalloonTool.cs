@@ -34,7 +34,10 @@ namespace IterationRoom
         {
             if (hand == null || playerCamera == null) return;
             if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
-            if (!hand.Has(requiredItemId)) return;
+            // Holding, not Has: with Tab in the game you can be carrying the pin and holding the
+            // key, and swinging the key at a balloon should do nothing. This is also what makes the
+            // recorded pop honest - it can only exist if the pin was in the hand that made it.
+            if (!hand.Holding(requiredItemId)) return;
 
             if (Input.GetMouseButtonDown(0)) Swing();
             AnimateHeld();
