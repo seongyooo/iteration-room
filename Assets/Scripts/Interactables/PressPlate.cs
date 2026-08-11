@@ -33,6 +33,15 @@ namespace IterationRoom
         public Color pressedColor = new Color(0.85f, 0.12f, 0.12f);
         public float litEmission = 2.6f;
 
+        // Emission at REST, and zero for a plate set into a wall - a switched-off cell among white
+        // panels is legible because the near-black reads against them, and lighting it would make
+        // it a lamp rather than a control waiting to be used.
+        //
+        // The final room's plate needs it: that one sits in a dark inset on top of the plinth, so
+        // near-black on near-black is a button nobody can see. It is red and faintly lit there,
+        // which is also the honest reading - it is the one live control in the room.
+        public float idleEmission = 0f;
+
         // When E here would do something. The prompt and the press read the same answer, so a disc
         // can never appear over a plate that would ignore the key.
         protected abstract bool IsLive { get; }
@@ -95,7 +104,7 @@ namespace IterationRoom
             b.SetColor(BaseColorId, lit ? pressedColor : idleColor);
             // Emission carries the press - albedo alone reads as a different colour rather than as
             // the plate lighting up. Pushed past 1 so it clears the room's high bloom threshold.
-            b.SetColor(EmissionId, lit ? pressedColor * litEmission : Color.black);
+            b.SetColor(EmissionId, lit ? pressedColor * litEmission : idleColor * idleEmission);
             buttonRenderer.SetPropertyBlock(b);
         }
     }

@@ -3328,6 +3328,14 @@ namespace IterationRoom.EditorTools
 
             FinalRoomButton button = buttonRoot.AddComponent<FinalRoomButton>();
             button.buttonRenderer = buttonVisual.GetComponent<Renderer>();
+            // RED AT REST, unlike the calibration plate. That one is a near-black cell set into
+            // white panelling and reads by contrast; this one sits in a near-black inset on top of
+            // the plinth, where the same treatment made a black disc on a black plate. Deep red
+            // with a little emission at rest, and it still has somewhere to go on the press - the
+            // flash is mostly the emission jumping to litEmission, not the albedo changing.
+            button.idleColor = new Color(0.62f, 0.07f, 0.06f);
+            button.idleEmission = 0.9f;
+            button.pressedColor = new Color(1f, 0.3f, 0.26f);
             button.audioSource = MakeSource(buttonRoot.transform, "ButtonAudio", 1f, 0.8f);
             button.pressClip = LoadClip(SfxDir, "sfx_floor_button_press");
 
@@ -3361,6 +3369,13 @@ namespace IterationRoom.EditorTools
             // Clears the floor by a hair with the button's own height counted in, so nothing shows
             // through the slab before it is meant to.
             sequence.riseHeight = plinthHeight + plateProud + buttonHalfHeight * 2f + 0.04f;
+            sequence.errorFadeIn = 0.35f;
+            // TEN SECONDS from the press to the scrim starting, and that is a floor rather than a
+            // pause: the door takes 1s to seal, the panels take 0.25s to break and the ERROR plates
+            // 0.35s to come up, and at the 3.4s this was first built at all of that was still
+            // arriving when the screen went black. The room has to be seen broken, or the last
+            // thing the player did has no visible consequence.
+            sequence.breakHold = 10f - sequence.errorFadeIn;
 
             button.sequence = sequence;
             return sequence;
