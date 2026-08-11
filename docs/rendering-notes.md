@@ -35,6 +35,18 @@ Fixture placement and ambient tuning, materials, probes, and the art rules the r
   - **Walls are a smooth glazed panel, not plaster**: `_Smoothness` **0.85** with relief kept to a whisper purely so the specular isn't a uniform sheet, which is what makes a flat surface look CG. The floor stays matte at **0.18**.
   - **Tiling must be set on `_BaseMap`, not `_BumpMap`** — URP/Lit drives the normal map's UVs from `_BaseMap`'s transform, so a scale on `_BumpMap` does nothing. Per face: (5,3) for a 1.7 × 0.9m wall panel vs (26,30) for a 9 × 10.9m slab, for the same ~0.35m grain.
   - It imports as `TextureImporterType.NormalMap`; without that the shader reads raw RGB as a normal and tilts every surface. It also means you **cannot measure it by sampling `.r`/`.g`** — Unity re-encodes to DXT5nm. Judge it from a render.
+- **`BalloonPink` is premultiplied alpha, and the two halves of that have to agree.** The material
+  carries `_ALPHAPREMULTIPLY_ON`, so the blend must be `One` / `OneMinusSrcAlpha`. Captured all three
+  ways to settle it: premultiplied + `One` gives pink translucent balloons; premultiplied +
+  `SrcAlpha` multiplies alpha twice and washes them grey; keyword off makes the bodies **disappear**,
+  because with premultiply off the diffuse is no longer carrying them and only the opaque knots are
+  left. So the keyword stays and the blend follows it.
+  - `SceneBuilder.MakeTranslucentMaterial` currently forces `SrcAlpha` and does not touch the
+    keyword, so a scene build leaves the washed-out pairing and a build-target switch puts it back.
+    **The Editor shows something duller than the player does.** Queued in `TODO.md`.
+  - The other three transparent-looking materials are not transparent at all - `BedSheet`,
+    `BedPillow` and `KeyGold` are `_Surface 0`, queue 2000, no transparent keyword. Their `_SrcBlend`
+    does nothing whichever value it holds.
 - **Gloss only works because of the reflection probes.** Raising smoothness without them paints the blue procedural sky over every white panel — the exact failure the old "0.03 smoothness everywhere" rule existed to dodge. Note that **a mirror of a white room is still white**: the gloss reads as sheen and falloff rather than visible reflected objects. If a harder "switched-off display" look is wanted, the panels need a *darker* albedo.
 - **One baked reflection probe per room** (`BuildReflectionProbe`), box-projected and sized to the room so a reflected wall stays on the wall instead of sliding with the camera. `reflectionIntensity` is **1.0**.
   - **Baked during `Build()`** via `Lightmapping.BakeReflectionProbe`, writing `Assets/Textures/*_Reflection.exr`. A Realtime probe was tried first, reasoning that rebuilds would invalidate baked data — but **a realtime probe renders nothing until play mode**, so `probe.texture` came back EMPTY and the glossy walls had nothing to reflect. Baking in the build gets a real asset regenerated in lockstep with the geometry it captures.
