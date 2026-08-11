@@ -13,7 +13,9 @@ namespace IterationRoom
     // WHY THE PLAYER KEEPS CONTROL HERE. The run is already over by the time this starts - the clock
     // is stopped, IterationRunning is false, and nothing can pull them back to the bed. Leaving them
     // walking is what makes the last thing in the game an ACTION rather than a cutscene: the loop
-    // stopped taking them, and the last press is theirs. Control is taken at the press, not before.
+    // stopped taking them, and the last press is theirs. They keep it THROUGH the break as well, and
+    // lose it only when the scrim starts - ten seconds pinned in place watching a room fail is the
+    // game freezing, not the room failing.
     //
     // Everything runs on unscaled time, like the rest of the ending. PauseMenu is locked out for the
     // duration (RunOver), but a coroutine that can be frozen with no way to unfreeze it is a soft
@@ -37,7 +39,6 @@ namespace IterationRoom
         public CanvasGroup[] errorFaces;
 
         public NarrationDirector narration;
-        public FirstPersonController playerController;
 
         // How far the plinth travels. It sits at -riseHeight while hidden, so this is also its
         // height: the whole thing is under the floor slab, which is opaque, so nothing shows.
@@ -87,11 +88,11 @@ namespace IterationRoom
             ButtonLive = true;
             while (button != null && !button.Pressed) yield return null;
 
-            // Taken now, and not a moment earlier. From here the player has done the last thing the
-            // game asks of them and everything else is the facility's.
+            // The PLATE goes dead - there is no second press, and a disc lingering over it while
+            // the room comes apart would be the game still asking for something. The PLAYER does
+            // not: control is held all the way to the scrim, and LoopManager takes it there.
             ButtonLive = false;
             Active = false;
-            if (playerController != null) playerController.ControlEnabled = false;
 
             // The way back, first. Slides rather than snapping - Close() is the loop rewinding
             // behind a black screen, this is a door shutting with the player watching it.

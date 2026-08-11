@@ -40,15 +40,33 @@ namespace IterationRoom
         // Resamples per second. Low enough to read as discrete broken frames rather than as noise;
         // at 60 it greys out into an average and the colour stops being visible at all.
         public float glitchSpeed = 11f;
-        // Fraction of cells black on any given frame. The dark is what makes it read as a signal
-        // failing rather than as a colourful screensaver.
+        // Fraction of cells black at FULL severity. The dark is what makes it read as a signal
+        // failing rather than as a colourful screensaver. Scaled by the envelope, so the first
+        // stutters are colour and the late ones are half holes.
         public float glitchDropout = 0.16f;
-        public float glitchRamp = 0.25f;
+
+        // How long the room takes to go. It does NOT switch on - it degrades, and the two look
+        // nothing alike: a wall that snaps to full colour reads as an effect starting, where one
+        // that stutters, recovers a little worse each time and eventually stops recovering reads as
+        // equipment failing. 6.5 against the ten seconds the final room holds, so the last few are
+        // spent fully gone rather than still on the way.
+        public float glitchOnset = 6.5f;
+        // Burst slots per second. THE SLOT LENGTH IS WHAT MAKES A BURST A STUTTER - at 7 a single
+        // lit slot is 0.14s, about the length of a dropped frame. What grows over the onset is the
+        // duty cycle, not the burst length: one slot in sixteen at the start, nine in ten by the
+        // end, so the same effect reads first as interference and then as failure without ever
+        // changing character.
+        public float glitchBurstRate = 7f;
+        public float glitchBurstDutyStart = 0.06f;
+        public float glitchBurstDutyEnd = 0.9f;
 
         private float[] onsets;
         private float powered;
         private float flare;
         private float glitch;
+        // How far gone the room is, 0..1, separate from `glitch` because that one flickers with
+        // the bursts and the dropout has to follow the SLOW curve rather than the stutter.
+        private float glitchEnvelope;
 
         // Where the collapse had got to. The ending ramps down from whatever this is rather than
         // from 1, so escaping at t=52 releases a half-built flare instead of snapping it to full
@@ -158,7 +176,7 @@ namespace IterationRoom
                     // Full saturation and value: this is a signal, not a light, and a washed-out
                     // hue reads as a tinted wall rather than as a broken screen.
                     Color bar = Color.HSVToRGB(Hash(i, step), 1f, 1f);
-                    bool dead = Hash(i + 977, step) < glitchDropout;
+                    bool dead = Hash(i + 977, step) < glitchDropout * glitchEnvelope;
                     albedo = Color.Lerp(albedo, dead ? Color.black : bar, glitch);
                     emission = Color.Lerp(emission, dead ? Color.black : bar * glitchEmission, glitch);
                 }
@@ -200,7 +218,27 @@ namespace IterationRoom
                 // Unscaled: the ending must not be freezable, and Apply has to run every frame or
                 // the resample never lands on screen.
                 t += Time.unscaledDeltaTime;
-                glitch = glitchRamp > 0f ? Mathf.Clamp01(t / glitchRamp) : 1f;
+
+                // Squared, so the first seconds are a display that stutters and the last are one
+                // that has stopped being a display. Linear spends too much of the onset in a
+                // half-broken middle that reads as neither.
+                float k = glitchOnset > 0f ? Mathf.Clamp01(t / glitchOnset) : 1f;
+                glitchEnvelope = k * k;
+
+                // One hash per slot, so a burst is a hard cut in and out rather than a fade -
+                // interference does not ease.
+                int slot = Mathf.FloorToInt(t * glitchBurstRate);
+                bool burst = Hash(9001, slot) < Mathf.Lerp(glitchBurstDutyStart, glitchBurstDutyEnd, k);
+
+                // BETWEEN bursts the panels do not snap back to white - they sit at the baseline,
+                // which climbs with the envelope. That is the getting-worse the bursts alone cannot
+                // say: a stutter that always recovers perfectly is a display having a moment, not
+                // one dying. A burst is strong from the FIRST one (0.75) - what grows is how often they come,
+                // how bad the floor between them is, and how many cells drop out. A burst is never weaker
+                // than the baseline, so the effect can never appear to improve.
+                float baseline = glitchEnvelope * 0.5f;
+                glitch = burst ? Mathf.Max(baseline, Mathf.Lerp(0.75f, 1f, k)) : baseline;
+
                 Apply();
                 yield return null;
             }

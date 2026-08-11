@@ -341,11 +341,10 @@ namespace IterationRoom.EditorTools
             SensitivityCalibration calibration = BuildCalibrationPage(canvas);
             CalibrationStartButton startButton = BuildCalibrationWall(room.transform, CalibrationRoomZ, calibration);
 
-            // Room4 and the plate that ends the run. Built here because it needs the player's
-            // controller, which does not exist until BuildPlayer above; its narration is wired
-            // after BuildAudio, below.
+            // Room4 and the plate that ends the run. Its narration is wired after BuildAudio below;
+            // control is LoopManager's to take, at the scrim, so nothing here needs the player.
             FinalRoomSequence finalRoom = BuildFinalRoom(room.transform, 3f * RoomPitch, propMat,
-                                                        door3, wallDisplay, fpc);
+                                                        door3, wallDisplay);
 
             // Appended after the fact because both buttons live in rooms built later than the hint
             // display. They are the two E fixtures OUTSIDE the loop - one before the first
@@ -3275,8 +3274,7 @@ namespace IterationRoom.EditorTools
         // impossible to check without pressing Play.
         private static FinalRoomSequence BuildFinalRoom(Transform parent, float roomCenterZ,
                                                         Material propMat, Door doorBehind,
-                                                        WallPanelDisplay wallPanels,
-                                                        FirstPersonController playerController)
+                                                        WallPanelDisplay wallPanels)
         {
             GameObject root = new GameObject("FinalRoom");
             root.transform.SetParent(parent, false);
@@ -3365,7 +3363,6 @@ namespace IterationRoom.EditorTools
             sequence.doorBehind = doorBehind;
             sequence.wallPanels = wallPanels;
             sequence.errorFaces = faces;
-            sequence.playerController = playerController;
             // Clears the floor by a hair with the button's own height counted in, so nothing shows
             // through the slab before it is meant to.
             sequence.riseHeight = plinthHeight + plateProud + buttonHalfHeight * 2f + 0.04f;
