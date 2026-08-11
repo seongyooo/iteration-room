@@ -11,7 +11,7 @@ namespace IterationRoom
     // thing in the game's voice rather than the facility's.
     //
     // Room3 is where it belongs rather than Room1, and the reason is the trek: by the time a player
-    // is setting up four pads, every iteration costs a walk through two solved rooms, and the dead
+    // is setting up three pads, every iteration costs a walk through two solved rooms, and the dead
     // time at the end of each one is the most expensive thing in the run. Told this in Room1 they
     // would have no use for it yet.
     //

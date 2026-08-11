@@ -23,7 +23,7 @@ The rule reads: **a ghost can replay an *action*, never a *possession*.** Three 
 | Recorded problem | After |
 | --- | --- |
 | "Room2's exit costs the *player* a key retrieval in every iteration that goes past it, and that toll never accumulates the way Room1's pad does" | It accumulates |
-| "Four pads sets the run's floor at about seven iterations… that is what makes the missing ghost reset press harder" | The floor stops growing |
+| "Room3's pads set the run's floor… that is what makes the missing ghost reset press harder" | The floor stops growing |
 | Backlog: **accumulation is the most valuable unexplored direction** | Opens |
 | Backlog: *"accumulation works only if the tool belongs to the station, not the hand"* — an axe must be bolted to the tree | An axe can be an axe |
 | Open question: chapters would fix the key toll, but **one unbroken loop is the premise** | Same fix, premise intact |
@@ -172,7 +172,7 @@ The pin is the first item that is carried but never delivered, and it needed two
 
 The door now opens **when the ghost gets there, not when the player arrives.** As the run gets faster the player will reach Room2 before the ghost does, and wait.
 
-Room2's cost converts from *retrieving the key* (work) to *waiting for a past self* (clock). That is the same beat Room3 already builds toward — "standing at the door watching four past selves converge is the intended beat" — so it is at least consistent with the game's own language. Whether waiting is better than fetching is a play-test question, not a design one.
+Room2's cost converts from *retrieving the key* (work) to *waiting for a past self* (clock). That is the same beat Room3 already builds toward — "standing at the door watching three past selves converge is the intended beat" — so it is at least consistent with the game's own language. Whether waiting is better than fetching is a play-test question, not a design one.
 
 ## 8. Consequences to watch
 

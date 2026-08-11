@@ -63,7 +63,7 @@ so press-type interactables stretch their pulse and act on the rising edge.
 
 An interactable's index **is** its bit in `RecordedFrame.signals`. `PlayerRecorder.interactables` and
 `GhostReplayer` must be the same array in the same order; `SceneBuilder` builds one and hands it to
-both. `signals` is a `uint`, so **32 interactables is a hard cap** (6 used).
+both. `signals` is a `uint`, so **32 interactables is a hard cap** (5 used).
 
 ### 1.7 Ghosts have no colliders
 

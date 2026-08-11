@@ -71,7 +71,7 @@ Chapters would answer three live problems at once, which is why this needs decid
 - ~~**Room2's key toll** stops compounding.~~ **Answered 2026-08-11 by ghost possession instead**, and answered without cutting the loop up. A ghost re-fetches and re-inserts the key every iteration, so a solved Room2 stays solved.
 - ~~**The ~7-iteration floor stops growing.**~~ Also largely answered by the same change — a room whose work a ghost can carry out stops adding to the floor once it is solved.
 
-**Two of the three reasons for chapters are now gone**, which weakens the case considerably: what is left is the ghost reset, and that has its own answer to find. The cost was always the thing the prototype is actually about — **one unbroken loop is the premise**, and cutting it into chapters makes each one a small puzzle box rather than a place you are trapped in. It also throws away accumulated ghosts, which are the visible record of the work; the ending's last image is four past selves holding pads, and that only lands because they were all earned in one run.
+**Two of the three reasons for chapters are now gone**, which weakens the case considerably: what is left is the ghost reset, and that has its own answer to find. The cost was always the thing the prototype is actually about — **one unbroken loop is the premise**, and cutting it into chapters makes each one a small puzzle box rather than a place you are trapped in. It also throws away accumulated ghosts, which are the visible record of the work; the ending's last image is three past selves holding pads, and that only lands because they were all earned in one run.
 
 ### Rejected, on grounds that could change
 

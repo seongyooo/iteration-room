@@ -230,27 +230,35 @@ namespace IterationRoom.EditorTools
             (Door door2, KeyLock keyLock) = BuildKeyDoor(room.transform, RoomPitch, propMat);
             (BalloonField balloonField, CarryableItem key) = BuildBalloons(room.transform);
 
-            // Room3: FOUR pads and one door that needs all of them at once. Deliberately the
+            // Room3: THREE pads and one door that needs all of them at once. Deliberately the
             // plainest room of the three - no items, nothing to search, nothing to carry. Room2
             // already costs the player a key retrieval every iteration, and a second expensive room
             // behind it would be unreachable rather than hard. What Room3 costs is ITERATIONS: one
-            // to stand on each pad, and a fifth to walk through while four past selves hold them.
+            // to stand on each pad, and a fourth to walk through while three past selves hold them.
             //
-            // Laid out as a rectangle rather than scattered. Four things in a regular grid read as
-            // one set at a glance - the player should never have to hunt for the fourth - and the
-            // symmetry says "all of these" where an irregular arrangement would invite guessing
-            // that some subset might do.
+            // Laid out as an EQUILATERAL TRIANGLE rather than scattered, on a circumradius of 3.2
+            // about the room's centre. A regular figure reads as one set at a glance and its
+            // symmetry says "all of these", where an irregular arrangement would invite guessing
+            // that some subset might do. Three is also the smallest count where the figure itself
+            // carries that reading - and small enough that no pad can be overlooked.
             //
-            // All four sit off the centre line, so the straight walk from the south door to the
-            // north one steps on none of them. Standing on one is the only way to learn what the
-            // others are for, so the room has to show them together and never trigger by accident.
+            // POINTING EAST, not north or south, and that is forced rather than chosen: a triangle
+            // mirror-symmetric about the room's north-south axis must put one vertex ON that axis,
+            // which is the straight walk from the south door to the north one. The east-pointing
+            // orientation keeps the mirror symmetry (about the east-west axis) and leaves every pad
+            // clear of the walk - the nearest sits 1.6m off it, four times its own reach. Standing
+            // on one is the only way to learn what the others are for, so the room has to show them
+            // together and never trigger by accident.
             const float roomThreeZ = 2f * RoomPitch;
+            // Circumradius 3.2 (the figure the rectangle used for its half-width, so the footprint
+            // and its clearance from the walls are unchanged); 0.866 is cos 30, giving 5.54m sides.
+            const float padRing = 3.2f;
+            const float padRingZ = padRing * 0.866f;
             FloorButton[] roomThreePads =
             {
-                BuildFloorButton(room.transform, propMat, "FloorButton3A", new Vector3(-3.2f, 0.03f, roomThreeZ - 3f)),
-                BuildFloorButton(room.transform, propMat, "FloorButton3B", new Vector3(3.2f, 0.03f, roomThreeZ - 3f)),
-                BuildFloorButton(room.transform, propMat, "FloorButton3C", new Vector3(-3.2f, 0.03f, roomThreeZ + 3f)),
-                BuildFloorButton(room.transform, propMat, "FloorButton3D", new Vector3(3.2f, 0.03f, roomThreeZ + 3f)),
+                BuildFloorButton(room.transform, propMat, "FloorButton3A", new Vector3(-padRing * 0.5f, 0.03f, roomThreeZ - padRingZ)),
+                BuildFloorButton(room.transform, propMat, "FloorButton3B", new Vector3(-padRing * 0.5f, 0.03f, roomThreeZ + padRingZ)),
+                BuildFloorButton(room.transform, propMat, "FloorButton3C", new Vector3(padRing, 0.03f, roomThreeZ)),
             };
             Door door3 = BuildPadDoor(room.transform, "Door3", roomThreeZ, roomThreePads, propMat);
 
@@ -286,7 +294,7 @@ namespace IterationRoom.EditorTools
             GhostInteractable[] ghostInteractables =
             {
                 floorButton, drawer,
-                roomThreePads[0], roomThreePads[1], roomThreePads[2], roomThreePads[3],
+                roomThreePads[0], roomThreePads[1], roomThreePads[2],
             };
 
             // The player starts in the calibration room, not at the bed. Iteration 1 teleports them
@@ -347,7 +355,7 @@ namespace IterationRoom.EditorTools
 
             (NarrationDirector narration, RoomAmbience ambience) =
                 BuildAudio(player, new[] { door, door2, door3 },
-                           new[] { floorButton, roomThreePads[0], roomThreePads[1], roomThreePads[2], roomThreePads[3] },
+                           new[] { floorButton, roomThreePads[0], roomThreePads[1], roomThreePads[2] },
                            wakeUp);
 
             wallMessage.narration = narration;
@@ -1354,7 +1362,7 @@ namespace IterationRoom.EditorTools
             Material fixtureMat = MakeEmissiveMaterial("CeilingFixture", Color.white, 3.5f);
             // Shadows only in Room1. Every additional light's shadow shares one atlas, and the
             // rooms past the first hold nothing that casts a shadow worth the map: Room2 is
-            // balloons, Room3 is two floor pads.
+            // balloons, Room3 is three floor pads.
             BuildCeilingLights(parent, "Room1", 0f, fixtureMat, castShadows: true);
             BuildCeilingLights(parent, "Room2", RoomPitch, fixtureMat, castShadows: false);
             BuildCeilingLights(parent, "Room3", 2f * RoomPitch, fixtureMat, castShadows: false);
@@ -2128,7 +2136,7 @@ namespace IterationRoom.EditorTools
         }
 
         // A powered door with no control of its own, held open while every pad handed to it is
-        // held. Room1 passes one pad, Room3 two.
+        // held. Room1 passes one pad, Room3 three.
         //
         // There was a DoorButton on the wall beside Room1's until a play-test found nobody could
         // locate it - testers held the pad, walked to the door and expected it to open. See Door's
@@ -2620,7 +2628,7 @@ namespace IterationRoom.EditorTools
             // Positional and parented to each pad, which is the entire point: the door lamp only
             // reports the condition to someone looking at the door, but the clunk reaches you
             // wherever you are. Hearing a ghost step onto a pad behind you is how the puzzle tells
-            // you the door is live - and in Room3, where two pads have to go down, it is how you
+            // you the door is live - and in Room3, where three pads have to go down, it is how you
             // count them without turning round.
             AudioClip padPress = LoadClip(SfxDir, "sfx_floor_button_press");
             AudioClip padRelease = LoadClip(SfxDir, "sfx_floor_button_release");
