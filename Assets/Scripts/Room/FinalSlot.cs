@@ -9,24 +9,35 @@ namespace IterationRoom
     // across a room, and a socket is a fixture you STAND at - the same distinction that already
     // separates the lock from the balloon tool.
     //
-    // NOT AN IItemSocket, and that is deliberate rather than an omission.
+    // AN IItemSocket, like every other place in the game an object gets handed over. It used to
+    // deliberately not be one, on the reasoning that these slots were "past the end of the run,
+    // where no ghost can ever reach" - which stopped being true the moment the clock started
+    // running through Room4. With no socket registered, GhostReplayer's completed-errand rule
+    // (`ItemRegistry.FindSocket(itemId) != null`) never engaged for these three ids at all: a ghost
+    // that picked up an escape object without delivering it kept re-taking it every iteration
+    // afterwards and could never hand it back, holding it hostage for the rest of that ghost's
+    // timeline. Registering the socket is what lets a past self do this errand properly - take it,
+    // carry it here, put it in - exactly as ghosts already do for the key and every accumulation
+    // room's pieces, and `RecordedTimeline.Delivers` already decides correctly whether a given
+    // recording actually finished the hand-over.
     //
-    //   - `ItemRegistry` maps an id to exactly ONE socket. If the red cube ever gains a socket back
-    //     in the room that produced it, a second one here would silently replace it.
-    //   - A registered socket changes the COMPLETED-ERRAND RULE for that id: a ghost only replays a
-    //     pickup it also surrendered. These slots are past the end of the run, where no ghost can
-    //     ever reach, so letting them arbitrate what ghosts may carry inside the loop would be a
-    //     rule imposed from outside the thing it governs.
+    // `ItemRegistry` maps an id to exactly ONE socket, so this is only safe because nothing else in
+    // the game currently registers a socket for a red cube, blue sphere or yellow triangle id - if
+    // one of their home rooms ever grows a socket of its own, the two would collide silently.
     //
     // INSIDE THE LOOP, which it did not used to be. Room4 was past the end of the run and this
     // gated on `FinalRoomSequence.Active` alone, because `AcceptsInput` was false for every moment
     // the fixture was alive. The clock runs through Room4 now, so this gates on BOTH: the loop
     // accepting input at all, and the console being up - a recess sunk under the floor takes
-    // nothing.
+    // nothing, from a ghost as much as from the player. A ghost's recorded delivery only succeeds
+    // if THIS iteration's console has already risen by the time its timestamp comes round - which
+    // means the living player has to have reached Room4 first - and a delivery that cannot land
+    // yet is refused exactly like Room2's lock refuses an already-open door: the ghost keeps
+    // carrying it to the end of its own timeline.
     //
     // Range is polled, not driven by trigger callbacks - see FloorButton for why.
     [RequireComponent(typeof(Collider))]
-    public class FinalSlot : MonoBehaviour, IInteractHintTarget
+    public class FinalSlot : MonoBehaviour, IInteractHintTarget, IItemSocket
     {
         // WHICH object this recess takes. Empty means "nothing yet" - the shape is built and the
         // fixture is wired, but the object that fits it does not exist in the game. An unconfigured
@@ -77,6 +88,10 @@ namespace IterationRoom
 
         public Transform HintAnchor => seat != null ? seat : transform;
 
+        // IItemSocket. Only meaningful when Declared - see OnEnable/OnDisable, which only register
+        // this slot at all once it names a real object.
+        public string AcceptedItemId => acceptedItemId;
+
         // ALL of them, and an empty or null array is deliberately NOT satisfied - the same rule
         // `FloorButton.AllActive` states for its pads, for the same reason. "All zero are filled"
         // vacuously meaning "the escape is ready" is how a device with nothing wired to it opens.
@@ -105,6 +120,19 @@ namespace IterationRoom
             ApplyRim(idleColor, idleEmission);
         }
 
+        // Undeclared slots register nothing: an empty acceptedItemId has no business claiming a
+        // socket, and ItemRegistry.RegisterSocket already no-ops on an empty id, but skipping it
+        // here says so directly rather than relying on that guard.
+        private void OnEnable()
+        {
+            if (Declared) ItemRegistry.RegisterSocket(this);
+        }
+
+        private void OnDisable()
+        {
+            if (Declared) ItemRegistry.UnregisterSocket(this);
+        }
+
         private void FixedUpdate()
         {
             Collider playerCollider = PlayerLookup.Collider;
@@ -129,9 +157,29 @@ namespace IterationRoom
             CarryableItem given = hand.Surrender(acceptedItemId);
             if (given == null) return;
 
-            // InsertInto, not DropAt - the object is out of play now, visible where it was put and
-            // not takeable back out. There is no loop left to rewind it.
-            given.InsertInto(seat != null ? seat : transform);
+            Accept(given);
+        }
+
+        // A past self's own delivery, replaying the same errand the player performs above. Refuses
+        // rather than throws when it cannot be finished right now - the recess is not live yet, the
+        // ghost is carrying the wrong thing, or someone already filled it - which leaves the ghost
+        // holding the object exactly the way Room2's lock leaves a ghost holding an already-spent
+        // key: a real outcome, not an error.
+        public bool AcceptFromGhost(CarryableItem item)
+        {
+            if (item == null || item.itemId != acceptedItemId) return false;
+            if (!Live || Filled) return false;
+
+            Accept(item);
+            return true;
+        }
+
+        // InsertInto, not DropAt - the object is out of play now, visible where it was put and not
+        // takeable back out. There is no loop left to rewind it. Shared by the player's own
+        // placement and a ghost's, so both land in exactly one piece of code.
+        private void Accept(CarryableItem item)
+        {
+            item.InsertInto(seat != null ? seat : transform);
             Filled = true;
 
             if (audioSource != null && insertClip != null) audioSource.PlayOneShot(insertClip);
