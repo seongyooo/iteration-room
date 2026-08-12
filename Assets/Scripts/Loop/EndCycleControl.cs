@@ -30,6 +30,16 @@ namespace IterationRoom
         // blackout doesn't immediately end the next cycle too.
         private bool armed = true;
 
+        // How many times the player has actually ended a cycle themselves. Read by PanelMessage,
+        // which retires the wall sign teaching this control once it has been USED - the same rule
+        // the Tab hint uses (PlayerHand.CycleCount) and the same one the left-click prompt settled
+        // on. A sign that has been seen has taught nothing; one whose action has been performed has
+        // nothing left to say.
+        //
+        // Deliberately NOT reset at the loop boundary: learning a control is not state an iteration
+        // rewinds.
+        public int UseCount { get; private set; }
+
         public void OnPointerDown(PointerEventData eventData) => pointerHeld = true;
         public void OnPointerUp(PointerEventData eventData) => pointerHeld = false;
 
@@ -49,6 +59,7 @@ namespace IterationRoom
                 if (held >= holdDuration)
                 {
                     LoopManager.Instance.EndCycleEarly();
+                    UseCount++;
                     armed = false;
                     held = 0f;
                 }

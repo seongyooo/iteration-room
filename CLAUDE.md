@@ -12,25 +12,41 @@ Complete end to end — three puzzle rooms, a fourth room that is the ending, a 
 sensitivity calibration step. Behind Room2's red door is **Room2West, the chess board**: twelve of a
 set's thirty-two pieces scattered across the floor, put back one at a time. The room is **dark**
 until the last one lands; then its lights come up, the board splits down the middle and a plinth
-rises out of the gap carrying a red cube. It is the first ACCUMULATION room — see
-`docs/puzzle-design.md`. **The cube has no consumer yet** and is deliberately not carryable.
+rises out of the gap carrying a red cube. Behind the blue door is **Room2East, the cube room**: six
+cubes carrying six symbols and six recesses in the walls that want them, paying out a blue sphere.
+**Room3** pays out a yellow triangle on the same condition that opens its door. All three are
+`CarryableItem`s and Room4's console has a shaped recess for each — see `docs/puzzle-design.md`.
 
-**PLAYED THROUGH TO THE ESCAPE, 2026-08-12: cleared in FOUR iterations, at walking speed, without
-ever sprinting.** So the whole chain works in a human's hands, and three numbers are now measured
-rather than assumed:
+**The three escape objects are valid within ONE iteration only, and putting all three into Room4's
+console is the game's ONLY EXIT CONDITION.** Nothing exempts them from
+`ItemRegistry.ReturnAllToOrigin`: the last run is a lap collecting all three from rooms the ghosts
+have already finished and carrying them to the console. **The clock runs through Room4** — reaching
+it ends nothing, and a run that gets there with two objects is pulled back to the bed like any
+other. There is no button anywhere in the game that ends it.
 
-- **Four iterations is the floor**, not the ~5 this file used to estimate.
-- **60 seconds is not the binding constraint.** The run is completable at `walkSpeed` 2.5 with sprint
-  unused, so a new room's cost has to be paid in ITERATIONS, never in metres.
-- **Four minutes is the whole game**, which is what the itch.io players meant by "small" — content
-  length is the real gap, not difficulty.
+**PLAYED THROUGH TO THE THREE-OBJECT ESCAPE, 2026-08-12: cleared on ITERATION 15, with 8 SECONDS
+left on the final lap's clock.** The whole chain works in a human's hands — both accumulation rooms,
+three collections and the walk to the console, inside one sixty-second iteration. What this measures:
 
-What is still unplayed: **Room2West end to end, in a human's hands.** Its parts are verified in
-code — the board seats a piece by both routes, ghosts tidy it through the socket path, the reward
-fires, the loop rewinds it — but whether twelve pieces is the right length, and whether the lit
-square teaches the left button, are questions only playing it answers. What play CONTRADICTED is
-recorded in `docs/puzzle-design.md` — Room2's popping is not accumulative, and the three pins
-currently have no consumer.
+- **Fifteen iterations, not four.** The earlier four-iteration figure was the game whose exit was
+  crossing Room3's threshold; the two side rooms were optional then and are on the critical path now.
+  Quote 15 as the run length, and expect it to come DOWN with practice — the player who measured it
+  judged there was time to be found in tidier play, not that 15 was a floor.
+- **The final lap fits, and 8 seconds is the whole margin.** Three pickups plus the walk to Room4 is
+  the tightest thing in the game. It is also the one number that moves with *when past selves
+  finished their rooms*, so treat 8s as an observation of one run, not a guarantee. Anything that
+  lengthens that lap — a room past Room4, a fourth escape object, a slower walk — spends this margin
+  first.
+- **60 seconds is still not the binding constraint anywhere else.** Measured at `walkSpeed` 2.5 with
+  sprint unused. A new room's cost is paid in ITERATIONS, never in metres — the exception being the
+  final lap above.
+- **Fifteen minutes is the whole game**, up from four. That is a direct answer to the itch.io "small"
+  feedback, and it came from the two side rooms rather than from any new mechanic.
+
+Room2West and Room2East have now both been played end to end (a clear requires them). What one
+clear does **not** answer is whether twelve pieces is the right length or whether the lit square
+teaches the left button. What play CONTRADICTED is recorded in `docs/puzzle-design.md` — Room2's
+popping is not accumulative, and the three pins currently have no consumer.
 
 ---
 
@@ -105,9 +121,9 @@ made against it.
 stop `Update`, and `HandleLook` uses no `deltaTime` at all. **Any new interactable reading input must
 use this gate.** The deliberate exceptions are the two `PressPlate`s, which are the only fixtures
 OUTSIDE the loop: `CalibrationStartButton` runs before the first iteration and gates on
-`SensitivityCalibration.Active`, `FinalRoomButton` runs after the last and gates on
-`FinalRoomSequence.ButtonLive`. `ControlHintDisplay` has to be told about both, or their prompts
-never appear.
+`SensitivityCalibration.Active`. **It is the only one left**: Room4's plate is gone and the clock now
+runs through that room, so its three recesses gate on `AcceptsInput` like every other fixture.
+`ControlHintDisplay` still has to be told about the calibration plate, or its prompt never appears.
 
 ### 1.9 Reset ordering
 
@@ -137,7 +153,10 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `ChessBoard` | Room2West: the grid, which piece belongs where, and one `IItemSocket` per piece |
 | `ChessPlacer` | The left button and the aim; every question about *where* is `ChessBoard`'s |
 | `ChessReward` | Room2West's payoff: the lights, the board opening, the plinth. Not the rule |
-| `FinalRoomSequence` | Room4: the plinth, the last press, and the break before the ending card |
+| `CubeRoom` | Room2East: which cube belongs in which recess, and whether they are all home |
+| `SymbolSlot` | One recess's range, E press and light; every *which* question is `CubeRoom`'s |
+| `RewardPlinth` | A plinth that rises carrying an escape object, on its room's own condition |
+| `FinalRoomSequence` | Room4: the console, the three-object exit condition, and the break |
 
 **Values live in `SceneBuilder`, mechanisms live in components.** Shaders and scripts take the
 number; they do not choose it.
@@ -149,10 +168,24 @@ Script-by-script detail: `docs/architecture.md`.
 - **URP only.** Materials must use `Universal Render Pipeline/Lit`, never `Standard` — a `Standard`
   material renders magenta. Transparency needs the blend modes **and** the
   `_SURFACE_TYPE_TRANSPARENT` keyword; setting alpha alone does nothing.
-- **This project cannot currently light a pure metal.** Anything imported at `metallicFactor` 1 comes
-  in black. Drop it (~0.3) or it has no diffuse term at all.
+- **~~This project cannot currently light a pure metal.~~ IT CAN, NOW THAT THE PROBES ACTUALLY
+  REFLECT THE ROOM.** Every reflection probe was capturing an empty world and losing even that on
+  save — four independent faults, listed in `docs/gotchas.md`. A metal is *entirely* reflection, so
+  that was the whole of it. The three escape objects are metallic 0.9. **If a metal ever renders
+  black again, check the probes before touching the material** — `BakeReflectionProbes` logs
+  `wired/total`, and anything but `n/n` is the cause.
+- **Anything generated by script is NOT static, and a baked probe only sees static renderers.** A new
+  room's geometry is invisible to the bake unless `MarkReflectionProbeStatic` reaches it — it walks
+  the scene, so it will, but a new *mover* has to be added to `MovesDuringPlay` or it bakes into the
+  reflection in a pose it does not hold.
 - **Do not reach for a reflection probe as a preview of anything** — a probe of a white room is a
-  blank white field.
+  blank white field. That is about reading a probe as an *image*; it is still the right thing to
+  reflect.
+- **A near-mirror suits a small object; the walls' 0.85 does not.** At wall roughness a featureless
+  white room blurs into a wash and a small object reads as plastic. At 0.97 it resolves the ceiling
+  fixtures as distinct shapes, and that structure is what the eye reads as metal.
+- **On a metal, base colour is REFLECTANCE, not paint.** A display colour fed straight in gives a
+  dark, muddy mirror; real coloured metals sit high (gold ~1.0/0.77/0.34). Lift it toward white.
 - **UI: read `m_AnchoredPosition`, not `m_LocalPosition`** — the latter is stale for a
   `RectTransform`. Adding a `Canvas` or any UI component *replaces* `Transform` with `RectTransform`,
   discarding a position written before that call.

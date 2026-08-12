@@ -29,6 +29,7 @@ namespace IterationRoom
         public PlayerHand playerHand;
         public BalloonField balloonField;
         public ChessBoard chessBoard;
+        public CubeRoom cubeRoom;
         public GhostReplayer ghostPrefab;
         public Transform ghostParent;
         public IterationLabel iterationLabel;
@@ -38,10 +39,12 @@ namespace IterationRoom
         public WallPanelDisplay wallPanels;
         public CameraShaker cameraShaker;
 
-        // The way out. Room3's north doorway, the room past it, and the card that closes the run.
-        public EscapeTrigger escapeTrigger;
-        // Room4, which the loop cannot reach. The player keeps control inside it - see
-        // FinalRoomSequence - so this runs between the loop stopping and the ending card.
+        // Room4, which the loop now runs through like every other room. A run that reaches it with
+        // two of the three objects gets pulled back to the bed and does it again.
+        //
+        // The doorway trigger is NOT held here any more. It used to end the run, which was the loop's
+        // business; it arms the last room's console now, which is that room's - so it is wired to
+        // FinalRoomSequence and this class never asks about it.
         public FinalRoomSequence finalRoom;
         public EndingSequence endingSequence;
 
@@ -168,12 +171,21 @@ namespace IterationRoom
 
                 balloonField?.ResetField();
 
+                // Room4 rewinds like anywhere else now: the console goes down, the recesses forget
+                // what was in them, and reaching the last doorway has to be done again. Before the
+                // clock ran through that room there was nothing here to reset, because getting there
+                // ended the run.
+                finalRoom?.ResetRoom();
+
                 // AFTER the sweep, like the balloon field and for the same reason. The sweep is what
                 // puts the pieces back - scattered ones on the floor, the rest on their squares - and
                 // this is what forgets who was home and puts the untouched ones back out of play. Run
                 // the other way round, every piece the sweep returned would still be marked seated and
                 // the room would open on a puzzle it thought was already solved.
                 chessBoard?.ResetBoard();
+                // Same position in the order and for the same reason: the sweep puts the cubes back
+                // on the floor, and this forgets who was home and takes the reward's request back.
+                cubeRoom?.ResetRoom();
 
                 // Hidden for the whole wake-up: resetting parks them all on the bed spawn, which is
                 // exactly where the player is about to open their eyes.
@@ -210,7 +222,7 @@ namespace IterationRoom
                 endRequested = false;
                 IterationRunning = true;
 
-                while (ElapsedTime < loopDuration && !endRequested && !Escaped)
+                while (ElapsedTime < loopDuration && !endRequested && !RunComplete)
                 {
                     ElapsedTime += Time.deltaTime;
 
@@ -247,7 +259,7 @@ namespace IterationRoom
                 // the collapse held at full, the pull-in, the blink, the panels going out, the
                 // recording becoming another ghost. None of it should happen to a player who just
                 // got out, and the ending is largely defined by their absence.
-                if (Escaped)
+                if (RunComplete)
                 {
                     yield return RunEnding();
                     yield break;
@@ -297,7 +309,9 @@ namespace IterationRoom
             }
         }
 
-        private bool Escaped => escapeTrigger != null && escapeTrigger.PlayerEscaped;
+        // THE ONLY EXIT CONDITION IN THE GAME, and it used to be a doorway. Reaching Room4 ended a
+        // run; now it starts an errand there, and what ends the run is the console being filled.
+        private bool RunComplete => finalRoom != null && finalRoom.Completed;
 
         // The run is over. Note what this does NOT do, which is most of its design - see
         // EndingSequence for the reasoning behind each omission.
@@ -305,11 +319,9 @@ namespace IterationRoom
         {
             RunOver = true;
 
-            // CONTROL IS NOT TAKEN HERE, and it used to be. Behind that doorway was a sealed cap,
-            // so the player was mid-stride into a wall and the kindest thing was to stop them.
-            // There is a room there now: the loop has stopped, nothing can pull them back to the
-            // bed, and letting them walk in on their own feet is what makes the last thing in the
-            // game an action rather than a cutscene. FinalRoomSequence takes control at the press.
+            // CONTROL IS NOT TAKEN HERE. The player has just put the last object in and the room is
+            // about to come apart around them; standing in it and watching that happen is the whole
+            // of the ending, and it is theirs to stand in. It is taken at the scrim, below.
 
             // Stopped and discarded. The run that got out does not become a ghost - there is no
             // next iteration for it to haunt, and building one would be the loop's habit outliving
@@ -337,11 +349,13 @@ namespace IterationRoom
             // so its absence is the quietest and clearest signal that this one is not turning over.
             ambience?.FadeOutTone(3.5f);
 
-            // The final room: the plinth, the plate, and the break. It announces the cycle broken
-            // itself, at the press, because walking into a room is not what breaks one.
+            // The break: the way back seals, the facility says what has happened, and every panel in
+            // the building fails. Started here rather than by the room itself, because the collapse
+            // above has to have let go first - the loop trying to take the player and stopping is
+            // what the last object landing means.
             if (finalRoom != null)
             {
-                yield return finalRoom.Run();
+                yield return finalRoom.RunBreak();
             }
             else
             {
@@ -351,7 +365,8 @@ namespace IterationRoom
                 narration?.AnnounceCycleBroken();
             }
 
-            // Taken for good by now either way. The press does it first, and this is the backstop.
+            // Held all the way through the break and taken here, at the scrim. Ten seconds pinned in
+            // place watching a room fail would be the game freezing rather than the room failing.
             if (playerController != null) playerController.ControlEnabled = false;
 
             if (endingSequence != null)

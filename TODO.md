@@ -7,16 +7,18 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
 
 ## Next steps
 
-1. **Expand Room2: several keys, several locks, and the side doors to hang them on.** Promoted to first by the 2026-08-12 play-through, which found the thing this was speculative about: **Room2's popping does not accumulate** (the key is visible through its balloon, so it is spot-and-pop-one), and the three pins therefore have no consumer. More keys than one iteration has time to deliver is what converts popping into an errand iterations divide, and it is the same shape as the key mechanic that already works rather than a new one.
+1. **Ghost reset trigger** (spec §4.6, which leaves the trigger undecided). **Promoted to first by the 15-iteration clear: the player finishes this game sharing the building with FOURTEEN past selves** — not the "at least six" this item was written against, and not a number anybody has looked at. **This is the last real gap**, and ghost possession has made it heavier: a reset now takes the key back and **re-locks Room2**, and it un-tidies twelve chess pieces and six cubes, so the reset has a real cost for the first time. That may be exactly right (resetting should hurt) or fatal (nobody can afford it). Either way the two can no longer be designed apart.
+   - Crowding is now a **performance** question as well as a legibility one — fourteen skinned, afterimaged figures is a number to profile, not to assume, and the WebGL build is the case that matters.
+2. **Expand Room2: several keys, several locks.** The 2026-08-12 play-through found the thing this was speculative about: **Room2's popping does not accumulate** (the key is visible through its balloon, so it is spot-and-pop-one), and the three pins therefore have no consumer. More keys than one iteration has time to deliver is what converts popping into an errand iterations divide, and it is the same shape as the key mechanic that already works rather than a new one.
+   - **Demoted from first**, because the argument that carried it there was content length and the 15-iteration clear has answered that. What is left is the narrower and still-true point: the pin supply is infrastructure with nothing consuming it.
    - Rides on systems that exist: `ItemRegistry` is already id→supply and id→socket, `KeyLock` gates on `hand.Holding(id)`, item ids are wire values, pops carry a `balloonId`, and `signals` has 28 of its 32 bits free.
-   - **The one real cost is the geometry.** `BuildRoomShell(..., Rect southCutout, Rect northCutout)` takes openings on Z only, and `BuildDoorPocketFill` is Z-oriented too, so doors in the X walls need the shell builder extended. Contained, but not a parameter change.
-   - It also answers the itch.io "small" feedback with no new mechanic.
-2. **Ghost reset trigger** (spec §4.6, which leaves the trigger undecided). Ghosts accumulate forever and the run now needs at least six, so the room is genuinely crowded by the time it is solved. **This is the last real gap**, and ghost possession has just made it heavier: a reset now takes the key back and **re-locks Room2**, so the reset has a real cost for the first time. That may be exactly right (resetting should hurt) or fatal (nobody can afford it). Either way the two can no longer be designed apart.
+   - **ROOM2'S WALLS ARE SPENT, so "the side doors to hang them on" no longer exists as written.** South is Room1, north is Room3 behind the GOLD key, west is the chess room behind the RED, east is the cube room behind the BLUE. More locks on Room2 means either restructuring its shell or hanging the extra keys on doors that are already there — several keys for ONE door (all of them turned before it opens) is the version that costs no geometry at all.
+   - **The one real cost is the geometry**, if a new wall opening is what it comes to. `BuildRoomShell(..., Rect southCutout, Rect northCutout)` takes openings on Z only, and `BuildDoorPocketFill` is Z-oriented too, so doors in the X walls need the shell builder extended. Contained, but not a parameter change.
 3. **Re-deploy to itch.io.** A build is ready at `Build/iteration-webgl.zip` and a new project page is being set up; the upload itself is manual (no butler on this machine).
 4. **Rooms beyond Room4** — requested now, by itch.io players, so no longer speculative. `3 * RoomPitch` is taken by the ending room, so a new puzzle room goes at `4 * RoomPitch` and **Room4 moves out behind it**: Room4's south doorway stays, its north stays sealed, `DoorPocketFill_4` appears, and `EscapeTrigger` moves to the new last puzzle room's north threshold.
-   - **Distance is measured now, and it is not the constraint.** The 2026-08-12 run cleared in four iterations at `walkSpeed` 2.5 with sprint never used, so the clock has slack even at half the old speed. Anything further out must still be **cheap in seconds and expensive in iterations**, the way Room3 is — but the reason is that iterations are the currency, not that metres are scarce.
+   - **Distance is not the constraint, EXCEPT on the final lap.** The 2026-08-12 clear ran at `walkSpeed` 2.5 with sprint never used, so the clock has slack in every ordinary iteration. But the last lap — three collections plus the walk to the console — came in with **8 seconds to spare**, and moving Room4 out behind a new room spends that margin directly. Measure the new lap before committing to the move; a `RewardPlinth` closer to the player's route, or sprint being worth using, are the levers if it does not fit.
    - `RecordedFrame.signals` is a `uint`, so **32 recorded interactables is a hard cap**; four are used.
-   - The tree room (`Iteration — Future Ideas.md` §3) is the strongest candidate and is now unblocked: multiple axes needed the item pool, which shipped. Its threshold is a HEADCOUNT under the decision in `docs/decisions.md` — N simultaneous choppers cannot be met before iteration N — so pick that number against the four-iteration floor the run actually has, not against a guess.
+   - The tree room (`Iteration — Future Ideas.md` §3) is the strongest candidate and is now unblocked: multiple axes needed the item pool, which shipped. Its threshold is a HEADCOUNT under the decision in `docs/decisions.md` — N simultaneous choppers cannot be met before iteration N — so pick that number against the **fifteen-iteration** run the game actually has, not against a guess.
 
 ## Queued fixes
 
@@ -49,22 +51,17 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
    final escape. Decide before it is built. (§8's chess board is **settled and built** — the way out
    was to tell the player the arrangement and charge them the walk, which moves it into accumulation.
    See `docs/puzzle-design.md`.)
-4. **The red cube on Room2West's plinth has no consumer.** It is built as what the room pays out and
-   named for what it is meant to become — a key the clear condition asks for — but nothing asks for
-   it, and it is deliberately **not** a `CarryableItem` until something does. Two questions to settle
-   together: what it opens, and whether it can survive the loop at all. Everything else in this game
-   is swept back to origin every sixty seconds, so a key that has to be **kept** is a new rule, not a
-   new object. Once that is answered, making it carryable is an `itemId` and an icon.
-5. **Room2West is unplayed.** Four numbers in it were picked rather than measured, and each is one
+4. **Room2West's four picked numbers are playable but still unmeasured.** The 15-iteration clear
+   proves the room works end to end; it does not say these are the right values, and each is one
    constant: `ScatteredPieceCount` (12 — how many iterations the room is), `HeldPieceScale` (0.28 — a
    king fills 0.31m of the view), `ChessReward.openTravel` (1.7 each way, which leaves both halves
-   about a metre off the walls), and the room starting at intensity **0** — legible only because the
-   building's ambient fill is not part of those lights, which is an argument rather than a
-   measurement.
-6. **Ghosts carrying chess pieces is verified in code and never seen.** `ghostLocalEuler` stands a
-   piece up against the wrist anchor, which was tuned for the key; whether a past self reads as
-   *carrying a rook* is a look-at-it question. One number if not.
-7. **Timed chains (future-ideas §4) fight `signals` semantics.** A ghost advances by elapsed time and
+   about a metre off the walls), and the room starting at intensity **0**. Twelve is the one worth
+   attacking first: it and the cube room's six are what took the run from four iterations to fifteen,
+   so **this constant is the game's length dial**. Same status for the ghost carry pose: a clear means
+   past selves carrying pieces have now been on screen and nothing was reported wrong, which is not
+   the same as having looked at whether a ghost reads as *carrying a rook*. `ghostLocalEuler` was
+   tuned for the key; one number if it does not.
+5. **Timed chains (future-ideas §4) fight `signals` semantics.** A ghost advances by elapsed time and
    can skip several recorded frames in one tick, which is why press-type interactables stretch their
    pulse. Narrow timing windows are exactly where that bites. Plain simultaneity is safe; sequencing
    with delays needs its own design pass.

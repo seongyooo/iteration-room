@@ -64,7 +64,18 @@ namespace IterationRoom.EditorTools
             new KeySpec { itemId = BlueKeyItemId, materialName = "KeyBlue",
                           metal = new Color(0.16f, 0.47f, 3.98f), display = new Color(0.16f, 0.36f, 0.72f) },
         };
+        // The three objects the final room wants, one per puzzle room. All three exist now, so all
+        // three of Room4's recesses name one - which is what makes `FinalSlot.AllFilled` a real
+        // question. Nothing asks it yet: see TODO.md for why the last button is still ungated.
+        private const string TriangleKeyItemId = "KeyTriangle";
+        private const string CubeKeyItemId = "KeyCube";
+        private const string SphereKeyItemId = "KeySphere";
+
         private const string FurnitureDir = "Assets/ArtAssets/Furniture";
+        // Meshes this file builds rather than imports. Written to disk because a Mesh created at
+        // build time and left in memory does not survive the scene being saved - see
+        // TriangularPrismMesh.
+        private const string GeneratedDir = "Assets/ArtAssets/Generated";
         // 5.4m across the board: 1.8 first, then twice that, then half again. Derived, not chosen -
         // chess.glb spans 3.155m at its 0.1776 import scale, so it is 17.77m at scale 1 and 5.4 / 17.77
         // is this. A square is 0.675m and the pieces stand 0.46 to 1.09, so a king is waist-high and the
@@ -90,8 +101,12 @@ namespace IterationRoom.EditorTools
         //
         // Twelve, because the cost is paid in ITERATIONS and they compound: a player who tidies four in
         // a loop has four past selves tidying four for them in the next, so twelve is about three
-        // iterations of work and not twelve. Play-testing measured a four-iteration run for the whole
-        // game (CLAUDE.md), and a room that doubled that would be the game rather than a room in it.
+        // iterations of work and not twelve.
+        //
+        // MEASURED 2026-08-12: the whole game clears in FIFTEEN iterations, up from the four it took
+        // before this room and the cube room were on the critical path. So this constant is the
+        // game's length dial, and twelve is not a small number - it is most of the run. Turn it down
+        // before adding rooms, not after.
         //
         // The other twenty stay on their squares. That is not padding - it is the statement of the
         // puzzle: a board that is nearly right shows the player exactly which squares are empty, and
@@ -101,6 +116,7 @@ namespace IterationRoom.EditorTools
         // Fixed, because a scene is BUILD OUTPUT: two builds of the same commit have to lay the room
         // out identically, or a bug found in one is not reproducible in the next.
         private const int ChessScatterSeed = 20260812;
+        private const int CubeScatterSeed = 20260813;
         private const string SettingsDir = "Assets/Settings";
         // Wall panel albedo. Near-white is the reference film's clinical room; the dark value reads
         // as a switched-off display, which only becomes legible because the panels are glossy and
@@ -121,6 +137,15 @@ namespace IterationRoom.EditorTools
         private static Renderer[] Room2WestPanels;
 
         private const string TexturesDir = "Assets/Textures";
+        // Symbols printed on the cube room's cubes and on the recesses that want them. Their own
+        // folder because they are WORLD textures - mipmapped, opaque, imported as Default - where
+        // everything in Icons/ is a HUD sprite with its shape in the alpha.
+        private const string SymbolsDir = TexturesDir + "/Symbols";
+        // Near-white paper and near-black ink, which is the building's own palette. Contrast rather
+        // than colour is the whole point: a spade has to be a spade to a player who cannot tell red
+        // from green, and at whatever brightness the room happens to be.
+        private static readonly Color SymbolPaper = new Color(0.88f, 0.88f, 0.90f);
+        private static readonly Color SymbolInk = new Color(0.07f, 0.07f, 0.09f);
         private const string IconsDir = TexturesDir + "/Icons";
         private const string MenuBackgroundPath = TexturesDir + "/MenuBackground.png";
         // The menu capture's tripwire colour, and how much of it a frame is allowed to show.
@@ -360,6 +385,11 @@ namespace IterationRoom.EditorTools
                 BuildChessSet(room.transform, Room2WestCentre, room2WestDoorway, propMat,
                               Room2WestLights, Room2WestPanels);
 
+            // The blue door's room: six symbol cubes on the floor and six recesses in the walls that
+            // want them, paying out the blue sphere.
+            (CarryableItem[] symbolCubes, CubeRoom cubeRoom) =
+                BuildCubeRoom(room.transform, Room2EastCentre, propMat);
+
             // Room3: TWO pads and one door that needs both at once. Deliberately the plainest room
             // of the three - no items, nothing to search, nothing to carry. Room2 already costs the
             // player a key retrieval every iteration, and a second expensive room behind it would be
@@ -389,11 +419,34 @@ namespace IterationRoom.EditorTools
             };
             Door door3 = BuildPadDoor(room.transform, "Door3", roomThreeZ, roomThreePads, propMat);
 
-            // The way out, and the only exit condition in the game. Still sat ON Room3's north
-            // threshold rather than past it, though the reason has changed: it used to be that the
-            // FarCap was right behind that doorway with no "through" to stand in, and now there is
-            // a whole room through it. Firing here is what lets the player walk into Room4 with the
-            // clock already stopped - the loop ends on the threshold, and the ending happens after.
+            // ROOM3 PAYS OUT TOO, on exactly the condition that opens its door. Both pads held raises
+            // a plinth carrying the yellow triangle, and lets it go again when one is released - the
+            // same promise the door makes, because it is the same rule (`FloorButton.AllActive`).
+            //
+            // DEAD CENTRE, between the two pads and on the straight walk from the south door to the
+            // north one. That axis was ruled out for a PAD, and for a reason that does not apply here:
+            // a pad there fires by accident, where this is the one thing in the room the player is
+            // meant to walk into. It also keeps the mirror symmetry the pair of pads is built on.
+            (Transform yellowPlinth, Transform yellowSeat, CarryableItem yellowKey) =
+                BuildKeyPlinth(room.transform, "YellowPlinth", new Vector3(0f, 0f, roomThreeZ), propMat,
+                    SlotShape.Triangle, new Color(0.95f, 0.78f, 0.12f), "KeyTriangleMat",
+                    TriangleKeyItemId, "TRIANGLE", TriangleIcon());
+
+            RewardPlinth yellowRise = yellowPlinth.gameObject.AddComponent<RewardPlinth>();
+            yellowRise.pads = roomThreePads;
+            yellowRise.plinth = yellowPlinth;
+            yellowRise.key = yellowKey;
+            yellowRise.keySeat = yellowSeat;
+            // Clear of the floor slab with the object's own height counted in, so nothing shows
+            // through before the pads are held.
+            yellowRise.riseHeight = 1.25f;
+
+            // THE WAY INTO ROOM4, and no longer the way out of the game. Crossing this latches
+            // "the player got here this iteration", which is what raises the console through the
+            // floor beyond it; the clock keeps running and what ends a run is putting all three
+            // escape objects into that console. Still sat ON the threshold rather than past it,
+            // which is now simply where a doorway is - it used to be forced, because the FarCap was
+            // right behind that opening with no "through" to stand in.
             // See EscapeTrigger and FinalRoomSequence.
             GameObject escapeGO = new GameObject("EscapeTrigger");
             escapeGO.transform.SetParent(room.transform, false);
@@ -403,10 +456,6 @@ namespace IterationRoom.EditorTools
             // Half the doorway plus a little, so only a player actually in the opening qualifies -
             // without this, anyone at the same Z anywhere along the north wall would count.
             escape.halfWidth = DoorWidth / 2f + 0.05f;
-
-            // Room3 is also where the room finally explains the end-cycle control, on all four
-            // walls. Narration is wired after BuildAudio, below.
-            PanelMessage wallMessage = BuildWallMessage(room.transform, roomThreeZ);
 
             // The wire format for ghost playback: an entry's index is its bit in
             // RecordedFrame.signals, so this is appended to and never reordered. The recorder and
@@ -476,6 +525,17 @@ namespace IterationRoom.EditorTools
             // more entries in a list NearestWantingHint walks every frame, which is nothing next to what
             // it would cost to have the one room full of takeable objects be the room with no prompts.
             pinTargets.AddRange(chessPieces);
+            // And Room3's triangle, which is only ever reachable while two past selves are standing on
+            // the pads - the one moment in the game where a prompt appears because somebody ELSE is
+            // holding a condition open.
+            pinTargets.Add(yellowKey);
+            // The cube room, both halves of it: the six cubes on the floor and the six recesses that
+            // want them. The recesses are E fixtures like the drawer and the locks, so they get the
+            // same disc; nearest-wins keeps a player standing at one wall from being prompted by the
+            // recess behind them.
+            pinTargets.AddRange(symbolCubes);
+            pinTargets.AddRange(cubeRoom.slots);
+            pinTargets.Add(cubeRoom.reward.key);
             ControlHintDisplay hints = BuildControlHints(canvas, player.GetComponentInChildren<Camera>(),
                 player.GetComponent<BalloonTool>(), pinTargets.ToArray());
 
@@ -504,7 +564,8 @@ namespace IterationRoom.EditorTools
             // Room4 and the plate that ends the run. Its narration is wired after BuildAudio below;
             // control is LoopManager's to take, at the scrim, so nothing here needs the player.
             FinalRoomSequence finalRoom = BuildFinalRoom(room.transform, 3f * RoomPitch, propMat,
-                                                        door3, wallDisplay, shaker);
+                                                        door3, wallDisplay, shaker, hand,
+                                                        CubeKeyItemId, SphereKeyItemId, TriangleKeyItemId);
 
             // Appended after the fact because both buttons live in rooms built later than the hint
             // display. They are the two E fixtures OUTSIDE the loop - one before the first
@@ -513,15 +574,42 @@ namespace IterationRoom.EditorTools
             var hintTargets = new System.Collections.Generic.List<MonoBehaviour>(hints.interactTargets)
             {
                 startButton,
-                finalRoom.button,
             };
+            // And the console's three recesses, which are E fixtures like any other now that the
+            // clock runs through the room they are in.
+            hintTargets.AddRange(finalRoom.slots);
             hints.interactTargets = hintTargets.ToArray();
             hints.calibration = calibration;
-            hints.finalRoom = finalRoom;
+            // "The player got through the last door", which arms Room4's console. Wired after the
+            // fact because the trigger is built with Room3 and the console with Room4.
+            finalRoom.arrival = escape;
 
-            // Room2's wordless sign, built here rather than beside Room3's because it needs the
+            // Room2's wordless sign. Built here rather than with Room2 because it needs the
             // player's BalloonTool: it retires on the first pop, not on the first visit.
             BuildBalloonPictogram(room.transform, RoomPitch, player.GetComponent<BalloonTool>());
+
+            // The end-cycle sign, IN ROOM1 AND FROM ITERATION 2 - it used to hang in Room3 and go up
+            // on the first visit there. Same four walls, same words, different address:
+            //
+            //   - Room1 is where every iteration BEGINS, so the player is standing still with
+            //     nothing to do yet, which is the only moment in this game that is reliably free.
+            //     Room3 could only ever catch them mid-errand.
+            //   - Iteration 2 is the earliest the message means anything. It is an offer to skip
+            //     dead time, and a player who has not yet watched a clock run out has no dead time
+            //     to skip. Room3 was the old way of buying that same delay - "by the time they get
+            //     here they will have felt it" - expressed as distance instead of as iterations.
+            //   - It retires on the ACTION, not on leaving the room, and here that is load-bearing
+            //     rather than a refinement: the player can be out of Room1 in under three seconds,
+            //     so the leave-once rule could retire a sign nobody read. See PanelMessage.
+            //
+            // Built here for the same reason as the pictogram - it needs something off the canvas.
+            PanelMessage wallMessage = BuildWallMessage(room.transform, 0f);
+            wallMessage.showFromIteration = 2;
+            // Long enough to clear "Iteration 2, 60 seconds remaining." Announcements replace each
+            // other rather than stacking, so a chime at t=0 in this room truncates the loop's own
+            // line - which no room had to worry about while this lived three rooms away.
+            wallMessage.announceDelay = 5f;
+            wallMessage.retireOnEndCycle = canvas.GetComponentInChildren<EndCycleControl>(true);
 
             (NarrationDirector narration, RoomAmbience ambience) =
                 BuildAudio(player, new[] { door, door2, door3 },
@@ -548,6 +636,7 @@ namespace IterationRoom.EditorTools
             loop.playerHand = hand;
             loop.balloonField = balloonField;
             loop.chessBoard = chessBoard;
+            loop.cubeRoom = cubeRoom;
             loop.ghostPrefab = ghostPrefab;
             loop.ghostParent = ghostParent.transform;
             loop.iterationLabel = label;
@@ -556,10 +645,28 @@ namespace IterationRoom.EditorTools
             loop.ambience = ambience;
             loop.wallPanels = wallDisplay;
             loop.cameraShaker = shaker;
-            loop.escapeTrigger = escape;
             loop.finalRoom = finalRoom;
             loop.endingSequence = ending;
             loop.calibration = calibration;
+
+            // THE PROBES ARE BAKED HERE, LAST, AND THAT IS A FIX RATHER THAN A TIDY-UP.
+            //
+            // They were baked where they are built, inside BuildShell, and it did not survive: every
+            // probe in the saved scene came back with a NULL bakedTexture even though all seven .exr
+            // files were on disk and correct. BuildShell runs before SetupLighting, and changing the
+            // scene's lighting after a bake is what drops the reference - so the game shipped with
+            // seven reflection probes that reflected nothing at all.
+            //
+            // What that silently cost is much wider than the probes: the walls are deliberately
+            // glossy (smoothness 0.85, see ApplySurfaceDetail) and that whole decision is written
+            // down as only working "because the reflection probes give it the room to mirror". They
+            // were not. And it is the real reason behind this project's "cannot light a pure metal"
+            // rule - a metal is ALL reflection, so a metal with an empty probe has nothing to be.
+            //
+            // Baking last is also strictly better than baking early: the rooms are furnished by now,
+            // so what a glossy wall mirrors is the room as the player sees it rather than a bare
+            // shell. Before the save, because the reference lives in the scene.
+            BakeReflectionProbes();
 
             Directory.CreateDirectory("Assets/Scenes");
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -943,6 +1050,14 @@ namespace IterationRoom.EditorTools
             // as a pass input today, which is exactly the kind of accident that breaks the day the
             // renderer feature is retuned - so the dependency is declared here rather than relied on.
             SetIfPresent(so, "m_RequireDepthTexture", true);
+
+            // URP GATES BOX PROJECTION AND PROBE BLENDING AT THE ASSET, and both were OFF. Setting
+            // `probe.boxProjection = true` on the component - which BuildReflectionProbe has always
+            // done, with a comment explaining why this room shape needs it - does nothing at all
+            // while this is false. Blending matters at the doorways, where two rooms' probes
+            // overlap and an unblended switch pops as the player walks through.
+            SetIfPresent(so, "m_ReflectionProbeBoxProjection", true);
+            SetIfPresent(so, "m_ReflectionProbeBlending", true);
 
             so.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(urp);
@@ -1440,6 +1555,20 @@ namespace IterationRoom.EditorTools
                 }, sign);
             }
 
+            // The same glyph as an OPAQUE picture, for the ones that go on an object in the world
+            // rather than in the HUD. Alpha is not an option there: a lit surface with the shape in
+            // its alpha is a white card, because nothing in this project reads alpha off an opaque
+            // material. The coverage becomes ink over paper instead.
+            public Texture2D ToOpaqueTexture(string name, Color paper, Color ink)
+            {
+                Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { name = name };
+                Color[] pixels = new Color[size * size];
+                for (int i = 0; i < pixels.Length; i++) pixels[i] = Color.Lerp(paper, ink, coverage[i]);
+                tex.SetPixels(pixels);
+                tex.Apply();
+                return tex;
+            }
+
             // White, with the whole shape carried in alpha: the HUD tints these through
             // Image.color, and a glyph with baked-in colour could not be recoloured to match.
             public Texture2D ToTexture(string name)
@@ -1451,6 +1580,58 @@ namespace IterationRoom.EditorTools
                 tex.Apply();
                 return tex;
             }
+        }
+
+        // The same glyph as a world texture: opaque, mipmapped, and imported as a plain texture
+        // rather than a sprite. Mipmaps matter here where they do not in the HUD - these are read at
+        // four metres across a room, and an unmipped glyph at that distance is a shimmering mess.
+        private static Texture2D SaveSymbolTexture(IconCanvas canvas, string name)
+        {
+            if (!Directory.Exists(SymbolsDir)) Directory.CreateDirectory(SymbolsDir);
+
+            string path = $"{SymbolsDir}/{name}.png";
+            Texture2D tex = canvas.ToOpaqueTexture(name, SymbolPaper, SymbolInk);
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+
+            if (AssetImporter.GetAtPath(path) is TextureImporter importer)
+            {
+                importer.textureType = TextureImporterType.Default;
+                importer.alphaIsTransparency = false;
+                importer.mipmapEnabled = true;
+                importer.wrapMode = TextureWrapMode.Clamp;
+                importer.filterMode = FilterMode.Bilinear;
+                importer.textureCompression = TextureImporterCompression.Uncompressed;
+                importer.SaveAndReimport();
+            }
+
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+
+        // A lit material with a picture on it, which is the first one in this building - every other
+        // surface here is a flat colour. `_BaseMap` AND `mainTexture` are both set because URP reads
+        // the first and a good deal of Unity's own tooling still reads the second.
+        private static Material MakeSymbolMaterial(string name, Texture2D map)
+        {
+            string path = $"{MaterialsDir}/{name}.mat";
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(OpaqueShader());
+                AssetDatabase.CreateAsset(mat, path);
+            }
+
+            mat.shader = OpaqueShader();
+            mat.color = Color.white;
+            mat.SetTexture("_BaseMap", map);
+            mat.mainTexture = map;
+            // Matte. A glyph is being read, and a specular highlight across it is the one thing that
+            // stops it being readable from an angle.
+            SetSmoothness(mat, 0.08f);
+            EditorUtility.SetDirty(mat);
+            return mat;
         }
 
         private static Sprite SaveSprite(IconCanvas canvas, string name)
@@ -1819,7 +2000,13 @@ namespace IterationRoom.EditorTools
             go.transform.localPosition = new Vector3(xCenter, RoomHeight * 0.5f, zCenter);
 
             ReflectionProbe probe = go.AddComponent<ReflectionProbe>();
-            probe.mode = UnityEngine.Rendering.ReflectionProbeMode.Baked;
+            // CUSTOM, NOT BAKED, and this one word is the whole bug. A Baked probe does not carry
+            // its cubemap: the reference lives in the SCENE'S LIGHTING DATA ASSET, which this build
+            // never generates, so `bakedTexture` was set in memory by the bake and came back NULL
+            // the moment the scene was saved and reopened. A Custom probe holds the cubemap in a
+            // field on the component, which serialises with everything else. Verified by reopening
+            // the saved scene and reading it back - see BakeReflectionProbes.
+            probe.mode = UnityEngine.Rendering.ReflectionProbeMode.Custom;
             probe.boxProjection = true;
             probe.size = longAxisIsX
                 ? new Vector3(RoomDepth, RoomHeight, RoomWidth)
@@ -1831,8 +2018,111 @@ namespace IterationRoom.EditorTools
             probe.nearClipPlane = 0.05f;
             probe.farClipPlane = 40f;
 
+            // NOT BAKED HERE. It used to be, and the reference did not survive to the saved scene -
+            // see BakeReflectionProbes, called at the end of Build(), for what went wrong and why
+            // last is the right place for it.
+        }
+
+        // Bake every probe in the scene, whatever built it. Walking the scene rather than taking a
+        // list means a room added later cannot be forgotten - which is exactly how this would break
+        // again, and quietly, since an unbaked probe looks like a slightly flat room rather than
+        // like an error.
+        //
+        // `-nographics` cannot render, and a bake is a render: the whole pass is skipped there. That
+        // leaves the previous .exr files in place, which is the same bargain CaptureMenuBackground
+        // makes - stale reflection data is a far better outcome than a failed build.
+        private static void BakeReflectionProbes()
+        {
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
+            {
+                Debug.Log("[SceneBuilder] Reflection probes NOT baked (-nographics); existing cubemaps left in place.");
+                return;
+            }
+
+            int flagged = MarkReflectionProbeStatic();
+
             Directory.CreateDirectory(TexturesDir);
-            Lightmapping.BakeReflectionProbe(probe, $"{TexturesDir}/{roomName}_Reflection.exr");
+            ReflectionProbe[] probes = UnityEngine.Object.FindObjectsByType<ReflectionProbe>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+
+            int wired = 0;
+            foreach (ReflectionProbe probe in probes)
+            {
+                // The name carries the room, and the room names the cubemap - so a rebuild
+                // overwrites the same asset rather than accumulating one per build.
+                string roomName = probe.name.Replace("_ReflectionProbe", string.Empty);
+                string path = $"{TexturesDir}/{roomName}_Reflection.exr";
+                if (!Lightmapping.BakeReflectionProbe(probe, path)) continue;
+
+                // THE ASSIGNMENT IS THE POINT, not the bake. The bake writes the .exr and that part
+                // always worked - seven correct cubemaps sat on disk for as long as this was broken.
+                // What was missing was a reference that survives the save, and on a Custom probe
+                // that is this field. Imported explicitly first: the file has just been written
+                // underneath the AssetDatabase, and loading it without the import returns null.
+                AssetDatabase.ImportAsset(path);
+                Cubemap cube = AssetDatabase.LoadAssetAtPath<Cubemap>(path);
+                if (cube == null) continue;
+                probe.customBakedTexture = cube;
+                wired++;
+            }
+
+            // Reported as a count against a count, because the failure this exists to catch is a
+            // probe that ends up with no cubemap - which renders as a room that looks very slightly
+            // flat, and nothing else. If this ever says anything but n/n, the metal will go black.
+            Debug.Log($"[SceneBuilder] Reflection probes baked and wired: {wired}/{probes.Length} " +
+                      $"({flagged} renderers reflection-probe-static)");
+        }
+
+        // WHAT A BAKED PROBE CAPTURES IS STATIC GEOMETRY, AND NOTHING IN THIS SCENE WAS STATIC.
+        //
+        // This is the bottom of the reflection-probe bug and the last of three separate faults on
+        // one feature. The other two - baking before SetupLighting invalidated it, and a Baked probe
+        // keeping its cubemap in lighting data this build never generates - were both real, and
+        // fixing them still left the objects mirroring a brown default skybox. The reason is that
+        // `Lightmapping.BakeReflectionProbe` renders only renderers flagged ReflectionProbeStatic,
+        // SceneBuilder creates every object from script and never flagged one, so all seven probes
+        // were faithfully capturing an empty world. Proved by assigning the cubemap as the GLOBAL
+        // reflection and getting the same brown: the probe was applying, its contents were sky.
+        //
+        // ONLY the ReflectionProbeStatic flag is set. ContributeGI would put this scene into
+        // lightmapping it does not use, and BatchingStatic would change how it draws - neither is
+        // being asked for, and a static flag set for the wrong reason is very hard to notice later.
+        //
+        // MOVERS ARE EXCLUDED, by the components that move them rather than by name. A door baked
+        // open, or a plinth baked at the height SceneBuilder authors it at rather than the sunk
+        // position it starts the game in, would put a thing in the reflection that is not in the
+        // room. Everything else - shell, panels, fixtures, furniture, board - is genuinely fixed.
+        private static int MarkReflectionProbeStatic()
+        {
+            int flagged = 0;
+            Renderer[] renderers = UnityEngine.Object.FindObjectsByType<Renderer>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+
+            foreach (Renderer r in renderers)
+            {
+                if (MovesDuringPlay(r.transform)) continue;
+                GameObjectUtility.SetStaticEditorFlags(r.gameObject, StaticEditorFlags.ReflectionProbeStatic);
+                flagged++;
+            }
+            return flagged;
+        }
+
+        // Walks up, because the thing that moves is usually a parent of the thing that renders - a
+        // door's slab, a plinth's key, a ghost's mesh.
+        private static bool MovesDuringPlay(Transform t)
+        {
+            while (t != null)
+            {
+                if (t.GetComponent<CarryableItem>() != null) return true;
+                if (t.GetComponent<Door>() != null) return true;
+                if (t.GetComponent<RewardPlinth>() != null) return true;
+                if (t.GetComponent<Balloon>() != null) return true;
+                if (t.GetComponent<Drawer>() != null) return true;
+                if (t.GetComponent<GhostReplayer>() != null) return true;
+                if (t.CompareTag("Player")) return true;
+                t = t.parent;
+            }
+            return false;
         }
 
         private static Material MakeEmissiveMaterial(string name, Color color, float emission)
@@ -1853,6 +2143,70 @@ namespace IterationRoom.EditorTools
             // the emission pass compiled out, so the panel renders as plain white.
             mat.EnableKeyword("_EMISSION");
             mat.SetColor("_EmissionColor", color * emission);
+            mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        // A POLISHED, COLOURED METAL with a glow still in it. The three escape objects wear this and
+        // nothing else does.
+        //
+        // They were flat emissive at 2.4 with smoothness 0.1, which is a matte object with the light
+        // turned up inside it: no highlight anywhere on the surface, the middle blown out to near
+        // white, and the colour only readable at the silhouette. Three of those on a console read as
+        // three coloured blocks rather than as the things the whole run was spent collecting.
+        //
+        // EVERY NUMBER HERE WAS RENDERED AND LOOKED AT, not reasoned to, and the first three
+        // attempts were worse than what they replaced. What each one is and what it cost to find:
+        //
+        // - METALLIC 0.9. The project rule says a pure metal renders BLACK here, and that rule is a
+        //   symptom: a metal is entirely reflection, and every reflection probe in this scene had a
+        //   NULL baked texture, so a metal had nothing to be. Baking the probes (see
+        //   BakeReflectionProbes) is what makes this value available at all. At 0.8 with an EMPTY
+        //   probe the object came out darker and deader than the flat colour it replaced - worth
+        //   knowing, because that is what this looks like if the bake ever silently breaks again.
+        // - SMOOTHNESS 0.97, near-mirror, and this is the one that does the work. The obvious
+        //   setting is the 0.85-0.88 the walls use, and it is wrong for a small object: at that
+        //   roughness a featureless white room blurs into a flat wash and the thing reads as
+        //   plastic. Near-mirror instead resolves the CEILING FIXTURES as two distinct bright
+        //   shapes on the top face, which is the only structure this white box has to offer - and
+        //   structure is what the eye reads as metal.
+        // - REFLECTANCE IS THE ACCENT LIFTED 30% TOWARD WHITE, not the accent itself. Base colour
+        //   means something different on a metal: it is what the surface reflects, not what it is
+        //   painted. A real coloured metal's reflectance is high (gold is ~1.0/0.77/0.34), so
+        //   feeding in a display colour like 0.16/0.40/0.95 gives a dark, muddy mirror. The lift
+        //   keeps the hue - these three are told apart by colour, in a hurry, across a console.
+        // - EMISSION 0.40, down from 2.4. The ORIGINAL reason for emission stands: each of these
+        //   arrives in the same second as the biggest lighting change its room has. But 2.4 blew the
+        //   middle out to near-white and left the colour readable only at the silhouette, which is
+        //   what made these look like coloured blocks. At 0.40 the metal is what is seen and the
+        //   glow is a floor under it - this object cannot go black however the probes behave.
+        //
+        // Emission takes the ACCENT, not the lifted reflectance: the glow should be the object's own
+        // colour at full strength, where the mirror should not.
+        private static Material MakePolishedMetalMaterial(string name, Color accent, float emission)
+        {
+            string path = $"{MaterialsDir}/{name}.mat";
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(OpaqueShader());
+                AssetDatabase.CreateAsset(mat, path);
+            }
+
+            Color reflectance = Color.Lerp(accent, Color.white, 0.30f);
+
+            mat.shader = OpaqueShader();
+            mat.color = reflectance;
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", reflectance);
+            SetSmoothness(mat, 0.97f);
+            if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0.9f);
+
+            // The keyword matters as much as the colour: set _EmissionColor alone and URP leaves the
+            // emission pass compiled out - the same trap MakeEmissiveMaterial documents.
+            mat.EnableKeyword("_EMISSION");
+            mat.SetColor("_EmissionColor", accent * emission);
             mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
 
             EditorUtility.SetDirty(mat);
@@ -2660,7 +3014,11 @@ namespace IterationRoom.EditorTools
             foreach (Transform a in anchors)
                 a.SetParent(a.position.x < gridCentre.x ? halfWest : halfEast, true);
 
-            Transform plinth = BuildChessPlinth(parent, gridCentre, propMat);
+            // TAKEABLE NOW, where it was scenery. The final room's first recess names it, so the
+            // thing this room pays out has somewhere to go for the first time.
+            (Transform plinth, _, CarryableItem redCube) = BuildKeyPlinth(parent, "ChessPlinth",
+                gridCentre, propMat, SlotShape.Square, new Color(0.85f, 0.10f, 0.10f), "ChessRewardKey",
+                CubeKeyItemId, "CUBE", SquareIcon());
 
             ChessReward reward = boardGO.AddComponent<ChessReward>();
             reward.lights = roomLights;
@@ -2691,7 +3049,11 @@ namespace IterationRoom.EditorTools
                 Debug.LogError($"[SceneBuilder] Chess grid mis-measured: {offBoard} piece(s) off the board, "
                              + $"{clashes} sharing a square. pitch={pitch:F4} centre={gridCentre}");
 
-            Debug.Log($"[SceneBuilder] Chess: {pieces.Count} pieces (expects 32), {spots.Count} scattered, "
+            // The red cube rides out with the pieces so it lands in the prompt list with them. It is
+            // not a piece and the board knows nothing about it; this is the one list both belong to.
+            pieces.Add(redCube);
+
+            Debug.Log($"[SceneBuilder] Chess: {pieces.Count - 1} pieces (expects 32), {spots.Count} scattered, "
                     + $"square pitch {pitch:F3}, board top {boardTop:F3}");
             return (pieces.ToArray(), board);
         }
@@ -2779,14 +3141,26 @@ namespace IterationRoom.EditorTools
         // whose one prop is invisible cannot be checked without pressing Play. It stands at the
         // board's own centre, so while the board is shut it is under the slab as well as under the
         // floor and there is nothing to notice before it moves.
-        private static Transform BuildChessPlinth(Transform parent, Vector3 centre, Material propMat)
+        // A plinth with one of the escape objects on it. Shared by every room that pays one out, so
+        // the three rewards are the same fixture in three colours and three shapes - a player who has
+        // seen one knows what the next one is the moment it comes up.
+        //
+        // `itemId` EMPTY means the object is scenery: it is built and it is lit, but nothing can pick
+        // it up. That is the state Room2West's red cube is in - there is nowhere yet for it to go, and
+        // a carryable with no destination sits in the HUD row claiming to matter.
+        //
+        // Returns the plinth, the seat the object rests on, and the object itself when it is takeable.
+        private static (Transform plinth, Transform seat, CarryableItem item) BuildKeyPlinth(
+            Transform parent, string name, Vector3 centre, Material propMat,
+            SlotShape shape, Color accent, string materialName,
+            string itemId = "", string displayName = "", Sprite icon = null)
         {
             const float bodyHeight = 0.85f;
             const float bodyWidth = 0.62f;
             const float plateProud = 0.035f;
-            const float cubeSize = 0.30f;
+            const float keySize = 0.30f;
 
-            GameObject plinth = new GameObject("ChessPlinth");
+            GameObject plinth = new GameObject(name);
             plinth.transform.SetParent(parent, false);
             plinth.transform.localPosition = new Vector3(centre.x, 0f, centre.z);
 
@@ -2794,7 +3168,7 @@ namespace IterationRoom.EditorTools
                 new Vector3(0f, bodyHeight / 2f, 0f),
                 new Vector3(bodyWidth, bodyHeight, bodyWidth), propMat);
 
-            // The dark inset the cube stands on, borrowed from Room4's plinth for the same reason:
+            // The dark inset the object stands on, borrowed from Room4's plinth for the same reason:
             // a pale block on a pale block is one block, and the seat is what says something is
             // MEANT to be there.
             Prim(PrimitiveType.Cube, "TopPlate", plinth.transform,
@@ -2803,21 +3177,61 @@ namespace IterationRoom.EditorTools
                 MakeColorMaterial("ChessPlinthPlate", new Color(0.14f, 0.14f, 0.16f)),
                 removeCollider: true);
 
-            // THE KEY, and emissive rather than merely red. It arrives in the same second the room's
-            // lights come up from nothing, so a matte object would arrive into the brightest change
-            // in the game and be the least interesting thing in it. Red because every other signal in
-            // this building is red - the HUD, the door lamps, the panels when they break.
-            //
-            // NOT a CarryableItem yet, deliberately. It has no consumer: there is no lock it opens and
-            // no clear condition that asks for it, and a carryable with nowhere to go would sit in the
-            // HUD row saying it matters while doing nothing. Making it one is an itemId and an icon -
-            // see TODO.md.
-            Prim(PrimitiveType.Cube, "RewardKey", plinth.transform,
-                new Vector3(0f, bodyHeight + plateProud + cubeSize / 2f, 0f),
-                Vector3.one * cubeSize,
-                MakeEmissiveMaterial("ChessRewardKey", new Color(0.85f, 0.10f, 0.10f), 2.4f));
+            GameObject seat = new GameObject("Seat");
+            seat.transform.SetParent(plinth.transform, false);
+            seat.transform.localPosition = new Vector3(0f, bodyHeight + plateProud + keySize / 2f, 0f);
 
-            return plinth.transform;
+            // POLISHED METAL WITH A GLOW STILL IN IT, on a chamfered version of its own silhouette.
+            //
+            // These were flat emissive at 2.4 on raw Unity primitives, and the two faults compounded:
+            // a matte surface has no highlight to catch, and a primitive has no geometry at its edges
+            // for a highlight to run along even if it did. The result was three coloured blocks - the
+            // least interesting objects in the game, which is the wrong thing for the three the whole
+            // run is spent collecting.
+            //
+            // The emission is kept, at a fifth of what it was, because the ORIGINAL reason for it
+            // stands: each of these arrives in the same second as the biggest lighting change its
+            // room has, and Room2West is genuinely dark until that moment. It is also the floor that
+            // makes the metal safe here - see MakePolishedMetalMaterial on why a pure metal in this
+            // project renders black.
+            GameObject key = ShapePrim(shape, "RewardKey", plinth.transform,
+                seat.transform.localPosition, Vector3.one * keySize,
+                MakePolishedMetalMaterial(materialName, accent, 0.40f), bevelled: true);
+
+            // SCENERY GETS A SOLID BOX, a takeable gets a trigger, and it is never both. CarryableItem
+            // takes whatever `GetComponent<Collider>()` hands back as its reach - so an object left
+            // with the shape's own 0.30 collider AND a trigger is one you have to stand inside to
+            // pick up, because the solid one was added first and wins the lookup.
+            if (string.IsNullOrEmpty(itemId))
+            {
+                key.AddComponent<BoxCollider>();
+                return (plinth.transform, seat.transform, null);
+            }
+
+            // Local units on a transform scaled to 0.30, so this is 0.66m across and 0.90 tall in the
+            // world: an arm's length rather than the object's own size, so it is taken from standing
+            // at the plinth instead of from inside it.
+            BoxCollider trigger = key.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            trigger.size = new Vector3(2.2f, 3.0f, 2.2f);
+
+            CarryableItem item = key.AddComponent<CarryableItem>();
+            item.itemId = itemId;
+            item.displayName = displayName;
+            item.icon = icon;
+            item.iconTint = accent;
+            // Its own half-height: the mesh is centred on its pivot, so this is what puts it ON a
+            // floor rather than half through one. Only a ghost's timeline ending under it drops one.
+            item.floorY = keySize / 2f;
+            item.handLocalPosition = new Vector3(0.28f, -0.26f, 0.46f);
+            // Tipped TOWARD the eye, not away. A prism seen square-on is a rectangle; -25 about X
+            // brings its top face into view, which is the face that says which shape this is. The
+            // yaw follows, so it is a three-quarter view like the chess pieces'.
+            item.handLocalEuler = new Vector3(-25f, 20f, 0f);
+            // The anchor is unscaled and this object is 0.30 in the world, so without this it would be
+            // handed over at its full size 0.46m from the eye.
+            item.handLocalScale = Vector3.one * 0.22f;
+            return (plinth.transform, seat.transform, item);
         }
 
         // A spot on the floor for a piece to be found on: inside the room, off the board, out of the
@@ -2992,6 +3406,328 @@ namespace IterationRoom.EditorTools
             });
             icon.Bar(new Vector2(0.5f, 0.175f), new Vector2(0.225f, 0.045f));    // base
             return SaveSprite(icon, "icon_chess_piece");
+        }
+
+
+        // THE SIX SYMBOLS, drawn once and used twice: as an opaque picture on a cube and on the
+        // recess that wants it, and as a HUD glyph in the carried row. One drawing rather than two
+        // means the thing on the wall and the thing in the readout can never drift apart.
+        //
+        // A CARD FAMILY, extended past the four suits with a star and a crescent. The spec named
+        // three; six cubes need six, and picking the two extras from the same visual world - flat,
+        // solid, symmetrical, no interior detail - is what keeps them reading as one set rather than
+        // as four suits and two strays.
+        private struct SymbolSpec
+        {
+            public string id;
+            public string name;
+            public System.Action<IconCanvas> draw;
+        }
+
+        private static SymbolSpec[] CubeSymbols() => new[]
+        {
+            new SymbolSpec { id = "Cube_Spade", name = "spade", draw = icon =>
+            {
+                // The blade: a triangle standing on two lobes.
+                icon.Shape(pt =>
+                {
+                    if (pt.y < 0.42f || pt.y > 0.90f) return false;
+                    float k = (0.90f - pt.y) / 0.48f;
+                    return Mathf.Abs(pt.x - 0.5f) <= 0.40f * k;
+                });
+                icon.Disc(new Vector2(0.30f, 0.44f), 0.20f);
+                icon.Disc(new Vector2(0.70f, 0.44f), 0.20f);
+                // The stem, wide at the foot and narrow where it meets the blade.
+                icon.Shape(pt =>
+                {
+                    if (pt.y < 0.10f || pt.y > 0.44f) return false;
+                    float k = (pt.y - 0.10f) / 0.34f;
+                    return Mathf.Abs(pt.x - 0.5f) <= Mathf.Lerp(0.17f, 0.045f, k);
+                });
+            }},
+            new SymbolSpec { id = "Cube_Heart", name = "heart", draw = icon =>
+            {
+                icon.Disc(new Vector2(0.31f, 0.64f), 0.21f);
+                icon.Disc(new Vector2(0.69f, 0.64f), 0.21f);
+                // The triangle stops exactly where the lobes do - 0.40 half-width at the height of
+                // their centres, which is their own 0.10..0.90 span. Wider and it pokes out past them
+                // as two spurs at the shoulders, which is what the first version drew.
+                icon.Shape(pt =>
+                {
+                    if (pt.y < 0.12f || pt.y > 0.64f) return false;
+                    float k = (pt.y - 0.12f) / 0.52f;
+                    return Mathf.Abs(pt.x - 0.5f) <= 0.40f * k;
+                });
+            }},
+            new SymbolSpec { id = "Cube_Clover", name = "clover", draw = icon =>
+            {
+                // FOUR leaves, as the spec asks, and therefore laid out 2x2 rather than as a cross:
+                // a cross puts a leaf where the stem goes and the two fight.
+                //
+                // The spacing is the whole of whether this reads. Packed tighter the four discs close
+                // ranks into one blob - and leave a diamond-shaped HOLE where none of them reaches the
+                // centre, which is what the first version drew. Pushed apart until they only just
+                // touch, the four lobes stay visible, and a disc in the middle fills the hole they
+                // leave between them.
+                // SQUARE spacing, 0.34 on both axes. The first pass put the pairs 0.34 apart across
+                // and 0.24 apart up the page, so the top two merged into one wide lobe and so did the
+                // bottom two - four leaves that drew as two. Tangent on both axes leaves four lobes
+                // that touch and do not merge, and the hub is what joins them into one plant.
+                icon.Disc(new Vector2(0.33f, 0.72f), 0.17f);
+                icon.Disc(new Vector2(0.67f, 0.72f), 0.17f);
+                icon.Disc(new Vector2(0.33f, 0.38f), 0.17f);
+                icon.Disc(new Vector2(0.67f, 0.38f), 0.17f);
+                icon.Disc(new Vector2(0.50f, 0.55f), 0.115f);
+                icon.Bar(new Vector2(0.5f, 0.135f), new Vector2(0.036f, 0.105f));
+            }},
+            new SymbolSpec { id = "Cube_Diamond", name = "diamond", draw = icon =>
+                icon.Shape(pt => Mathf.Abs(pt.x - 0.5f) / 0.34f + Mathf.Abs(pt.y - 0.5f) / 0.44f <= 1f)
+            },
+            new SymbolSpec { id = "Cube_Star", name = "star", draw = icon =>
+            {
+                // Five points, and the EDGES HAVE TO BE STRAIGHT. Lerping the radius between the tip
+                // and the valley across each sector is the obvious version and it draws a FLOWER -
+                // the valleys come out round and the points blunt, because a star is not linear in
+                // angle. What it is instead is a straight segment from tip to valley, so the test is
+                // which side of that segment the sample falls on.
+                const float sector = Mathf.PI * 2f / 5f;
+                const float outer = 0.47f, inner = 0.20f;
+                Vector2 tip = new Vector2(0f, outer);
+                Vector2 valley = new Vector2(inner * Mathf.Sin(sector * 0.5f), inner * Mathf.Cos(sector * 0.5f));
+                Vector2 edge = valley - tip;
+                // Which side of that edge the centre is on. Everything inside the star is on it too.
+                float centreSide = edge.x * -tip.y - edge.y * -tip.x;
+                icon.Shape(pt =>
+                {
+                    Vector2 d = pt - new Vector2(0.5f, 0.5f);
+                    float r = d.magnitude;
+                    if (r > outer) return false;
+                    if (r < 0.0001f) return true;
+                    // Folded into one half-sector, so one segment describes all ten edges.
+                    float angle = Mathf.Atan2(d.x, d.y);
+                    float t = Mathf.Abs(Mathf.Repeat(angle + sector * 0.5f, sector) - sector * 0.5f);
+                    Vector2 f = new Vector2(r * Mathf.Sin(t), r * Mathf.Cos(t));
+                    float side = edge.x * (f.y - tip.y) - edge.y * (f.x - tip.x);
+                    return side * centreSide > 0f;
+                });
+            }},
+            new SymbolSpec { id = "Cube_Moon", name = "moon", draw = icon =>
+            {
+                icon.Disc(new Vector2(0.44f, 0.5f), 0.40f);
+                // sign -1 cuts the bite out, which is the whole shape.
+                icon.Disc(new Vector2(0.62f, 0.56f), 0.355f, -1f);
+            }},
+        };
+
+        // Room2East, behind the blue door: six cubes on the floor, six recesses in the walls, and a
+        // blue sphere on a plinth when every cube is home.
+        //
+        // TWO RECESSES PER WALL, on the three walls that have no doorway. That is not an arbitrary
+        // arrangement - it is what makes the room readable from the door: a player who walks in sees
+        // six lit plates spread around them and knows immediately both what the room wants and how
+        // much of it there is.
+        // The recesses find the player's hand themselves, the way every CarryableItem already does -
+        // this room is built before the player is, and reordering the build to hand one in would put
+        // the player's construction behind a room that does not need it.
+        private static (CarryableItem[] cubes, CubeRoom room) BuildCubeRoom(
+            Transform parent, Vector3 roomCentre, Material propMat)
+        {
+            const float cubeSize = 0.24f;
+            const float slotY = 1.35f;      // chest height on a 1.6m eye
+            const float alongWall = 2.35f;  // how far each pair sits either side of its wall's middle
+
+            GameObject root = new GameObject("CubeRoom");
+            root.transform.SetParent(parent, false);
+
+            // The reward first, because the scatter has to keep clear of it.
+            (Transform plinth, Transform seat, CarryableItem sphere) = BuildKeyPlinth(
+                parent, "SpherePlinth", roomCentre, propMat,
+                SlotShape.Round, new Color(0.16f, 0.40f, 0.95f), "KeySphereMat",
+                SphereKeyItemId, "SPHERE", SphereIcon());
+
+            RewardPlinth rise = plinth.gameObject.AddComponent<RewardPlinth>();
+            rise.plinth = plinth;
+            rise.key = sphere;
+            rise.keySeat = seat;
+            rise.riseHeight = 1.25f;
+
+            // A side room runs its DEPTH along X and its WIDTH along Z, the chain's axes swapped. The
+            // doorway is in the -X wall, facing back at Room2, so that wall gets no recesses.
+            float halfX = RoomDepth / 2f;
+            float halfZ = RoomWidth / 2f;
+            var mounts = new[]
+            {
+                (pos: new Vector3(roomCentre.x + halfX, slotY, roomCentre.z - alongWall), yaw: -90f),
+                (pos: new Vector3(roomCentre.x + halfX, slotY, roomCentre.z + alongWall), yaw: -90f),
+                (pos: new Vector3(roomCentre.x - alongWall, slotY, roomCentre.z - halfZ), yaw: 0f),
+                (pos: new Vector3(roomCentre.x + alongWall, slotY, roomCentre.z - halfZ), yaw: 0f),
+                (pos: new Vector3(roomCentre.x - alongWall, slotY, roomCentre.z + halfZ), yaw: 180f),
+                (pos: new Vector3(roomCentre.x + alongWall, slotY, roomCentre.z + halfZ), yaw: 180f),
+            };
+
+            SymbolSpec[] symbols = CubeSymbols();
+            var cubes = new CarryableItem[symbols.Length];
+            var slots = new SymbolSlot[symbols.Length];
+
+            // Deterministic, like the chess scatter and for the same reason: a scene is build output,
+            // so two builds of one commit have to lay the room out identically.
+            System.Random rng = new System.Random(CubeScatterSeed);
+            Vector3 doorwayInside = new Vector3(roomCentre.x - halfX + 0.6f, 0f, roomCentre.z);
+            var spots = new System.Collections.Generic.List<Vector3>();
+
+            for (int i = 0; i < symbols.Length; i++)
+            {
+                SymbolSpec spec = symbols[i];
+
+                var paper = new IconCanvas(128);
+                spec.draw(paper);
+                Material faceMat = MakeSymbolMaterial("Symbol_" + spec.name,
+                                                      SaveSymbolTexture(paper, "symbol_" + spec.name));
+
+                var glyph = new IconCanvas(128);
+                spec.draw(glyph);
+                Sprite hudIcon = SaveSprite(glyph, "icon_symbol_" + spec.name);
+
+                slots[i] = BuildSymbolSlot(root.transform, spec, faceMat, mounts[i].pos, mounts[i].yaw, cubeSize);
+                cubes[i] = BuildSymbolCube(root.transform, spec, faceMat, hudIcon, cubeSize,
+                                           ScatterSpotFor(rng, roomCentre, plinth.position, doorwayInside, spots));
+                spots.Add(cubes[i].transform.position);
+
+                slots[i].acceptedItemId = spec.id;
+            }
+
+            CubeRoom room = root.AddComponent<CubeRoom>();
+            room.cubes = cubes;
+            room.slots = slots;
+            room.reward = rise;
+            foreach (SymbolSlot slot in slots) slot.room = room;
+
+            Debug.Log($"[SceneBuilder] Cube room: {cubes.Length} cubes, {slots.Length} recesses, "
+                    + $"plinth at {plinth.position}");
+            return (cubes, room);
+        }
+
+        // One recess: a symbol plate in a dark frame, standing proud of the wall, with a seat in front
+        // of it for the cube. Local +Z points INTO the room, so everything below is stated once and
+        // the yaw puts it on the right wall.
+        private static SymbolSlot BuildSymbolSlot(Transform parent, SymbolSpec spec, Material faceMat,
+                                                  Vector3 position, float yaw, float cubeSize)
+        {
+            GameObject root = new GameObject("Slot_" + spec.name);
+            root.transform.SetParent(parent, false);
+            root.transform.position = position;
+            root.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+
+            // The frame reads as the hole; the plate inside it carries the glyph. Same pair the final
+            // room's console uses, and the same reason: there is no CSG here, so what makes a cavity
+            // is near-black inside a lighter border rather than an actual void.
+            GameObject frame = Prim(PrimitiveType.Cube, "Frame", root.transform,
+                new Vector3(0f, 0f, 0.015f), new Vector3(0.42f, 0.42f, 0.03f),
+                MakeColorMaterial("SymbolSlotFrame", new Color(0.10f, 0.10f, 0.12f)),
+                removeCollider: true);
+
+            // A cube rather than a quad: every face of a Unity cube takes the whole texture, so the
+            // one facing the room shows the glyph the right way round with nothing to configure.
+            GameObject plate = Prim(PrimitiveType.Cube, "Plate", root.transform,
+                new Vector3(0f, 0f, 0.032f), new Vector3(0.33f, 0.33f, 0.02f), faceMat,
+                removeCollider: true);
+
+            // In FRONT of the plate and half buried in it, so a seated cube reads as pushed into the
+            // wall rather than stuck onto it. It also covers its own symbol once it is home, which is
+            // the correct thing for it to do - that pairing has been answered.
+            GameObject seat = new GameObject("Seat");
+            seat.transform.SetParent(root.transform, false);
+            seat.transform.localPosition = new Vector3(0f, 0f, cubeSize * 0.30f);
+
+            // Standing in front of the wall, not touching the plate: this is the reach, and a fixture
+            // you have to press your face against is a fixture nobody finds.
+            BoxCollider reach = root.AddComponent<BoxCollider>();
+            reach.isTrigger = true;
+            reach.center = new Vector3(0f, -0.45f, 0.75f);
+            reach.size = new Vector3(1.5f, 2.2f, 1.5f);
+
+            SymbolSlot slot = root.AddComponent<SymbolSlot>();
+            slot.seat = seat.transform;
+            slot.plateRenderer = frame.GetComponent<Renderer>();
+            slot.audioSource = MakeSource(root.transform, "SlotAudio", 1f, 0.8f);
+            slot.insertClip = LoadClip(SfxDir, "sfx_floor_button_press");
+            return slot;
+        }
+
+        // One cube, on the floor where the room was disturbed. Everything here is the chess piece over
+        // again - trigger, CarryableItem, hand pose - except that what identifies it is printed on it.
+        private static CarryableItem BuildSymbolCube(Transform parent, SymbolSpec spec, Material faceMat,
+                                                     Sprite icon, float cubeSize, Vector3 spot)
+        {
+            GameObject cube = Prim(PrimitiveType.Cube, spec.id, parent,
+                new Vector3(spot.x, cubeSize / 2f, spot.z), Vector3.one * cubeSize, faceMat,
+                removeCollider: true);
+            // Turned where it fell, about its own vertical only: a cube tipped onto a corner would
+            // read as physics that has run, and nothing here simulates.
+            cube.transform.localRotation = Quaternion.Euler(0f, spot.y, 0f);
+
+            BoxCollider trigger = cube.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            // Local units on a 0.24 transform, so this is 0.6m across in the world - an arm's length
+            // rather than the object's own size.
+            trigger.size = new Vector3(2.5f, 3.6f, 2.5f);
+
+            CarryableItem item = cube.AddComponent<CarryableItem>();
+            item.itemId = spec.id;
+            item.displayName = spec.name.ToUpperInvariant();
+            item.icon = icon;
+            item.floorY = cubeSize / 2f;
+            item.handLocalPosition = new Vector3(0.27f, -0.25f, 0.44f);
+            // Off-axis on two axes, so what is in the hand is seen as a CUBE - square-on it is a
+            // square, which is one of the six symbols and would read as a mistake.
+            item.handLocalEuler = new Vector3(-20f, 28f, 0f);
+            item.handLocalScale = Vector3.one * 0.20f;
+            return item;
+        }
+
+        // The scatter, with the room's plinth as the only keep-out. A thin wrapper over the chess
+        // room's sampler so both rooms scatter by one rule: `spot.y` comes back carrying a yaw rather
+        // than a height, because a cube on a floor has one degree of freedom worth randomising and
+        // threading a second list through for it would be ceremony.
+        private static Vector3 ScatterSpotFor(System.Random rng, Vector3 roomCentre, Vector3 plinthCentre,
+                                              Vector3 doorwayInside,
+                                              System.Collections.Generic.List<Vector3> taken)
+        {
+            Vector3 spot = ScatterSpot(rng, roomCentre, plinthCentre, 0.45f, doorwayInside, taken);
+            return new Vector3(spot.x, (float)rng.NextDouble() * 360f, spot.z);
+        }
+
+        // A filled disc and a filled square, for the two escape objects whose shape IS their name.
+        // Deliberately plain: the row they appear in already says which is which by tint, and an
+        // outline at 58px closes up under the filter.
+        private static Sprite SphereIcon()
+        {
+            var icon = new IconCanvas(128);
+            icon.Disc(new Vector2(0.5f, 0.5f), 0.34f);
+            return SaveSprite(icon, "icon_key_sphere");
+        }
+
+        private static Sprite SquareIcon()
+        {
+            var icon = new IconCanvas(128);
+            icon.Bar(new Vector2(0.5f, 0.5f), new Vector2(0.30f, 0.30f));
+            return SaveSprite(icon, "icon_key_square");
+        }
+
+        // The yellow triangle in silhouette. A plain solid triangle rather than an outline: the row
+        // it appears in is 58px, the other two glyphs there are solid, and an outline at that size is
+        // two thin lines that close up under the bilinear filter.
+        private static Sprite TriangleIcon()
+        {
+            var icon = new IconCanvas(128);
+            icon.Shape(p =>
+            {
+                if (p.y < 0.22f || p.y > 0.80f) return false;
+                // 0 at the apex, 1 at the base - so the half-width opens out on the way down.
+                float k = (0.80f - p.y) / 0.58f;
+                return Mathf.Abs(p.x - 0.5f) <= 0.40f * k;
+            });
+            return SaveSprite(icon, "icon_key_triangle");
         }
 
         // The nightstand and the drawer in it, built here rather than imported.
@@ -4379,7 +5115,11 @@ namespace IterationRoom.EditorTools
         // answerable by walking to the door and trying it.
         private static void BuildCarriedItems(Transform canvas, PlayerHand hand)
         {
-            const int slotCount = 4;
+            // EIGHT. Four was "two more than the puzzle has", and the puzzle has moved: six symbol
+            // cubes can be carried at once, before the pin, three keys and three escape objects. A row
+            // that silently drops the seventh thing you picked up is worse than a wide row - this is
+            // the readout whose whole job is answering "what am I still carrying".
+            const int slotCount = 8;
             const float slotSize = 58f, gap = 14f;
 
             GameObject go = new GameObject("CarriedItems");
@@ -4790,7 +5530,8 @@ namespace IterationRoom.EditorTools
             return ending;
         }
 
-        // Room3 telling the player about the end-cycle control, on all four walls at once.
+        // The room telling the player about the end-cycle control, on all four walls at once. Hung
+        // in Room1 now and shown from iteration 2 - see the call site for why it moved out of Room3.
         //
         // World-space canvases hung just proud of the panelling rather than the panels themselves
         // being lit to spell it. That was the first idea and it does not survive contact with the
@@ -4812,18 +5553,19 @@ namespace IterationRoom.EditorTools
             // Set so the plate's BOTTOM edge clears the door lamp, not merely the doorway. The
             // plate is 1.98m tall, so at 3.95 it spans 2.96..4.94: above the lamp at 2.725..2.835
             // by 0.125m and under the 5.408 ceiling by 0.47. At the 3.4 it was first built at it
-            // covered the lamp on the north wall completely - which in Room3 is the only way to
-            // tell three past selves having arrived from four.
+            // covered the lamp on the north wall completely - and every room in the chain has that
+            // lamp, so the number carried across the move to Room1 unchanged.
             //
             // All four faces share the height even though only the north one has a lamp under it:
             // two walls are in view at once from most of this room, and a sign that changes height
             // between them reads as a mistake.
             const float y = 3.95f;
 
-            // All four walls. The player enters with their back to the south wall, walks a diagonal
-            // to a pad and turns to face the door - there is no wall they reliably look at, and a
-            // message on the wrong one is a message nobody reads. It is only ever shown once (see
-            // PanelMessage), so the cost of covering four walls is paid for one visit.
+            // All four walls. In Room1 the player wakes facing 180 degrees - down the room at the
+            // SOUTH wall, away from the bed - and then turns for the door in the north one, so the
+            // two walls that matter here are opposite each other. Covering all four costs nothing
+            // extra and removes the question. It retires against the action (see PanelMessage), so
+            // the sign is not paid for once per iteration for the rest of the run.
             //
             // Each canvas's forward (+Z) points INTO its wall, i.e. away from the room. That reads
             // backwards and it is the opposite of what was built first, which came out mirrored.
@@ -4856,7 +5598,8 @@ namespace IterationRoom.EditorTools
         private static FinalRoomSequence BuildFinalRoom(Transform parent, float roomCenterZ,
                                                         Material propMat, Door doorBehind,
                                                         WallPanelDisplay wallPanels,
-                                                        CameraShaker cameraShaker)
+                                                        CameraShaker cameraShaker, PlayerHand hand,
+                                                        string cubeId, string sphereId, string prismId)
         {
             GameObject root = new GameObject("FinalRoom");
             root.transform.SetParent(parent, false);
@@ -4867,17 +5610,22 @@ namespace IterationRoom.EditorTools
             // opposite ends of the run, and the difference in how you stand over them is the only
             // thing separating "begin" from "end".
             const float plinthHeight = 1.05f;
-            const float plinthWidth = 1.15f;
+            // WIDER THAN IT IS DEEP now, where it used to be a 1.15 square. Three recesses in a row
+            // need a run of top surface, and a console you stand at the front of - sockets across the
+            // back, the press at the front - is a clearer object than a square block with four things
+            // crowded onto it. The depth is unchanged, so the walk round it is what it always was.
+            const float plinthWidth = 1.70f;
+            const float plinthDepth = 1.15f;
             const float plateProud = 0.02f;
-            const float buttonHalfHeight = 0.015f;
+
+            // The three recesses, in a row across the top. 0.46 apart spans 1.38 of the 1.55 of
+            // usable plate. They used to sit in the back half with a press at the front; the press is
+            // gone, so the row is centred and the console is the three things it asks for.
+            const float slotPitch = 0.46f;
+            const float slotSize = 0.26f;
+            const float slotRowZ = 0f;
 
             Material plateMat = MakeColorMaterial("FinalPlate", new Color(0.05f, 0.05f, 0.055f));
-            // The keyword has to be compiled in for the press flash; a property block cannot turn a
-            // shader keyword on. Black means it contributes nothing until E is pressed.
-            plateMat.EnableKeyword("_EMISSION");
-            plateMat.SetColor("_EmissionColor", Color.black);
-            plateMat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
-            EditorUtility.SetDirty(plateMat);
 
             GameObject plinth = new GameObject("Plinth");
             plinth.transform.SetParent(root.transform, false);
@@ -4889,50 +5637,66 @@ namespace IterationRoom.EditorTools
             // rise starts as they clear the doorway, six metres away.
             Prim(PrimitiveType.Cube, "Body", plinth.transform,
                 new Vector3(0f, plinthHeight / 2f, 0f),
-                new Vector3(plinthWidth, plinthHeight, plinthWidth), propMat);
+                new Vector3(plinthWidth, plinthHeight, plinthDepth), propMat);
 
             // The dark inset the button sits in, so the top of the plinth reads as a switched-off
             // display among white surfaces - the same near-black as every groove in the building.
             Prim(PrimitiveType.Cube, "TopPlate", plinth.transform,
                 new Vector3(0f, plinthHeight + plateProud / 2f, 0f),
-                new Vector3(plinthWidth * 0.78f, plateProud, plinthWidth * 0.78f), plateMat,
+                new Vector3(plinthWidth * 0.91f, plateProud, plinthDepth * 0.78f), plateMat,
                 removeCollider: true);
 
-            GameObject buttonRoot = new GameObject("Button");
-            buttonRoot.transform.SetParent(plinth.transform, false);
-            buttonRoot.transform.localPosition = new Vector3(0f, plinthHeight + plateProud, 0f);
+            // THE THREE RECESSES, one per escape object. Built before the button so the row is the
+            // first thing in the hierarchy as it is the first thing on the console.
+            //
+            // Shapes, not colours, are what say which is which - the same principle the cube room's
+            // spec insists on - so each is cut to the silhouette of the thing it takes: a square hole,
+            // a round hole, a triangular hole. The colour is carried by the rim on top of that,
+            // because the three objects are distinct in both and there is no reason to spend only one.
+            var slots = new FinalSlot[3];
+            slots[0] = BuildFinalSlot(plinth.transform, "Slot_Cube", SlotShape.Square,
+                new Vector3(-slotPitch, plinthHeight + plateProud, slotRowZ), slotSize,
+                new Color(0.85f, 0.10f, 0.10f));
+            slots[1] = BuildFinalSlot(plinth.transform, "Slot_Sphere", SlotShape.Round,
+                new Vector3(0f, plinthHeight + plateProud, slotRowZ), slotSize,
+                new Color(0.16f, 0.40f, 0.95f));
+            slots[2] = BuildFinalSlot(plinth.transform, "Slot_Prism", SlotShape.Triangle,
+                new Vector3(slotPitch, plinthHeight + plateProud, slotRowZ), slotSize,
+                new Color(0.95f, 0.78f, 0.12f));
 
-            GameObject buttonVisual = Prim(PrimitiveType.Cylinder, "Visual", buttonRoot.transform,
-                new Vector3(0f, buttonHalfHeight, 0f),
-                new Vector3(0.36f, buttonHalfHeight, 0.36f), plateMat, removeCollider: true);
+            // Which object each recess takes, handed in rather than written here, because two of the
+            // three do not exist yet and an empty id is the honest way to say that: an undeclared slot
+            // accepts nothing, prompts for nothing, and is skipped by FinalSlot.AllFilled.
+            slots[0].acceptedItemId = cubeId;
+            slots[1].acceptedItemId = sphereId;
+            slots[2].acceptedItemId = prismId;
 
-            FinalRoomButton button = buttonRoot.AddComponent<FinalRoomButton>();
-            button.buttonRenderer = buttonVisual.GetComponent<Renderer>();
-            // RED AT REST, unlike the calibration plate. That one is a near-black cell set into
-            // white panelling and reads by contrast; this one sits in a near-black inset on top of
-            // the plinth, where the same treatment made a black disc on a black plate. Deep red
-            // with a little emission at rest, and it still has somewhere to go on the press - the
-            // flash is mostly the emission jumping to litEmission, not the albedo changing.
-            button.idleColor = new Color(0.62f, 0.07f, 0.06f);
-            button.idleEmission = 0.9f;
-            button.pressedColor = new Color(1f, 0.3f, 0.26f);
-            button.audioSource = MakeSource(buttonRoot.transform, "ButtonAudio", 1f, 0.8f);
-            button.pressClip = LoadClip(SfxDir, "sfx_floor_button_press");
+            // NO BUTTON. There was one here - a plate that ended the game on a single press - and
+            // three recesses that each want a named object say everything it said, in a room the
+            // player now has to reach with all three inside a running sixty seconds.
 
             // NO ERROR SIGN ON THE WALLS. It was four wall-sized canvases like Room3's message, and
             // that was the wrong instrument: a sign is something the room PUTS UP, and a facility
             // that can still put a sign up has not failed. The word lives on the panels themselves
             // now - every one of them a screen showing a test card with ERROR on it - so the room
             // does not report the fault, it IS the fault. See WallPanelDisplay.
+            // THE CONSOLE IS A RewardPlinth, the same fixture the other three rooms pay out on. It
+            // rises when the player reaches Room4 and sinks when the loop takes them back - which is
+            // only a question now that the clock runs through this room. The old rise was a coroutine
+            // fired by an event that could happen once; an iteration can end in here.
+            RewardPlinth console = plinth.AddComponent<RewardPlinth>();
+            console.plinth = plinth.transform;
+            // Clears the floor by a hair, so nothing shows through the slab before it is meant to.
+            console.riseHeight = plinthHeight + plateProud + 0.06f;
+            console.riseSeconds = 2.4f;
+
             FinalRoomSequence sequence = root.AddComponent<FinalRoomSequence>();
-            sequence.plinth = plinth.transform;
-            sequence.button = button;
+            sequence.console = console;
+            sequence.slots = slots;
+            foreach (FinalSlot slot in slots) { slot.sequence = sequence; slot.hand = hand; }
             sequence.doorBehind = doorBehind;
             sequence.wallPanels = wallPanels;
             sequence.cameraShaker = cameraShaker;
-            // Clears the floor by a hair with the button's own height counted in, so nothing shows
-            // through the slab before it is meant to.
-            sequence.riseHeight = plinthHeight + plateProud + buttonHalfHeight * 2f + 0.04f;
             // TEN SECONDS from the press to the scrim starting, and that is a floor rather than a
             // pause: the door takes 1s to seal and the panels take glitchOnset 6.5s to fail across
             // the whole building. At the 3.4s this was first built at, all of that was still
@@ -4940,8 +5704,302 @@ namespace IterationRoom.EditorTools
             // thing the player did has no visible consequence.
             sequence.breakDuration = 10f;
 
-            button.sequence = sequence;
             return sequence;
+        }
+
+        // Which silhouette a recess is cut to. Named rather than passed as a mesh, because the
+        // caller is stating what the hole IS for, and where that mesh comes from is this file's
+        // problem - two of the three are Unity primitives and the third has to be built.
+        private enum SlotShape { Square, Round, Triangle }
+
+        // One recess: a coloured rim with a darker hole inside it, and a seat at the bottom for
+        // whatever goes in.
+        //
+        // NOT A REAL HOLE, because there is no CSG here and the top plate is one box. What reads as
+        // depth is the pair: a rim standing 12mm proud of the plate and a near-black floor 4mm above
+        // it, so the eye takes the dark shape as the inside of a well. That is the same trick the
+        // plinth's own TopPlate already plays - near-black among white surfaces reads as a cavity.
+        private static FinalSlot BuildFinalSlot(Transform parent, string name, SlotShape shape,
+                                                Vector3 localTop, float size, Color accent)
+        {
+            const float rimProud = 0.012f;
+            const float floorProud = 0.004f;
+            const float rimInset = 0.80f;   // the hole, as a fraction of the rim
+
+            GameObject root = new GameObject(name);
+            root.transform.SetParent(parent, false);
+            root.transform.localPosition = localTop;
+
+            // ONE material for all three rims. Each says something different about itself - idle,
+            // ready, filled - and says it through a property block, which is what FinalSlot drives.
+            Material rimMat = MakeEmissiveMaterial("FinalSlotRim", Color.white, 1f);
+            Material holeMat = MakeColorMaterial("FinalSlotHole", new Color(0.03f, 0.03f, 0.035f));
+
+            GameObject rim = ShapePrim(shape, "Rim", root.transform,
+                new Vector3(0f, rimProud / 2f, 0f), new Vector3(size, rimProud, size), rimMat);
+            ShapePrim(shape, "Hole", root.transform,
+                new Vector3(0f, floorProud / 2f + rimProud * 0.35f, 0f),
+                new Vector3(size * rimInset, floorProud, size * rimInset), holeMat);
+
+            // Where the object lands. At the floor of the well rather than on the plate, so an
+            // inserted object sits IN the recess - the seat is the socket CarryableItem parents to.
+            GameObject seat = new GameObject("Seat");
+            seat.transform.SetParent(root.transform, false);
+            seat.transform.localPosition = new Vector3(0f, rimProud * 0.35f + floorProud, 0f);
+
+            // THE REACH, and it has to reach past the console rather than sit over it. The recesses
+            // are in the TOP of a 1.15m-deep block, so a volume centred on a recess is inside the
+            // block: the nearest a player can physically get is pressed against the front face, which
+            // is 0.45m short of where the first version's box began. It was unreachable, and only
+            // standing at it in play found that - the geometry all measured correctly.
+            //
+            // Biased toward -Z, which is the way in from Room3, and wide enough that the three boxes
+            // overlap. Overlapping is right: a player at the middle of the console is at all three
+            // recesses, and which one answers is decided by what is in their hand.
+            BoxCollider reach = root.AddComponent<BoxCollider>();
+            reach.isTrigger = true;
+            reach.center = new Vector3(0f, -0.55f, -0.45f);
+            reach.size = new Vector3(1.5f, 2.6f, 2.7f);
+
+            FinalSlot slot = root.AddComponent<FinalSlot>();
+            slot.seat = seat.transform;
+            slot.rimRenderer = rim.GetComponent<Renderer>();
+            slot.idleColor = accent * 0.35f;
+            slot.readyColor = accent;
+            slot.filledColor = accent;
+            slot.audioSource = MakeSource(root.transform, "SlotAudio", 1f, 0.8f);
+            slot.insertClip = LoadClip(SfxDir, "sfx_floor_button_press");
+            // acceptedItemId is deliberately left EMPTY. None of the three escape objects exists as
+            // a carryable yet, and a slot that names an id nothing wears would prompt for a press
+            // that cannot succeed. See TODO.md.
+            return slot;
+        }
+
+        // `bevelled` swaps the primitive for a generated chamfered version of the same silhouette.
+        // Only the three escape objects ask for it - the recesses they go into keep the plain
+        // shapes, because a hole is read as an outline and a chamfer on one is detail nobody looks
+        // at. See BevelledPrismMesh for what the chamfer buys and what it costs.
+        private static GameObject ShapePrim(SlotShape shape, string name, Transform parent,
+                                            Vector3 localPos, Vector3 localScale, Material mat,
+                                            bool keepCollider = false, bool bevelled = false)
+        {
+            if (bevelled)
+            {
+                GameObject bev = new GameObject(name);
+                bev.transform.SetParent(parent, false);
+                bev.transform.localPosition = localPos;
+                bev.transform.localScale = localScale;
+                bev.AddComponent<MeshFilter>().sharedMesh = BevelledPrismMesh(shape, 0.06f);
+                bev.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                if (keepCollider) bev.AddComponent<BoxCollider>();
+                return bev;
+            }
+
+            if (shape == SlotShape.Square)
+                return Prim(PrimitiveType.Cube, name, parent, localPos, localScale, mat,
+                            removeCollider: !keepCollider);
+
+            if (shape == SlotShape.Round)
+                // A Unity cylinder is 2 units tall at scale 1, so its Y has to be halved to mean the
+                // same thing the cube's does. Everything else here states a thickness in metres.
+                return Prim(PrimitiveType.Cylinder, name, parent, localPos,
+                    new Vector3(localScale.x, localScale.y * 0.5f, localScale.z), mat,
+                    removeCollider: !keepCollider);
+
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.transform.localScale = localScale;
+            // Chamfer 0: the same three-sided prism this always used, minus the inverted caps. Unity
+            // has no triangular primitive, so this is the one shape of the three that has always had
+            // to be generated.
+            go.AddComponent<MeshFilter>().sharedMesh = BevelledPrismMesh(shape, 0f);
+            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            // A box round a prism. The shape is what the player reads; what they bump into can be the
+            // bounding box, and a MeshCollider for a triangle you walk past is a cost with no payer.
+            if (keepCollider) go.AddComponent<BoxCollider>();
+            return go;
+        }
+
+        // ONE GENERATOR FOR EVERY PRISM IN THE GAME: an n-gon extruded, optionally with its top and
+        // bottom rims chamfered. Square is a 4-gon, Triangle a 3-gon, Round a 48-gon.
+        //
+        // It replaces TriangularPrismMesh, which it is a superset of at chamfer 0 - AND WHICH HAD
+        // BOTH CAPS WOUND INSIDE OUT. Unity's front face is the one whose cross(v1-v0, v2-v0) points
+        // along the normal (checked against the built-in Quad, whose winding and normals are known),
+        // and that prism's caps pointed into the solid while its sides pointed out. The caps were
+        // therefore backface-culled: looking down at the yellow triangle you were seeing through its
+        // top face to the inside of the far side. It survived unnoticed because the material was
+        // emissive at 2.4 and saturated, so the inside of the shape is very nearly the same image as
+        // the outside - and it would NOT survive the polished metal above, which is what sent
+        // anybody to look. Anything generated here now gets its winding checked against that Quad.
+        //
+        // WHY A CHAMFER AT ALL. A Unity cube has six flat faces meeting at perfectly sharp edges, so
+        // under any lighting the whole of each face is one shade and the object is three flat tones
+        // in a row. That is what makes a primitive look like a primitive, and no material fixes it,
+        // because there is no geometry near the edge for a highlight to run along. A 6% chamfer puts
+        // a narrow band at every rim facing halfway between two faces, and on a polished metal that
+        // band catches a bright line that moves as the player turns. It is the cheapest thing in
+        // rendering that reads as "manufactured" rather than "default".
+        //
+        // The same generator handles Round, which lets the three actually match: a puck with a
+        // machined rim beside a chamfered cube beside a chamfered prism reads as one set of objects
+        // from one factory, where a Unity cylinder's razor rim next to a chamfered cube does not.
+        //
+        // SMOOTHING IS PER SHAPE. Square and Triangle give every face its own vertices, so the edges
+        // stay hard - the existing prism's rule, and a chamfer whose bands got smoothed into the
+        // faces would be a lumpy cube rather than a bevelled one. Round shares its side vertices all
+        // the way round, so RecalculateNormals averages across the barrel and the chamfers and the
+        // puck comes out genuinely round instead of a 48-sided drum.
+        //
+        // SAVED AS AN ASSET, for the reason TriangularPrismMesh gives: a Mesh made with `new Mesh()`
+        // and assigned in a scene is a runtime object with no home, and the scene serialises a
+        // reference to nothing.
+        //
+        // NORMALISED TO A UNIT BOUNDING BOX like the prism it generalises, so a localScale of 0.30
+        // still means 0.30 ACROSS for every one of the three. The barrel ring is the widest part, so
+        // it is the ring the bounds are taken from.
+        private static Mesh BevelledPrismMesh(SlotShape shape, float chamfer)
+        {
+            // The chamfer is in the asset name, so a shape and its bevelled twin are two assets and
+            // neither can be served from the other's cache. It is also what retires the old
+            // TriangularPrism.mesh without having to find and delete it: nothing asks for that path
+            // any more.
+            string assetName = $"Prism{shape}{Mathf.RoundToInt(chamfer * 100f)}";
+            string path = GeneratedDir + "/" + assetName + ".mesh";
+            Mesh existing = AssetDatabase.LoadAssetAtPath<Mesh>(path);
+            if (existing != null) return existing;
+
+            // Round gets enough segments that the silhouette is a circle at arm's length, which is
+            // where these are looked at hardest - it is in the hand for most of a final lap.
+            int sides = shape == SlotShape.Round ? 48 : (shape == SlotShape.Triangle ? 3 : 4);
+            bool smooth = shape == SlotShape.Round;
+
+            // Where vertex 0 sits. The triangle keeps its apex at +Z, away from the player and so the
+            // top of the shape as it is looked down on - the existing prism's choice, kept because
+            // the recess in Room4 is cut from the unbevelled mesh at the same angle. A 4-gon starts
+            // at 45 degrees, which is what turns it into an axis-aligned square rather than a
+            // diamond.
+            float turn = shape == SlotShape.Triangle ? Mathf.PI * 0.5f
+                       : shape == SlotShape.Square ? Mathf.PI * 0.25f : 0f;
+
+            Vector2[] unit = new Vector2[sides];
+            for (int i = 0; i < sides; i++)
+            {
+                float a = turn + i * Mathf.PI * 2f / sides;
+                unit[i] = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+            }
+
+            // Fit the widest ring to a unit box in XZ. A triangle inscribed in a circle is neither
+            // square nor centred on that circle, so without this it comes out smaller and offset
+            // against the other two - which in a row of three reads as a mistake, not as a triangle.
+            float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
+            foreach (Vector2 v in unit)
+            {
+                minX = Mathf.Min(minX, v.x); maxX = Mathf.Max(maxX, v.x);
+                minY = Mathf.Min(minY, v.y); maxY = Mathf.Max(maxY, v.y);
+            }
+            Vector2 centre = new Vector2((minX + maxX) * 0.5f, (minY + maxY) * 0.5f);
+            Vector2 span = new Vector2(maxX - minX, maxY - minY);
+            for (int i = 0; i < sides; i++)
+                unit[i] = new Vector2((unit[i].x - centre.x) / span.x, (unit[i].y - centre.y) / span.y);
+
+            // Rings bottom to top. With a chamfer there are four - bottom cap edge, bottom of the
+            // barrel, top of the barrel, top cap edge - and the caps are pulled in by the chamfer
+            // while the barrel stays full width. Without one there are just the two ends, and no
+            // degenerate zero-height band is emitted for RecalculateNormals to choke on.
+            //
+            // 6% is the chamfer these objects use. Big enough to catch a light at 0.30m across - 18mm
+            // on the real object, about the width of the highlight it exists to hold - and small
+            // enough that the silhouette is still unmistakably a cube, a triangle or a disc, which is
+            // the one thing these three must never stop being: the recesses are cut to match.
+            float[] ringY, ringScale;
+            if (chamfer > 0f)
+            {
+                float inset = 1f - chamfer * 2f;
+                ringY = new[] { -0.5f, -0.5f + chamfer, 0.5f - chamfer, 0.5f };
+                ringScale = new[] { inset, 1f, 1f, inset };
+            }
+            else
+            {
+                ringY = new[] { -0.5f, 0.5f };
+                ringScale = new[] { 1f, 1f };
+            }
+            int rings = ringY.Length;
+
+            var verts = new System.Collections.Generic.List<Vector3>();
+            var tris = new System.Collections.Generic.List<int>();
+
+            Vector3 At(int ring, int i) =>
+                new Vector3(unit[i].x * ringScale[ring], ringY[ring], unit[i].y * ringScale[ring]);
+
+            // WINDING, stated once because getting it wrong is invisible on an emissive object and
+            // fatal on a metal one: Unity's front face is the triangle whose cross(v1-v0, v2-v0)
+            // points ALONG the outward normal. The ring runs counter-clockwise in XZ seen from +Y.
+            if (smooth)
+            {
+                // One continuous side surface with shared vertices, so the normals average round the
+                // circumference and across both chamfers - a rounded-off puck rather than a drum.
+                int baseIndex = verts.Count;
+                for (int r = 0; r < rings; r++)
+                    for (int i = 0; i < sides; i++) verts.Add(At(r, i));
+
+                for (int r = 0; r < rings - 1; r++)
+                    for (int i = 0; i < sides; i++)
+                    {
+                        int j = (i + 1) % sides;
+                        int a = baseIndex + r * sides + i, b = baseIndex + r * sides + j;
+                        int c = baseIndex + (r + 1) * sides + j, d = baseIndex + (r + 1) * sides + i;
+                        tris.Add(a); tris.Add(d); tris.Add(c);
+                        tris.Add(a); tris.Add(c); tris.Add(b);
+                    }
+            }
+            else
+            {
+                // Every band of every face gets its own four vertices, so nothing smooths into
+                // anything: the faces stay flat and the chamfers stay as distinct bands.
+                for (int r = 0; r < rings - 1; r++)
+                    for (int i = 0; i < sides; i++)
+                    {
+                        int j = (i + 1) % sides;
+                        int b = verts.Count;
+                        verts.Add(At(r, i)); verts.Add(At(r, j));
+                        verts.Add(At(r + 1, j)); verts.Add(At(r + 1, i));
+                        tris.Add(b); tris.Add(b + 3); tris.Add(b + 2);
+                        tris.Add(b); tris.Add(b + 2); tris.Add(b + 1);
+                    }
+            }
+
+            // Caps, as fans off their own vertices so they stay flat whatever the sides do. Wound
+            // opposite ways so both face outward - and note the TOP fan runs backwards against the
+            // ring. A fan following a counter-clockwise ring produces a downward normal, which is
+            // exactly the inversion the mesh this replaces shipped with.
+            int topBase = verts.Count;
+            for (int i = 0; i < sides; i++) verts.Add(At(rings - 1, i));
+            for (int i = 1; i < sides - 1; i++)
+            {
+                tris.Add(topBase); tris.Add(topBase + i + 1); tris.Add(topBase + i);
+            }
+
+            int botBase = verts.Count;
+            for (int i = 0; i < sides; i++) verts.Add(At(0, i));
+            for (int i = 1; i < sides - 1; i++)
+            {
+                tris.Add(botBase); tris.Add(botBase + i); tris.Add(botBase + i + 1);
+            }
+
+            Mesh mesh = new Mesh { name = assetName };
+            mesh.SetVertices(verts);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateNormals();
+            // No RecalculateTangents: tangents are derived from UVs, this mesh has none, and nothing
+            // wearing it uses a normal map. Asking for them buys a warning and a garbage array.
+            mesh.RecalculateBounds();
+
+            if (!Directory.Exists(GeneratedDir)) Directory.CreateDirectory(GeneratedDir);
+            AssetDatabase.CreateAsset(mesh, path);
+            AssetDatabase.SaveAssets();
+            return mesh;
         }
 
         // The canvas, the plate and the placement, shared by every wall sign in the game. What goes ON

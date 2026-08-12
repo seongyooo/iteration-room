@@ -26,9 +26,21 @@ namespace IterationRoom
         public string requiredItemId = "Key";
 
         public Renderer lockRenderer;
-        public Color idleColor = Color.white;
         public Color deniedColor = Color.red;
         public Color grantedColor = new Color(0.2f, 1f, 0.4f);
+
+        // THE PLATE'S REST COLOUR IS THE PLATE'S OWN MATERIAL, captured in Awake rather than set as
+        // a field. It used to be a serialized `idleColor` defaulting to white, which nothing ever
+        // assigned - so the first flash of ANY kind, granted or denied, faded the plate to white
+        // 0.3s later and left it white for the rest of the iteration. On a door whose colour is the
+        // only instruction the player gets about which key it wants, that is the one thing the
+        // fixture must not do: a lock that has been opened once stops saying what it is.
+        //
+        // Reading it off the renderer is not the component choosing a value - SceneBuilder still
+        // authors the colour, from the same KeySpec the key itself is built from. It is the
+        // component remembering what it was, which is exactly the kind of thing it should own, and
+        // it makes a third coloured door impossible to get wrong by forgetting a field.
+        private Color idleColor = Color.white;
 
         // Where an accepted key ends up, seated in the keyhole. The insertion is literal - the key
         // object leaves the player's pocket and goes in - so that "a ghost cannot do this" is
@@ -101,6 +113,11 @@ namespace IterationRoom
         private void Awake()
         {
             trigger = GetComponent<Collider>();
+            // sharedMaterial, deliberately: `material` instantiates a copy, and doing that in Awake
+            // would leak one per lock on every load for no reason. Flash() is where the instance is
+            // wanted, and it is only reached if the player touches the thing.
+            if (lockRenderer != null && lockRenderer.sharedMaterial != null)
+                idleColor = lockRenderer.sharedMaterial.color;
         }
 
         private void OnEnable() => ItemRegistry.RegisterSocket(this);

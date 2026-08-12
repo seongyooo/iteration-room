@@ -16,13 +16,14 @@ A diegetic PA announcer, taken from the reference film. The schedule is the whol
 | "New cycle initialized." | top of the next iteration, under closed eyelids | `AnnounceNewCycle` |
 | "Cycle terminated." | the player ends the cycle early | `AnnounceCycleTerminated` |
 | "Containment failure. Cycle broken." | the player escapes — once per run, ever | `AnnounceCycleBroken` |
-| "Manual termination available. Hold N…" | first time the player reaches Room3 | `AnnounceManualTermination` |
+| "Manual termination available. Hold N…" | **iteration 2, 5s after waking in Room1** | `AnnounceManualTermination` |
 
 - **The T-10 line is cued at T-12 on purpose.** It runs about two seconds, and from T-9 the digit countdown replaces it every second, so a literal T-10 clips it after one word. Retune `tenSecondCueAt` if the line is ever re-recorded.
 - Cues are **pushed from `RunLoop`, not polled**. The loop owns `ElapsedTime`, and the announcer must stay silent through the wake-up. The counting loop guards on a *falling* whole second, so it fires once per second at any frame rate.
 - Iteration 1 gets no "New cycle initialized" and no reset sting — it opens the run rather than resetting it.
 - **The iteration line has no chime**, though T-10, "Cycle terminated." and the ending line do. It fires hundreds of times a run, and a two-note ding ahead of it made the loop's most repeated moment its most decorated. The ending line *is* chimed — the most important thing the facility ever says, and its wording is built from vocabulary the player already has, so a cycle being **broken** lands as the same voice admitting the machine failed.
 - **Announcements replace each other** (`Stop()` + `Play()`), never `PlayOneShot` — the countdown fires once a second and one-shots would slur the digits together.
+  - **That is why the manual-termination line carries a 5-second delay** (`PanelMessage.announceDelay`). Its sign moved into Room1, which is where the player *starts* an iteration, so an undelayed cue would fire in the same moment as "Iteration 2, 60 seconds remaining." and truncate it. **Anything new that announces itself from Room1, or from the first seconds of a cycle, has to clear that line or replace it.**
 
 ### The PA treatment
 
