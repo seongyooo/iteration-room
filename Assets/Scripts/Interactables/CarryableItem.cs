@@ -117,7 +117,6 @@ namespace IterationRoom
 
         private PlayerHand hand;
         private Collider trigger;
-        private Collider playerCollider;
         private bool playerInRange;
         private bool visible = true;
 
@@ -152,15 +151,8 @@ namespace IterationRoom
         {
             if (IsCarriedByPlayer) return;
 
-            if (playerCollider == null)
-            {
-                GameObject player = GameObject.FindGameObjectWithTag("Player");
-                if (player != null)
-                {
-                    playerCollider = player.GetComponent<Collider>();
-                    hand = player.GetComponent<PlayerHand>();
-                }
-            }
+            Collider playerCollider = PlayerLookup.Collider;
+            hand = PlayerLookup.Hand;
 
             playerInRange = playerCollider != null
                 && playerCollider.enabled
@@ -192,8 +184,12 @@ namespace IterationRoom
             // Deferring to the nearest candidate rather than to whoever ran first: script execution order
             // is arbitrary, so first-wins would hand the player a piece they were not looking at. Nearest
             // is also what the prompt is drawn over, so the press and the disc agree.
+            // No eye, no arbitration: fail CLOSED rather than letting the press through unarbitrated.
+            // The whole point of NearestTakeable is to stop one press reaching several overlapping
+            // items at once (CLAUDE.md SS1.2) - skipping the check because the eye could not be found
+            // would silently reopen exactly that.
             Camera eye = hand.holdAnchor != null ? hand.holdAnchor.GetComponentInParent<Camera>() : null;
-            if (eye != null && ItemRegistry.NearestTakeable(eye.transform.position) != this) return;
+            if (eye == null || ItemRegistry.NearestTakeable(eye.transform.position) != this) return;
 
             hand.Take(this);
         }

@@ -64,8 +64,6 @@ namespace IterationRoom
         // the player did, which is the whole mechanic (spec §5).
         public override bool PlayerSignal => PlayerHolding;
 
-        private Collider playerCollider;
-
         private void Start()
         {
             UpdateVisual();
@@ -78,13 +76,8 @@ namespace IterationRoom
         // samples PlayerHolding, every ghost recorded afterwards holds it forever too.
         private void FixedUpdate()
         {
-            if (playerCollider == null)
-            {
-                GameObject player = GameObject.FindGameObjectWithTag("Player");
-                if (player != null) playerCollider = player.GetComponent<Collider>();
-            }
-
-            bool holding = playerCollider != null && playerCollider.enabled && IsStandingOnPad();
+            Collider playerCollider = PlayerLookup.Collider;
+            bool holding = playerCollider != null && playerCollider.enabled && IsStandingOnPad(playerCollider);
 
             if (holding != PlayerHolding)
             {
@@ -100,7 +93,7 @@ namespace IterationRoom
             UpdateVisual();
         }
 
-        private bool IsStandingOnPad()
+        private bool IsStandingOnPad(Collider playerCollider)
         {
             Bounds player = playerCollider.bounds;
             Vector3 pad = transform.position;

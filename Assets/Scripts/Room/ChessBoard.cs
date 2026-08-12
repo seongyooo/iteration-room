@@ -77,7 +77,7 @@ namespace IterationRoom
         // itemId -> its square, -> its anchor, -> whether it starts on the board.
         private readonly Dictionary<string, int> homeById = new Dictionary<string, int>();
         private readonly Dictionary<string, Transform> anchorById = new Dictionary<string, Transform>();
-        private readonly List<HomeSquare> sockets = new List<HomeSquare>();
+        private readonly List<IItemSocket> sockets = new List<IItemSocket>();
         private readonly List<CarryableItem> startSeated = new List<CarryableItem>();
         // Which ids are currently home. Ids rather than objects, so the same set answers both "is this
         // piece home" and "how many are home" without walking anything.
@@ -101,12 +101,12 @@ namespace IterationRoom
 
         private void OnEnable()
         {
-            foreach (HomeSquare socket in sockets) ItemRegistry.RegisterSocket(socket);
+            foreach (IItemSocket socket in sockets) ItemRegistry.RegisterSocket(socket);
         }
 
         private void OnDisable()
         {
-            foreach (HomeSquare socket in sockets) ItemRegistry.UnregisterSocket(socket);
+            foreach (IItemSocket socket in sockets) ItemRegistry.UnregisterSocket(socket);
             if (Instance == this) Instance = null;
         }
 
@@ -130,7 +130,7 @@ namespace IterationRoom
                 // with the pose.
                 homeById[piece.itemId] = SquareAt(anchor.position);
                 anchorById[piece.itemId] = anchor;
-                sockets.Add(new HomeSquare(this, piece.itemId));
+                sockets.Add(new DelegateItemSocket(piece.itemId, Seat));
 
                 if (startsHome != null && i < startsHome.Length && startsHome[i]) startSeated.Add(piece);
             }
@@ -235,29 +235,6 @@ namespace IterationRoom
         private void SeatStartingPieces()
         {
             for (int i = 0; i < startSeated.Count; i++) Seat(startSeated[i]);
-        }
-
-        // One square's claim on one piece. A plain class rather than a MonoBehaviour because it is
-        // pure lookup - it has no transform of its own to be (the anchor is that) and nothing to
-        // update. Thirty-two of these cost thirty-two dictionary entries in ItemRegistry.
-        private sealed class HomeSquare : IItemSocket
-        {
-            private readonly ChessBoard board;
-            private readonly string itemId;
-
-            public HomeSquare(ChessBoard board, string itemId)
-            {
-                this.board = board;
-                this.itemId = itemId;
-            }
-
-            public string AcceptedItemId => itemId;
-
-            // False means the ghost keeps carrying it, which is the same honest outcome Room2's lock
-            // gives when another past self got there first: this piece is already home, so the errand
-            // this ghost recorded has been done by someone else and it simply holds the piece until
-            // its timeline ends.
-            public bool AcceptFromGhost(CarryableItem item) => board != null && board.Seat(item);
         }
     }
 }

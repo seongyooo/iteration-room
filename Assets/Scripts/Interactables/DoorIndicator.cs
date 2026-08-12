@@ -32,8 +32,6 @@ namespace IterationRoom
         public float unlitScale = 0.1f;
 
         private MaterialPropertyBlock block;
-        private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
-        private static readonly int EmissionId = Shader.PropertyToID("_EmissionColor");
 
         private bool green;
         private bool applied;
@@ -73,10 +71,10 @@ namespace IterationRoom
 
             MaterialPropertyBlock b = Block;
             half.GetPropertyBlock(b);
-            b.SetColor(BaseColorId, lit ? color : color * unlitScale);
+            b.SetColor(LitPropertyIds.BaseColor, lit ? color : color * unlitScale);
             // Emission carries the "lit" read - albedo alone just looks like coloured plastic.
             // Pushed past 1 so it clears the deliberately high bloom threshold.
-            b.SetColor(EmissionId, lit ? color * litEmission : Color.black);
+            b.SetColor(LitPropertyIds.EmissionColor, lit ? color * litEmission : Color.black);
             half.SetPropertyBlock(b);
         }
     }

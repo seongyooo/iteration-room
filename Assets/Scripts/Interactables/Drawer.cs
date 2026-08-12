@@ -31,7 +31,6 @@ namespace IterationRoom
         public float openPulseDuration = 0.15f;
 
         private Collider trigger;
-        private Collider playerCollider;
         private bool playerInRange;
         private Vector3 closedLocalPos;
         private float openPulseUntil = -1f;
@@ -65,11 +64,7 @@ namespace IterationRoom
         // playerInRange would stay true for the rest of the run.
         private void FixedUpdate()
         {
-            if (playerCollider == null)
-            {
-                GameObject player = GameObject.FindGameObjectWithTag("Player");
-                if (player != null) playerCollider = player.GetComponent<Collider>();
-            }
+            Collider playerCollider = PlayerLookup.Collider;
 
             playerInRange = playerCollider != null
                 && playerCollider.enabled

@@ -62,11 +62,8 @@ namespace IterationRoom
         public bool Declared => !string.IsNullOrEmpty(acceptedItemId);
 
         private Collider trigger;
-        private Collider playerCollider;
         private bool playerInRange;
-        private MaterialPropertyBlock block;
-        private Color appliedColor;
-        private float appliedEmission = -1f;
+        private readonly LitRendererPainter painter = new LitRendererPainter();
 
         private bool Live => sequence != null && sequence.Active
             && (LoopManager.Instance == null || LoopManager.Instance.AcceptsInput);
@@ -105,17 +102,12 @@ namespace IterationRoom
         private void Awake()
         {
             trigger = GetComponent<Collider>();
-            block = new MaterialPropertyBlock();
             ApplyRim(idleColor, idleEmission);
         }
 
         private void FixedUpdate()
         {
-            if (playerCollider == null)
-            {
-                GameObject player = GameObject.FindGameObjectWithTag("Player");
-                if (player != null) playerCollider = player.GetComponent<Collider>();
-            }
+            Collider playerCollider = PlayerLookup.Collider;
 
             playerInRange = playerCollider != null
                 && playerCollider.enabled
@@ -151,23 +143,11 @@ namespace IterationRoom
         public void Clear()
         {
             Filled = false;
-            appliedEmission = -1f;
+            painter.ForceNextRepaint();
         }
 
         // Through a property block, because the three rims share one material and each says
         // something different about itself.
-        private void ApplyRim(Color color, float emission)
-        {
-            if (rimRenderer == null) return;
-            if (appliedEmission >= 0f && appliedColor == color && Mathf.Approximately(appliedEmission, emission)) return;
-
-            appliedColor = color;
-            appliedEmission = emission;
-
-            rimRenderer.GetPropertyBlock(block);
-            block.SetColor("_BaseColor", color);
-            block.SetColor("_EmissionColor", color * emission);
-            rimRenderer.SetPropertyBlock(block);
-        }
+        private void ApplyRim(Color color, float emission) => painter.Paint(rimRenderer, color, color * emission);
     }
 }

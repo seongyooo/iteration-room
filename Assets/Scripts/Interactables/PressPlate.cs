@@ -48,13 +48,10 @@ namespace IterationRoom
 
         protected abstract void OnPressed();
 
-        private Transform player;
         private bool inRange;
         private float litUntil = float.NegativeInfinity;
 
         private MaterialPropertyBlock block;
-        private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
-        private static readonly int EmissionId = Shader.PropertyToID("_EmissionColor");
 
         // Lazily, not in Awake: a MaterialPropertyBlock is not serialized, so a script reload during
         // play mode nulls it without Awake running again and every SetPropertyBlock throws after.
@@ -71,14 +68,10 @@ namespace IterationRoom
         // the player's pivot is on it, so including Y would put them permanently a metre away.
         protected virtual void FixedUpdate()
         {
-            if (player == null)
-            {
-                GameObject go = GameObject.FindGameObjectWithTag("Player");
-                if (go == null) return;
-                player = go.transform;
-            }
+            Collider playerCollider = PlayerLookup.Collider;
+            if (playerCollider == null) return;
 
-            Vector3 offset = player.position - transform.position;
+            Vector3 offset = playerCollider.transform.position - transform.position;
             offset.y = 0f;
             inRange = offset.sqrMagnitude <= interactRadius * interactRadius;
         }
@@ -101,10 +94,10 @@ namespace IterationRoom
 
             MaterialPropertyBlock b = Block;
             buttonRenderer.GetPropertyBlock(b);
-            b.SetColor(BaseColorId, lit ? pressedColor : idleColor);
+            b.SetColor(LitPropertyIds.BaseColor, lit ? pressedColor : idleColor);
             // Emission carries the press - albedo alone reads as a different colour rather than as
             // the plate lighting up. Pushed past 1 so it clears the room's high bloom threshold.
-            b.SetColor(EmissionId, lit ? pressedColor * litEmission : idleColor * idleEmission);
+            b.SetColor(LitPropertyIds.EmissionColor, lit ? pressedColor * litEmission : idleColor * idleEmission);
             buttonRenderer.SetPropertyBlock(b);
         }
     }

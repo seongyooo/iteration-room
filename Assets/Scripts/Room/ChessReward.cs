@@ -64,6 +64,9 @@ namespace IterationRoom
         private MaterialPropertyBlock block;
         private float elapsed;
         private bool running;
+        // The panels are all painted identically, driven by one scalar - so one guard for the whole
+        // array is enough. -1 is never a valid `lit`, so the first Apply always paints.
+        private float appliedLit = -1f;
 
         private float Duration => Mathf.Max(lightSeconds, Mathf.Max(openDelay + openSeconds, riseDelay + riseSeconds));
 
@@ -119,14 +122,18 @@ namespace IterationRoom
                     light.color = litColour;
                 }
 
-            if (fixturePanels != null && block != null)
+            if (fixturePanels != null && block != null && !Mathf.Approximately(lit, appliedLit))
+            {
+                appliedLit = lit;
+                Color emission = litPanelEmission * lit;
                 foreach (Renderer panel in fixturePanels)
                 {
                     if (panel == null) continue;
                     panel.GetPropertyBlock(block);
-                    block.SetColor("_EmissionColor", litPanelEmission * lit);
+                    block.SetColor(LitPropertyIds.EmissionColor, emission);
                     panel.SetPropertyBlock(block);
                 }
+            }
 
             if (boardWest != null) boardWest.localPosition = westClosed + Vector3.left * (openTravel * open);
             if (boardEast != null) boardEast.localPosition = eastClosed + Vector3.right * (openTravel * open);

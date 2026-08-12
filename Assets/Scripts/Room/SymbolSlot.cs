@@ -39,14 +39,13 @@ namespace IterationRoom
         public AudioSource audioSource;
         public AudioClip insertClip;
 
-        public bool Filled { get; private set; }
+        // Derived from the room rather than tracked here, so there is exactly one record of "this
+        // cube's seated" - CubeRoom.seated - instead of two that discipline alone keeps in step.
+        public bool Filled => room != null && room.IsSeated(acceptedItemId);
 
         private Collider trigger;
-        private Collider playerCollider;
         private bool playerInRange;
-        private MaterialPropertyBlock block;
-        private Color appliedColor;
-        private float appliedEmission = -1f;
+        private readonly LitRendererPainter painter = new LitRendererPainter();
 
         private bool Running => LoopManager.Instance == null || LoopManager.Instance.AcceptsInput;
 
@@ -65,21 +64,13 @@ namespace IterationRoom
         private void Awake()
         {
             trigger = GetComponent<Collider>();
-            block = new MaterialPropertyBlock();
             ApplyPlate(idleColor, idleEmission);
         }
 
         private void FixedUpdate()
         {
-            if (playerCollider == null)
-            {
-                GameObject player = GameObject.FindGameObjectWithTag("Player");
-                if (player != null)
-                {
-                    playerCollider = player.GetComponent<Collider>();
-                    if (hand == null) hand = player.GetComponent<PlayerHand>();
-                }
-            }
+            Collider playerCollider = PlayerLookup.Collider;
+            if (hand == null) hand = PlayerLookup.Hand;
 
             playerInRange = playerCollider != null
                 && playerCollider.enabled
@@ -112,33 +103,18 @@ namespace IterationRoom
             if (!room.Seat(given)) given.DropAt(transform.position);
         }
 
-        // Called by CubeRoom, for the player's placement and a ghost's alike.
+        // Called by CubeRoom, for the player's placement and a ghost's alike. CubeRoom.Seat adds the
+        // itemId to `seated` in the same call, so Filled (derived from it) is already true by the
+        // time anything asks.
         public void Accept(CarryableItem cube)
         {
             if (cube == null) return;
             cube.InsertInto(seat != null ? seat : transform);
-            Filled = true;
             if (audioSource != null && insertClip != null) audioSource.PlayOneShot(insertClip);
         }
 
-        // The loop rewinding. The cube itself is already back on the floor by now; this only forgets
-        // that it was ever here.
-        public void Clear() => Filled = false;
-
         // Through a property block, because the six plates share one material and each is saying
         // something different about itself.
-        private void ApplyPlate(Color color, float emission)
-        {
-            if (plateRenderer == null) return;
-            if (appliedEmission >= 0f && appliedColor == color && Mathf.Approximately(appliedEmission, emission)) return;
-
-            appliedColor = color;
-            appliedEmission = emission;
-
-            plateRenderer.GetPropertyBlock(block);
-            block.SetColor("_BaseColor", color);
-            block.SetColor("_EmissionColor", color * emission);
-            plateRenderer.SetPropertyBlock(block);
-        }
+        private void ApplyPlate(Color color, float emission) => painter.Paint(plateRenderer, color, color * emission);
     }
 }

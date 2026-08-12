@@ -56,7 +56,6 @@ namespace IterationRoom
 
         private Vector3 closedLocalPos;
         private Vector3 doorwayCentre;
-        private Transform player;
 
         private void Awake()
         {
@@ -177,18 +176,12 @@ namespace IterationRoom
 
         private bool PlayerInDoorway()
         {
-            if (player == null)
-            {
-                // Found lazily rather than wired by SceneBuilder: the player is built after the
-                // doors are, and this is asked for only while a door is actually standing open.
-                GameObject go = GameObject.FindGameObjectWithTag("Player");
-                if (go == null) return false;
-                player = go.transform;
-            }
+            Collider playerCollider = PlayerLookup.Collider;
+            if (playerCollider == null) return false;
 
             // Horizontal only - the player's pivot is on the floor and the slab's centre is at
             // door height, so including Y would put them permanently 1.25m away.
-            Vector3 offset = player.position - doorwayCentre;
+            Vector3 offset = playerCollider.transform.position - doorwayCentre;
             offset.y = 0f;
             return offset.sqrMagnitude < doorwayClearance * doorwayClearance;
         }

@@ -3220,6 +3220,14 @@ namespace IterationRoom.EditorTools
             item.displayName = displayName;
             item.icon = icon;
             item.iconTint = accent;
+            // An escape object has nowhere for a ghost to deliver it: FinalSlot deliberately is not
+            // an IItemSocket (see FinalSlot.cs), so GhostReplayer's completed-errand rule - which
+            // gates on ItemRegistry.FindSocket returning non-null - never engages for these three ids
+            // and a ghost that ever picked one up would keep re-taking it every iteration from then
+            // on, unable to ever hand it back. It is swept to origin every reset regardless
+            // (ItemRegistry.ReturnAllToOrigin), so nothing is lost by a ghost simply never touching
+            // it - the final lap collecting all three is the living player's alone, as documented.
+            item.ghostCarryable = false;
             // Its own half-height: the mesh is centred on its pivot, so this is what puts it ON a
             // floor rather than half through one. Only a ghost's timeline ending under it drops one.
             item.floorY = keySize / 2f;

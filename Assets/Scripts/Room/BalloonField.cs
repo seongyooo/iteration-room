@@ -31,7 +31,6 @@ namespace IterationRoom
         private Vector3[] spawnPoints;
         private Quaternion[] spawnRotations;
         private bool dropped;
-        private Transform player;
 
         private void Awake()
         {
@@ -91,13 +90,8 @@ namespace IterationRoom
         {
             if (dropped) return;
 
-            if (player == null)
-            {
-                GameObject go = GameObject.FindGameObjectWithTag("Player");
-                if (go != null) player = go.transform;
-            }
-
-            if (player != null) TriggerIfInside(player.position);
+            Collider playerCollider = PlayerLookup.Collider;
+            if (playerCollider != null) TriggerIfInside(playerCollider.transform.position);
         }
 
         // The drop is triggered by somebody walking in - the player, or a ghost replaying the walk

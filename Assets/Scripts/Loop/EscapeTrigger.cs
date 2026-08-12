@@ -36,8 +36,6 @@ namespace IterationRoom
 
         public bool PlayerArrived { get; private set; }
 
-        private Transform player;
-
         public void Rearm() => PlayerArrived = false;
 
         // Polled, like every other volume in this project - see FloorButton for why trigger
@@ -52,14 +50,10 @@ namespace IterationRoom
             // already back at the bed. Nowhere near this volume, but the guard costs nothing.
             if (LoopManager.Instance != null && !LoopManager.Instance.IterationRunning) return;
 
-            if (player == null)
-            {
-                GameObject go = GameObject.FindGameObjectWithTag("Player");
-                if (go == null) return;
-                player = go.transform;
-            }
+            Collider playerCollider = PlayerLookup.Collider;
+            if (playerCollider == null) return;
 
-            Vector3 offset = player.position - transform.position;
+            Vector3 offset = playerCollider.transform.position - transform.position;
             if (Mathf.Abs(offset.x) > halfWidth) return;
             if (Mathf.Abs(offset.z) > halfDepth) return;
 

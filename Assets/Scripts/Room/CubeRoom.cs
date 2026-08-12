@@ -32,7 +32,7 @@ namespace IterationRoom
         public RewardPlinth reward;
 
         private readonly Dictionary<string, SymbolSlot> slotById = new Dictionary<string, SymbolSlot>();
-        private readonly List<CubeSocket> sockets = new List<CubeSocket>();
+        private readonly List<IItemSocket> sockets = new List<IItemSocket>();
         private readonly HashSet<string> seated = new HashSet<string>();
 
         public int CubeCount => cubes != null ? cubes.Length : 0;
@@ -50,18 +50,18 @@ namespace IterationRoom
                 if (slotById.ContainsKey(cube.itemId)) continue;
 
                 slotById[cube.itemId] = slot;
-                sockets.Add(new CubeSocket(this, cube.itemId));
+                sockets.Add(new DelegateItemSocket(cube.itemId, Seat));
             }
         }
 
         private void OnEnable()
         {
-            foreach (CubeSocket socket in sockets) ItemRegistry.RegisterSocket(socket);
+            foreach (IItemSocket socket in sockets) ItemRegistry.RegisterSocket(socket);
         }
 
         private void OnDisable()
         {
-            foreach (CubeSocket socket in sockets) ItemRegistry.UnregisterSocket(socket);
+            foreach (IItemSocket socket in sockets) ItemRegistry.UnregisterSocket(socket);
         }
 
         // -1 style answer for anything that is not a cube of this room: false. It is what SymbolSlot
@@ -95,34 +95,13 @@ namespace IterationRoom
 
         // The top of an iteration. The cubes themselves are already back on the floor by the time this
         // runs (`ItemRegistry.ReturnAllToOrigin`), so this only forgets who was home and takes the
-        // reward's request back - the one piece of state here the sweep cannot reach.
+        // reward's request back - the one piece of state here the sweep cannot reach. Clearing
+        // `seated` is enough on its own: SymbolSlot.Filled reads it directly rather than keeping a
+        // second copy, so every slot is already unfilled the instant this line runs.
         public void ResetRoom()
         {
             seated.Clear();
             if (reward != null) reward.Requested = false;
-            if (slots == null) return;
-            foreach (SymbolSlot slot in slots) if (slot != null) slot.Clear();
-        }
-
-        // One recess's claim on one cube. A plain class rather than a MonoBehaviour because it is pure
-        // lookup - `SymbolSlot` is the object with a transform, and this has nothing to update.
-        private sealed class CubeSocket : IItemSocket
-        {
-            private readonly CubeRoom room;
-            private readonly string itemId;
-
-            public CubeSocket(CubeRoom room, string itemId)
-            {
-                this.room = room;
-                this.itemId = itemId;
-            }
-
-            public string AcceptedItemId => itemId;
-
-            // False means the ghost keeps carrying it, which is a real outcome rather than an error:
-            // this cube is already home, so the errand this ghost recorded was finished by someone
-            // else, and it holds the cube until its timeline ends.
-            public bool AcceptFromGhost(CarryableItem item) => room != null && room.Seat(item);
         }
     }
 }

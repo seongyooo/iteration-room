@@ -64,7 +64,6 @@ namespace IterationRoom
         public float turnAngle = 90f;
 
         private Collider trigger;
-        private Collider playerCollider;
         private PlayerHand hand;
         private bool playerInRange;
         private bool inserting;
@@ -143,15 +142,8 @@ namespace IterationRoom
 
         private void FixedUpdate()
         {
-            if (playerCollider == null)
-            {
-                GameObject player = GameObject.FindGameObjectWithTag("Player");
-                if (player != null)
-                {
-                    playerCollider = player.GetComponent<Collider>();
-                    hand = player.GetComponent<PlayerHand>();
-                }
-            }
+            Collider playerCollider = PlayerLookup.Collider;
+            hand = PlayerLookup.Hand;
 
             // Range only - arriving is deliberately not an attempt. Walking into a locked door
             // should not burn the try before the player has understood that it is a lock. This is

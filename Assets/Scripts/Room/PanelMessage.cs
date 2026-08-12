@@ -48,7 +48,6 @@ namespace IterationRoom
         // Accumulated rather than reset on leaving, so a player who ducks in and out still gets it.
         public float announceDelay;
 
-        private Transform player;
         private float alpha;
         private float insideTime;
 
@@ -153,14 +152,10 @@ namespace IterationRoom
             if (showFromIteration > 0 && LoopManager.Instance != null
                 && LoopManager.Instance.IterationNumber < showFromIteration) return false;
 
-            if (player == null)
-            {
-                GameObject go = GameObject.FindGameObjectWithTag("Player");
-                if (go == null) return false;
-                player = go.transform;
-            }
+            Collider playerCollider = PlayerLookup.Collider;
+            if (playerCollider == null) return false;
 
-            return Mathf.Abs(player.position.z - roomCenterZ) < halfDepth;
+            return Mathf.Abs(playerCollider.transform.position.z - roomCenterZ) < halfDepth;
         }
     }
 }
