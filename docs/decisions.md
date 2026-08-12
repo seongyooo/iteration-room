@@ -4,6 +4,29 @@ Ideas weighed and not taken, and the questions still open. Kept because the grou
 
 ---
 
+### Decided 2026-08-12: the nightstand is built, not imported
+
+`TODO.md` had this as a choice between building the carcass and sourcing a model with a real drawer
+node, and named sourcing the smaller job. Built won, on one argument that is not about effort:
+**there is no recess to import.** The imported `nightstand.glb` bakes its whole body into a single
+mesh, so the drawer had been a generated slab bolted to a solid face — it slid forward to reveal the
+two drawer fronts the model already had painted on it, in a colour that did not match. Sourcing a
+model with a drawer node would have fixed that, and made every number about the drawer a measurement
+off someone else's topology, re-measured on every re-export. Building it means the numbers that cut
+the opening are the numbers that fill it, which is why the carcass and the drawer are one method.
+
+What it cost: the model's lamp and pot had to be rebuilt from primitives, and are cruder for it — a
+drum shade on a stem, and a green dome in a pot. Both were the reason that model was chosen, so
+dropping them was not an option. **The lamp casts no light**, deliberately: the additional-light
+shadow atlas is sized at 2048 for exactly the four fixtures that cast, and a fifth would take every
+map down a tier without saying so.
+
+One thing found only by rendering it: the tray had inherited the room's white prop material, and in
+wood the pin vanished — a dark handle on dark wood. The tray is lined in pale grey for that reason
+alone. `nightstand.glb` is now unreferenced; it stays on disk until someone decides to delete it.
+
+---
+
 ### Decided 2026-08-11: a tool-shaped action requires the tool, for ghosts too
 
 **The rule is general, not a balloon special case:** an interaction performed *with* an object is

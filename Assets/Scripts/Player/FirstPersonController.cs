@@ -183,8 +183,22 @@ namespace IterationRoom
 
         private void HandleMove()
         {
-            float x = Input.GetAxis("Horizontal");
-            float z = Input.GetAxis("Vertical");
+            // RAW, not GetAxis. Unity's Horizontal/Vertical axes ship with gravity 3 and sensitivity
+            // 3, so a keypress ramps 0 to 1 over about a third of a second and a release decays over
+            // the same - at moveSpeed that is roughly 0.75m of drift after the key is up. In a room
+            // this size almost every input is a short corrective step, so every one of them was a
+            // ramp in and a slide out, which is what "the controls feel off" was: the play-tester
+            // report from the itch build, not a guess.
+            //
+            // Nothing replaces the smoothing, deliberately. Whatever ramp this wants should be a
+            // number chosen for this game, not Unity's Input Manager default inherited by accident -
+            // and a room where the player has to stand on a pad wants crisp over cushioned. If it
+            // now reads as too abrupt, the fix is an explicit accel here, not GetAxis back.
+            //
+            // Note this makes the player very slightly QUICKER off the mark, never slower, so the
+            // 7.7m/1.7s margin the Room1 pad-to-door close is checked against only gets easier.
+            float x = Input.GetAxisRaw("Horizontal");
+            float z = Input.GetAxisRaw("Vertical");
             Vector3 move = transform.right * x + transform.forward * z;
             move = Vector3.ClampMagnitude(move, 1f) * moveSpeed;
             horizontalMove = move;

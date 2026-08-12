@@ -5,9 +5,8 @@ namespace IterationRoom
 {
     // The nightstand drawer. Press E in range to slide it open; it holds the balloon tool.
     //
-    // The drawer is generated geometry rather than a node on the model: nightstand.glb bakes its
-    // whole body into a single mesh (Nightstand_Nightstand_0), so there is nothing in it to pull
-    // out. SceneBuilder sizes this box from the model's own measured front face instead.
+    // The nightstand is built from primitives, carcass and drawer together, so this slides into a
+    // real opening rather than off a solid face. SceneBuilder owns every number involved.
     public class Drawer : GhostInteractable, IInteractHintTarget
     {
         public Transform drawerBody;

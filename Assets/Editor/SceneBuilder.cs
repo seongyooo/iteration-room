@@ -227,8 +227,7 @@ namespace IterationRoom.EditorTools
             ConfigureLightingPipeline();
 
             (Transform bed, Transform bedSpawn) = BuildBed(room.transform, propMat);
-            GameObject nightstand = BuildNightstand(room.transform);
-            (Drawer drawer, CarryableItem tool) = BuildNightstandDrawer(room.transform, nightstand, propMat);
+            (Drawer drawer, CarryableItem tool) = BuildNightstand(room.transform);
             // Out in the open floor area past the foot of the bed, matching room_layout_sample.png.
             FloorButton floorButton = BuildFloorButton(room.transform, propMat, "FloorButton",
                 new Vector3(2.8f, 0.03f, -1.75f));
@@ -337,7 +336,8 @@ namespace IterationRoom.EditorTools
             // prompt is shown over whichever of these is nearest and currently wants it - every
             // time, not once; see ControlHintDisplay for why that changed. Room1's door is not in
             // the list any more because it has no control to press.
-            ControlHintDisplay hints = BuildControlHints(canvas, player.GetComponentInChildren<Camera>(), hand,
+            ControlHintDisplay hints = BuildControlHints(canvas, player.GetComponentInChildren<Camera>(),
+                player.GetComponent<BalloonTool>(),
                 new MonoBehaviour[] { drawer, tool, keyLock, key });
 
             // Escape's overlay covers the HUD, the prompts and the eyelids...
@@ -1910,78 +1910,136 @@ namespace IterationRoom.EditorTools
             return (bed.transform, spawn.transform);
         }
 
-        // Ships with a lamp and a vase on it, so it restores what was lost when the bed model with
-        // the built-in bedside table was swapped out. Z-up in centimetres, like the bed models.
-        private static GameObject BuildNightstand(Transform parent)
-        {
-            (GameObject nightstand, _) = PlaceModel($"{FurnitureDir}/nightstand.glb", parent, "Nightstand",
-                new Vector3(-0.95f, 0f, 1.35f), 0f, 0.01f, addBoxCollider: true,
-                rotation: Quaternion.Euler(-90f, 180f, 0f));
-            return nightstand;
-        }
-
-        // The drawer the balloon tool lives in.
+        // The nightstand and the drawer in it, built here rather than imported.
         //
-        // nightstand.glb bakes its whole body into one mesh (Nightstand_Nightstand_0), so there is
-        // no drawer node in the model to pull out - this is generated geometry sized off the
-        // model's own measured front face so it sits flush with it.
-        private static (Drawer, CarryableItem) BuildNightstandDrawer(Transform parent, GameObject nightstand, Material mat)
+        // It used to be nightstand.glb with a generated drawer bolted to its front face, because the
+        // model bakes its whole body into one mesh and has no drawer node to pull. That read exactly
+        // as what it was: a pale slab stuck on a dark cabinet, sliding out to reveal the two drawer
+        // fronts the model already had painted on it. There is no recess to import, so the carcass
+        // has to be built to have one - and the same numbers then cut the opening and fill it, which
+        // is the whole reason the two halves are one method.
+        //
+        // The model's lamp and pot are rebuilt from primitives here; they were the reason it was
+        // chosen and the room would be barer without them. Geometry only, no Light: the shadow atlas
+        // is sized for exactly the four fixtures that cast, and a fifth would silently halve them.
+        //
+        // The footprint reproduces the model's measured bounds - min (-1.23, 0, 1.16), max
+        // (-0.67, 0.59, 1.52) - so nothing else in the room has to move.
+        private static (Drawer, CarryableItem) BuildNightstand(Transform parent)
         {
-            Renderer body = null;
-            Transform bodyNode = FindDescendant(nightstand.transform, "Nightstand_Nightstand_0");
-            if (bodyNode != null) body = bodyNode.GetComponent<Renderer>();
+            // Footprint centre, on the floor. The front face looks down the room, away from the
+            // pillow, which is the side the player is on when they turn round from the bed.
+            Vector3 centre = new Vector3(-0.95f, 0f, 1.35f);
+            const float w = 0.56f, d = 0.36f, h = 0.59f;
+            const float panel = 0.018f;     // carcass stock
+            const float legH = 0.075f;      // floor to the underside of the case
+            const float topT = 0.032f;      // the slab the lamp stands on
 
-            // Measured rather than hardcoded, and logged: the model's units and pivot are both odd
-            // (see PlaceModel), so these numbers are worth being able to read back off a build.
-            Bounds b = body != null ? body.bounds : new Bounds(new Vector3(-0.95f, 0.25f, 1.35f), new Vector3(0.56f, 0.5f, 0.38f));
-            Debug.Log($"[SceneBuilder] Nightstand body bounds min={b.min} max={b.max}");
+            float caseBottom = legH;
+            float caseTop = h - topT;
+            const float bayH = 0.17f;              // the drawer opening
+            float bayTop = caseTop;
+            float bayBottom = bayTop - bayH;
 
-            // The front face is the one looking down the room, away from the pillow - the model is
-            // placed rotated 180 so its drawers face the foot of the bed, which is where the player
-            // wakes up looking.
-            float frontZ = b.min.z;
-            float width = Mathf.Min(b.size.x * 0.78f, 0.5f);
-            float height = Mathf.Min(b.size.y * 0.26f, 0.14f);
-            float depth = Mathf.Min(b.size.z * 0.8f, 0.34f);
-            float centreY = b.min.y + b.size.y * 0.62f;
+            Material wood = MakeColorMaterial("NightstandWood", new Color(0.14f, 0.085f, 0.06f));
+            SetSmoothness(wood, 0.25f);
+            // Brass, as the model's pulls were. Not metallic: this project cannot light a pure metal
+            // (see docs/gotchas.md), so it is a warm colour with some gloss instead.
+            Material brass = MakeColorMaterial("DrawerHandle", new Color(0.72f, 0.55f, 0.25f));
+            SetSmoothness(brass, 0.55f);
+
+            GameObject unit = new GameObject("Nightstand");
+            unit.transform.SetParent(parent, false);
+            unit.transform.position = centre;
+
+            // Carcass: five boards with the front left OFF. That absence is the recess - there is
+            // nothing else to build, and it is what the imported mesh could not give.
+            Prim(PrimitiveType.Cube, "Top", unit.transform, new Vector3(0f, h - topT / 2f, 0f),
+                new Vector3(w + 0.03f, topT, d + 0.02f), wood);
+            Prim(PrimitiveType.Cube, "Bottom", unit.transform, new Vector3(0f, caseBottom + panel / 2f, 0f),
+                new Vector3(w, panel, d), wood);
+            Prim(PrimitiveType.Cube, "Back", unit.transform, new Vector3(0f, (caseBottom + caseTop) / 2f, d / 2f - panel / 2f),
+                new Vector3(w, caseTop - caseBottom, panel), wood);
+            Prim(PrimitiveType.Cube, "SideLeft", unit.transform, new Vector3(-w / 2f + panel / 2f, (caseBottom + caseTop) / 2f, 0f),
+                new Vector3(panel, caseTop - caseBottom, d), wood);
+            Prim(PrimitiveType.Cube, "SideRight", unit.transform, new Vector3(w / 2f - panel / 2f, (caseBottom + caseTop) / 2f, 0f),
+                new Vector3(panel, caseTop - caseBottom, d), wood);
+            // Separates the drawer bay above from an open shelf below. A second drawer front would
+            // have matched the old model better and lied: only one drawer opens.
+            Prim(PrimitiveType.Cube, "Divider", unit.transform, new Vector3(0f, bayBottom - panel / 2f, 0f),
+                new Vector3(w - panel * 2f, panel, d - panel), wood);
+
+            for (int i = 0; i < 4; i++)
+            {
+                float lx = (i % 2 == 0 ? -1f : 1f) * (w / 2f - 0.035f);
+                float lz = (i < 2 ? -1f : 1f) * (d / 2f - 0.035f);
+                Prim(PrimitiveType.Cube, $"Leg{i}", unit.transform, new Vector3(lx, legH / 2f, lz),
+                    new Vector3(0.042f, legH, 0.042f), wood);
+            }
+
+            BuildNightstandLamp(unit.transform, new Vector3(-0.13f, h, 0.03f));
+            BuildNightstandPot(unit.transform, new Vector3(0.16f, h, -0.05f));
+
+            // The drawer's own root sits at the CENTRE OF ITS FRONT PANEL, not at the unit origin,
+            // because Drawer.HintAnchor is drawerBody - anchored at the floor the E prompt would
+            // float at the player's feet.
+            float frontZ = -d / 2f + panel / 2f;
+            float frontY = (bayBottom + bayTop) / 2f;
 
             GameObject root = new GameObject("NightstandDrawer");
             root.transform.SetParent(parent, false);
-            root.transform.position = new Vector3(b.center.x, centreY, frontZ);
+            root.transform.position = centre + new Vector3(0f, frontY, frontZ);
 
             GameObject bodyGO = new GameObject("DrawerBody");
             bodyGO.transform.SetParent(root.transform, false);
 
-            // A front panel plus a shallow tray behind it. The tray is what the tool sits in, and
-            // it is what makes an open drawer read as open from across the room.
+            // Inset into the opening rather than laid over it, by 5mm all round: the gap is what
+            // shows there is a hole here even with the drawer shut.
+            const float trayD = 0.30f;
+            float frontW = w - panel * 2f - 0.01f;
+            float frontH = bayH - 0.01f;
+
+            // The tray is LINED, in pale grey, and the wood stops at the front panel. This is the one
+            // place the unit is not the colour it wants to be: the pin is a dark handle with a bright
+            // 6mm needle on it, and against wood the handle disappears - the first version of this
+            // carcass lost the tool completely, because the tray it inherited had been white. A liner
+            // is what a drawer has anyway, and it puts the contrast back where it is load-bearing.
+            Material liner = MakeColorMaterial("DrawerLiner", new Color(0.60f, 0.58f, 0.55f));
+            SetSmoothness(liner, 0.15f);
+
             Prim(PrimitiveType.Cube, "Front", bodyGO.transform, Vector3.zero,
-                new Vector3(width, height, 0.02f), mat, removeCollider: true);
-            Prim(PrimitiveType.Cube, "TrayBase", bodyGO.transform, new Vector3(0f, -height / 2f + 0.01f, depth / 2f),
-                new Vector3(width * 0.94f, 0.02f, depth), mat, removeCollider: true);
-            Prim(PrimitiveType.Cube, "TrayLeft", bodyGO.transform, new Vector3(-width * 0.47f, 0f, depth / 2f),
-                new Vector3(0.02f, height, depth), mat, removeCollider: true);
-            Prim(PrimitiveType.Cube, "TrayRight", bodyGO.transform, new Vector3(width * 0.47f, 0f, depth / 2f),
-                new Vector3(0.02f, height, depth), mat, removeCollider: true);
-            Prim(PrimitiveType.Cube, "Handle", bodyGO.transform, new Vector3(0f, 0f, -0.03f),
-                new Vector3(width * 0.34f, 0.022f, 0.04f),
-                MakeColorMaterial("DrawerHandle", new Color(0.22f, 0.22f, 0.24f)), removeCollider: true);
+                new Vector3(frontW, frontH, panel), wood, removeCollider: true);
+            Prim(PrimitiveType.Cube, "TrayBase", bodyGO.transform, new Vector3(0f, -frontH / 2f + 0.008f, trayD / 2f),
+                new Vector3(frontW - 0.02f, 0.016f, trayD), liner, removeCollider: true);
+            Prim(PrimitiveType.Cube, "TrayLeft", bodyGO.transform, new Vector3(-frontW / 2f + 0.008f, 0f, trayD / 2f),
+                new Vector3(0.016f, frontH * 0.8f, trayD), liner, removeCollider: true);
+            Prim(PrimitiveType.Cube, "TrayRight", bodyGO.transform, new Vector3(frontW / 2f - 0.008f, 0f, trayD / 2f),
+                new Vector3(0.016f, frontH * 0.8f, trayD), liner, removeCollider: true);
+            Prim(PrimitiveType.Cube, "TrayBack", bodyGO.transform, new Vector3(0f, 0f, trayD),
+                new Vector3(frontW - 0.02f, frontH * 0.8f, 0.016f), liner, removeCollider: true);
+            Prim(PrimitiveType.Cube, "Pull", bodyGO.transform, new Vector3(0f, 0f, -panel / 2f - 0.012f),
+                new Vector3(frontW * 0.42f, 0.016f, 0.024f), brass, removeCollider: true);
 
             BoxCollider trigger = root.AddComponent<BoxCollider>();
             trigger.isTrigger = true;
-            trigger.size = new Vector3(width + 0.9f, 1.4f, 1.4f);
+            trigger.size = new Vector3(w + 0.9f, 1.4f, 1.4f);
 
             Drawer drawerComp = root.AddComponent<Drawer>();
             drawerComp.drawerBody = bodyGO.transform;
             drawerComp.audioSource = MakeSource(root.transform, "DrawerAudio", 1f, 0.8f);
             drawerComp.openClip = LoadClip(SfxDir, "sfx_drawer_open");
-            // Straight out of the front face, far enough that the tray clears the carcass.
-            drawerComp.openLocalOffset = new Vector3(0f, 0f, -(depth + 0.04f));
+            // Two thirds out, not all the way. Clearing the carcass entirely was right when the
+            // drawer was a slab on a solid face and had nowhere to be; now that there is an opening
+            // to sit in, leaving a third of the tray inside is what reads as a drawer rather than a
+            // tray hanging in mid-air. It still puts the tool well clear of the front.
+            drawerComp.openLocalOffset = new Vector3(0f, 0f, -trayD * 0.68f);
 
             // The tool: a slim pin on a dark handle. Parented to the drawer body, so it rides out
-            // with the drawer instead of hanging in the air in front of a shut one.
+            // with the drawer instead of hanging in the air in front of a shut one. Sat forward in
+            // the tray so an open drawer presents it.
             GameObject toolRoot = new GameObject("BalloonTool");
             toolRoot.transform.SetParent(bodyGO.transform, false);
-            toolRoot.transform.localPosition = new Vector3(0f, 0.02f, depth * 0.55f);
+            toolRoot.transform.localPosition = new Vector3(0f, -frontH / 2f + 0.032f, trayD * 0.38f);
 
             Material handleMat = MakeColorMaterial("ToolHandle", new Color(0.16f, 0.16f, 0.18f));
             Material pinMat = MakeColorMaterial("ToolPin", new Color(0.78f, 0.79f, 0.82f));
@@ -2002,13 +2060,67 @@ namespace IterationRoom.EditorTools
             toolItem.itemId = ToolItemId;
             toolItem.displayName = "PIN";
             toolItem.icon = PinIcon();
-            // The pin keeps CarryableItem's default hand pose - it is the one that was tuned by eye
-            // and play-tested, and Tab must not move it.
+            // Nearer and higher than CarryableItem's default, which put almost none of the pin on
+            // screen: at fov 60 a hold 0.42m out has 0.242m of half-height, so the default y of
+            // -0.24 sat the tool's CENTRE on the bottom edge of the frame and cropped the handle
+            // into the corner. 0.32m out puts half-height at 0.185m, so -0.125 is 68% down - the
+            // whole tool inside the frame with room under it, and bigger for being closer.
+            //
+            // x is 0.14 rather than the 0.175 that looked right in the Editor, which runs a 2.03
+            // ultrawide viewport: checked again at 16:9 the handle came within 5% of the right edge,
+            // and 16:9 is the narrower case the build has to survive.
+            //
+            // The ROTATION is deliberately the tuned default, unchanged. It is what the swing arc
+            // was built around - BalloonTool pitches about the item's local X from this rest pose, so
+            // yawing it turns the chop into a sideways slash. Yawed versions also read worse, not
+            // better: past about 25 degrees the handle turns broadside and becomes a black slab.
+            toolItem.handLocalPosition = new Vector3(0.14f, -0.125f, 0.32f);
             toolItem.requiresOpenDrawer = drawerComp;
             toolItem.audioSource = MakeSource(toolRoot.transform, "PickupAudio", 1f, 0.8f);
             toolItem.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
 
             return (drawerComp, toolItem);
+        }
+
+        // The drum-shade lamp the imported nightstand carried, rebuilt from three cylinders. It gives
+        // off no light - see BuildNightstand for why - so the shade is a pale matte solid rather than
+        // anything emissive: a lamp that glowed without lighting the room would read as broken.
+        private static void BuildNightstandLamp(Transform unit, Vector3 baseLocal)
+        {
+            Material metal = MakeColorMaterial("LampStem", new Color(0.12f, 0.09f, 0.07f));
+            SetSmoothness(metal, 0.45f);
+            Material shade = MakeColorMaterial("LampShade", new Color(0.87f, 0.85f, 0.79f));
+            SetSmoothness(shade, 0.08f);
+
+            GameObject lamp = new GameObject("Lamp");
+            lamp.transform.SetParent(unit, false);
+            lamp.transform.localPosition = baseLocal;
+
+            // Cylinder primitives are 1 unit across and TWO tall, so the Y scale is a half-height.
+            Prim(PrimitiveType.Cylinder, "Foot", lamp.transform, new Vector3(0f, 0.011f, 0f),
+                new Vector3(0.092f, 0.011f, 0.092f), metal);
+            Prim(PrimitiveType.Cylinder, "Stem", lamp.transform, new Vector3(0f, 0.10f, 0f),
+                new Vector3(0.034f, 0.078f, 0.034f), metal, removeCollider: true);
+            Prim(PrimitiveType.Cylinder, "Shade", lamp.transform, new Vector3(0f, 0.245f, 0f),
+                new Vector3(0.20f, 0.072f, 0.20f), shade);
+        }
+
+        // And the little planted pot beside it. Two primitives: the point is that the top of the
+        // nightstand is not bare, not that anyone can identify the species.
+        private static void BuildNightstandPot(Transform unit, Vector3 baseLocal)
+        {
+            Material pot = MakeColorMaterial("PlantPot", new Color(0.07f, 0.07f, 0.075f));
+            SetSmoothness(pot, 0.35f);
+            Material leaf = MakeColorMaterial("PlantLeaf", new Color(0.33f, 0.47f, 0.24f));
+
+            GameObject go = new GameObject("Pot");
+            go.transform.SetParent(unit, false);
+            go.transform.localPosition = baseLocal;
+
+            Prim(PrimitiveType.Cylinder, "Pot", go.transform, new Vector3(0f, 0.026f, 0f),
+                new Vector3(0.078f, 0.026f, 0.078f), pot);
+            Prim(PrimitiveType.Sphere, "Foliage", go.transform, new Vector3(0f, 0.062f, 0f),
+                new Vector3(0.072f, 0.048f, 0.072f), leaf, removeCollider: true);
         }
 
         // One key shape, used three times over: lying on the floor once its balloon bursts, seen
@@ -2100,9 +2212,10 @@ namespace IterationRoom.EditorTools
                     r.sharedMaterials = mats;
                 }
 
-            // Logged the way the nightstand's bounds are, and for the same reason: every constant
-            // above is a measurement off this file, and a re-export that moves them should show up
-            // in the build log rather than as a key sticking out of a wall.
+            // Logged because every constant above is a measurement off this file, and a re-export
+            // that moves them should show up in the build log rather than as a key sticking out of a
+            // wall. (The nightstand used to be read the same way and no longer needs to be - it is
+            // built from authored numbers now, not measured off a mesh.)
             if (scaleMul >= 1f)
             {
                 Renderer[] rs = model.GetComponentsInChildren<Renderer>();
@@ -3133,7 +3246,7 @@ namespace IterationRoom.EditorTools
         //
         // Built last of everything on the canvas so it draws over the eyelids and the HUD, and
         // parented to a full-screen rect so a screen point converts straight to an anchoredPosition.
-        private static ControlHintDisplay BuildControlHints(Transform canvas, Camera playerCamera, PlayerHand hand,
+        private static ControlHintDisplay BuildControlHints(Transform canvas, Camera playerCamera, BalloonTool swingTool,
                                               MonoBehaviour[] interactTargets)
         {
             Sprite disc = HintDiscSprite();
@@ -3181,7 +3294,7 @@ namespace IterationRoom.EditorTools
 
             ControlHintDisplay display = root.AddComponent<ControlHintDisplay>();
             display.playerCamera = playerCamera;
-            display.hand = hand;
+            display.swingTool = swingTool;
             display.interactTargets = interactTargets;
             display.area = area;
             display.interactGroup = interactGroup;

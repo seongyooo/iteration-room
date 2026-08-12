@@ -26,9 +26,33 @@ namespace IterationRoom
         public AudioSource audioSource;
         public AudioClip swingClip;
 
+        // Whether the player has ever burst a balloon. Set by the POP, not by the click, and never
+        // cleared - not at the loop boundary either. Its only job is retiring the left-click prompt,
+        // and a control the player has actually used does not need teaching again sixty seconds
+        // later. A ghost's pops do not count: they go through GhostReplayer, and watching a past
+        // self do it is not the same as having done it.
+        public bool HasPopped { get; private set; }
+
+        // Whether the left-click prompt wants showing at all. Lives here rather than in
+        // ControlHintDisplay because it is the same condition Update gates the click on - a prompt
+        // for a click that would be ignored teaches the wrong thing.
+        public bool WantsSwingHint =>
+            !HasPopped && hand != null && hand.Holding(requiredItemId)
+            && (LoopManager.Instance == null || LoopManager.Instance.AcceptsInput);
+
         private float swingStarted = -99f;
         private Quaternion restRotation;
         private CarryableItem animating;
+
+        // Reused, because FindTarget is now called every frame by the prompt as well as on click, and
+        // the allocating Physics.OverlapSphere would have made that a per-frame garbage source.
+        //
+        // 32 has to be a CEILING, not a guess: OverlapSphereNonAlloc fills the buffer and silently
+        // stops, so an undersized one would drop balloons from the search and could drop the nearest.
+        // Room2's field is 70 balloons carrying one collider each, and as built no two sit within the
+        // 0.5m grabRadius of one another - so the number only has to cover a cluster physics and the
+        // player have pushed together, plus the room's own walls and floor. 32 is well past that.
+        private readonly Collider[] overlap = new Collider[32];
 
         private void Update()
         {
@@ -43,18 +67,21 @@ namespace IterationRoom
             AnimateHeld();
         }
 
-        private void Swing()
+        // The balloon a swing from here would burst: the one nearest the centre of the swing sphere.
+        // Public and shared with the prompt on purpose - the prompt hangs on this balloon, so if the
+        // two ever disagreed the game would be pointing at one balloon and popping another.
+        public Balloon FindTarget()
         {
-            swingStarted = Time.time;
-            if (audioSource != null && swingClip != null) audioSource.PlayOneShot(swingClip);
+            if (playerCamera == null) return null;
 
             Vector3 centre = playerCamera.transform.position + playerCamera.transform.forward * reach;
+            int hits = Physics.OverlapSphereNonAlloc(centre, grabRadius, overlap);
 
             Balloon best = null;
             float bestSqr = float.MaxValue;
-            foreach (Collider c in Physics.OverlapSphere(centre, grabRadius))
+            for (int i = 0; i < hits; i++)
             {
-                Balloon b = c.GetComponentInParent<Balloon>();
+                Balloon b = overlap[i].GetComponentInParent<Balloon>();
                 if (b == null || b.IsPopped) continue;
 
                 float sqr = (b.transform.position - centre).sqrMagnitude;
@@ -63,7 +90,20 @@ namespace IterationRoom
                 best = b;
             }
 
+            return best;
+        }
+
+        private void Swing()
+        {
+            swingStarted = Time.time;
+            if (audioSource != null && swingClip != null) audioSource.PlayOneShot(swingClip);
+
+            Balloon best = FindTarget();
             if (best == null) return;
+
+            // Only a swing that actually burst something retires the prompt. A miss is exactly the
+            // case where the player still needs telling.
+            HasPopped = true;
 
             int id = best.id;
             if (BalloonField.Instance != null) BalloonField.Instance.Pop(best);

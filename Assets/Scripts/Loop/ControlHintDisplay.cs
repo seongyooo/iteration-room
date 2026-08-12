@@ -4,7 +4,7 @@ using UnityEngine.UI;
 namespace IterationRoom
 {
     // A grey disc with a key glyph in it floats over whatever interactable the player has walked up
-    // to, and a second one sits on the pin the moment it is in hand.
+    // to, and a second one carrying a mouse button floats over the balloon a swing would burst.
     //
     // These used to retire permanently the first time the player performed the action each one
     // described - the reasoning being that the loop's whole texture is repetition, so an
@@ -18,10 +18,14 @@ namespace IterationRoom
     // would actually do something here (WantsInteractHint, not mere proximity), only over the
     // nearest such thing, and at maxAlpha rather than full - so it reads as a label on the fixture
     // rather than as the game talking.
+    //
+    // The SWING prompt is the one exception, and retires for good after the first pop. That is not a
+    // return of what play-testing overruled: the finding was that showing a prompt ONCE does not
+    // teach, and this one stays up until the player has performed the action, not until they have
+    // seen it. Nobody forgets which button they just clicked.
     public class ControlHintDisplay : MonoBehaviour
     {
         public Camera playerCamera;
-        public PlayerHand hand;
 
         // Everything E does something to. Typed as MonoBehaviour rather than IInteractHintTarget
         // because Unity does not serialize interface fields - the cast back happens once in Awake.
@@ -39,8 +43,9 @@ namespace IterationRoom
         // fixture the last room has would have no prompt over it.
         public FinalRoomSequence finalRoom;
 
-        // The item whose arrival in the hand introduces the mouse button.
-        public string swingItemId = "Tool";
+        // The swing itself. Asked rather than re-derived: it owns both halves of this prompt's rule -
+        // whether the click is live, and which balloon it would burst.
+        public BalloonTool swingTool;
 
         // The rect the screen positions are resolved against: a full-screen child of the canvas,
         // which is also both hints' parent, so a local point in it is an anchoredPosition.
@@ -109,14 +114,17 @@ namespace IterationRoom
             return best;
         }
 
-        // Hung on the tool itself rather than on a balloon: this control is about the thing in your
-        // hand, and the pin rides the view, so the prompt sits on it wherever the player looks.
+        // On the BALLOON, not on the pin. Hung on the held tool this rode the view, so it was up the
+        // whole time the pin was in hand and sat on the one thing the player was not being asked to
+        // click - which made it a HUD element describing a control rather than a label on what the
+        // control acts on. Anchored to the balloon a swing would actually burst, it appears only when
+        // clicking would do something and points at what that something is.
         private Transform SwingAnchor()
         {
-            if (hand == null) return null;
+            if (swingTool == null || !swingTool.WantsSwingHint) return null;
 
-            CarryableItem held = hand.Held;
-            return held != null && held.itemId == swingItemId ? held.transform : null;
+            Balloon target = swingTool.FindTarget();
+            return target != null ? target.transform : null;
         }
 
         private void Show(CanvasGroup group, RectTransform rect, Transform anchor, ref float alpha)
