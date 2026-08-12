@@ -9,12 +9,28 @@ How to keep that split working is §6.
 ## Current state
 
 Complete end to end — three puzzle rooms, a fourth room that is the ending, a title screen, a
-sensitivity calibration step. The core loop, Rooms 1–2, Tab-to-switch and the ghost drop are
-play-tested.
+sensitivity calibration step. Behind Room2's red door is **Room2West, the chess board**: twelve of a
+set's thirty-two pieces scattered across the floor, put back one at a time. The room is **dark**
+until the last one lands; then its lights come up, the board splits down the middle and a plinth
+rises out of the gap carrying a red cube. It is the first ACCUMULATION room — see
+`docs/puzzle-design.md`. **The cube has no consumer yet** and is deliberately not carryable.
 
-**The full run has never been played through by a human.** Room3's pads, Room4 and its plinth, the
-wall messages, ghost possession and the insert-and-turn are built and verified in code only.
-Shipped to itch.io once; several scene-affecting passes have landed since.
+**PLAYED THROUGH TO THE ESCAPE, 2026-08-12: cleared in FOUR iterations, at walking speed, without
+ever sprinting.** So the whole chain works in a human's hands, and three numbers are now measured
+rather than assumed:
+
+- **Four iterations is the floor**, not the ~5 this file used to estimate.
+- **60 seconds is not the binding constraint.** The run is completable at `walkSpeed` 2.5 with sprint
+  unused, so a new room's cost has to be paid in ITERATIONS, never in metres.
+- **Four minutes is the whole game**, which is what the itch.io players meant by "small" — content
+  length is the real gap, not difficulty.
+
+What is still unplayed: **Room2West end to end, in a human's hands.** Its parts are verified in
+code — the board seats a piece by both routes, ghosts tidy it through the socket path, the reward
+fires, the loop rewinds it — but whether twelve pieces is the right length, and whether the lit
+square teaches the left button, are questions only playing it answers. What play CONTRADICTED is
+recorded in `docs/puzzle-design.md` — Room2's popping is not accumulative, and the three pins
+currently have no consumer.
 
 ---
 
@@ -42,6 +58,11 @@ origin, **ghost destroyed → released** (`GhostReplayer.OnDestroy`).
 
 `ItemRegistry.ReturnAllToOrigin()` sweeps every registered item at the top of an iteration.
 `PlayerHand.ReturnAll` alone is **not** sufficient — it only knows what the *player* picked up.
+
+**One press takes ONE item.** Every `CarryableItem` polls E for itself, so overlapping triggers used
+to be taken by all of them at once — 32 chess pieces a square apart found it. Anything that answers a
+key press over a takeable must defer to `ItemRegistry.NearestTakeable(eye)`: **nearest to the camera**,
+which is also what the prompt disc is drawn over, so the press and the disc can never disagree.
 
 **This is per OBJECT, not per id.** An id can name a supply — three pins share `"Tool"` — and each of
 the three obeys the five states and returns to its own origin. What is forbidden is two *holders* of
@@ -92,8 +113,9 @@ never appear.
 
 At the top of an iteration, in this order — each step must run before the thing that hides its
 output: `ghost.ReleaseCarried()` → `PlayerHand.ReturnAll()` → `ItemRegistry.ReturnAllToOrigin()` →
-drawers close → `BalloonField.ResetField()` → `ghost.ResetPlayback()`. Doors close after the
-teleport, never before.
+drawers close → `BalloonField.ResetField()` → `ChessBoard.ResetBoard()` → `ghost.ResetPlayback()`.
+Doors close after the teleport, never before. `ResetBoard` must follow the sweep, not precede it: the
+sweep is what puts the pieces back, and this is what forgets who was home.
 
 ---
 
@@ -112,6 +134,9 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `ItemRegistry` | id → the **supply** wearing it, id → socket, and the reset sweep |
 | `IItemSocket` | Anything that accepts an item and keeps it |
 | Room components | One puzzle's rule, nothing else |
+| `ChessBoard` | Room2West: the grid, which piece belongs where, and one `IItemSocket` per piece |
+| `ChessPlacer` | The left button and the aim; every question about *where* is `ChessBoard`'s |
+| `ChessReward` | Room2West's payoff: the lights, the board opening, the plinth. Not the rule |
 | `FinalRoomSequence` | Room4: the plinth, the last press, and the break before the ending card |
 
 **Values live in `SceneBuilder`, mechanisms live in components.** Shaders and scripts take the
@@ -135,6 +160,16 @@ Script-by-script detail: `docs/architecture.md`.
   twice.
 - **`-nographics` cannot render.** Anything that renders must check
   `SystemInfo.graphicsDeviceType` or the headless build breaks.
+- **A MIRRORED import breaks three things at once, and `chess.glb` is one** — half its pieces carry a
+  local scale of `(-1,-1,-1)`. (a) Anything sized through `InverseTransformVector` comes back
+  **negative** and builds an inside-out collider; take an absolute value. (b) Unity decomposes a
+  mirrored basis as a *different rotation* (pitch +90 against 270) that cancels against the negative
+  scale — so a pose written as a fixed euler stands half the objects on their heads. **Measure the
+  rotation off each object** instead of writing the number. (c) A `BoxCollider` on a negatively
+  scaled transform warns on every load. The fix for all three is the same one: **push the −1 onto a
+  wrapper INSIDE the object** (`SceneBuilder.MakeChessPiece`). The composite is untouched, because
+  the wrapper sits after the object's own rotation and scale either way — and the object's own
+  transform, which is what colliders and hand poses are read off, is positively scaled again.
 - **Adding a renderer feature is not idempotent** — reconcile, don't append.
 
 More: `docs/gotchas.md`, `docs/rendering-notes.md`.

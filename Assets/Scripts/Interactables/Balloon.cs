@@ -12,9 +12,14 @@ namespace IterationRoom
         // re-pop what it popped.
         public int id;
 
-        // Exactly one balloon in the field carries the key. Chosen from the field's fixed seed, so
-        // it is the same balloon every run - learning which one it is, is progress the player keeps.
-        public bool holdsKey;
+        // WHICH key this balloon carries, or null for the great majority that carry nothing. Three of
+        // them hold one each, chosen from the field's fixed seed, so a given key is in the same balloon
+        // every run - learning where they are is progress the player keeps.
+        //
+        // A reference rather than the bool this used to be. The bool could only ask "is the key in
+        // here", which meant the field held the one key it could reveal; the balloon naming its own key
+        // is what lets three of them exist without the field deciding between them.
+        public CarryableItem heldKey;
 
         // Balloons do not fall at g. Unity has no per-body gravity scale, so the Rigidbody has
         // useGravity off and this is applied by hand instead - which also lets the damping stay low

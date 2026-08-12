@@ -28,6 +28,7 @@ namespace IterationRoom
         public Drawer[] drawers;
         public PlayerHand playerHand;
         public BalloonField balloonField;
+        public ChessBoard chessBoard;
         public GhostReplayer ghostPrefab;
         public Transform ghostParent;
         public IterationLabel iterationLabel;
@@ -166,6 +167,13 @@ namespace IterationRoom
                     foreach (Drawer dr in drawers) dr?.Close();
 
                 balloonField?.ResetField();
+
+                // AFTER the sweep, like the balloon field and for the same reason. The sweep is what
+                // puts the pieces back - scattered ones on the floor, the rest on their squares - and
+                // this is what forgets who was home and puts the untouched ones back out of play. Run
+                // the other way round, every piece the sweep returned would still be marked seated and
+                // the room would open on a puzzle it thought was already solved.
+                chessBoard?.ResetBoard();
 
                 // Hidden for the whole wake-up: resetting parks them all on the bed spawn, which is
                 // exactly where the player is about to open their eyes.

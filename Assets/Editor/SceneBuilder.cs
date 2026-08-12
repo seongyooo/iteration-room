@@ -22,14 +22,103 @@ namespace IterationRoom.EditorTools
         // Item ids are a WIRE VALUE - KeyLock asks for "Key", BalloonTool and GhostReplayer both
         // ask for "Tool". Declared once so a rename cannot silently disarm one side of a gate.
         private const string ToolItemId = "Tool";
+        // Yellow keeps the id "Key" it has always had. It is a wire value shared by the key object and
+        // its lock, and both come from here, so renaming it would be safe - but there is nothing to buy
+        // and the yellow key, its door and its lock are the ones already play-tested.
         private const string KeyItemId = "Key";
+        private const string RedKeyItemId = "KeyRed";
+        private const string BlueKeyItemId = "KeyBlue";
+
+        // One key, described once. Three of these exist and every part of the chain reads the same
+        // entry - the key's own material, the tint on its HUD icon, the plate on its lock, the band on
+        // its door - which is the whole mechanism by which the colours cannot drift apart.
+        //
+        // A DISPLAY colour and a KEY colour, and they are not the same value. The key is a shaded metal
+        // object lit by ceiling fixtures, so its own colour has to survive being darkened; the plate,
+        // band and icon are flat and read at their face value. A single colour that worked as brushed
+        // metal came out muddy on a wall plate, and one that read on the wall came out fluorescent on
+        // the key.
+        private struct KeySpec
+        {
+            public string itemId;
+            public string materialName;
+            public Color metal;      // the key object, tinted onto the glb's own gold shading
+            public Color display;    // lock plate, door band, HUD icon
+        }
+
+        private static readonly KeySpec[] Room2Keys =
+        {
+            // Yellow is the glb's own gold, untinted - the existing key exactly as it was.
+            new KeySpec { itemId = KeyItemId, materialName = "KeyGold",
+                          metal = Color.white, display = new Color(0.85f, 0.68f, 0.24f) },
+            // Dark red rather than a bright one: the room's own warning red is (0.74, 0.09, 0.09) and a
+            // key that matched it would read as part of the facility's signage rather than as an object.
+            new KeySpec { itemId = RedKeyItemId, materialName = "KeyRed",
+                          metal = new Color(1.15f, 0.30f, 0.26f), display = new Color(0.62f, 0.10f, 0.10f) },
+            // The blue tint is EXTREME on purpose, and the first attempt at it came out green. The tint
+            // multiplies the glb's own gold, which is (0.831, 0.686, 0.216) - so blue is the channel
+            // being scaled by 0.216 while green is scaled by 0.686. A tint that looks blue on paper
+            // (0.42, 0.72, 1.35) lands on (0.349, 0.494, 0.291), green-dominant, which is what shipped
+            // and what had to be fixed. Working backwards from the wanted (0.13, 0.32, 0.86) instead
+            // gives these, and a B of nearly 4 is simply what undoing a 0.216 costs.
+            new KeySpec { itemId = BlueKeyItemId, materialName = "KeyBlue",
+                          metal = new Color(0.16f, 0.47f, 3.98f), display = new Color(0.16f, 0.36f, 0.72f) },
+        };
         private const string FurnitureDir = "Assets/ArtAssets/Furniture";
+        // 5.4m across the board: 1.8 first, then twice that, then half again. Derived, not chosen -
+        // chess.glb spans 3.155m at its 0.1776 import scale, so it is 17.77m at scale 1 and 5.4 / 17.77
+        // is this. A square is 0.675m and the pieces stand 0.46 to 1.09, so a king is waist-high and the
+        // board is something walked around rather than looked at.
+        private const float ChessScale = 0.3039f;
+
+        // How big a piece is in the HAND, as a fraction of its size on the board. The tallest piece is
+        // 1.09m at the scale above and a hold 0.5m from the eye can show about 0.58m of height, so a
+        // piece at its own size fills the screen twice over. 0.28 brings a king to 0.30m - large enough
+        // to tell a king from a pawn, small enough to see the room past it.
+        private const float HeldPieceScale = 0.28f;
+
+        // How far a held piece is turned about its own vertical. Face-on, a bishop and a pawn are the
+        // same silhouette; a three-quarter view is what makes the thing in your hand identifiable.
+        private const float HeldPieceYaw = 25f;
+
+        // Eight files and eight ranks. Named rather than inlined because the grid is MEASURED off the
+        // opening position - see BuildChessSet - and this is the number that measurement divides by.
+        private const int SquaresPerSide = 8;
+
+        // HOW MANY PIECES ARE MISSING OFF THE BOARD, and therefore how long the puzzle is. It is the
+        // one number that sets Room2West's cost, so it lives here.
+        //
+        // Twelve, because the cost is paid in ITERATIONS and they compound: a player who tidies four in
+        // a loop has four past selves tidying four for them in the next, so twelve is about three
+        // iterations of work and not twelve. Play-testing measured a four-iteration run for the whole
+        // game (CLAUDE.md), and a room that doubled that would be the game rather than a room in it.
+        //
+        // The other twenty stay on their squares. That is not padding - it is the statement of the
+        // puzzle: a board that is nearly right shows the player exactly which squares are empty, and
+        // there is nothing to work out and no layout to memorise.
+        private const int ScatteredPieceCount = 12;
+
+        // Fixed, because a scene is BUILD OUTPUT: two builds of the same commit have to lay the room
+        // out identically, or a bug found in one is not reproducible in the next.
+        private const int ChessScatterSeed = 20260812;
         private const string SettingsDir = "Assets/Settings";
         // Wall panel albedo. Near-white is the reference film's clinical room; the dark value reads
         // as a switched-off display, which only becomes legible because the panels are glossy and
         // have a reflection probe to mirror - a matte dark panel would just be a black hole.
         // Kept well clear of GrooveDark (0.04) so the seams still read against it.
         private static readonly Color WallPanelColor = new Color(0.13f, 0.135f, 0.15f);
+
+        // Where the two side rooms ended up, filled in by BuildShell and read by whatever goes in them.
+        // A field rather than a return value because BuildShell already returns nothing and builds
+        // everything, and threading two Vector3s out through it would say these are special when the
+        // only thing special about them is that they are not on the chain's axis.
+        private static Vector3 Room2WestCentre;
+        private static Vector3 Room2EastCentre;
+        // Room2West's ceiling fixtures, kept for the same reason and read by one thing: the chess
+        // board dims them and brings them back up as its reward. Held here rather than found by name
+        // later, because a lookup by name is a second statement of what BuildCeilingLights called them.
+        private static Light[] Room2WestLights;
+        private static Renderer[] Room2WestPanels;
 
         private const string TexturesDir = "Assets/Textures";
         private const string IconsDir = TexturesDir + "/Icons";
@@ -236,8 +325,40 @@ namespace IterationRoom.EditorTools
             // Room2: a roomful of balloons and a key door. The key door is not a GhostInteractable -
             // carrying is not part of a recording, so a ghost cannot open it for you. Getting
             // yourself to it holding the key is the last thing the room asks.
-            (Door door2, KeyLock keyLock) = BuildKeyDoor(room.transform, RoomPitch, propMat);
-            (BalloonField balloonField, CarryableItem key) = BuildBalloons(room.transform);
+            // THREE KEYED DOORS, one per key colour, and the colours are the only instruction the player
+            // gets. Yellow is the original way out on the north wall; red and blue are the side doors.
+            // Each door's lock and its key are built from the same KeySpec entry, so a plate cannot end
+            // up wanting a key that does not match it.
+            //
+            // Order matters only in that Room2Keys[0] is yellow, which is the id and the door that were
+            // already play-tested - see the table for why that one keeps the plain id "Key".
+            (Door door2, KeyLock keyLock) = BuildKeyDoor(room.transform, RoomPitch, propMat, Room2Keys[0]);
+            (Door door2W, KeyLock lockW) = BuildSideDoor(room.transform, "Door2West", RoomPitch, propMat,
+                                                         west: true, Room2Keys[1]);
+            (Door door2E, KeyLock lockE) = BuildSideDoor(room.transform, "Door2East", RoomPitch, propMat,
+                                                         west: false, Room2Keys[2]);
+            (BalloonField balloonField, CarryableItem[] keys) = BuildBalloons(room.transform);
+
+            // The red door's room: a chess set in the middle of the floor, with a dozen of its pieces
+            // scattered around it and its lights turned down until they are all back.
+            //
+            // ON THE FLOOR at 1.8m rather than on a table, because at that size the pieces are 0.4m
+            // tall - things a person could pick up and put down, which is the shape any puzzle here is
+            // going to want. A board at table height and table scale would be scenery.
+            //
+            // 0.1013 comes from measuring: the glb arrives at import scale 0.1776 spanning 3.155m, so
+            // it is 17.77m at scale 1 and 1.8 / 17.77 is this. The -90 X is the same Z-up correction the
+            // bed and the nightstand need - PlaceModel REPLACES the prefab's own rotation, so the 270 X
+            // the import gives it does not survive and has to be asked for again.
+            // The doorway is in the wall this room shares with Room2, which for the WEST room is its
+            // +X side - a side room's near face is RoomDepth/2 out from its centre, the chain's axes
+            // swapped. Handed in as a point rather than re-derived inside, because the only thing the
+            // board needs to know about a door is that pieces must not be scattered in front of it.
+            Vector3 room2WestDoorway = new Vector3(Room2WestCentre.x + RoomDepth / 2f - 0.6f,
+                                                   0f, Room2WestCentre.z);
+            (CarryableItem[] chessPieces, ChessBoard chessBoard) =
+                BuildChessSet(room.transform, Room2WestCentre, room2WestDoorway, propMat,
+                              Room2WestLights, Room2WestPanels);
 
             // Room3: TWO pads and one door that needs both at once. Deliberately the plainest room
             // of the three - no items, nothing to search, nothing to carry. Room2 already costs the
@@ -341,12 +462,33 @@ namespace IterationRoom.EditorTools
             // prompt, so a drawer holding three prompts over whichever is being looked at. Once one
             // is taken the other two go quiet - CarryableItem.WantsInteractHint asks the hand whether
             // it already has this id, which it had no reason to before an id could be a supply.
+            // Three keys and three locks go in for the same reason. Nearest-wins means standing at a
+            // door prompts over that door's lock and not over the other two, and standing over a key on
+            // the floor prompts over the key - which is exactly what the coloured doors need, since the
+            // prompt is what says "this is the thing you can act on from here".
             var pinTargets = new System.Collections.Generic.List<MonoBehaviour> { drawer };
             pinTargets.AddRange(pins);
             pinTargets.Add(keyLock);
-            pinTargets.Add(key);
+            pinTargets.Add(lockW);
+            pinTargets.Add(lockE);
+            pinTargets.AddRange(keys);
+            // And every chess piece, so E over one shows the prompt like E over anything else. Thirty-two
+            // more entries in a list NearestWantingHint walks every frame, which is nothing next to what
+            // it would cost to have the one room full of takeable objects be the room with no prompts.
+            pinTargets.AddRange(chessPieces);
             ControlHintDisplay hints = BuildControlHints(canvas, player.GetComponentInChildren<Camera>(),
                 player.GetComponent<BalloonTool>(), pinTargets.ToArray());
+
+            // Putting a piece back. On the player beside BalloonTool, sharing the left button with it and
+            // unable to clash: that one is silent unless the pin is held, this one unless a piece is, and
+            // PlayerHand has one item out at a time.
+            ChessPlacer placer = player.AddComponent<ChessPlacer>();
+            placer.playerCamera = player.GetComponentInChildren<Camera>();
+            placer.hand = hand;
+            placer.board = chessBoard;
+            // The mouse prompt rides the board's lit square, which is the same rule the swing prompt
+            // follows: the label goes on the thing the click acts on, not on the hand it is held in.
+            hints.placer = placer;
 
             // Escape's overlay covers the HUD, the prompts and the eyelids...
             BuildPauseMenu(canvas, fpc);
@@ -398,10 +540,14 @@ namespace IterationRoom.EditorTools
             loop.playerRecorder = recorder;
             loop.playerController = fpc;
             loop.ghostInteractables = ghostInteractables;
-            loop.doors = new[] { door, door2, door3 };
+            // Room2's two side doors are in here now that they have locks. This array is what the loop
+            // SHUTS at the top of an iteration, and a door that can be opened has to be one of them -
+            // leaving them out was correct only while nothing could open them.
+            loop.doors = new[] { door, door2, door2W, door2E, door3 };
             loop.drawers = new[] { drawer };
             loop.playerHand = hand;
             loop.balloonField = balloonField;
+            loop.chessBoard = chessBoard;
             loop.ghostPrefab = ghostPrefab;
             loop.ghostParent = ghostParent.transform;
             loop.iterationLabel = label;
@@ -904,13 +1050,23 @@ namespace IterationRoom.EditorTools
         //
         // castShadows is off for Room2: shadows from additional lights all share one atlas, and
         // Room2 is an empty shell with nothing in it to cast any.
-        private static void BuildCeilingLights(Transform parent, string roomName, float zCenter, Material emissiveMat, bool castShadows)
+        // xCenter is 0 for every room in the north-south chain and non-zero only for Room2's two side
+        // rooms, which sit off that axis.
+        //
+        // Returns the four Lights AND the four emissive panels they sit in, because one room's
+        // fixtures are now something a puzzle drives: Room2West starts dark and comes up when its
+        // board is finished. The panels come back too because dimming the lights alone leaves four
+        // bright ceiling tiles lighting nothing, which reads as broken rather than as off.
+        private static (Light[] lights, Renderer[] panels) BuildCeilingLights(Transform parent, string roomName, float zCenter, Material emissiveMat, bool castShadows, float xCenter = 0f)
         {
             GameObject root = new GameObject(roomName + "_CeilingLights");
             root.transform.SetParent(parent, false);
 
+            var built = new System.Collections.Generic.List<Light>();
+            var panels = new System.Collections.Generic.List<Renderer>();
+
             // Two columns on the wall-panel rhythm, two rows down the room's length.
-            float[] xs = { -GridCellWidth, GridCellWidth };
+            float[] xs = { xCenter - GridCellWidth, xCenter + GridCellWidth };
             float[] zs = { zCenter - 2.6f, zCenter + 2.6f };
 
             const float panelSize = 1.4f;
@@ -927,10 +1083,11 @@ namespace IterationRoom.EditorTools
 
                     // Sits just under the ceiling plane so it reads as set into it. Emission is
                     // pushed well past 1.0 so it clears the deliberately high bloom threshold.
-                    Prim(PrimitiveType.Cube, "Panel", fixture.transform,
+                    GameObject panel = Prim(PrimitiveType.Cube, "Panel", fixture.transform,
                         new Vector3(0f, -panelThickness / 2f, 0f),
                         new Vector3(panelSize, panelThickness, panelSize),
                         emissiveMat, removeCollider: true);
+                    panels.Add(panel.GetComponent<Renderer>());
 
                     GameObject lightGO = new GameObject("Light");
                     lightGO.transform.SetParent(fixture.transform, false);
@@ -963,8 +1120,11 @@ namespace IterationRoom.EditorTools
                     light.shadows = castShadows ? LightShadows.Soft : LightShadows.None;
                     light.shadowStrength = 0.75f;
                     light.renderMode = LightRenderMode.ForcePixel;
+                    built.Add(light);
                 }
             }
+
+            return (built.ToArray(), panels.ToArray());
         }
 
         // Surface detail, generated rather than sourced, so the project stays reproducible from
@@ -1648,16 +1808,22 @@ namespace IterationRoom.EditorTools
         // Box projection matters more than usual for a room this shape - it reprojects the cubemap
         // onto the box bounds, so a reflected wall stays put on the wall instead of sliding around
         // as the camera moves.
-        private static void BuildReflectionProbe(Transform parent, string roomName, float zCenter)
+        // xCenter and the swap flag are both for Room2's side rooms: they sit off the chain's axis, and
+        // their long dimension runs along X where every other room's runs along Z - so the probe's box
+        // has to be turned with the room or box projection reflects the wrong walls.
+        private static void BuildReflectionProbe(Transform parent, string roomName, float zCenter,
+                                                float xCenter = 0f, bool longAxisIsX = false)
         {
             GameObject go = new GameObject(roomName + "_ReflectionProbe");
             go.transform.SetParent(parent, false);
-            go.transform.localPosition = new Vector3(0f, RoomHeight * 0.5f, zCenter);
+            go.transform.localPosition = new Vector3(xCenter, RoomHeight * 0.5f, zCenter);
 
             ReflectionProbe probe = go.AddComponent<ReflectionProbe>();
             probe.mode = UnityEngine.Rendering.ReflectionProbeMode.Baked;
             probe.boxProjection = true;
-            probe.size = new Vector3(RoomWidth, RoomHeight, RoomDepth);
+            probe.size = longAxisIsX
+                ? new Vector3(RoomDepth, RoomHeight, RoomWidth)
+                : new Vector3(RoomWidth, RoomHeight, RoomDepth);
             // 512, not 256: at the wall smoothness used here the reflection is sharp enough that a
             // 256 cubemap shows the ceiling fixtures as vague smears rather than panels.
             probe.resolution = 512;
@@ -1829,7 +1995,18 @@ namespace IterationRoom.EditorTools
             // ROOM4 THE ONLY ONE WITH NONE TO THE NORTH - it is the end of the building, and there
             // is deliberately nothing past it to look at or walk to.
             BuildRoomShell(parent, "Room1", 0f, floorMat, grooveMat, panelMat, Rect.zero, doorway);
-            BuildRoomShell(parent, "Room2", RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway);
+            // ROOM2 IS THE ONLY ROOM WITH FOUR DOORWAYS. Its side ones are the expansion recorded in
+            // TODO.md: the balloon room is where extra keys and extra locks go, because popping there
+            // is currently spot-one-and-go and more destinations is what turns it into work iterations
+            // divide. Centred on each side wall, so they line up with the door out and with each
+            // other - a player who has found one knows where the other is.
+            //
+            // NOTHING IS THROUGH THEM YET. Both are plain slabs with no pad and no lock, and
+            // FloorButton.AllActive returns false for an empty array, so they stay shut on their own
+            // rather than by anything holding them - see the pocket caps below for the other half of
+            // that.
+            BuildRoomShell(parent, "Room2", RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway,
+                           westCutout: doorway, eastCutout: doorway);
             BuildRoomShell(parent, "Room3", 2f * RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway);
             // Identical to the others in every way, and that is the point rather than a saving:
             // the room the player finally gets out into is the same white cell they have been in
@@ -1845,6 +2022,37 @@ namespace IterationRoom.EditorTools
             BuildDoorPocketFill(parent, "DoorPocketFill_3", 2f * RoomPitch, grooveMat, capFarSide: false);
             // Room4 needs no pocket of its own: its north wall has no doorway cut in it, so there
             // is no cavity there to close - the same reason the calibration room has none.
+
+            // Room2's two side pockets. UNCAPPED now: each has a room through it, and a cap would be a
+            // wall across the only way into it - the same call Room3's north pocket got the day Room4
+            // was built. They were capped while there was nothing there, which is what made an opened
+            // side door show a sealed reveal instead of a hole out of the world.
+            //
+            // crossHalfWidth runs along the wall, so it is the DEPTH of the room here, not its width -
+            // reaching the outer faces of the north and south walls the way the end pockets reach the
+            // side ones.
+            const float sidePocketCross = RoomDepth / 2f + WallDepth;
+            BuildDoorPocketFill(parent, "DoorPocketFill_2W", RoomPitch, grooveMat, capFarSide: false,
+                                RoomWidth / 2f, sidePocketCross, -90f);
+            BuildDoorPocketFill(parent, "DoorPocketFill_2E", RoomPitch, grooveMat, capFarSide: false,
+                                RoomWidth / 2f, sidePocketCross, 90f);
+
+            // Floor and ceiling under those pockets. The room slabs are sized RoomWidth + 2*WallDepth
+            // across, which stops at the outer face of the side walls - so the side pockets are the one
+            // cavity in the building with nothing under them. It cannot be reached today, with the
+            // doors shut and the pockets capped, and that is exactly why it goes in now: the day a key
+            // opens one of these is the day someone walks into a hole, and the cause would be two
+            // commits behind.
+            float sidePocketX = RoomWidth / 2f + WallDepth + DoorPocketDepth / 2f;
+            for (int s = -1; s <= 1; s += 2)
+            {
+                Prim(PrimitiveType.Cube, s < 0 ? "SidePocketFloor_W" : "SidePocketFloor_E", parent,
+                    new Vector3(s * sidePocketX, -WallThickness / 2f, RoomPitch),
+                    new Vector3(DoorPocketDepth, WallThickness, sidePocketCross * 2f), floorMat);
+                Prim(PrimitiveType.Cube, s < 0 ? "SidePocketCeiling_W" : "SidePocketCeiling_E", parent,
+                    new Vector3(s * sidePocketX, RoomHeight + WallThickness / 2f, RoomPitch),
+                    new Vector3(DoorPocketDepth, WallThickness, sidePocketCross * 2f), floorMat);
+            }
 
             // A sealed copy of the same shell, well clear of the chain, used for nothing but the
             // mouse-sensitivity step before iteration 1. Rect.zero for both cutouts, so it has no
@@ -1862,6 +2070,19 @@ namespace IterationRoom.EditorTools
                 floorMat, grooveMat, panelMat, Rect.zero, Rect.zero);
 
             Material fixtureMat = MakeEmissiveMaterial("CeilingFixture", Color.white, 3.5f);
+
+            // The two rooms the coloured doors lead to, off Room2's sides. Built here with the rest of
+            // the shell rather than beside their doors, because they ARE shell - the doors and locks are
+            // fixtures in a wall, and this is the building those walls belong to.
+            //
+            // Red is west and blue is east, matching the locks in Build(). The centres come back because
+            // whatever goes in a room has to be placed relative to it.
+            Room2WestCentre = BuildSideRoom(parent, "Room2West", RoomPitch, west: true,
+                                            floorMat, grooveMat, panelMat, fixtureMat,
+                                            out Room2WestLights, out Room2WestPanels);
+            Room2EastCentre = BuildSideRoom(parent, "Room2East", RoomPitch, west: false,
+                                            floorMat, grooveMat, panelMat, fixtureMat, out _, out _);
+
             // Shadows only in Room1. Every additional light's shadow shares one atlas, and the
             // rooms past the first hold nothing that casts a shadow worth the map: Room2 is
             // balloons, Room3 is two floor pads.
@@ -1888,16 +2109,30 @@ namespace IterationRoom.EditorTools
         // sky at both ends - standing in the doorway and looking sideways showed a 0.1m x 5m slot
         // straight to the outside, which is the "you can see through between the walls" report.
         // Capping it also gives the opening a proper reveal instead of a hollow slot at the jamb.
-        private static void BuildDoorPocketFill(Transform parent, string name, float roomCenterZ, Material mat, bool capFarSide)
+        //
+        // Rotated by yaw for a door in a side wall, for the same reason BuildDoorShell is: the pocket
+        // geometry is identical, only its axis differs, and a second copy of it would be a second place
+        // for the "you can see between the walls" bug to come back. wallHalfExtent is the wall's
+        // distance from the room centre along the door's normal, crossHalfWidth how far the fill runs
+        // along the wall.
+        private static void BuildDoorPocketFill(Transform parent, string name, float roomCenterZ, Material mat,
+                                                bool capFarSide,
+                                                float wallHalfExtent = RoomDepth / 2f,
+                                                float crossHalfWidth = RoomWidth / 2f + WallDepth,
+                                                float yaw = 0f)
         {
             GameObject fill = new GameObject(name);
             fill.transform.SetParent(parent, false);
+            // The room offset and the rotation both live on the root now, so the measurements below
+            // are relative and read the same at any yaw.
+            fill.transform.localPosition = new Vector3(0f, 0f, roomCenterZ);
+            fill.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
 
-            float pocketCenterZ = roomCenterZ + RoomDepth / 2f + WallDepth + DoorPocketDepth / 2f;
+            float pocketCenterZ = wallHalfExtent + WallDepth + DoorPocketDepth / 2f;
 
-            // Matches the floor and ceiling slabs, so the fill reaches the outer face of the side
-            // walls and the divider is closed off at the same plane they are.
-            float halfWidth = RoomWidth / 2f + WallDepth;
+            // Matches the floor and ceiling slabs, so the fill reaches the outer face of the walls it
+            // runs between and the divider is closed off at the same plane they are.
+            float halfWidth = crossHalfWidth;
             Rect pocket = Rect.MinMaxRect(-halfWidth, 0f, halfWidth, RoomHeight);
 
             // The slab's full sweep: closed at -DoorWidth/2, open a further DoorWidth to the right.
@@ -1934,7 +2169,69 @@ namespace IterationRoom.EditorTools
                 mat);
         }
 
-        private static void BuildRoomShell(Transform parent, string roomName, float zCenter, Material floorMat, Material grooveMat, Material panelMat, Rect southCutout, Rect northCutout)
+        // Room2's side rooms - the two the coloured doors lead to. TURNED NINETY DEGREES: their long
+        // dimension is RoomDepth running along X where every room in the chain has it running along Z,
+        // so from inside they are the same 8.75 x 10.5 cell as everywhere else, entered from the short
+        // end. Same shell, same panelling, same lights: what is through a door in this building is more
+        // of the building.
+        //
+        // Placed by the same arithmetic that spaces the chain. A room centre sits one wall build-up, one
+        // door pocket and one more wall build-up out from the neighbour's inner face - which for the
+        // chain is RoomPitch and here is the same sum with RoomWidth and RoomDepth swapped round.
+        //
+        // Returns the room's centre, because everything put INSIDE one needs it.
+        private static Vector3 BuildSideRoom(Transform parent, string roomName, float roomCenterZ, bool west,
+                                            Material floorMat, Material grooveMat, Material panelMat,
+                                            Material fixtureMat, out Light[] ceilingLights,
+                                            out Renderer[] ceilingPanels)
+        {
+            float side = west ? -1f : 1f;
+            Rect doorway = new Rect(-DoorWidth / 2f, 0f, DoorWidth, DoorHeight);
+
+            // The face of this room's wall that looks back at Room2, across the door pocket.
+            float nearFaceX = side * (RoomWidth / 2f + 2f * WallDepth + DoorPocketDepth);
+            float centerX = nearFaceX + side * (RoomDepth / 2f);
+            float farFaceX = nearFaceX + side * RoomDepth;
+            float halfZ = RoomWidth / 2f;
+
+            GameObject room = new GameObject(roomName);
+            room.transform.SetParent(parent, false);
+            Transform t = room.transform;
+
+            // Overrunning the interior by a wall depth on both axes, like the chain's slabs, so this
+            // room's floor meets the pocket patch under the doorway instead of stopping short of it.
+            Prim(PrimitiveType.Cube, "Floor", t, new Vector3(centerX, -WallThickness / 2f, roomCenterZ),
+                new Vector3(RoomDepth + 2f * WallDepth, WallThickness, RoomWidth + 2f * WallDepth), floorMat);
+            Prim(PrimitiveType.Cube, "Ceiling", t, new Vector3(centerX, RoomHeight + WallThickness / 2f, roomCenterZ),
+                new Vector3(RoomDepth + 2f * WallDepth, WallThickness, RoomWidth + 2f * WallDepth), floorMat);
+
+            // The doorway is cut in the wall facing Room2 and nowhere else - this is the end of the
+            // building in that direction, the same way Room4 is to the north.
+            //
+            // `inward` points INTO this room, which for the near wall is AWAY from Room2. Getting that
+            // backwards builds a room whose panels face the pocket.
+            BuildPanelWall(t, "Wall_Near", new Vector3(nearFaceX, 0f, roomCenterZ),
+                Vector3.forward, west ? Vector3.left : Vector3.right, RoomWidth, grooveMat, panelMat, doorway);
+            BuildPanelWall(t, "Wall_Far", new Vector3(farFaceX, 0f, roomCenterZ),
+                Vector3.forward, west ? Vector3.right : Vector3.left, RoomWidth, grooveMat, panelMat, Rect.zero);
+            // The long walls, running along X. Their length is the room's X extent, not RoomWidth.
+            BuildPanelWall(t, "Wall_South", new Vector3(centerX, 0f, roomCenterZ - halfZ),
+                Vector3.right, Vector3.forward, RoomDepth, grooveMat, panelMat, Rect.zero);
+            BuildPanelWall(t, "Wall_North", new Vector3(centerX, 0f, roomCenterZ + halfZ),
+                Vector3.right, Vector3.back, RoomDepth, grooveMat, panelMat, Rect.zero);
+
+            // castShadows false, like every room but Room1: the shadow atlas is sized for exactly the
+            // four fixtures that cast, and two more rooms of them would take every map down a tier.
+            (ceilingLights, ceilingPanels) = BuildCeilingLights(t, roomName, roomCenterZ, fixtureMat, castShadows: false, xCenter: centerX);
+            BuildReflectionProbe(t, roomName, roomCenterZ, centerX, longAxisIsX: true);
+
+            return new Vector3(centerX, 0f, roomCenterZ);
+        }
+
+        // westCutout/eastCutout default to none, and adding them was the whole of what made side doors
+        // possible: BuildPanelWall has always taken a cutout in wall-local coordinates and been
+        // indifferent to which axis the wall runs along - the side walls were simply handed Rect.zero.
+        private static void BuildRoomShell(Transform parent, string roomName, float zCenter, Material floorMat, Material grooveMat, Material panelMat, Rect southCutout, Rect northCutout, Rect westCutout = default, Rect eastCutout = default)
         {
             GameObject room = new GameObject(roomName);
             room.transform.SetParent(parent, false);
@@ -1952,8 +2249,8 @@ namespace IterationRoom.EditorTools
 
             BuildPanelWall(t, "Wall_South", new Vector3(0f, 0f, minZ), Vector3.right, Vector3.forward, RoomWidth, grooveMat, panelMat, southCutout);
             BuildPanelWall(t, "Wall_North", new Vector3(0f, 0f, maxZ), Vector3.right, Vector3.back, RoomWidth, grooveMat, panelMat, northCutout);
-            BuildPanelWall(t, "Wall_West", new Vector3(minX, 0f, zCenter), Vector3.forward, Vector3.right, RoomDepth, grooveMat, panelMat, Rect.zero);
-            BuildPanelWall(t, "Wall_East", new Vector3(maxX, 0f, zCenter), Vector3.forward, Vector3.left, RoomDepth, grooveMat, panelMat, Rect.zero);
+            BuildPanelWall(t, "Wall_West", new Vector3(minX, 0f, zCenter), Vector3.forward, Vector3.right, RoomDepth, grooveMat, panelMat, westCutout);
+            BuildPanelWall(t, "Wall_East", new Vector3(maxX, 0f, zCenter), Vector3.forward, Vector3.left, RoomDepth, grooveMat, panelMat, eastCutout);
         }
 
         // Builds one wall as a recessed backing slab plus a grid of raised panels, so the seams are
@@ -2137,6 +2434,564 @@ namespace IterationRoom.EditorTools
             spawn.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
 
             return (bed.transform, spawn.transform);
+        }
+
+        // The chess set in the red door's room, centred on its floor.
+        //
+        // The model is a SketchUp export by way of Collada, which is why it arrives at an odd import
+        // scale with a 270 X rotation on its root and 218 separate renderers inside it. That count is
+        // the thing to watch: it is the largest single object in the game by an order of magnitude, and
+        // it sits in a room nothing can reach yet - so if the frame rate moves, this is the first
+        // suspect.
+        private static (CarryableItem[] pieces, ChessBoard board) BuildChessSet(
+            Transform parent, Vector3 roomCentre, Vector3 doorwayInside, Material propMat,
+            Light[] roomLights, Renderer[] roomPanels)
+        {
+            // addBoxCollider FALSE, unlike the bed and the nightstand. One box over the whole set would
+            // be a 3.6m solid block, and a player who cannot walk up to the board cannot get their
+            // capsule inside a piece's trigger - the pieces in the middle would be unreachable by E. The
+            // board gets its own collider below and the pieces get triggers.
+            (GameObject set, Bounds bounds) = PlaceModel($"{FurnitureDir}/chess.glb", parent, "ChessSet",
+                new Vector3(roomCentre.x, 0f, roomCentre.z), 0f, ChessScale,
+                addBoxCollider: false, rotation: Quaternion.Euler(-90f, 0f, 0f));
+
+            // Logged like the key model's, and for the same reason: every number above is a measurement
+            // off this file, and a re-export that changes its units should show up in the build log
+            // rather than as a chessboard the size of a room.
+            // UNPACKED, and it is the only model in the game that is. Unity lets components be ADDED
+            // to a prefab instance but not the hierarchy RESTRUCTURED, and opening the board means
+            // reparenting 77 of its children into two movers. The .glb stays the source of truth for
+            // the geometry either way - the scene is build output, so nothing is lost by flattening it.
+            PrefabUtility.UnpackPrefabInstance(set, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
+
+            Debug.Log($"[SceneBuilder] Chess set size={bounds.size} (expects ~5.4 across)");
+
+            // FINDING THE PIECES IN A MACHINE-GENERATED HIERARCHY. This is a SketchUp export by way of
+            // Collada, so every node is called instance_N and nothing is named after what it is. The
+            // pieces are found by SHAPE instead, which is the only thing in here that means anything:
+            //
+            // The group holding them is the node that spans the whole set on ALL THREE AXES and has the
+            // most children. `SketchUp` and the scene group span it too but have one or two children;
+            // the board spans it on X and Z with 77 tiles and is 0.06 TALL against the set's 0.79.
+            //
+            // Height is the whole discriminator and leaving it out is not hypothetical: the first version
+            // tested X and Z only, the board won on child count, and the build reported 70 pieces from
+            // its tiles instead of 32 from the group above it.
+            Transform group = null;
+            foreach (Transform t in set.GetComponentsInChildren<Transform>())
+            {
+                Renderer[] rs = t.GetComponentsInChildren<Renderer>();
+                if (rs.Length == 0) continue;
+                Bounds b = rs[0].bounds;
+                for (int i = 1; i < rs.Length; i++) b.Encapsulate(rs[i].bounds);
+                if (b.size.x < bounds.size.x * 0.95f
+                 || b.size.z < bounds.size.z * 0.95f
+                 || b.size.y < bounds.size.y * 0.95f) continue;
+                if (group == null || t.childCount > group.childCount) group = t;
+            }
+
+            if (group == null)
+            {
+                Debug.LogError("[SceneBuilder] chess.glb: no node spans the set - pieces not built. "
+                             + "A re-export has changed its hierarchy.");
+                return (new CarryableItem[0], null);
+            }
+
+            // Among that group's children, the BOARD is the one with a footprint - 3.60 wide and 0.06 tall
+            // where a piece is 0.30 wide and up to 0.72. Half the set's width separates the two by a mile,
+            // so the test needs no tuning.
+            //
+            // TWO PASSES, because the board is the LAST of the 33 children and every piece needs to know
+            // how high its top is. One pass built all 32 pieces with a floor height of zero, so a dropped
+            // piece would have rested on the floor through the board it came off.
+            var pieceNodes = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<Transform, Bounds>>();
+            float boardTop = 0f;
+            Collider boardCollider = null;
+            Bounds boardBounds = new Bounds(roomCentre, Vector3.zero);
+
+            foreach (Transform child in group)
+            {
+                Renderer[] rs = child.GetComponentsInChildren<Renderer>();
+                if (rs.Length == 0) continue;
+                Bounds b = rs[0].bounds;
+                for (int i = 1; i < rs.Length; i++) b.Encapsulate(rs[i].bounds);
+
+                if (b.size.x > bounds.size.x * 0.5f)
+                {
+                    // The board. Solid, so pieces and players rest ON it rather than in it - and thin
+                    // enough that the CharacterController's step offset walks straight over the edge.
+                    child.gameObject.name = "Board";
+                    BoxCollider slab = child.gameObject.AddComponent<BoxCollider>();
+                    slab.center = child.InverseTransformPoint(b.center);
+                    // ABS, because half this set is MIRRORED. The dark pieces carry a local scale of
+                    // -1, and InverseTransformVector divides by the scale - so a size taken through it
+                    // comes back negative and the collider is inside out. It bit the piece triggers
+                    // rather than this one, but the correction belongs on both.
+                    slab.size = Abs(child.InverseTransformVector(b.size));
+                    boardTop = b.max.y;
+                    boardBounds = b;
+                    boardCollider = slab;
+                    continue;
+                }
+
+                pieceNodes.Add(new System.Collections.Generic.KeyValuePair<Transform, Bounds>(child, b));
+            }
+
+            // THE GRID, MEASURED OFF THE OPENING POSITION rather than divided out of the board's
+            // bounding box. The slab is 5.40m across but its playing area is 4.19m from the first file
+            // to the eighth - the rest is the frame - so size/8 gives 0.675m cells where the real ones
+            // are 0.598m, and by the far file that error is more than a whole square. It shows up in
+            // play as "the piece does not land in the middle of a square".
+            //
+            // Measuring from the extremes is safe because an opening position fills the outer files
+            // AND the outer ranks on both sides: the lowest and highest coordinate on each axis are the
+            // first and eighth line of that axis, seven pitches apart. The two axes are averaged
+            // because they are two measurements of one number.
+            float minX = float.MaxValue, maxX = float.MinValue;
+            float minZ = float.MaxValue, maxZ = float.MinValue;
+            foreach (var node in pieceNodes)
+            {
+                Vector3 p = node.Key.position;
+                minX = Mathf.Min(minX, p.x); maxX = Mathf.Max(maxX, p.x);
+                minZ = Mathf.Min(minZ, p.z); maxZ = Mathf.Max(maxZ, p.z);
+            }
+
+            float pitch = ((maxX - minX) + (maxZ - minZ)) / (2f * (SquaresPerSide - 1));
+            Vector3 gridCentre = new Vector3((minX + maxX) * 0.5f, boardTop, (minZ + maxZ) * 0.5f);
+
+            // The board is NOT centred on where the set was placed - the model has the slab off-centre
+            // inside its own bounds - so everything below works off the measured centre and not off
+            // roomCentre.
+            GameObject boardGO = new GameObject("ChessBoard");
+            boardGO.transform.SetParent(parent, false);
+
+            ChessBoard board = boardGO.AddComponent<ChessBoard>();
+            board.boardCollider = boardCollider;
+            board.squaresPerSide = SquaresPerSide;
+            board.squarePitch = pitch;
+            board.gridCentre = gridCentre;
+            board.surfaceY = boardTop;
+
+            // THE LIT SQUARE. A slab a shade inside a square, so the square's own edges still read
+            // under it, and emissive so it is the brightest thing in a room whose lights are OUT
+            // until the puzzle is finished - it has to be findable from the far side of a dark room,
+            // which is where a player carrying a piece usually is.
+            GameObject marker = Prim(PrimitiveType.Cube, "SquareMarker", boardGO.transform,
+                gridCentre, new Vector3(pitch * 0.86f, 0.006f, pitch * 0.86f),
+                MakeEmissiveMaterial("ChessSquareMarker", new Color(0.30f, 0.72f, 1f), 2.6f),
+                removeCollider: true);
+            marker.SetActive(false);
+            board.marker = marker.transform;
+
+            Sprite pieceIcon = ChessPieceIcon();
+            var pieces = new System.Collections.Generic.List<CarryableItem>();
+            var anchors = new System.Collections.Generic.List<Transform>();
+            var startsHome = new System.Collections.Generic.List<bool>();
+
+            // WHICH PIECES GO ON THE FLOOR, by a shuffle rather than by taking the first twelve. The
+            // node order is the exporter's, which groups a colour and a rank together - the first
+            // twelve would be one side's back row, and the room would read as one player's pieces
+            // knocked over rather than as a set that has been disturbed.
+            int[] order = new int[pieceNodes.Count];
+            for (int i = 0; i < order.Length; i++) order[i] = i;
+            System.Random rng = new System.Random(ChessScatterSeed);
+            for (int i = order.Length - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                (order[i], order[j]) = (order[j], order[i]);
+            }
+
+            var scattered = new System.Collections.Generic.HashSet<int>();
+            for (int i = 0; i < Mathf.Min(ScatteredPieceCount, order.Length); i++) scattered.Add(order[i]);
+
+            float boardHalfSpan = Mathf.Max(boardBounds.size.x, boardBounds.size.z) * 0.5f;
+            var spots = new System.Collections.Generic.List<Vector3>();
+
+            for (int i = 0; i < pieceNodes.Count; i++)
+            {
+                Transform piece = pieceNodes[i].Key;
+
+                // CAPTURED BEFORE ANYTHING MOVES. The anchor is the opening pose and the tilt is the
+                // way this piece stands; both are only true of the set as the model left it.
+                Vector3 homeLocalPosition = piece.localPosition;
+                Quaternion homeLocalRotation = piece.localRotation;
+                float tiltX = piece.eulerAngles.x;
+
+                pieces.Add(MakeChessPiece(piece, pieceNodes[i].Value, pieceIcon, tiltX));
+
+                // The socket, as a SIBLING of the piece carrying the pose the piece had. See
+                // ChessBoard.homeAnchors: an item is parented to its socket at local identity, so an
+                // anchor built this way reproduces the model's own arrangement exactly - without
+                // ChessBoard knowing that the set is scaled 0.3039, modelled Z-up, or point-mirrored
+                // for the dark half.
+                //
+                // localScale ONE, not the piece's. CarryableItem.InsertInto restores the item's own
+                // local scale on top of this, and a dark piece carries -1 there; copying it here would
+                // multiply the two and un-mirror the piece.
+                GameObject anchor = new GameObject("Home_" + piece.gameObject.name);
+                anchor.transform.SetParent(piece.parent, false);
+                anchor.transform.localPosition = homeLocalPosition;
+                anchor.transform.localRotation = homeLocalRotation;
+                anchor.transform.localScale = Vector3.one;
+                anchors.Add(anchor.transform);
+
+                startsHome.Add(!scattered.Contains(i));
+                if (!scattered.Contains(i)) continue;
+
+                Vector3 spot = ScatterSpot(rng, roomCentre, gridCentre, boardHalfSpan, doorwayInside, spots);
+                spots.Add(spot);
+                // The pivot of every piece sits at its base - on the board they stand at exactly the
+                // slab's top - so y ZERO is a piece standing on the floor, not one sunk into it.
+                piece.position = spot;
+                // Turned where it fell. Without this the twelve stand in a shared direction and read
+                // as a second, sparser grid rather than as pieces that have been knocked about.
+                piece.rotation = Quaternion.Euler(0f, (float)rng.NextDouble() * 360f, 0f) * piece.rotation;
+            }
+
+            board.pieces = pieces.ToArray();
+            board.homeAnchors = anchors.ToArray();
+            board.startsHome = startsHome.ToArray();
+
+            // THE BOARD COMES APART. Split before the anchors are re-hung, so each anchor can be
+            // handed to the half its square is on - a seated piece is parented to its anchor, so
+            // that is the whole of how thirty-two pieces ride the halves out without anything
+            // tracking them.
+            (Transform halfWest, Transform halfEast) = SplitBoard(parent, boardCollider.transform, gridCentre.x);
+            foreach (Transform a in anchors)
+                a.SetParent(a.position.x < gridCentre.x ? halfWest : halfEast, true);
+
+            Transform plinth = BuildChessPlinth(parent, gridCentre, propMat);
+
+            ChessReward reward = boardGO.AddComponent<ChessReward>();
+            reward.lights = roomLights;
+            reward.fixturePanels = roomPanels;
+            reward.boardWest = halfWest;
+            reward.boardEast = halfEast;
+            reward.boardCollider = boardCollider;
+            reward.plinth = plinth;
+            // 1.7 each way opens a 3.4m gap in a 5.4m board - wide enough that the plinth comes up
+            // through clear floor rather than between two ledges - and leaves the far half 1.6m short
+            // of the wall, which is where the room stops being able to give any more.
+            reward.openTravel = 1.7f;
+            board.reward = reward;
+
+            // EVERY PIECE ON A SQUARE OF ITS OWN, checked rather than assumed. Two pieces resolving to
+            // one square is exactly what a mis-measured pitch looks like, and the symptom in play would
+            // be a piece that cannot be put down with no indication why. Worth an error at build time.
+            var occupied = new System.Collections.Generic.HashSet<int>();
+            int offBoard = 0, clashes = 0;
+            foreach (Transform a in anchors)
+            {
+                int square = board.SquareAt(a.position);
+                if (square < 0) offBoard++;
+                else if (!occupied.Add(square)) clashes++;
+            }
+
+            if (offBoard > 0 || clashes > 0)
+                Debug.LogError($"[SceneBuilder] Chess grid mis-measured: {offBoard} piece(s) off the board, "
+                             + $"{clashes} sharing a square. pitch={pitch:F4} centre={gridCentre}");
+
+            Debug.Log($"[SceneBuilder] Chess: {pieces.Count} pieces (expects 32), {spots.Count} scattered, "
+                    + $"square pitch {pitch:F3}, board top {boardTop:F3}");
+            return (pieces.ToArray(), board);
+        }
+
+        // Cuts the imported board down its middle so the two halves can slide apart, and hands back
+        // the movers they hang off.
+        //
+        // THE BOARD IS NOT ONE MESH, which is the only reason this is possible at all: the export is
+        // 72 separate tiles, four frame rails and a base plate - 77 children. Sorting them by which
+        // side of the centre line they sit on is a real split of the real board rather than a trick
+        // played with two copies.
+        //
+        // Three of those children run the WHOLE width - the base plate and the two cross rails - so
+        // no side owns them. Each is duplicated and each copy squashed to half width about its own
+        // outer edge, which is exact for an axis-aligned slab and costs nothing on this model:
+        // every material on the board is a FLAT COLOUR, so there is no texture to stretch.
+        //
+        // THE MOVERS ARE CHILDREN OF THE ROOM, not of the set. The set is scaled 0.3039 and rotated
+        // -90 about X, so a metre of travel written inside it is neither a metre nor along X.
+        //
+        // No collider on either half. The slab is 0.1m - under the CharacterController's step
+        // offset, so it was never something to walk into - and a moving solid that slides into a
+        // standing player is a way to get wedged for no gain. The board's own collider stays for
+        // aiming and `ChessReward` switches it off as the halves part.
+        private static (Transform west, Transform east) SplitBoard(Transform room, Transform boardNode, float centreX)
+        {
+            GameObject west = new GameObject("BoardHalf_West");
+            GameObject east = new GameObject("BoardHalf_East");
+            west.transform.SetParent(room, false);
+            east.transform.SetParent(room, false);
+
+            // Copied out first: reparenting while iterating a Transform's children skips every other
+            // entry, because the collection being walked is the thing being emptied.
+            var children = new System.Collections.Generic.List<Transform>();
+            foreach (Transform child in boardNode) children.Add(child);
+
+            int split = 0;
+            foreach (Transform child in children)
+            {
+                Renderer[] rs = child.GetComponentsInChildren<Renderer>();
+                if (rs.Length == 0) continue;
+
+                Bounds b = rs[0].bounds;
+                for (int i = 1; i < rs.Length; i++) b.Encapsulate(rs[i].bounds);
+
+                const float slack = 0.01f;
+                if (b.max.x <= centreX + slack) { child.SetParent(west.transform, true); continue; }
+                if (b.min.x >= centreX - slack) { child.SetParent(east.transform, true); continue; }
+
+                // A straddler. The squash is done by a WRAPPER at world identity rather than by
+                // scaling the child, so it stays a pure world-X scale whatever rotation the child
+                // carries - a non-uniform scale applied through a rotated basis shears.
+                GameObject twin = Object.Instantiate(child.gameObject, child.parent);
+                twin.name = child.gameObject.name + "_E";
+                child.gameObject.name = child.gameObject.name + "_W";
+
+                float span = b.max.x - b.min.x;
+                ClipHalf(child, west.transform, b.min.x, (centreX - b.min.x) / span);
+                ClipHalf(twin.transform, east.transform, b.max.x, (b.max.x - centreX) / span);
+                split++;
+            }
+
+            Debug.Log($"[SceneBuilder] Chess board split: {west.transform.childCount} west / "
+                    + $"{east.transform.childCount} east, {split} part(s) cut in half");
+            return (west.transform, east.transform);
+        }
+
+        // One straddling part reduced to the half on its pivot's side. The wrapper sits AT the edge
+        // that must not move, so scaling about it walks the far edge in to the centre line.
+        private static void ClipHalf(Transform child, Transform half, float pivotX, float scaleX)
+        {
+            GameObject clip = new GameObject(child.gameObject.name + "_Clip");
+            clip.transform.SetParent(half, false);
+            // After parenting, and while the scale is still one: this is the pivot the squash turns
+            // about, so it has to be a world position rather than an offset in a scaled frame.
+            clip.transform.position = new Vector3(pivotX, 0f, 0f);
+            child.SetParent(clip.transform, true);
+            clip.transform.localScale = new Vector3(scaleX, 1f, 1f);
+        }
+
+        // The reward, and the only thing in Room2West that is not chess: a plinth rises out of the
+        // gap the board leaves, with a red cube on it.
+        //
+        // Authored RAISED and sunk at runtime by `ChessReward`, exactly like Room4's plinth - a scene
+        // whose one prop is invisible cannot be checked without pressing Play. It stands at the
+        // board's own centre, so while the board is shut it is under the slab as well as under the
+        // floor and there is nothing to notice before it moves.
+        private static Transform BuildChessPlinth(Transform parent, Vector3 centre, Material propMat)
+        {
+            const float bodyHeight = 0.85f;
+            const float bodyWidth = 0.62f;
+            const float plateProud = 0.035f;
+            const float cubeSize = 0.30f;
+
+            GameObject plinth = new GameObject("ChessPlinth");
+            plinth.transform.SetParent(parent, false);
+            plinth.transform.localPosition = new Vector3(centre.x, 0f, centre.z);
+
+            Prim(PrimitiveType.Cube, "Body", plinth.transform,
+                new Vector3(0f, bodyHeight / 2f, 0f),
+                new Vector3(bodyWidth, bodyHeight, bodyWidth), propMat);
+
+            // The dark inset the cube stands on, borrowed from Room4's plinth for the same reason:
+            // a pale block on a pale block is one block, and the seat is what says something is
+            // MEANT to be there.
+            Prim(PrimitiveType.Cube, "TopPlate", plinth.transform,
+                new Vector3(0f, bodyHeight + plateProud / 2f, 0f),
+                new Vector3(bodyWidth * 0.82f, plateProud, bodyWidth * 0.82f),
+                MakeColorMaterial("ChessPlinthPlate", new Color(0.14f, 0.14f, 0.16f)),
+                removeCollider: true);
+
+            // THE KEY, and emissive rather than merely red. It arrives in the same second the room's
+            // lights come up from nothing, so a matte object would arrive into the brightest change
+            // in the game and be the least interesting thing in it. Red because every other signal in
+            // this building is red - the HUD, the door lamps, the panels when they break.
+            //
+            // NOT a CarryableItem yet, deliberately. It has no consumer: there is no lock it opens and
+            // no clear condition that asks for it, and a carryable with nowhere to go would sit in the
+            // HUD row saying it matters while doing nothing. Making it one is an itemId and an icon -
+            // see TODO.md.
+            Prim(PrimitiveType.Cube, "RewardKey", plinth.transform,
+                new Vector3(0f, bodyHeight + plateProud + cubeSize / 2f, 0f),
+                Vector3.one * cubeSize,
+                MakeEmissiveMaterial("ChessRewardKey", new Color(0.85f, 0.10f, 0.10f), 2.4f));
+
+            return plinth.transform;
+        }
+
+        // A spot on the floor for a piece to be found on: inside the room, off the board, out of the
+        // doorway, and not on top of another piece.
+        //
+        // Rejection sampling rather than a laid-out pattern, because the point is that the room looks
+        // disturbed. The bail-out is not decoration: the free floor here is a RING around a 5.4m board
+        // in an 8.75 x 10.5 room, which is roomy for a dozen pieces and would not be for forty, and a
+        // build that hangs is worse than a floor that is a little crowded.
+        private static Vector3 ScatterSpot(System.Random rng, Vector3 roomCentre, Vector3 gridCentre,
+                                           float boardHalfSpan, Vector3 doorwayInside,
+                                           System.Collections.Generic.List<Vector3> taken)
+        {
+            const float wallMargin = 0.8f;   // nothing jammed into a corner where it cannot be seen
+            const float boardMargin = 0.35f; // clear of the slab, so nothing looks like it is on it
+            const float doorClear = 1.6f;    // the way in stays the way in
+            const float apart = 0.62f;       // one square: two pieces never share one E press
+
+            // A side room runs its DEPTH along X and its WIDTH along Z - the chain's axes swapped.
+            float halfX = RoomDepth / 2f - wallMargin;
+            float halfZ = RoomWidth / 2f - wallMargin;
+            float keepOut = boardHalfSpan + boardMargin;
+
+            Vector3 fallback = roomCentre;
+            for (int attempt = 0; attempt < 400; attempt++)
+            {
+                Vector3 p = new Vector3(
+                    roomCentre.x + ((float)rng.NextDouble() * 2f - 1f) * halfX,
+                    0f,
+                    roomCentre.z + ((float)rng.NextDouble() * 2f - 1f) * halfZ);
+                fallback = p;
+
+                if (Mathf.Abs(p.x - gridCentre.x) < keepOut && Mathf.Abs(p.z - gridCentre.z) < keepOut) continue;
+
+                Vector2 fromDoor = new Vector2(p.x - doorwayInside.x, p.z - doorwayInside.z);
+                if (fromDoor.magnitude < doorClear) continue;
+
+                bool crowded = false;
+                foreach (Vector3 other in taken)
+                    if ((other - p).sqrMagnitude < apart * apart) { crowded = true; break; }
+                if (crowded) continue;
+
+                return p;
+            }
+
+            return fallback;
+        }
+
+        // Componentwise absolute value. Needed because InverseTransformVector divides by the scale and
+        // half this chess set is mirrored - see the note where the board's collider is built.
+        private static Vector3 Abs(Vector3 v) =>
+            new Vector3(Mathf.Abs(v.x), Mathf.Abs(v.y), Mathf.Abs(v.z));
+
+        // One piece, turned into something E can pick up. Everything here is the pin and the key over
+        // again - trigger, CarryableItem, hand pose - and nothing about it is chess-specific except how
+        // big it is and what it is called.
+        //
+        // ITS OWN ITEM ID, from its own node name. The alternative was one shared id, which would have
+        // capped the player at one piece at a time for free (PlayerHand.carried is a set of ids) and let
+        // ItemRegistry's pool hand a ghost any spare piece. That is right for pins, which are
+        // interchangeable, and wrong here: a knight is not a bishop, and a puzzle about putting the right
+        // piece on the right square needs the recording to name a piece and mean it.
+        //
+        // The node names are instance_N and say nothing about type, so the ids do not pretend to either.
+        // Classifying them - which is a knight, which is a pawn - is the puzzle's job and is in TODO.md.
+        //
+        // `tiltX` is the piece's own measured world pitch, and it is the whole of what makes a dark
+        // piece sit in the hand the same way up as a light one. See the note on handLocalEuler below.
+        private static CarryableItem MakeChessPiece(Transform piece, Bounds bounds, Sprite icon, float tiltX)
+        {
+            piece.gameObject.name = "Piece_" + piece.name.Replace("instance_", string.Empty);
+
+            // A MIRRORED PIECE'S MINUS ONE, MOVED OFF THE PIECE ITSELF. Half this set has a local
+            // scale of (-1,-1,-1), and Unity warns "BoxCollider does not support negative scale" on
+            // every load for each one. The warning is benign - it uses the absolute value, which for
+            // a centred symmetric trigger is exactly right - but a permanent warning in the console
+            // is a permanent warning, and the next person to read it will not know that.
+            //
+            // Pushing the -1 onto a wrapper INSIDE the piece leaves the composite untouched, because
+            // the wrapper sits after the piece's own rotation and scale either way:
+            //   before  P * R * S(-1) * child
+            //   after   P * R * S(+1) * S(-1) * child
+            // What changes is that the piece's own transform is now positively scaled - and it is
+            // that transform the trigger, `handLocalScale` and the home anchor are all read off. The
+            // rotation is untouched, so the measured tilt below still means what it meant.
+            if (piece.localScale.x < 0f || piece.localScale.y < 0f || piece.localScale.z < 0f)
+            {
+                Vector3 mirrored = piece.localScale;
+
+                GameObject wrapper = new GameObject("Mirror");
+                wrapper.transform.SetParent(piece, false);
+
+                var meshes = new System.Collections.Generic.List<Transform>();
+                foreach (Transform c in piece) if (c != wrapper.transform) meshes.Add(c);
+                // worldPositionStays FALSE: the wrapper is still identity at this point, so keeping
+                // the local pose is what keeps the child exactly where it was in the piece's frame.
+                foreach (Transform c in meshes) c.SetParent(wrapper.transform, false);
+
+                wrapper.transform.localScale = mirrored;
+                piece.localScale = Vector3.one;
+            }
+
+            // Sized to about one square (0.45m) rather than to the piece, so the reach is even across the
+            // board instead of a king being easier to grab than a pawn. Triggers overlapping is fine and
+            // expected: ControlHintDisplay prompts over the NEAREST one that wants it.
+            BoxCollider trigger = piece.gameObject.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            trigger.center = piece.InverseTransformPoint(bounds.center);
+            // ABS: the dark pieces have a local scale of -1, so this division comes back negative and
+            // the trigger is built inside out.
+            trigger.size = Abs(piece.InverseTransformVector(new Vector3(0.45f, Mathf.Max(0.45f, bounds.size.y), 0.45f)));
+
+            CarryableItem item = piece.gameObject.AddComponent<CarryableItem>();
+            item.itemId = piece.gameObject.name;
+            item.displayName = "PIECE";
+            item.icon = icon;
+            // ZERO, i.e. the floor. floorY is where a piece rests when it is DROPPED, and the only
+            // thing that drops one is a ghost's timeline running out under it - on the floor, mid-room.
+            // Putting a piece back on the board is not a drop: it goes into its square's socket, which
+            // carries its own height. This read boardTop while the pieces all started on the board, and
+            // a piece let go of by a past self floated a centimetre over the floor.
+            item.floorY = 0f;
+            // Further out and lower than the key's hold. A king is 0.72m tall at this scale, and at the
+            // key's 0.46m from the eye it would fill the view - which is the cost of the board being
+            // twice the size it was. If it still reads as too big in hand, this is the number.
+            // STOOD UP IN THE HAND, and the tilt is the whole of it. The set is modelled Z-up, so
+            // inside a piece's own local frame the model's "up" is +Z. Attached to the hand anchor at
+            // an identity-ish rotation that +Z lines up with the camera's FORWARD - the piece lies down
+            // and comes at the eye end-on, which is what "too big and I cannot tell which piece it is"
+            // was. A pitch of 270 turns local +Z back onto the parent's up.
+            //
+            // WHY IT IS MEASURED AND NOT WRITTEN AS -90. Half of this set is MIRRORED: the dark pieces
+            // carry a local scale of (-1,-1,-1), and Unity decomposes that basis as a pitch of +90 with
+            // a negative scale where the light ones are 270 with a positive one. Both stand up on the
+            // board - the two cancel - but handLocalScale copies the sign of the scale, so handing both
+            // colours the same -90 stood the light pieces up and the dark ones on their heads. Play
+            // found it as "the black ones are held upside down". Taking the pitch off each piece's own
+            // world rotation makes the pair cancel in the hand exactly as they do on the board.
+            //
+            // The yaw is applied AFTER the pitch (Unity's order is Z, X, then Y), so it spins the piece
+            // about its own vertical rather than tipping it: a three-quarter view, where face-on a
+            // bishop and a pawn are the same silhouette.
+            item.handLocalPosition = new Vector3(0.28f, -0.30f, 0.52f);
+            item.handLocalEuler = new Vector3(tiltX, HeldPieceYaw, 0f);
+            // The same correction on a ghost's wrist, with no yaw: that anchor is tuned for the key and
+            // hands a piece over lying along the forearm otherwise. A past self carrying a rook has to
+            // read as carrying a rook - who is holding what is half of what makes ghosts legible.
+            item.ghostLocalEuler = new Vector3(tiltX, 0f, 0f);
+            // Its board size scaled down. Not optional: the hand anchor is unscaled and the set is not, so
+            // without this the piece is handed over at 1/0.3039 of its own size. See handLocalScale.
+            // The SIGN matters as much as the size - it is what keeps a mirrored piece mirrored.
+            item.handLocalScale = piece.lossyScale * HeldPieceScale;
+            return item;
+        }
+
+        // A pawn in silhouette, standing in for every piece in the readout. One shape for all 32 rather
+        // than six drawn shapes: the row is telling the player they are carrying A PIECE, and until the
+        // puzzle needs types told apart, six silhouettes would be five more things to learn than the
+        // readout is currently saying.
+        private static Sprite ChessPieceIcon()
+        {
+            var icon = new IconCanvas(128);
+            icon.Disc(new Vector2(0.5f, 0.735f), 0.135f);                        // head
+            icon.Bar(new Vector2(0.5f, 0.575f), new Vector2(0.155f, 0.038f));    // collar
+            icon.Shape(p =>
+            {
+                // Body: a waist that flares to the base, so it reads as turned wood rather than a peg.
+                if (p.y < 0.20f || p.y > 0.56f) return false;
+                float k = (p.y - 0.20f) / 0.36f;
+                float half = Mathf.Lerp(0.185f, 0.072f, Mathf.Sqrt(k));
+                return Mathf.Abs(p.x - 0.5f) <= half;
+            });
+            icon.Bar(new Vector2(0.5f, 0.175f), new Vector2(0.225f, 0.045f));    // base
+            return SaveSprite(icon, "icon_chess_piece");
         }
 
         // The nightstand and the drawer in it, built here rather than imported.
@@ -2504,7 +3359,16 @@ namespace IterationRoom.EditorTools
         // has no textures at all, only factors, so there is nothing to drop. It is also the more
         // robust setting for this room: a key with a diffuse term reads as gold wherever it is put,
         // where a mirror only reads as gold where the probe happens to be right.
-        private static Material KeyMaterial(string assetName, float tint)
+        private static Material KeyMaterial(string assetName, float tint) =>
+            KeyMaterial(assetName, Color.white * tint);
+
+        // tint is now a COLOUR rather than a brightness, which is what lets a red and a blue key be the
+        // same object as the gold one. It is still applied by SCALING the glb's own baseColorFactor
+        // rather than by assigning a chosen triple - so the model keeps its shading and the result stays
+        // correct whichever colour space the glTF shader reads that property in. A red channel above 1
+        // is deliberate and is why: scaling a dark gold by 1.0 would give a dark red, and the key has to
+        // stay bright enough to be spotted through a balloon from across the room.
+        private static Material KeyMaterial(string assetName, Color tint)
         {
             Material gold = null;
             foreach (Object o in AssetDatabase.LoadAllAssetsAtPath(GoldKeyPath))
@@ -2528,10 +3392,8 @@ namespace IterationRoom.EditorTools
             mat.shaderKeywords = gold.shaderKeywords;
 
             mat.SetFloat("metallicFactor", 0.3f);
-            // Tinted by scaling rather than by setting a chosen triple, so it stays correct
-            // whichever colour space the glTF shader reads baseColorFactor in.
             const string baseColor = "baseColorFactor";
-            if (tint != 1f && mat.HasProperty(baseColor))
+            if (tint != Color.white && mat.HasProperty(baseColor))
                 mat.SetColor(baseColor, gold.GetColor(baseColor) * tint);
 
             EditorUtility.SetDirty(mat);
@@ -2554,13 +3416,10 @@ namespace IterationRoom.EditorTools
 
         // Room2's balloons, pooled rather than spawned. The pool is what makes a balloon's id mean
         // the same thing in every iteration, which is what a ghost's recorded pops refer to.
-        private static (BalloonField, CarryableItem) BuildBalloons(Transform parent)
+        private static (BalloonField, CarryableItem[]) BuildBalloons(Transform parent)
         {
             const int balloonCount = 70;
             const int fieldSeed = 20260810;
-
-            Material keyMat = KeyMaterial("KeyGold", 1f);
-            Material keyVisualMat = KeyMaterial("KeyInBalloon", 0.36f);
 
             GameObject root = new GameObject("BalloonField");
             root.transform.SetParent(parent, false);
@@ -2586,9 +3445,19 @@ namespace IterationRoom.EditorTools
             rubber.frictionCombine = PhysicsMaterialCombine.Minimum;
             EditorUtility.SetDirty(rubber);
 
-            // Picked from the same fixed seed as the spawn points, so the key is in the same
-            // balloon in every run - which is what makes "I know which one it is" worth having.
-            int keyIndex = new System.Random(fieldSeed).Next(balloonCount);
+            // THREE keys, in three balloons, from the same fixed seed as the spawn points - so each key
+            // is in the same balloon in every run, which is what makes "I know where the blue one is"
+            // worth having. Distinct by construction rather than by luck: drawing three times from 70
+            // collides about one run in twenty-four, and a collision would silently put two keys in one
+            // balloon and leave a door with no key anywhere.
+            var keyIndices = new System.Collections.Generic.List<int>();
+            System.Random keyRng = new System.Random(fieldSeed);
+            while (keyIndices.Count < Room2Keys.Length)
+            {
+                int candidate = keyRng.Next(balloonCount);
+                if (!keyIndices.Contains(candidate)) keyIndices.Add(candidate);
+            }
+
             System.Random pitchRng = new System.Random(fieldSeed + 1);
 
             // Their own layer, so the player's controller can exclude them outright and there is
@@ -2629,20 +3498,26 @@ namespace IterationRoom.EditorTools
 
                 Balloon balloon = go.AddComponent<Balloon>();
                 balloon.id = i;
-                balloon.holdsKey = i == keyIndex;
 
-                // The key, visible through the skin of the one balloon that has it. A child of the
-                // balloon, so Balloon.SetInPlay hides and shows it along with everything else and
-                // it vanishes the moment the balloon bursts.
-                // The key, visible through the skin of the one balloon that has it. Hung off its own
-                // child so it keeps the bow-up resting pose: BuildKeyModel lays the key along +Z
-                // for the lock, and a key floating horizontally inside a balloon reads as debris.
-                if (balloon.holdsKey)
+                // The key inside, visible through the skin of whichever balloon has one. A child of the
+                // balloon, so Balloon.SetInPlay hides and shows it along with everything else and it
+                // vanishes the moment the balloon bursts. Hung off its own child so it keeps the bow-up
+                // resting pose: BuildKeyModel lays the key along +Z for the lock, and a key floating
+                // horizontally inside a balloon reads as debris.
+                //
+                // In the KEY'S OWN COLOUR, which is what makes the search a search for a particular
+                // key rather than for "a key". The balloon's own reference is wired below, once the
+                // key objects exist.
+                int keySlot = keyIndices.IndexOf(i);
+                if (keySlot >= 0)
                 {
                     GameObject keyVisual = new GameObject("KeyVisual");
                     keyVisual.transform.SetParent(go.transform, false);
                     keyVisual.transform.localRotation = KeyRestRotation;
-                    BuildKeyModel(keyVisual.transform, 0.85f, keyVisualMat, centreOnParent: true);
+                    BuildKeyModel(keyVisual.transform, 0.85f,
+                                  KeyMaterial(Room2Keys[keySlot].materialName + "InBalloon",
+                                              Room2Keys[keySlot].metal * 0.36f),
+                                  centreOnParent: true);
                 }
                 balloon.audioSource = MakeSource(go.transform, "PopAudio", 1f, 0.8f);
                 // A fixed detune per balloon, from the field's own seed. One clip across seventy
@@ -2654,39 +3529,59 @@ namespace IterationRoom.EditorTools
                 balloons[i] = balloon;
             }
 
-            // The key. Pocketed rather than held, so picking it up does not knock the tool out of
-            // the hand you needed to get it with.
-            GameObject keyRoot = new GameObject("Key");
-            keyRoot.transform.SetParent(root.transform, false);
-            keyRoot.transform.position = new Vector3(0f, 0.06f, RoomPitch);
-            // The resting pose lives on the ROOT, not on the model, and that is load-bearing:
-            // InsertInto zeroes the root's rotation, which is precisely the frame KeyLock's
-            // insert-and-turn works in, and ReturnToOrigin restores this at the top of the loop.
-            keyRoot.transform.localRotation = KeyRestRotation;
+            // THE THREE KEYS. Each is the same object as the one key that was here before - same model,
+            // same scale, same hand pose, same seated-orientation-is-identity trick - differing only by
+            // its KeySpec. Built in a loop precisely so they cannot drift apart from each other.
+            //
+            // Their origins are spread along the room's mid-line rather than stacked, because origin is
+            // where the loop puts a key back at the top of every iteration: three keys sharing one
+            // origin would be three keys inside each other, and `ReturnAllToOrigin` would do it every
+            // sixty seconds. Pocketed rather than held on pickup, so taking one does not knock the pin
+            // out of the hand that got it.
+            var keyItems = new CarryableItem[Room2Keys.Length];
+            for (int k = 0; k < Room2Keys.Length; k++)
+            {
+                KeySpec spec = Room2Keys[k];
 
-            BuildKeyModel(keyRoot.transform, 1f, keyMat);
+                GameObject keyRoot = new GameObject(spec.materialName);
+                keyRoot.transform.SetParent(root.transform, false);
+                keyRoot.transform.position = new Vector3((k - 1) * 0.5f, 0.06f, RoomPitch);
+                // The resting pose lives on the ROOT, not on the model, and that is load-bearing:
+                // InsertInto zeroes the root's rotation, which is precisely the frame KeyLock's
+                // insert-and-turn works in, and ReturnToOrigin restores this at the top of the loop.
+                keyRoot.transform.localRotation = KeyRestRotation;
 
-            BoxCollider keyTrigger = keyRoot.AddComponent<BoxCollider>();
-            keyTrigger.isTrigger = true;
-            keyTrigger.size = new Vector3(0.9f, 0.9f, 0.9f);
+                BuildKeyModel(keyRoot.transform, 1f, KeyMaterial(spec.materialName, spec.metal));
 
-            CarryableItem keyItem = keyRoot.AddComponent<CarryableItem>();
-            keyItem.itemId = KeyItemId;
-            keyItem.displayName = "KEY";
-            keyItem.icon = KeyIcon();
-            // In the hand the key points the way it goes into a lock - teeth forward, bit vertical
-            // - because the root's identity rotation IS the seated orientation (see BuildKeyModel).
-            // Held nose-first means walking up to the lock and pressing E needs no mental rotation.
-            // Angled up slightly and further from the eye than the pin, which is a short stub where
-            // this is 0.20m long and would otherwise cross the middle of the screen.
-            keyItem.handLocalPosition = new Vector3(0.3f, -0.26f, 0.46f);
-            keyItem.handLocalEuler = new Vector3(-12f, -14f, 0f);
-            keyItem.audioSource = MakeSource(keyRoot.transform, "PickupAudio", 1f, 0.9f);
-            keyItem.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+                BoxCollider keyTrigger = keyRoot.AddComponent<BoxCollider>();
+                keyTrigger.isTrigger = true;
+                keyTrigger.size = new Vector3(0.9f, 0.9f, 0.9f);
+
+                CarryableItem keyItem = keyRoot.AddComponent<CarryableItem>();
+                keyItem.itemId = spec.itemId;
+                keyItem.displayName = "KEY";
+                keyItem.icon = KeyIcon();
+                // One silhouette for all three, tinted. Three drawn shapes would be three things to
+                // learn where the colour is already the whole message.
+                keyItem.iconTint = spec.display;
+                // In the hand the key points the way it goes into a lock - teeth forward, bit vertical
+                // - because the root's identity rotation IS the seated orientation (see BuildKeyModel).
+                // Held nose-first means walking up to the lock and pressing E needs no mental rotation.
+                // Angled up slightly and further from the eye than the pin, which is a short stub where
+                // this is 0.20m long and would otherwise cross the middle of the screen.
+                keyItem.handLocalPosition = new Vector3(0.3f, -0.26f, 0.46f);
+                keyItem.handLocalEuler = new Vector3(-12f, -14f, 0f);
+                keyItem.audioSource = MakeSource(keyRoot.transform, "PickupAudio", 1f, 0.9f);
+                keyItem.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+
+                keyItems[k] = keyItem;
+                // The balloon holding this key learns which one it is. Done here rather than in the
+                // balloon loop above because the key objects do not exist yet at that point.
+                balloons[keyIndices[k]].heldKey = keyItem;
+            }
 
             BalloonField field = root.AddComponent<BalloonField>();
             field.balloons = balloons;
-            field.key = keyItem;
             field.seed = fieldSeed;
             field.roomCenterZ = RoomPitch;
 
@@ -2695,7 +3590,7 @@ namespace IterationRoom.EditorTools
             field.ComputeSpawnPoints();
             field.ResetField();
 
-            return (field, keyItem);
+            return (field, keyItems);
         }
 
         private static FloorButton BuildFloorButton(Transform parent, Material mat, string name, Vector3 position)
@@ -2723,19 +3618,30 @@ namespace IterationRoom.EditorTools
         // The slab, its pocket, and the lamp above it - everything both doors have in common. What
         // differs is only what unlocks them: Room1's is a button wired to a floor pad, Room2's is a
         // key lock fed by whatever a balloon gave up.
+        // yaw turns the whole door, which is how a door in a SIDE wall costs nothing: the slab, the
+        // pocket offset, the lamp and the slide are all measured in this root's local frame, so
+        // rotating the root puts every one of them on a different wall with no second copy of the
+        // measurements. 0 is a north wall, 90 the east, -90 the west.
+        //
+        // wallHalfExtent is how far the wall is from the room centre along the door's own normal -
+        // RoomDepth/2 for the end walls this was written for, RoomWidth/2 for a side wall. It used to
+        // be hardcoded, which is the only thing that made this Z-only.
         private static (Door door, DoorIndicator indicator, float wallInnerZ) BuildDoorShell(
-            Transform parent, string name, float roomCenterZ, Material mat)
+            Transform parent, string name, float roomCenterZ, Material mat,
+            float wallHalfExtent = RoomDepth / 2f, float yaw = 0f)
         {
             GameObject doorRoot = new GameObject(name);
             doorRoot.transform.SetParent(parent, false);
             // The root carries the room offset, so every measurement below stays in the same local
-            // frame it was tuned in back when there was only one door.
+            // frame it was tuned in back when there was only one door. The offset is in the PARENT's
+            // frame and the rotation is the root's own, so the two do not interfere.
             doorRoot.transform.localPosition = new Vector3(0f, 0f, roomCenterZ);
+            doorRoot.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
 
             // The slab lives in the pocket between this room's wall and the next room's, so sliding
             // it sideways tucks it inside the wall build-up rather than dragging it across the
             // panelling. wallInnerZ is the room surface; the pocket starts WallDepth behind that.
-            float wallInnerZ = RoomDepth / 2f;
+            float wallInnerZ = wallHalfExtent;
             float slabZ = wallInnerZ + WallDepth + DoorPocketDepth / 2f;
 
             // The slab KEEPS its collider. The doorway is cut out of both walls' collision, so the
@@ -2801,20 +3707,54 @@ namespace IterationRoom.EditorTools
             return door;
         }
 
-        // Room2's way out. No pad and no condition to hold open, and deliberately not a button:
-        // the shape of the thing on the wall is the puzzle telling you what it wants.
-        private static (Door, KeyLock) BuildKeyDoor(Transform parent, float roomCenterZ, Material mat)
+        // One of Room2's side doors, with its own coloured lock. Identical to the north door in every
+        // way except the wall it is in and the key it wants - which is the point: three doors that
+        // behave the same and differ only by colour is what makes the colour readable as the rule.
+        //
+        // Still nothing through them. The pockets stay capped until there are rooms, so an opened side
+        // door shows a sealed reveal rather than a hole out of the world.
+        private static (Door, KeyLock) BuildSideDoor(Transform parent, string name, float roomCenterZ,
+                                                    Material mat, bool west, KeySpec spec)
         {
-            (Door door, DoorIndicator indicator, float wallInnerZ) = BuildDoorShell(parent, "Door2", roomCenterZ, mat);
+            (Door door, DoorIndicator indicator, float wallInnerZ) =
+                BuildDoorShell(parent, name, roomCenterZ, mat, RoomWidth / 2f, west ? -90f : 90f);
+            return (door, AttachKeyLock(door, indicator, wallInnerZ, mat, spec));
+        }
 
+        // Room2's way OUT, north, and the yellow one - no pad and no condition to hold open, and
+        // deliberately not a button: the shape of the thing on the wall is the puzzle telling you what
+        // it wants.
+        private static (Door, KeyLock) BuildKeyDoor(Transform parent, float roomCenterZ, Material mat, KeySpec spec)
+        {
+            (Door door, DoorIndicator indicator, float wallInnerZ) =
+                BuildDoorShell(parent, "Door2", roomCenterZ, mat);
+            return (door, AttachKeyLock(door, indicator, wallInnerZ, mat, spec));
+        }
+
+        // The lock beside a door, and the colour that says which key it wants.
+        //
+        // Factored out of BuildKeyDoor when Room2 grew from one keyed door to three. Every one of them
+        // is the same fixture at a different colour, and the colour comes from the same KeySpec the key
+        // itself is built from - so a lock cannot end up wanting a key that does not match the plate
+        // beside it. That was the whole risk in this feature: the colours are the only instructions the
+        // player gets, and two places deciding them independently is how they come apart.
+        private static KeyLock AttachKeyLock(Door door, DoorIndicator indicator, float wallInnerZ,
+                                             Material mat, KeySpec spec)
+        {
             GameObject lockRoot = new GameObject("KeyLock");
             lockRoot.transform.SetParent(door.transform, false);
             lockRoot.transform.localPosition = new Vector3(-GridCellWidth, GridCellHeight * 1.5f, wallInnerZ - 0.06f);
 
             // Taller and narrower than the door button next door: across a room the two have to
             // read as different kinds of thing rather than as the same switch twice.
+            //
+            // IN THE KEY'S COLOUR, and this is the primary signal - it is the thing the player is
+            // standing in front of with a key in hand. The band on the door says the same thing from
+            // across the room; this says it at arm's length.
+            Material plateMat = MakeColorMaterial(spec.materialName + "Plate", spec.display);
+            SetSmoothness(plateMat, 0.45f);
             GameObject plate = Prim(PrimitiveType.Cube, "Visual", lockRoot.transform, Vector3.zero,
-                new Vector3(0.2f, 0.3f, 0.09f), mat, removeCollider: true);
+                new Vector3(0.2f, 0.3f, 0.09f), plateMat, removeCollider: true);
 
             // A plain keyhole, NOT the key silhouette this used to carry. The etching said what the
             // lock wanted, which was the right idea while nothing could ever be put in it - but the
@@ -2851,11 +3791,21 @@ namespace IterationRoom.EditorTools
             // someone picked.
             keyLock.insertTravel = KeyInsertTravel;
             keyLock.lockRenderer = plate.GetComponent<Renderer>();
+            // THE ONE THING THAT MAKES A DOOR PICKY. Both the player's gate (hand.Holding) and a
+            // ghost's hand-over (ItemRegistry.FindSocket, keyed on AcceptedItemId) read this, so the
+            // matching is enforced in one place for living and dead alike.
+            keyLock.requiredItemId = spec.itemId;
             // The lamp over this door reports "you are carrying the key" the way the other one
             // reports "the pad is held".
-            indicator.keyLock = keyLock;
+            if (indicator != null) indicator.keyLock = keyLock;
 
-            return (door, keyLock);
+            // NO BAND ON THE DOOR. There was one, in the same colour, on the reasoning that the plate is
+            // 0.2m wide and the far side of the room is where the player decides which key to look for.
+            // It went because the plate turned out to be enough on its own and the band was not free: a
+            // whole slab wearing a colour reads as a coloured DOOR, which invites the idea that the door
+            // itself is the thing that changes, where the lock is what actually differs. One coloured
+            // fixture beside three identical doors says that more precisely than three coloured doors.
+            return keyLock;
         }
 
         private static (GameObject, FirstPersonController, PlayerRecorder, CameraShaker, PlayerHand) BuildPlayer(Transform spawn, GhostInteractable[] ghostInteractables)
@@ -4214,19 +5164,22 @@ namespace IterationRoom.EditorTools
             float halfWidth = RoomWidth / 2f;
             float halfDepth = RoomDepth / 2f;
 
-            // THE SIDE WALLS ARE SIZED TO THE WALL GRID, not to a number that looked right.
+            // THE WIDTH IS SIZED TO THE WALL GRID, and the height is sized to clear a doorway.
             //
-            // A side wall is RoomDepth long, so it is 10.5 / 1.75 = SIX columns of four rows: 24 panels.
-            // The middle eight of those are the centre four columns by the middle two rows, and that
-            // block is exactly 7.0m x 2.7039m centred on RoomHeight / 2 - the row boundaries land at
-            // 1.3519 and 4.0558, and the column boundaries at -3.5 and +3.5. Both centres fall out of
-            // the grid rather than being chosen, which is why this reads as printed on those panels
-            // instead of floating across them.
+            // A side wall is RoomDepth long, so it is 10.5 / 1.75 = SIX columns: the sign spans the
+            // middle four, 7.0m, with the column boundaries falling at -3.5 and +3.5. That is why it
+            // reads as printed on those panels rather than floating across them.
             //
-            // 618 authored height is what gives that box its aspect: 2.7039 / 7.0 * 1600 = 618.
+            // The HEIGHT used to be grid-aligned too - the middle two rows, centred on RoomHeight/2 -
+            // and it cannot be any more, because Room2's side walls now have DOORWAYS in them. A door
+            // is 2.5 tall with its lamp at 2.725..2.835, and the icons in a sign centred at 2.7039 hang
+            // down to 2.06: two of the four would have sat across the top of the door. Centred at 3.55
+            // the icons run 2.905..4.195, clearing the lamp by 7cm, and only the middle arrow is over
+            // the doorway at all. Nothing is lost visually since there is no plate - the rect is
+            // invisible and only the row of icons reads.
             const float sideWidth = GridCellWidth * 4f;                  // 7.0, four columns
-            const float sideAuthoredHeight = 618f;                       // -> two rows tall
-            float sideY = RoomHeight / 2f;                               // 2.7039, the middle two rows
+            const float sideAuthoredHeight = 618f;
+            const float sideY = 3.55f;                                   // icons 2.905..4.195
 
             // 295 fills the authored width exactly - 4 icons plus 3 arrows at the row's own ratio come
             // to 1600 - so the sequence spans all four columns. A four-step row laid out horizontally

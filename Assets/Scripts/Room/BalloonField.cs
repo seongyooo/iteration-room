@@ -14,7 +14,6 @@ namespace IterationRoom
         public static BalloonField Instance { get; private set; }
 
         public Balloon[] balloons;
-        public CarryableItem key;
 
         public int seed = 20260810;
         public float roomCenterZ = 10.85f;
@@ -71,11 +70,21 @@ namespace IterationRoom
         {
             dropped = false;
 
-            if (balloons != null)
-                for (int i = 0; i < balloons.Length; i++)
-                    if (balloons[i] != null) balloons[i].Respawn(spawnPoints[i], spawnRotations[i]);
+            if (balloons == null) return;
 
-            if (key != null) key.Hide();
+            for (int i = 0; i < balloons.Length; i++)
+            {
+                if (balloons[i] == null) continue;
+                balloons[i].Respawn(spawnPoints[i], spawnRotations[i]);
+                // Every key goes back inside its balloon, and each balloon knows which key that is - so
+                // this needs no list of its own and cannot fall out of step with how many there are.
+                //
+                // AFTER ItemRegistry.ReturnAllToOrigin, which the loop calls first (see the reset order
+                // in CLAUDE.md): that puts each key back at its origin on the floor, and this is what
+                // takes it out of play again. Hiding before the sweep would leave a hidden key sitting
+                // wherever it was dropped.
+                if (balloons[i].heldKey != null) balloons[i].heldKey.Hide();
+            }
         }
 
         private void Update()
@@ -119,10 +128,14 @@ namespace IterationRoom
             Vector3 at = balloon.transform.position;
             balloon.Pop();
 
-            // The key drops to the floor under the burst. Revealed by whoever popped it, ghost or
-            // player - a ghost finding it for you is the entire point of spending an iteration
-            // searching.
-            if (balloon.holdsKey && key != null) key.RevealAt(new Vector3(at.x, key.floorY, at.z));
+            // Whatever key this balloon held drops to the floor under the burst. Revealed by whoever
+            // popped it, ghost or player - a ghost finding one for you is the entire point of spending
+            // an iteration searching, and with three keys and three doors it is the point three times
+            // over: a past self can be delivering one while the player is still looking for the next.
+            //
+            // The balloon names its own key, so this needs no idea how many there are.
+            if (balloon.heldKey != null)
+                balloon.heldKey.RevealAt(new Vector3(at.x, balloon.heldKey.floorY, at.z));
         }
     }
 }

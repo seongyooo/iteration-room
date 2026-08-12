@@ -142,6 +142,38 @@ namespace IterationRoom
             return null;
         }
 
+        // The one item an E press should act on: the nearest thing to the eye that would answer it.
+        //
+        // WHY ARBITRATION IS NEEDED AT ALL. Every CarryableItem polls E itself, and PlayerHand.Take
+        // refuses a second item of the same id - so while every takeable thing in the game had its own
+        // id and its own corner of the room, one press could only ever land once. Thirty-two chess
+        // pieces broke both halves of that: unique ids each, standing a square apart, with triggers a
+        // square wide that overlap. One press was reaching two and three pieces at once and taking all
+        // of them, which is what play found.
+        //
+        // Nearest to the CAMERA rather than to the body, because it has to agree with the prompt -
+        // ControlHintDisplay puts its disc over the nearest wanting target measured the same way. If the
+        // two disagreed the game would show a prompt over one object and act on another.
+        public static CarryableItem NearestTakeable(Vector3 eye)
+        {
+            CarryableItem best = null;
+            float bestSqr = float.MaxValue;
+
+            foreach (List<CarryableItem> pool in items.Values)
+                for (int i = 0; i < pool.Count; i++)
+                {
+                    CarryableItem item = pool[i];
+                    if (item == null || !item.WantsInteractHint) continue;
+
+                    float sqr = (item.transform.position - eye).sqrMagnitude;
+                    if (sqr >= bestSqr) continue;
+                    bestSqr = sqr;
+                    best = item;
+                }
+
+            return best;
+        }
+
         public static IItemSocket FindSocket(string itemId)
         {
             if (string.IsNullOrEmpty(itemId)) return null;

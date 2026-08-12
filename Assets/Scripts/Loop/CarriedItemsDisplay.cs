@@ -77,7 +77,12 @@ namespace IterationRoom
                 Sprite icon = item != null ? item.icon : null;
 
                 slot.sprite = icon;
-                slot.color = item != null && item == hand.Held ? heldColor : stowedColor;
+                // MULTIPLIED, not replaced. heldColor/stowedColor carry the one thing this row exists
+                // to say - which item Tab has out - and an item's own tint carries which item it is.
+                // Either alone loses half the readout: three keys tinted but not dimmed cannot show
+                // what is in the hand, and dimmed but untinted cannot show which key is which.
+                Color state = item != null && item == hand.Held ? heldColor : stowedColor;
+                slot.color = item != null ? state * item.iconTint : state;
                 // Disabled rather than made transparent: an empty inventory is the resting state of
                 // most of an iteration, and it should cost nothing to draw.
                 slot.enabled = icon != null;

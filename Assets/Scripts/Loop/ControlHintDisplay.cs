@@ -47,6 +47,11 @@ namespace IterationRoom
         // whether the click is live, and which balloon it would burst.
         public BalloonTool swingTool;
 
+        // And the other thing the left button does. It shares the swing's disc rather than getting one
+        // of its own, and cannot fight it for it: the pin and a chess piece are both items, PlayerHand
+        // has exactly one out at a time, so at most one of the two ever wants the prompt.
+        public ChessPlacer placer;
+
         // The rect the screen positions are resolved against: a full-screen child of the canvas,
         // which is also both hints' parent, so a local point in it is an anchoredPosition.
         public RectTransform area;
@@ -121,6 +126,13 @@ namespace IterationRoom
         // clicking would do something and points at what that something is.
         private Transform SwingAnchor()
         {
+            // The board's lit square, on the same principle: the prompt goes on the thing the click
+            // acts on. Unlike the swing's it does NOT retire after the first use - a piece's square is
+            // a different square every time, so this is not repeating an instruction the player has
+            // learned, it is answering "which one is this piece's" - and the placer stops asking for
+            // it once the button has clearly been learned.
+            if (placer != null && placer.WantsPlaceHint) return placer.PlaceAnchor;
+
             if (swingTool == null || !swingTool.WantsSwingHint) return null;
 
             Balloon target = swingTool.FindTarget();
