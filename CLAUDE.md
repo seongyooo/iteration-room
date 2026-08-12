@@ -221,6 +221,18 @@ player less to do.** Do not damage that when adding rooms.
 - **Tab cycles what is in the hand**; everything else carried is stowed and invisible, and the cycle
   ends on empty hands. Fixtures operated *with* an item gate on `hand.Holding(id)`, **not**
   `hand.Has(id)`. Equips are recorded, so a ghost swaps when the player did.
+- **A ghost shows EVERYTHING it carries** — equipped item in the hand, the rest on a belt line
+  across the hips (`GhostReplayer.LayOutCarried`). It used to hide all but the equipped one, and
+  since `CarryableItem.IsAvailable` reads `visible` that made them **untakeable as well as unseen**:
+  a past self holding pin and key with the pin out put the key where the player could neither find
+  nor reach it. **Visible and equipped are two separate questions** — `HoldingEquipped` still gates
+  every tool-shaped action on the one in the hand, so §4's tool rule is untouched. Tab is unchanged;
+  the player's own stow is still invisible, because the player has `CarriedItemsDisplay` and a ghost
+  has no readout but the objects themselves.
+- **Ghost-to-ghost taking stays CLOSED.** `IsFreeForGhost` is `!IsCarried && visible`, so an item in
+  any ghost's hands is off limits to every other ghost; only the living player can take from one.
+  Opening it would let past selves rob each other's errands, which is the class of failure the
+  completed-errand rule exists to prevent.
 - **A ghost shows what it is holding** — otherwise "who has the key" and "why did the door stop
   opening" are unanswerable.
 - **A TOOL-SHAPED ACTION REQUIRES THE TOOL, for ghosts as for the player.** An interaction performed

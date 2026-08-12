@@ -212,12 +212,25 @@ namespace IterationRoom
             PlayPickup();
         }
 
-        // Carried by a past self. ALWAYS shown, whatever showInHand says: the key is pocketed on the
-        // player so taking it does not knock the pin out of view, but a ghost's key has to be
-        // visible or the player cannot tell who has it, cannot know who to take it from, and cannot
-        // work out why a door stopped opening. The afterimage shader is what makes this read - a
-        // solid gold key is the only opaque thing on a translucent figure.
-        public void AttachToGhost(GhostReplayer ghost, Transform anchor)
+        // Carried by a past self. ALWAYS SHOWN, and now that is true of everything a ghost carries
+        // rather than only of the one in its hand.
+        //
+        // The rule this serves has been in the design from the start: a ghost shows what it is
+        // holding, or "who has the key" and "why did the door stop opening" have no answer. Hiding
+        // the rest contradicted it - and worse than cosmetically, because IsAvailable reads
+        // `visible`, so a stowed item was not merely unseen but UNTAKEABLE. A past self carrying pin
+        // and key with the pin out put the key somewhere the living player could neither find nor
+        // reach.
+        //
+        // The old justification was that the player cannot reach into a past self's pocket any more
+        // than into their own. The asymmetry it missed: the player has CarriedItemsDisplay telling
+        // them what is in their own pockets, and a ghost has no such readout. Showing the objects IS
+        // the ghost's readout, which is why this is the fix rather than a label over its head.
+        //
+        // WHERE on the body is the caller's business - GhostReplayer owns the layout, because it is
+        // the only thing that knows how many items there are and which one is equipped. This just
+        // takes custody and poses the object.
+        public void AttachToGhost(GhostReplayer ghost, Transform anchor, Vector3 localPosition)
         {
             if (ghost == null || anchor == null) return;
 
@@ -230,31 +243,24 @@ namespace IterationRoom
             if (trigger != null) trigger.enabled = true;
 
             transform.SetParent(anchor, false);
-            // Zero, NOT handLocalPosition. Those numbers are a first-person framing - 0.28 right and
-            // 0.42 forward of a hold anchor slung under the player's camera - and they mean nothing
-            // on a rig's wrist bone. The anchor itself is the tuning point for a ghost's grip, which
-            // also keeps CarryableItem free of any knowledge of the skeleton.
-            transform.localPosition = Vector3.zero;
+            // NOT handLocalPosition. Those numbers are a first-person framing - 0.28 right and 0.42
+            // forward of a hold anchor slung under the player's camera - and they mean nothing on a
+            // rig's bone. The anchors and this offset are the tuning points for a ghost's grip,
+            // which keeps CarryableItem free of any knowledge of the skeleton.
+            transform.localPosition = localPosition;
             transform.localRotation = Quaternion.Euler(ghostLocalEuler);
-            // The same scale the player's hand uses. A ghost's carry anchor is unscaled for the same
+            // The same scale the player's hand uses. A ghost's anchors are unscaled for the same
             // reason the player's is, so without this a past self holding a chess piece would be
             // holding one five times the size of the ones on the board.
             if (handLocalScale != Vector3.zero) transform.localScale = handLocalScale;
             SetVisible(true);
         }
 
-        // Stowed on a ghost: still held by it, still rewound with it, just not rendered. The ghost's
-        // equivalent of the player's Tab putting something away.
-        //
-        // It also stops being takeable while stowed (IsAvailable reads `visible`), which is the
-        // right answer rather than an accident: the living player cannot reach into a past self's
-        // pocket any more than into their own. The window is bounded - the ghost equips it to use
-        // it, and drops everything when its timeline ends.
-        public void SetGhostStowed(bool stowed)
-        {
-            if (HeldByGhost == null) return;
-            SetVisible(!stowed);
-        }
+        // `SetGhostStowed` is gone. It hid every carried item but the equipped one, which made those
+        // items untakeable as well as unseen - see AttachToGhost. A ghost now wears the lot, and
+        // which one is IN THE HAND is still recorded and still gates everything a tool gates
+        // (GhostReplayer.HoldingEquipped): visible and equipped became two separate questions
+        // instead of one.
 
         // Put down where it stands, still in play. This is what a ghost's timeline running out has
         // to do with whatever it was holding - a recording made from an iteration ended at t=5

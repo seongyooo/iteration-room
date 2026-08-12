@@ -114,6 +114,22 @@ If a ghost's key is invisible, the player cannot tell who has it, cannot know wh
 
 That has to hold for ghosts too, or a ghost could unlock a door out of its pocket while the living player cannot. So equips are recorded (`CarryKind.Equip`, empty id = empty hands) and `TrySurrender` refuses unless the item is the one equipped. It also fixes a plainer problem: a ghost carrying both the pin and the key would otherwise put both at the same anchor, inside each other.
 
+### 5b. A GHOST WEARS ITS WHOLE INVENTORY, and mirroring Tab was the mistake
+
+The first version answered "both at the same anchor" by **hiding** everything but the equipped item — the ghost's copy of the player's Tab. That contradicts the rule at the top of this section, and it does so in a way that is worse than cosmetic: **`CarryableItem.IsAvailable` reads `visible`, so a hidden item is untakeable.** A past self carrying the pin and the key with the pin out held the key somewhere the living player could not see, could not learn about, and could not take. That is precisely the black hole §"taking it back off a ghost is just E" exists to prevent, reintroduced through the back door.
+
+**The asymmetry that made mirroring Tab wrong: the player has a readout and a ghost has none.** `CarriedItemsDisplay` shows the player every item they carry, held at full strength and stowed at alpha 0.33 — so the player's stow costs them no information. A ghost has no such display, so hiding an object on a ghost destroys the only channel there is. **The objects on the body are the ghost's readout.**
+
+That is also why a floating item list over the ghost's head is the wrong shape of fix. It restores the information and leaves the item untakeable, producing a label that names something the player is then unable to act on — the prompt-for-a-press-that-cannot-succeed failure that `AlreadyHaveOne` was added to stop. Showing the object restores both halves at once, and it does it in the game's own idiom: this project has repeatedly moved information off the HUD and onto walls and objects.
+
+The real content of "both at the same anchor" was a complaint about **the anchor**, and the answer to it is a second anchor rather than invisibility. The equipped item is in the hand; everything else is laid out along a belt line across the hips (`GhostReplayer.LayOutCarried`). Hips, not the hand, because a stowed object should not swing with the arm; not the ghost root, because there it slides beside the figure and reads as dragged.
+
+**Equipped and visible are now two questions instead of one.** `HoldingEquipped` is unchanged and still gates every tool-shaped action on the item in the hand, so a ghost wearing the key on its belt and the pin in its fist cannot unlock a door — the rule this whole section is about survives intact. What changed is only that you can see the key, and take it.
+
+### 5c. Ghost-to-ghost taking is closed, deliberately
+
+`IsFreeForGhost` is `!IsCarried && visible`. An item in **any** ghost's hands fails the first test, so past selves cannot take from one another; only the living player can take from a ghost. Making items visible on the belt does not open this, and it should not: a recording that fetched the key and delivered it losing the key to one that fetched it two seconds earlier and fumbled is the exact failure mode §4's completed-errand rule was written to prevent, and it would arrive with nothing on screen to explain why a door that had been opening for five iterations stopped. The traffic stays one-way.
+
 ## 5a. The rewind has to be total
 
 `PlayerHand.ReturnAll` walks what the **player** picked up. A key a **ghost** fetched and seated was in nobody's list — the ghost let go of it when the socket accepted it, and it was never in `taken` — so nothing rewound it. It stayed in the keyhole with `IsCarried` true, which makes `IsFreeForGhost` false, and **no ghost could ever take it again: Room2's door opened exactly once per run and then never.**

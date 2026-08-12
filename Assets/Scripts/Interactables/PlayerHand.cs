@@ -131,22 +131,47 @@ namespace IterationRoom
             if (!carried.Remove(itemId)) return null;
 
             CarryableItem given = null;
+            int slot = -1;
             for (int i = carriedItems.Count - 1; i >= 0; i--)
             {
                 if (carriedItems[i] == null || carriedItems[i].itemId != itemId) continue;
                 given = carriedItems[i];
+                slot = i;
                 carriedItems.RemoveAt(i);
                 break;
             }
 
-            // Given away out of the hand, so the hand is now empty rather than holding a ghost of
-            // it. Not auto-advanced to the next item: the player put the key in a lock, and having
-            // the pin appear in their hand unasked would be the game deciding what they meant.
-            if (Held == given) Held = null;
+            // Out of the hand, so the hand is not left holding a ghost of it. The null check is not
+            // decoration: `carried` and `carriedItems` can disagree in principle, and without it an
+            // id that was in the set but had no object would compare null==null, read as "the held
+            // item just left", and auto-advance a hand that was empty the whole time.
+            bool wasHeld = given != null && Held == given;
+            if (wasHeld) Held = null;
+
             // Recorded AFTER the item is confirmed gone from the hand, so a surrender is only ever
             // written for one that was genuinely held. RecordedTimeline.Delivers reads these to
             // decide whether a ghost repeats the pickup at all.
             if (given != null) recorder?.RecordCarry(itemId, CarryKind.Surrender);
+
+            // AND THEN THE HAND ADVANCES TO WHATEVER IS LEFT, rather than to empty.
+            //
+            // This reverses an earlier call, which was that having the pin appear unasked is the
+            // game deciding what the player meant. What that missed is how the surrender usually
+            // arrives: placing is a repeated errand - twelve chess pieces, six cubes, three escape
+            // objects - and emptying the hand after each one means a Tab press between every
+            // placement just to get back to work. Empty hands are still reachable, because they are
+            // still a slot in the cycle; they are simply no longer where you are put by default.
+            //
+            // The SAME INDEX, so the order matches Tab's. The item that was after this one has
+            // shifted down into its slot, and past the end wraps to the front.
+            //
+            // Through Equip, which is what makes it safe: equips are RECORDED, so a past self
+            // advances at the same moment the player did and TrySurrender keeps re-evaluating
+            // against the item genuinely in a ghost's hand. Setting Held directly here would put
+            // every recording made after this out of step with the run that made it.
+            if (wasHeld && carriedItems.Count > 0)
+                Equip(carriedItems[slot >= carriedItems.Count || slot < 0 ? 0 : slot]);
+
             Version++;
             return given;
         }

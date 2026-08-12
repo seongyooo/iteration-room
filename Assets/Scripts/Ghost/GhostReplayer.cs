@@ -60,9 +60,23 @@ namespace IterationRoom
         public bool requirePopTool = true;
         public string popToolItemId = "Tool";
 
-        // Where a carried item rides. Parented under the rig's right hand by SceneBuilder, so an
-        // item follows the arm through the walk cycle rather than floating beside the ghost.
+        // Where the EQUIPPED item rides. Parented under the rig's right hand by SceneBuilder, so it
+        // follows the arm through the walk cycle rather than floating beside the ghost.
         public Transform carryAnchor;
+
+        // Where everything else it carries rides: a belt line across the hips. The hips rather than
+        // the hand because a stowed object should not swing with the arm - and rather than the ghost
+        // ROOT because at the root it slides along beside the figure, which reads as being dragged.
+        //
+        // This exists because a ghost used to HIDE everything but the equipped item, which made
+        // those items untakeable as well as invisible (CarryableItem.IsAvailable reads `visible`).
+        // Wearing them is what makes "who has the key" answerable and the answer reachable.
+        public Transform stowAnchor;
+
+        // The belt line, in the stow anchor's own frame. Values live in SceneBuilder like every
+        // other tuned number; the layout that uses them is below.
+        public Vector3 stowLocalOrigin = new Vector3(0f, 0f, 0.09f);
+        public Vector3 stowStep = new Vector3(0.13f, 0f, 0f);
 
         private RecordedTimeline recording;
         private List<RecordedFrame> timeline;
@@ -284,14 +298,51 @@ namespace IterationRoom
             }
         }
 
-        // Which of this ghost's items is out. Everything else it carries is stowed - still held,
-        // still rewound, just not rendered - because two objects at one anchor is two objects
-        // inside each other.
+        // Which of this ghost's items is out. The rest are WORN rather than hidden.
         private void ApplyEquip(string itemId)
         {
             equippedId = itemId;
+            LayOutCarried();
+        }
+
+        // Equipped item in the hand, everything else spread along the belt.
+        //
+        // It used to hide the unequipped ones, on the reasoning that two objects at one anchor is
+        // two objects inside each other. That reasoning was about the ANCHOR, and the answer to it
+        // is a second anchor - not invisibility, which also made those items untakeable and left the
+        // player unable to see who was carrying what. Equipped and visible are two questions now:
+        // HoldingEquipped still gates every tool-shaped action on the one in the hand.
+        //
+        // Laid out from scratch on every change rather than patched incrementally. It runs on a
+        // handful of items at the few moments custody changes, and the alternative is tracking which
+        // slot each item was in - state that can drift out of step with `held`, which is the one
+        // list this class must keep exactly right.
+        //
+        // CENTRED, so a ghost carrying one thing wears it on the midline instead of off to one side.
+        private void LayOutCarried()
+        {
+            int stowed = 0;
             for (int i = 0; i < held.Count; i++)
-                if (held[i] != null) held[i].SetGhostStowed(held[i].itemId != itemId);
+                if (held[i] != null && held[i].itemId != equippedId) stowed++;
+
+            Transform hand = carryAnchor != null ? carryAnchor : transform;
+            Transform belt = stowAnchor != null ? stowAnchor : hand;
+
+            int slot = 0;
+            for (int i = 0; i < held.Count; i++)
+            {
+                CarryableItem item = held[i];
+                if (item == null) continue;
+
+                if (item.itemId == equippedId)
+                {
+                    item.AttachToGhost(this, hand, Vector3.zero);
+                    continue;
+                }
+
+                item.AttachToGhost(this, belt, stowLocalOrigin + stowStep * (slot - (stowed - 1) * 0.5f));
+                slot++;
+            }
         }
 
         private void TryTake(string itemId)
@@ -328,10 +379,11 @@ namespace IterationRoom
             // practice this passes; it is here so that stops being a coincidence.
             if (item.requiresOpenDrawer != null && !item.requiresOpenDrawer.IsFullyOpen) return;
 
-            item.AttachToGhost(this, carryAnchor != null ? carryAnchor : transform);
             held.Add(item);
             // Straight into the hand, mirroring PlayerHand.Take - and the recording's own Equip
             // event lands in the same breath anyway, so this only covers the frame between them.
+            // ApplyEquip lays every carried item out, which is what takes custody of this one and
+            // shuffles the belt along to make room for whatever it displaces.
             ApplyEquip(itemId);
         }
 
@@ -396,6 +448,10 @@ namespace IterationRoom
             // own, but leaving one set would still show up anywhere else that reads equippedId.
             if (equippedId == item.itemId) equippedId = string.Empty;
             if (toWorld) item.DropAt(item.transform.position);
+            // The belt closes up behind it. Without this, taking the middle item off a past self
+            // carrying three leaves a gap where an object used to be - and the player has just been
+            // told, by the objects themselves, exactly what that ghost has.
+            LayOutCarried();
         }
 
         // Only recorded position and yaw exist, so the walk is inferred from how far the ghost

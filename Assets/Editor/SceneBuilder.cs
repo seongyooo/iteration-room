@@ -4658,6 +4658,45 @@ namespace IterationRoom.EditorTools
             return null;
         }
 
+        // A place on a ghost's skeleton that a carried object can be parented to, in METRES.
+        //
+        // TWO OBJECTS, AND THE PAIR IS THE WHOLE POINT. This FBX has a `HumanArmature` node at scale
+        // 100 inside a body scaled to 0.377, so every bone's lossyScale is 37.7: parent a 0.2m key
+        // to one and you get a 7.5m key, flung metres away because its local offset is multiplied by
+        // the same number. The OUTER node cancels that and must stay at localPosition zero - an
+        // offset written there would be in the 37.7x space too, so 3cm arrives as 1.13m. The offset
+        // therefore goes on the CHILD, where the scale is already 1 and centimetres mean centimetres.
+        //
+        // Factored out when the ghost grew a second one of these. Getting it wrong is not a subtle
+        // failure - it is an object the size of a room - but it is an easy one to get wrong twice,
+        // so the check is built in: the returned anchor's lossyScale is asserted at 1.
+        private static Transform MakeGhostAnchor(Transform rigRoot, Transform fallback, string boneName,
+                                                 string label, Vector3 localOffset)
+        {
+            Transform bone = FindDeep(rigRoot, boneName);
+            if (bone == null)
+                Debug.LogWarning($"[SceneBuilder] ghost rig has no {boneName} - {label} items will ride the root");
+
+            GameObject scaleNode = new GameObject(label + "Scale");
+            scaleNode.transform.SetParent(bone != null ? bone : fallback, false);
+            scaleNode.transform.localPosition = Vector3.zero;
+
+            Vector3 rigScale = scaleNode.transform.lossyScale;
+            scaleNode.transform.localScale = new Vector3(
+                Mathf.Approximately(rigScale.x, 0f) ? 1f : 1f / rigScale.x,
+                Mathf.Approximately(rigScale.y, 0f) ? 1f : 1f / rigScale.y,
+                Mathf.Approximately(rigScale.z, 0f) ? 1f : 1f / rigScale.z);
+
+            GameObject anchor = new GameObject(label + "Anchor");
+            anchor.transform.SetParent(scaleNode.transform, false);
+            anchor.transform.localPosition = localOffset;
+
+            Debug.Log($"[SceneBuilder] Ghost {label} anchor on {boneName}: rig scale {rigScale.x:0.###} -> "
+                + $"{anchor.transform.lossyScale.x:0.###} (expects 1)");
+
+            return anchor.transform;
+        }
+
         private static GhostReplayer BuildGhostPrefab()
         {
             string prefabPath = $"{PrefabsDir}/Ghost.prefab";
@@ -4711,46 +4750,35 @@ namespace IterationRoom.EditorTools
             // player. Same constant on both sides so the two gates cannot drift apart.
             replayer.popToolItemId = ToolItemId;
 
-            // Where a carried item rides. Hung off the rig's right hand so the key swings with the
-            // arm through the walk cycle - parented to the ghost's root it would slide along beside
-            // the figure, which reads as an object being dragged rather than carried. The offset is
-            // in the bone's own frame and the bone is inside a 0.377 scale, hence the small numbers.
-            Transform handBone = FindDeep(body.transform, "MiddleHand.R");
-            GameObject carry = new GameObject("CarryAnchor");
-            carry.transform.SetParent(handBone != null ? handBone : ghost.transform, false);
-            if (handBone == null)
-                Debug.LogWarning("[SceneBuilder] ghost rig has no MiddleHand.R - carried items will ride the root");
-
-            // THE OUTER NODE CANCELS THE RIG'S SCALE, and it has to. This FBX has a `HumanArmature`
-            // node at scale 100 inside a body scaled to 0.377, so a bone's lossyScale is 37.7:
-            // parent a 0.2m key to it and you get a 7.5m key, flung metres away because its local
-            // offset is multiplied by the same number.
+            // Where the EQUIPPED item rides. Hung off the rig's right hand so it swings with the arm
+            // through the walk cycle - parented to the ghost's root it would slide along beside the
+            // figure, which reads as an object being dragged rather than carried.
             //
-            // It also stays at localPosition ZERO. A grip offset written here would be in the bone's
-            // 37.7x space too - 3cm would come out as 1.13m - so the offset goes on a CHILD, below,
-            // where the scale is already 1 and centimetres mean centimetres. That is the whole
-            // reason this is two objects instead of one.
-            carry.name = "CarryScale";
-            Vector3 rigScale = carry.transform.lossyScale;
-            carry.transform.localPosition = Vector3.zero;
-            carry.transform.localScale = new Vector3(
-                Mathf.Approximately(rigScale.x, 0f) ? 1f : 1f / rigScale.x,
-                Mathf.Approximately(rigScale.y, 0f) ? 1f : 1f / rigScale.y,
-                Mathf.Approximately(rigScale.z, 0f) ? 1f : 1f / rigScale.z);
-
-            GameObject grip = new GameObject("CarryAnchor");
-            grip.transform.SetParent(carry.transform, false);
             // Metres, in the hand's own frame. Just past the wrist so the key sits in the fist
             // rather than inside it. This is the one place to tune a ghost's grip.
-            grip.transform.localPosition = new Vector3(0f, -0.03f, 0.04f);
+            replayer.carryAnchor = MakeGhostAnchor(body.transform, ghost.transform, "MiddleHand.R",
+                                                   "Carry", new Vector3(0f, -0.03f, 0.04f));
 
-            Debug.Log($"[SceneBuilder] Ghost carry anchor: rig scale {rigScale.x:0.###} -> "
-                + $"{grip.transform.lossyScale.x:0.###} (expects 1)");
-
-            replayer.carryAnchor = grip.transform;
+            // AND WHERE EVERYTHING ELSE IT CARRIES RIDES - a belt line across the hips.
+            //
+            // A ghost used to hide every item but the equipped one, which made those items
+            // UNTAKEABLE as well as unseen, because CarryableItem.IsAvailable reads `visible`. A
+            // past self holding pin and key with the pin out put the key somewhere the living player
+            // could neither see nor reach. Wearing them is what makes "who has the key" answerable
+            // and the answer reachable, and it needs no HUD to say it.
+            //
+            // The HIPS rather than the hand, because a stowed object should not swing with the arm;
+            // rather than the ghost root, because at the root it slides beside the figure. The
+            // 0.09 forward clears the body so an object sits ON the belt rather than in the pelvis,
+            // and 0.13 apart is enough that two 0.22-scaled escape objects do not intersect.
+            replayer.stowAnchor = MakeGhostAnchor(body.transform, ghost.transform, "Hips",
+                                                  "Stow", Vector3.zero);
+            replayer.stowLocalOrigin = new Vector3(0f, 0f, 0.09f);
+            replayer.stowStep = new Vector3(0.13f, 0f, 0f);
 
             GameObject prefabAsset = PrefabUtility.SaveAsPrefabAsset(ghost, prefabPath);
             Object.DestroyImmediate(ghost);
+
 
             return prefabAsset.GetComponent<GhostReplayer>();
         }
