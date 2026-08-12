@@ -43,6 +43,13 @@ origin, **ghost destroyed → released** (`GhostReplayer.OnDestroy`).
 `ItemRegistry.ReturnAllToOrigin()` sweeps every registered item at the top of an iteration.
 `PlayerHand.ReturnAll` alone is **not** sufficient — it only knows what the *player* picked up.
 
+**This is per OBJECT, not per id.** An id can name a supply — three pins share `"Tool"` — and each of
+the three obeys the five states and returns to its own origin. What is forbidden is two *holders* of
+one object, never two objects of one id. A ghost asks for a free instance
+(`ItemRegistry.FindFreeForGhost`), and the player is limited to one per id by `PlayerHand`, whose
+`carried` set is keyed by id — so anything gating on "E would pick this up" must check that too, or it
+prompts for a press that cannot succeed.
+
 ### 1.3 Record the attempt, re-evaluate the condition
 
 A ghost never blindly replays. The condition re-evaluated must be **the one that actually enabled
@@ -102,7 +109,7 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `GhostReplayer` | Replaying one timeline, and re-evaluating it |
 | `PlayerHand` | What the player carries and what is **in hand** |
 | `CarryableItem` | One object's own state and where it is parented |
-| `ItemRegistry` | id → object, id → socket, and the reset sweep |
+| `ItemRegistry` | id → the **supply** wearing it, id → socket, and the reset sweep |
 | `IItemSocket` | Anything that accepts an item and keeps it |
 | Room components | One puzzle's rule, nothing else |
 | `FinalRoomSequence` | Room4: the plinth, the last press, and the break before the ending card |
@@ -153,9 +160,13 @@ player less to do.** Do not damage that when adding rooms.
   interaction stops. `KeyLock` does this for the key, `GhostReplayer.requirePopTool` for balloon
   pops. Check possession through `HoldingEquipped()`, never a cached id — an item can be taken out
   of a ghost's hands without asking.
-  - **Known cost, accepted:** one pin means at most one entity can pop at a time, so Room2's
-    accumulation does not survive. The mitigation is a *supply* of pins, not a change to the rule —
-    `docs/decisions.md`, queued in `TODO.md`. Revert with `requirePopTool = false`.
+  - **The rule needs a SUPPLY, and it has one.** One pin capped the whole room at one popper at a
+    time, which killed Room2's accumulation. The fix was never a softer rule: `ItemRegistry` resolves
+    an id to a **free instance**, so several objects share one id and the drawer holds three pins —
+    the player and two past selves popping at once. A ghost that finds none simply does not pop.
+    **An id can be a supply now**, so anything asking "the object with this id" must ask for a free
+    one instead. Raising the count is one number in `SceneBuilder`. Revert the gate itself with
+    `requirePopTool = false`.
 
 - **`CarryKind` is `Take | Surrender | Equip`.** Equip is the Tab press — an empty `itemId` means
   empty hands.

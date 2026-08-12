@@ -296,11 +296,18 @@ namespace IterationRoom
 
         private void TryTake(string itemId)
         {
-            CarryableItem item = ItemRegistry.Find(itemId);
-            // IsFreeForGhost, not IsAvailable: a ghost must never lift something out of the living
-            // player's pocket, and must never pull one back out of a lock it is already seated in.
-            // The traffic only goes the other way - the player can take from a ghost.
-            if (item == null || !item.ghostCarryable || !item.IsFreeForGhost) return;
+            // Asks for a FREE one rather than for the object: an id can be a supply now (three pins
+            // live in the drawer), and a ghost is entitled to one of them, not to a particular one.
+            // The freedom test is inside that lookup - IsFreeForGhost, not IsAvailable, because a
+            // ghost must never lift something out of the living player's pocket and must never pull
+            // one back out of a lock it is already seated in. The traffic only goes the other way:
+            // the player can take from a ghost.
+            //
+            // Null means the supply is exhausted, which is a legitimate outcome. With three pins the
+            // player and two past selves can pop at once; a third ghost reaching for a fourth pin
+            // finds none and does not pop, and nothing anywhere has to special-case that.
+            CarryableItem item = ItemRegistry.FindFreeForGhost(itemId);
+            if (item == null) return;
 
             // THE COMPLETED-ERRAND RULE, and it applies ONLY to items with a destination.
             //

@@ -496,8 +496,49 @@ def item_pickup():
     return fade_edges(normalize(out, 0.45))
 
 
+def footstep(seed, weight=1.0, scuff=1.0):
+    """One footfall on a hard smooth floor. Three variants are written and the controller cycles
+    them, because a single clip repeated at three steps a second is instantly recognisable as one
+    clip repeated at three steps a second - pitch-shifting one file does not fix that, it just makes
+    the repetition sound detuned.
+
+    Two layers and no third. A low thud, which is the shoe arriving and is nearly all of the weight;
+    and a very short band of high noise for the scuff of a sole on a hard surface. The room is a
+    sealed white box with a bare slab floor, so there is no carpet or grit to be heard - the scuff is
+    what says the floor is hard.
+
+    Under 0.13s TOTAL, and that is the constraint everything else bends to: at a sprint these fire
+    every 0.3s, so anything with a tail overlaps its own next step and turns walking into a rumble.
+    Same reasoning as balloon_pop, which has seventy of itself to worry about."""
+    rng = random.Random(seed)
+
+    # The arrival. Low-passed hard, because a footstep on a slab has almost nothing above 400Hz
+    # except the scuff, and leaving that in makes it a slap.
+    thud = apply_env(lowpass(noise(0.10, rng), 210.0, q=0.8),
+                     env_decay(int(0.10 * SR), 0.020, attack=0.0012))
+
+    # Body under the thud, for mass. Low enough to be felt rather than pitched - a footstep with an
+    # audible NOTE in it reads as a drum.
+    body = apply_env(sine(0.09, 88.0), env_decay(int(0.09 * SR), 0.016, attack=0.0008))
+
+    # The sole. Brief and quiet: it is the only part above 1kHz, so it decides whether the floor
+    # sounds hard or soft, and it is a fifth of the level of the thud.
+    sole = apply_env(bandpass(noise(0.035, rng), 2400.0, q=0.8),
+                     env_decay(int(0.035 * SR), 0.006, attack=0.0004))
+
+    out = mix(scale(thud, 1.0), scale(body, 0.55 * weight))
+    # Offset a hair, so the sole lands just after the heel rather than on top of it.
+    out = at(out, scale(sole, 0.20 * scuff), 0.004)
+    return fade_edges(normalize(out, 0.62))
+
+
 def main():
     print("Writing SFX to", os.path.normpath(OUT))
+    # Three footfalls, deliberately uneven: no two real steps weigh the same, and the variation is
+    # what stops a walk cycle sounding like a metronome.
+    write("sfx_footstep_1", footstep(5501, weight=1.00, scuff=1.00))
+    write("sfx_footstep_2", footstep(5502, weight=0.88, scuff=1.25))
+    write("sfx_footstep_3", footstep(5503, weight=1.10, scuff=0.80))
     write("sfx_floor_button_press", floor_button_press())
     write("sfx_floor_button_release", floor_button_release())
     write("sfx_door_open", door_open())

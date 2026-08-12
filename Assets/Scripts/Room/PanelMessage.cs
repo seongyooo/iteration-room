@@ -35,8 +35,18 @@ namespace IterationRoom
         private Transform player;
         private float alpha;
 
+        // Set instead of using the leave-once rule below, and it changes when this retires: the sign
+        // stays up until the player has actually POPPED something, however many visits that takes.
+        //
+        // Room2's pictogram needs this and Room3's message does not, and the difference is who each
+        // one is for. Skipping an iteration is learned in one reading. But the player this pictogram
+        // exists for is the one who walked past the drawer, arrived with empty hands, could not burst
+        // anything and went back out to look - and under the leave-once rule they would return to a
+        // blank wall, having been shown the answer at the one moment they could not use it.
+        public BalloonTool retireOnPop;
+
         // Shown on the FIRST visit only - the walls and the announcement both. Once the player has
-        // been in and left, this never lights again.
+        // been in and left, this never lights again. Not used when retireOnPop is set.
         //
         // That is the opposite call to the one ControlHintDisplay's prompts settled on, and the
         // difference is what the two are teaching. E is a control used constantly, at a different
@@ -63,7 +73,12 @@ namespace IterationRoom
             // Retired on the way OUT, not on arrival: the sign stays up for as long as the player
             // is in the room the first time, which is the only chance it gets to be read. Killing
             // it on a timer instead would race a player who walked in and immediately turned round.
-            if (announced && !inside) retired = true;
+            //
+            // Unless a tool is watching, in which case the ACTION retires it - the same rule the
+            // left-click prompt uses, and for the same reason: a sign that has been seen has not
+            // taught anything, and one whose action has been performed has nothing left to say.
+            if (retireOnPop != null) retired = retireOnPop.HasPopped;
+            else if (announced && !inside) retired = true;
 
             // Unscaled, so a message caught mid-fade does not sit frozen under the pause overlay -
             // the same reason ControlHintDisplay uses it.

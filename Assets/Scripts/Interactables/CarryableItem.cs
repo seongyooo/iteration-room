@@ -74,8 +74,15 @@ namespace IterationRoom
         // E here would pick this up. The drawer gate is part of the answer: prompting over a pin
         // inside a shut drawer would teach the key on the one press that does nothing.
         public bool WantsInteractHint =>
-            IsAvailable && playerInRange
+            IsAvailable && playerInRange && !AlreadyHaveOne
             && (HeldByGhost != null || requiresOpenDrawer == null || requiresOpenDrawer.IsFullyOpen);
+
+        // The player is already carrying one of these. PlayerHand.Take refuses a second of the same
+        // id - `carried` is a set of IDS, not of objects - so this has to be part of "E would do
+        // something here" now that an id can be a SUPPLY. Three pins share one drawer: without this
+        // the two left behind sit there offering a prompt for a press that is guaranteed to no-op,
+        // which is exactly the thing the prompt is supposed never to do.
+        private bool AlreadyHaveOne => hand != null && hand.Has(itemId);
 
         public Transform HintAnchor => transform;
 
@@ -132,6 +139,10 @@ namespace IterationRoom
         {
             if (IsCarriedByPlayer || !playerInRange || hand == null) return;
             if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
+            // Same test the prompt gates on, for the same reason: with three pins in one drawer, E on
+            // the second one would reach PlayerHand.Take and be refused there. Refusing here keeps
+            // the press and the prompt agreeing about what is possible.
+            if (AlreadyHaveOne) return;
 
             // The drawer gate is about where the item SITS, so it does not apply to one a ghost has
             // already carried out of it - the pin in a past self's hand is not inside a shut drawer.

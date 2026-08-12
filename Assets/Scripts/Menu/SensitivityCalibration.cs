@@ -44,10 +44,15 @@ namespace IterationRoom
         public CanvasGroup group;
         public Text lockHint;
 
-        // The wall display: the control list, the gauge and the value, on the calibration room's
-        // south wall. The gauge and the value live here rather than on the screen because the
-        // buttons that drive them are on that wall too - readout and control in one place.
-        public CanvasGroup wallGroup;
+        // The wall displays. The south wall carries the control list, the gauge and the value - the
+        // gauge and value live there rather than on the screen because the buttons that drive them are
+        // on that wall too, readout and control in one place. The two SIDE walls carry one control
+        // each, sprint and crouch.
+        //
+        // An array because there are three of them and they are one thing: they light together and go
+        // out together, and a player who found the sprint sign still lit after the run had started
+        // would be reading an instruction from a screen that had finished talking.
+        public CanvasGroup[] wallGroups;
         public Image fill;
         public Text valueLabel;
 
@@ -68,6 +73,13 @@ namespace IterationRoom
 
         private bool active;
 
+        private void SetWallAlpha(float alpha)
+        {
+            if (wallGroups == null) return;
+            foreach (CanvasGroup wall in wallGroups)
+                if (wall != null) wall.alpha = alpha;
+        }
+
         public void Begin()
         {
             active = true;
@@ -79,7 +91,7 @@ namespace IterationRoom
                 // with, which is why the sensitivity is on physical buttons in the room instead.
                 group.blocksRaycasts = false;
             }
-            if (wallGroup != null) wallGroup.alpha = 1f;
+            SetWallAlpha(1f);
             SetHudVisible(false);
             Show();
         }
@@ -88,7 +100,7 @@ namespace IterationRoom
         {
             active = false;
             if (group != null) group.alpha = 0f;
-            if (wallGroup != null) wallGroup.alpha = 0f;
+            SetWallAlpha(0f);
             SetHudVisible(true);
             // Committed to disk here rather than on every wheel notch, for the reason GameSettings
             // documents: each save is a storage flush on WebGL. This is the one exit from the page,

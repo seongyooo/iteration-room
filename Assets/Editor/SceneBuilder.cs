@@ -227,7 +227,7 @@ namespace IterationRoom.EditorTools
             ConfigureLightingPipeline();
 
             (Transform bed, Transform bedSpawn) = BuildBed(room.transform, propMat);
-            (Drawer drawer, CarryableItem tool) = BuildNightstand(room.transform);
+            (Drawer drawer, CarryableItem[] pins) = BuildNightstand(room.transform);
             // Out in the open floor area past the foot of the bed, matching room_layout_sample.png.
             FloorButton floorButton = BuildFloorButton(room.transform, propMat, "FloorButton",
                 new Vector3(2.8f, 0.03f, -1.75f));
@@ -336,9 +336,17 @@ namespace IterationRoom.EditorTools
             // prompt is shown over whichever of these is nearest and currently wants it - every
             // time, not once; see ControlHintDisplay for why that changed. Room1's door is not in
             // the list any more because it has no control to press.
+            //
+            // ALL THREE pins go in, not just the first: the display picks the nearest one that wants a
+            // prompt, so a drawer holding three prompts over whichever is being looked at. Once one
+            // is taken the other two go quiet - CarryableItem.WantsInteractHint asks the hand whether
+            // it already has this id, which it had no reason to before an id could be a supply.
+            var pinTargets = new System.Collections.Generic.List<MonoBehaviour> { drawer };
+            pinTargets.AddRange(pins);
+            pinTargets.Add(keyLock);
+            pinTargets.Add(key);
             ControlHintDisplay hints = BuildControlHints(canvas, player.GetComponentInChildren<Camera>(),
-                player.GetComponent<BalloonTool>(),
-                new MonoBehaviour[] { drawer, tool, keyLock, key });
+                player.GetComponent<BalloonTool>(), pinTargets.ToArray());
 
             // Escape's overlay covers the HUD, the prompts and the eyelids...
             BuildPauseMenu(canvas, fpc);
@@ -368,6 +376,10 @@ namespace IterationRoom.EditorTools
             hints.interactTargets = hintTargets.ToArray();
             hints.calibration = calibration;
             hints.finalRoom = finalRoom;
+
+            // Room2's wordless sign, built here rather than beside Room3's because it needs the
+            // player's BalloonTool: it retires on the first pop, not on the first visit.
+            BuildBalloonPictogram(room.transform, RoomPitch, player.GetComponent<BalloonTool>());
 
             (NarrationDirector narration, RoomAmbience ambience) =
                 BuildAudio(player, new[] { door, door2, door3 },
@@ -1328,6 +1340,223 @@ namespace IterationRoom.EditorTools
             return SaveSprite(icon, "icon_pin");
         }
 
+        // ---- the figure pictograms: one body, six poses --------------------------------------------
+        //
+        // The calibration wall used to caption its controls in words (MOVE, JUMP, SPRINT...). These
+        // replace them, which is the same move the Room2 sign makes and for the same reason: the game
+        // has no text elsewhere and a player who cannot read English should still be able to start it.
+        //
+        // ONE body plan, six poses, and that is the point rather than tidiness. Six figures each drawn
+        // to look right on its own is how a set of pictograms ends up looking like six pictograms from
+        // six different sets - the same head size, limb length and thickness across all of them is what
+        // makes them read as one person doing different things.
+        private const float FigureLimb = 0.075f;    // limb thickness, fat enough to survive 128px
+        private const float FigureHead = 0.088f;    // head radius
+        private const float FigureThigh = 0.20f;
+        private const float FigureShin = 0.19f;
+        private const float FigureUpperArm = 0.16f;
+        private const float FigureForearm = 0.15f;
+
+        // Draws a limb segment from `from` in `direction` and returns its far end, so segments chain
+        // into a bent limb. Angles are given in degrees CLOCKWISE FROM STRAIGHT DOWN, because every
+        // limb here hangs off a joint and down is the rest pose.
+        private static Vector2 FigureBone(IconCanvas icon, Vector2 from, float degrees, float length)
+        {
+            float rad = degrees * Mathf.Deg2Rad;
+            Vector2 dir = new Vector2(Mathf.Sin(rad), -Mathf.Cos(rad));
+            Vector2 to = from + dir * length;
+            // Bar takes half-extents and a rotation; the sign convention is the pin icon's.
+            icon.Bar((from + to) * 0.5f, new Vector2(FigureLimb * 0.5f, length * 0.5f),
+                     -Mathf.Atan2(dir.x, dir.y) * Mathf.Rad2Deg);
+            // Joint discs at every hinge. Without them a bent limb shows the corner of one bar poking
+            // past the other and the elbow reads as a break.
+            icon.Disc(to, FigureLimb * 0.5f);
+            return to;
+        }
+
+        // Head, spine and a joint at each end. Returns the shoulder and hip so the caller can hang
+        // limbs off them, which is the only thing any of the poses differ by.
+        private static (Vector2 shoulder, Vector2 hip) FigureTorso(IconCanvas icon, Vector2 hip,
+                                                                   float spineLength, float leanDegrees)
+        {
+            float rad = leanDegrees * Mathf.Deg2Rad;
+            Vector2 up = new Vector2(Mathf.Sin(rad), Mathf.Cos(rad));
+            Vector2 shoulder = hip + up * spineLength;
+
+            icon.Bar((hip + shoulder) * 0.5f, new Vector2(FigureLimb * 0.55f, spineLength * 0.5f),
+                     -leanDegrees);
+            icon.Disc(hip, FigureLimb * 0.5f);
+            icon.Disc(shoulder, FigureLimb * 0.5f);
+            // The head sits off the shoulder along the same lean, so a leaning figure's head leads.
+            icon.Disc(shoulder + up * (FigureHead + 0.035f), FigureHead);
+            return (shoulder, hip);
+        }
+
+        // MOVE. A mid-stride walk: one leg forward and planted, one trailing, arms opposing. Upright,
+        // because upright against the run's lean is what tells the two apart at a glance - the stride
+        // widths alone are too similar at this size.
+        private static Sprite FigureWalkIcon()
+        {
+            var icon = new IconCanvas(128);
+            var (shoulder, hip) = FigureTorso(icon, new Vector2(0.47f, 0.44f), 0.26f, 2f);
+            FigureBone(icon, FigureBone(icon, hip, 26f, FigureThigh), 12f, FigureShin);
+            FigureBone(icon, FigureBone(icon, hip, -22f, FigureThigh), -6f, FigureShin);
+            FigureBone(icon, FigureBone(icon, shoulder, -20f, FigureUpperArm), -44f, FigureForearm);
+            FigureBone(icon, FigureBone(icon, shoulder, 18f, FigureUpperArm), 40f, FigureForearm);
+            return SaveSprite(icon, "icon_figure_walk");
+        }
+
+        // SPRINT. The same body leaning into it, with a longer stride and arms driving harder. The
+        // LEAN is what reads as speed; a running figure drawn upright reads as a wider walk.
+        private static Sprite FigureRunIcon()
+        {
+            var icon = new IconCanvas(128);
+            var (shoulder, hip) = FigureTorso(icon, new Vector2(0.44f, 0.45f), 0.26f, 20f);
+            FigureBone(icon, FigureBone(icon, hip, 48f, FigureThigh), 20f, FigureShin);
+            FigureBone(icon, FigureBone(icon, hip, -34f, FigureThigh), -74f, FigureShin);
+            FigureBone(icon, FigureBone(icon, shoulder, -52f, FigureUpperArm), -104f, FigureForearm);
+            FigureBone(icon, FigureBone(icon, shoulder, 46f, FigureUpperArm), 96f, FigureForearm);
+            return SaveSprite(icon, "icon_figure_run");
+        }
+
+        // CROUCH. Knees folded hard, hip dropped, spine tipped forward to balance over the feet. The
+        // dropped hip is the whole silhouette: a figure with bent knees at standing height reads as
+        // someone about to jump.
+        private static Sprite FigureCrouchIcon()
+        {
+            var icon = new IconCanvas(128);
+            var (shoulder, hip) = FigureTorso(icon, new Vector2(0.47f, 0.31f), 0.24f, 16f);
+            FigureBone(icon, FigureBone(icon, hip, 58f, FigureThigh * 0.92f), -30f, FigureShin * 0.92f);
+            FigureBone(icon, FigureBone(icon, hip, 30f, FigureThigh * 0.92f), -52f, FigureShin * 0.92f);
+            FigureBone(icon, FigureBone(icon, shoulder, 30f, FigureUpperArm), 74f, FigureForearm * 0.9f);
+            return SaveSprite(icon, "icon_figure_crouch");
+        }
+
+        // JUMP. Both feet off the floor and tucked the same way, arms up. Symmetry is what separates it
+        // from the walk - a stride says one foot is down, and two matching legs say neither is.
+        private static Sprite FigureJumpIcon()
+        {
+            var icon = new IconCanvas(128);
+            var (shoulder, hip) = FigureTorso(icon, new Vector2(0.5f, 0.46f), 0.25f, 0f);
+            FigureBone(icon, FigureBone(icon, hip, 30f, FigureThigh * 0.85f), 66f, FigureShin * 0.85f);
+            FigureBone(icon, FigureBone(icon, hip, -30f, FigureThigh * 0.85f), -66f, FigureShin * 0.85f);
+            FigureBone(icon, FigureBone(icon, shoulder, 156f, FigureUpperArm), 168f, FigureForearm * 0.85f);
+            FigureBone(icon, FigureBone(icon, shoulder, -156f, FigureUpperArm), -168f, FigureForearm * 0.85f);
+            // The floor it has left. Without it the pose is just a figure with odd legs; with it there
+            // is a gap under the feet, and the gap is the jump.
+            icon.Bar(new Vector2(0.5f, 0.055f), new Vector2(0.30f, 0.022f));
+            return SaveSprite(icon, "icon_figure_jump");
+        }
+
+        // INTERACT. A figure with one arm out to a panel on the wall - the panel is what makes it
+        // "press this" rather than "wave". Drawn as one of the room's own wall cells, because that is
+        // literally what E is pressed at.
+        private static Sprite FigurePressIcon()
+        {
+            var icon = new IconCanvas(128);
+            var (shoulder, hip) = FigureTorso(icon, new Vector2(0.36f, 0.42f), 0.26f, 4f);
+            FigureBone(icon, FigureBone(icon, hip, 12f, FigureThigh), 4f, FigureShin);
+            FigureBone(icon, FigureBone(icon, hip, -14f, FigureThigh), -4f, FigureShin);
+            // The reaching arm, straight out and level, ending at the panel.
+            FigureBone(icon, FigureBone(icon, shoulder, 88f, FigureUpperArm), 92f, FigureForearm);
+            FigureBone(icon, FigureBone(icon, shoulder, -14f, FigureUpperArm), -8f, FigureForearm);
+
+            // Panel, and a groove down its left edge so it reads as set into a wall.
+            icon.Bar(new Vector2(0.85f, 0.60f), new Vector2(0.075f, 0.135f));
+            icon.Bar(new Vector2(0.745f, 0.60f), new Vector2(0.012f, 0.155f), 0f, -1f);
+            return SaveSprite(icon, "icon_figure_press");
+        }
+
+        // LOOK AROUND. A head seen FROM ABOVE with an arc over it - the only one of the six not drawn
+        // from the side, because a head turning is invisible in profile. The arc is an annulus segment
+        // with a head on each end, which is a turn in both directions and therefore a look rather than
+        // a glance.
+        private static Sprite FigureLookIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 centre = new Vector2(0.5f, 0.35f);
+
+            icon.Disc(centre, 0.15f);
+            // Nose, so the head has a facing and the arc has something to be turning.
+            icon.Bar(new Vector2(centre.x, centre.y + 0.175f), new Vector2(0.035f, 0.045f));
+
+            // The sweep: a ring, kept to its upper half and to the outside of the head.
+            icon.Shape(p =>
+            {
+                float r = (p - centre).magnitude;
+                return r > 0.245f && r < 0.315f && p.y > centre.y + 0.02f;
+            });
+            // Arrowheads on both ends of that arc. Placed on the ring at +-58 degrees from straight up.
+            for (int s = -1; s <= 1; s += 2)
+            {
+                float rad = 58f * s * Mathf.Deg2Rad;
+                Vector2 tip = centre + new Vector2(Mathf.Sin(rad), Mathf.Cos(rad)) * 0.28f;
+                icon.Shape(p => (p - tip).magnitude < 0.075f && Vector2.Dot(p - tip, new Vector2(Mathf.Cos(rad) * s, -Mathf.Sin(rad) * s)) > 0f);
+            }
+            return SaveSprite(icon, "icon_figure_look");
+        }
+
+        // A balloon: egg-shaped body, knot, short string. Wider at the top than a circle and narrowed
+        // to the knot, because a plain disc with a string under it reads as a lollipop.
+        private static Sprite BalloonIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 centre = new Vector2(0.5f, 0.60f);
+            icon.Shape(p =>
+            {
+                float dx = (p.x - centre.x) / 0.285f;
+                // Narrower below the middle: that taper is the whole silhouette.
+                float ry = p.y < centre.y ? 0.30f : 0.255f;
+                float dy = (p.y - centre.y) / ry;
+                return dx * dx + dy * dy <= 1f;
+            });
+            icon.Bar(new Vector2(0.5f, 0.285f), new Vector2(0.036f, 0.030f));   // knot
+            icon.Bar(new Vector2(0.5f, 0.175f), new Vector2(0.014f, 0.085f));   // string
+            return SaveSprite(icon, "icon_balloon");
+        }
+
+        // The same balloon a moment later: a scrap of skin still on the knot, and shards going out.
+        // The shards are what carries it - a torn remnant on its own reads as a damaged balloon
+        // rather than one that has just gone.
+        private static Sprite BalloonBurstIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 centre = new Vector2(0.5f, 0.56f);
+
+            // Eight shards at uneven lengths. Even ones read as a sun, which is a different sign.
+            float[] degrees = { 12f, 52f, 88f, 126f, 168f, 212f, 258f, 312f };
+            float[] lengths = { 0.20f, 0.14f, 0.22f, 0.15f, 0.19f, 0.13f, 0.17f, 0.15f };
+            for (int i = 0; i < degrees.Length; i++)
+            {
+                float rad = degrees[i] * Mathf.Deg2Rad;
+                Vector2 dir = new Vector2(Mathf.Cos(rad), Mathf.Sin(rad));
+                // Placed at half its own length out from the gap, so the shards do not meet in the
+                // middle - the hole is what says the balloon is gone.
+                Vector2 at = centre + dir * (0.105f + lengths[i] * 0.5f);
+                icon.Bar(at, new Vector2(0.026f, lengths[i] * 0.5f), -degrees[i] + 90f);
+            }
+
+            icon.Bar(new Vector2(0.5f, 0.285f), new Vector2(0.036f, 0.030f));   // knot, still there
+            icon.Bar(new Vector2(0.5f, 0.175f), new Vector2(0.014f, 0.085f));   // string
+            return SaveSprite(icon, "icon_balloon_burst");
+        }
+
+        // A plain right-pointing arrow, for the pictogram rows. Shaft plus a solid head built from a
+        // half-plane test rather than three bars, so the point cannot come out blunt at 128px.
+        private static Sprite ArrowRightIcon()
+        {
+            var icon = new IconCanvas(128);
+            icon.Bar(new Vector2(0.40f, 0.5f), new Vector2(0.24f, 0.055f));
+            icon.Shape(p =>
+            {
+                if (p.x < 0.60f || p.x > 0.90f) return false;
+                // Half-width shrinks to nothing at the tip.
+                float half = Mathf.Lerp(0.20f, 0f, (p.x - 0.60f) / 0.30f);
+                return Mathf.Abs(p.y - 0.5f) <= half;
+            });
+            return SaveSprite(icon, "icon_arrow_right");
+        }
+
         // The key's silhouette at HUD size: ring bow, shaft, two teeth off one side only. A
         // symmetrical bit would read as a cross. Drawn rather than rendered from gold_key.glb,
         // because at 58px the model's bit resolves to a smudge - the same call the pin icon makes.
@@ -1925,7 +2154,7 @@ namespace IterationRoom.EditorTools
         //
         // The footprint reproduces the model's measured bounds - min (-1.23, 0, 1.16), max
         // (-0.67, 0.59, 1.52) - so nothing else in the room has to move.
-        private static (Drawer, CarryableItem) BuildNightstand(Transform parent)
+        private static (Drawer, CarryableItem[]) BuildNightstand(Transform parent)
         {
             // Footprint centre, on the floor. The front face looks down the room, away from the
             // pillow, which is the side the player is on when they turn round from the bed.
@@ -2034,12 +2263,39 @@ namespace IterationRoom.EditorTools
             // tray hanging in mid-air. It still puts the tool well clear of the front.
             drawerComp.openLocalOffset = new Vector3(0f, 0f, -trayD * 0.68f);
 
-            // The tool: a slim pin on a dark handle. Parented to the drawer body, so it rides out
-            // with the drawer instead of hanging in the air in front of a shut one. Sat forward in
-            // the tray so an open drawer presents it.
-            GameObject toolRoot = new GameObject("BalloonTool");
-            toolRoot.transform.SetParent(bodyGO.transform, false);
-            toolRoot.transform.localPosition = new Vector3(0f, -frontH / 2f + 0.032f, trayD * 0.38f);
+            // THREE pins, not one, laid out across the tray.
+            //
+            // Popping requires the pin in hand for ghosts as for the player, and with one pin in the
+            // world that capped the entire room at ONE popper at any moment - so Room2's
+            // accumulation, which is the thing every iteration is supposed to add to, did not survive
+            // its own rule. The mitigation was always a supply rather than a softer rule
+            // (docs/decisions.md), and ItemRegistry now resolves an id to a free instance so several
+            // objects can share one.
+            //
+            // Three buys the player and TWO past selves popping at once. It is not a cap on ghosts,
+            // only on simultaneous poppers: a third ghost reaching for a fourth pin finds none, and
+            // its errand simply does not happen. Raising the number is now one edit here.
+            CarryableItem[] pins = new CarryableItem[3];
+            float pinSpacing = (frontW - 0.09f) / 2f;
+            for (int i = 0; i < pins.Length; i++)
+                pins[i] = BuildPin(bodyGO.transform, i,
+                    new Vector3((i - 1) * pinSpacing, -frontH / 2f + 0.032f, trayD * 0.38f), drawerComp);
+
+            return (drawerComp, pins);
+        }
+
+        // One pin: a slim needle on a dark handle. Parented to the drawer body, so it rides out with
+        // the drawer instead of hanging in the air in front of a shut one, and sat forward in the
+        // tray so an open drawer presents it.
+        //
+        // All three share ToolItemId, which is the point - a recorded "took the Tool" has to be
+        // satisfiable by whichever one is going spare. They differ only in name, so the console can
+        // say which object a ghost picked up.
+        private static CarryableItem BuildPin(Transform drawerBody, int index, Vector3 localPos, Drawer drawer)
+        {
+            GameObject toolRoot = new GameObject(index == 0 ? "BalloonTool" : $"BalloonTool_{index}");
+            toolRoot.transform.SetParent(drawerBody, false);
+            toolRoot.transform.localPosition = localPos;
 
             Material handleMat = MakeColorMaterial("ToolHandle", new Color(0.16f, 0.16f, 0.18f));
             Material pinMat = MakeColorMaterial("ToolPin", new Color(0.78f, 0.79f, 0.82f));
@@ -2075,11 +2331,11 @@ namespace IterationRoom.EditorTools
             // yawing it turns the chop into a sideways slash. Yawed versions also read worse, not
             // better: past about 25 degrees the handle turns broadside and becomes a black slab.
             toolItem.handLocalPosition = new Vector3(0.14f, -0.125f, 0.32f);
-            toolItem.requiresOpenDrawer = drawerComp;
+            toolItem.requiresOpenDrawer = drawer;
             toolItem.audioSource = MakeSource(toolRoot.transform, "PickupAudio", 1f, 0.8f);
             toolItem.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
 
-            return (drawerComp, toolItem);
+            return toolItem;
         }
 
         // The drum-shade lamp the imported nightstand carried, rebuilt from three cylinders. It gives
@@ -2657,6 +2913,17 @@ namespace IterationRoom.EditorTools
             FirstPersonController fpc = player.AddComponent<FirstPersonController>();
             fpc.playerCamera = cam;
             fpc.pushLayers = 1 << balloonLayer;
+            // 2D: these are the player's own feet, not something across the room. Fired off the same
+            // step phase the head bob is drawn from, so the sound and the movement are one event.
+            fpc.footstepSource = MakeSource(player.transform, "FootstepAudio", 0f, 1f);
+            // Three, cycled by step number rather than picked at random - a random order re-uses the
+            // same clip twice in a row often enough to be heard doing it.
+            fpc.footstepClips = new[]
+            {
+                LoadClip(SfxDir, "sfx_footstep_1"),
+                LoadClip(SfxDir, "sfx_footstep_2"),
+                LoadClip(SfxDir, "sfx_footstep_3"),
+            };
 
             PlayerRecorder recorder = player.AddComponent<PlayerRecorder>();
             recorder.interactables = ghostInteractables;
@@ -3591,7 +3858,6 @@ namespace IterationRoom.EditorTools
             // Proud of the panel faces, which sit on the room bound itself. Small enough to read as
             // printed on the wall, large enough that no camera angle z-fights with it.
             const float standoff = 0.05f;
-            float halfWidth = RoomWidth / 2f;
             float halfDepth = RoomDepth / 2f;
             // Set so the plate's BOTTOM edge clears the door lamp, not merely the doorway. The
             // plate is 1.98m tall, so at 3.95 it spans 2.96..4.94: above the lamp at 2.725..2.835
@@ -3617,11 +3883,7 @@ namespace IterationRoom.EditorTools
             // proof - camera at z = -10 looking toward +Z, canvas at the origin unrotated, text the
             // right way round. So a wall message must face the same way as the eyes reading it, and
             // a player at the middle of the room looks outwards at every one of these.
-            var faces = new CanvasGroup[4];
-            faces[0] = MakeWallFace(root.transform, "South", new Vector3(0f, y, -halfDepth + standoff), Quaternion.Euler(0f, 180f, 0f));
-            faces[1] = MakeWallFace(root.transform, "North", new Vector3(0f, y, halfDepth - standoff), Quaternion.identity);
-            faces[2] = MakeWallFace(root.transform, "West", new Vector3(-halfWidth + standoff, y, 0f), Quaternion.Euler(0f, -90f, 0f));
-            faces[3] = MakeWallFace(root.transform, "East", new Vector3(halfWidth - standoff, y, 0f), Quaternion.Euler(0f, 90f, 0f));
+            CanvasGroup[] faces = MakeFourWallFaces(root.transform, y, standoff, FillTerminationMessage);
 
             PanelMessage message = root.AddComponent<PanelMessage>();
             message.faces = faces;
@@ -3732,7 +3994,13 @@ namespace IterationRoom.EditorTools
             return sequence;
         }
 
-        private static CanvasGroup MakeWallFace(Transform parent, string name, Vector3 localPosition, Quaternion localRotation)
+        // The canvas, the plate and the placement, shared by every wall sign in the game. What goes ON
+        // it comes from the caller: Room3's message is two lines of text, Room2's is a row of
+        // pictograms, and both want exactly this plate at exactly this height on all four walls.
+        private static CanvasGroup MakeWallFace(Transform parent, string name, Vector3 localPosition,
+                                                Quaternion localRotation, System.Action<Transform> fillContent,
+                                                float worldWidth = 7.2f, bool withPlate = true,
+                                                float authoredHeight = 440f)
         {
             GameObject go = new GameObject(name);
             go.transform.SetParent(parent, false);
@@ -3743,9 +4011,16 @@ namespace IterationRoom.EditorTools
             // Authored large and scaled down, which is the standard way to keep world-space UI text
             // from rendering as a handful of blocky pixels: the font rasterises at the RectTransform
             // size, not the final world size.
+            // Always authored 1600 WIDE whatever the final size, so every sign in the game rasterises
+            // at the same resolution and the x layout numbers inside fillContent mean the same thing at
+            // every scale. Only the scale changes: 7.2m for a wall-wide message, 3.6m over a door.
+            //
+            // The authored HEIGHT is separate because a sign's aspect is set by what it has to cover.
+            // 440 is the text plate's shape; the side-wall pictograms are 618, which is what makes their
+            // box exactly two rows of the wall grid tall at their width.
             RectTransform rect = go.GetComponent<RectTransform>();
-            rect.sizeDelta = new Vector2(1600f, 440f);
-            rect.localScale = Vector3.one * 0.0045f;   // -> 7.2m x 1.98m, inside an 8.75m wall
+            rect.sizeDelta = new Vector2(1600f, authoredHeight);
+            rect.localScale = Vector3.one * (worldWidth / 1600f);
 
             // Placed through anchoredPosition3D, set after the Canvas exists. AddComponent<Canvas>()
             // replaces the GameObject's plain Transform with a RectTransform, and a RectTransform's
@@ -3768,23 +4043,218 @@ namespace IterationRoom.EditorTools
             group.blocksRaycasts = false;
             group.interactable = false;
 
-            // The plate. This is what makes it a display rather than paint - GrooveDark is the same
+            // The plate. This is what makes it a display rather than PAINT - GrooveDark is the same
             // near-black that sits at the bottom of every groove in the room.
-            GameObject plateGO = new GameObject("Plate");
-            plateGO.transform.SetParent(go.transform, false);
-            Image plate = plateGO.AddComponent<Image>();
-            plate.color = new Color(0.04f, 0.04f, 0.045f, 0.94f);
-            plate.raycastTarget = false;
-            Stretch(plate.GetComponent<RectTransform>());
+            //
+            // Optional, because that distinction is the whole choice. A lit black plate is the
+            // facility interrupting, which is right for the message that stops an iteration; it is
+            // far too loud for a small hint over a doorway, which wants to read as something
+            // stencilled on the wall and be ignorable once it has been understood.
+            if (withPlate)
+            {
+                GameObject plateGO = new GameObject("Plate");
+                plateGO.transform.SetParent(go.transform, false);
+                Image plate = plateGO.AddComponent<Image>();
+                plate.color = new Color(0.04f, 0.04f, 0.045f, 0.94f);
+                plate.raycastTarget = false;
+                Stretch(plate.GetComponent<RectTransform>());
+            }
 
-            MakeWallLine(go.transform, "Headline", "H O L D   [ N ]", 132, Color.red,
+            fillContent?.Invoke(go.transform);
+
+            return group;
+        }
+
+        // All four walls of one room, at one height, carrying one piece of content.
+        //
+        // Each canvas's forward (+Z) points INTO its wall, i.e. away from the room. That reads
+        // backwards and it is the opposite of what was built first, which came out mirrored.
+        //
+        // The rule: a world-space canvas is legible when its forward matches the direction the viewer
+        // is LOOKING, not when it points at the viewer. Unity's own default scene is the proof -
+        // camera at z = -10 looking toward +Z, canvas at the origin unrotated, text the right way
+        // round. So a wall sign must face the same way as the eyes reading it, and a player anywhere
+        // in the middle of a room looks outwards at every one of these.
+        //
+        // Worth knowing: this is why wall signs are canvases and not textures on the panelling. A
+        // panel is a PrimitiveType.Cube, and a cube's +X and -X faces carry opposite U - so the same
+        // texture reads mirrored on the east wall against the west (docs/gotchas.md). A canvas has no
+        // such handedness, only the facing rule above, which is one decision instead of per-wall
+        // bookkeeping.
+        private static CanvasGroup[] MakeFourWallFaces(Transform parent, float y, float standoff,
+                                                       System.Action<Transform> fillContent)
+        {
+            float halfWidth = RoomWidth / 2f;
+            float halfDepth = RoomDepth / 2f;
+
+            return new[]
+            {
+                MakeWallFace(parent, "South", new Vector3(0f, y, -halfDepth + standoff), Quaternion.Euler(0f, 180f, 0f), fillContent),
+                MakeWallFace(parent, "North", new Vector3(0f, y, halfDepth - standoff), Quaternion.identity, fillContent),
+                MakeWallFace(parent, "West", new Vector3(-halfWidth + standoff, y, 0f), Quaternion.Euler(0f, -90f, 0f), fillContent),
+                MakeWallFace(parent, "East", new Vector3(halfWidth - standoff, y, 0f), Quaternion.Euler(0f, 90f, 0f), fillContent),
+            };
+        }
+
+        // Room3's content: the two text lines that were the only thing a wall face ever held.
+        private static void FillTerminationMessage(Transform face)
+        {
+            MakeWallLine(face, "Headline", "H O L D   [ N ]", 132, Color.red,
                 new Vector2(0f, 78f), new Vector2(1600f, 190f));
             // Not spaced out, unlike the headline: this line is 29 characters and spacing it would
             // put it past the wall. The headline carries the treatment for both.
-            MakeWallLine(go.transform, "Detail", "TO SKIP TO THE NEXT ITERATION", 74,
+            MakeWallLine(face, "Detail", "TO SKIP TO THE NEXT ITERATION", 74,
                 new Color(1f, 0.35f, 0.35f, 0.9f), new Vector2(0f, -90f), new Vector2(1600f, 130f));
+        }
 
-            return group;
+        // Room2's sign: PIN, then LEFT CLICK, then a balloon, then that balloon gone. No words at all.
+        //
+        // It exists because of a specific failure, not as decoration. A player on the itch build could
+        // not work out how to burst a balloon and gave up - "kept trying and closed it". The
+        // left-click prompt now sits on the balloon a swing would burst, but that prompt only appears
+        // while the pin is IN HAND, so it says nothing at all to the player who walked past the drawer
+        // and arrived here empty-handed. This is the sign for that player: it names the tool, the
+        // button and the outcome, in the order they happen.
+        //
+        // Four icons and three arrows, drawn to the same 1600px width the text lines use. Sizes and
+        // centres are laid out from one total so the row stays centred if any of them change.
+        //
+        // CHARCOAL ON THE BARE WALL, no plate behind it. The first version was red on a lit black
+        // plate, borrowed from Room3's message, and it dominated the room - which is wrong for this
+        // one. Room3's sign interrupts an iteration and should be impossible to miss once; this is a
+        // standing hint that has to be findable when wanted and ignorable for the rest of the run, so
+        // it reads as stencilled on the panelling. The value sits well clear of GrooveDark (0.04) so
+        // it cannot be mistaken for a seam, and the arrows go dimmer still - they are punctuation, and
+        // at equal weight the row reads as seven things rather than four and three.
+        //
+        // The icon size is a parameter because the two placements want different weights: 190 over the
+        // door leaves margin either side of the row, 295 fills the authored width exactly for the big
+        // side-wall signs. The arrow keeps its ratio to the icon so the row's rhythm is the same at
+        // both sizes.
+        private static void FillBalloonPictogram(Transform face, float icon)
+        {
+            float arrow = icon * (90f / 190f);
+            float total = icon * 4f + arrow * 3f;
+            float x = -total / 2f;
+
+            Color ink = new Color(0.20f, 0.20f, 0.23f, 0.72f);
+            // The arrows are RED while the things they connect stay charcoal, which inverts what the
+            // first version did - it dimmed them, on the grounds that they are punctuation. Colour
+            // separates them better than weight does: the eye now gets the direction of the sequence
+            // before it has identified any of the four objects, and "left to right, then it pops" is
+            // the half of this sign that has to survive being glanced at. Same red the facility uses
+            // for its own text, held slightly off full so it reads as printed rather than lit.
+            Color punctuation = new Color(0.82f, 0.12f, 0.12f, 0.85f);
+
+            Sprite[] sprites = { PinIcon(), MouseLeftIcon(), BalloonIcon(), BalloonBurstIcon() };
+            string[] names = { "Pin", "Click", "Balloon", "Burst" };
+            Sprite arrowSprite = ArrowRightIcon();
+
+            for (int i = 0; i < sprites.Length; i++)
+            {
+                MakeWallIcon(face, names[i], sprites[i], new Vector2(x + icon / 2f, 0f), icon, ink);
+                x += icon;
+
+                if (i == sprites.Length - 1) continue;
+                MakeWallIcon(face, $"Arrow{i}", arrowSprite, new Vector2(x + arrow / 2f, 0f), arrow, punctuation);
+                x += arrow;
+            }
+        }
+
+        private static void MakeWallIcon(Transform parent, string name, Sprite sprite,
+                                         Vector2 anchoredPosition, float size, Color color)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            Image image = go.AddComponent<Image>();
+            image.sprite = sprite;
+            image.color = color;
+            image.raycastTarget = false;
+            // The icons are square and drawn square; preserveAspect keeps a future non-square one
+            // from being stretched to fit rather than fitted.
+            image.preserveAspect = true;
+
+            RectTransform rect = image.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(size, size);
+            rect.anchoredPosition = anchoredPosition;
+        }
+
+        // Room2's pictogram: the two SIDE walls, retired the moment the player pops anything.
+        //
+        // The side walls, and only those. A sign went over the key door first, on the reasoning that
+        // the way out is the one surface every player in here is guaranteed to face - and it was
+        // removed, because that is a description of where a player is LOOKING and not of where they
+        // are stuck. Someone who cannot burst a balloon is standing among balloons turning on the
+        // spot, which puts a side wall in front of them; and a hint over the exit reads as being about
+        // the exit. Two big signs beside the puzzle say it where the puzzle is.
+        //
+        // South is bare for the opposite reason: it is at the player's back on the way in, and nobody
+        // turns round for it.
+        //
+        // These are the ANSWER rather than a label, so they are sized to be read from anywhere in the
+        // room - 7.0m, up from the 2.2m first tried and the 3.6m after it, both of which read as too
+        // small from across the room. Charcoal on bare wall, no plate, at every size.
+        //
+        // The retirement is the other difference from Room3's. That sign goes on the first visit out,
+        // because skipping an iteration is learned in one reading. This one stays until the player has
+        // actually burst something, because the player it exists for is the one who arrives with empty
+        // hands, fails, and walks back out to look for the tool - under the leave-once rule they would
+        // return to a blank wall, having been shown the answer at the one moment they could not use it.
+        private static PanelMessage BuildBalloonPictogram(Transform parent, float roomCenterZ, BalloonTool tool)
+        {
+            GameObject root = new GameObject("BalloonPictogram");
+            root.transform.SetParent(parent, false);
+            root.transform.localPosition = new Vector3(0f, 0f, roomCenterZ);
+
+            const float standoff = 0.05f;
+            float halfWidth = RoomWidth / 2f;
+            float halfDepth = RoomDepth / 2f;
+
+            // THE SIDE WALLS ARE SIZED TO THE WALL GRID, not to a number that looked right.
+            //
+            // A side wall is RoomDepth long, so it is 10.5 / 1.75 = SIX columns of four rows: 24 panels.
+            // The middle eight of those are the centre four columns by the middle two rows, and that
+            // block is exactly 7.0m x 2.7039m centred on RoomHeight / 2 - the row boundaries land at
+            // 1.3519 and 4.0558, and the column boundaries at -3.5 and +3.5. Both centres fall out of
+            // the grid rather than being chosen, which is why this reads as printed on those panels
+            // instead of floating across them.
+            //
+            // 618 authored height is what gives that box its aspect: 2.7039 / 7.0 * 1600 = 618.
+            const float sideWidth = GridCellWidth * 4f;                  // 7.0, four columns
+            const float sideAuthoredHeight = 618f;                       // -> two rows tall
+            float sideY = RoomHeight / 2f;                               // 2.7039, the middle two rows
+
+            // 295 fills the authored width exactly - 4 icons plus 3 arrows at the row's own ratio come
+            // to 1600 - so the sequence spans all four columns. A four-step row laid out horizontally
+            // cannot also be two rows TALL: at 295 the icons are 1.29m against the block's 2.70m, and
+            // making them taller would mean fewer than four fitting across. So the row fills the width
+            // of the eight panels and sits centred in their height.
+            const float sideIcon = 295f;
+
+            // Each canvas's forward (+Z) points INTO its wall: a world-space canvas is legible when its
+            // forward matches the direction the viewer is LOOKING, not when it points at the viewer.
+            // See MakeFourWallFaces for the full rule, and for why signs are canvases and not textures
+            // on the panelling.
+            var faces = new[]
+            {
+                MakeWallFace(root.transform, "West", new Vector3(-halfWidth + standoff, sideY, 0f),
+                             Quaternion.Euler(0f, -90f, 0f), f => FillBalloonPictogram(f, sideIcon),
+                             sideWidth, withPlate: false, authoredHeight: sideAuthoredHeight),
+                MakeWallFace(root.transform, "East", new Vector3(halfWidth - standoff, sideY, 0f),
+                             Quaternion.Euler(0f, 90f, 0f), f => FillBalloonPictogram(f, sideIcon),
+                             sideWidth, withPlate: false, authoredHeight: sideAuthoredHeight),
+            };
+
+            PanelMessage message = root.AddComponent<PanelMessage>();
+            message.faces = faces;
+            message.roomCenterZ = roomCenterZ;
+            message.halfDepth = halfDepth;
+            message.retireOnPop = tool;
+            return message;
         }
 
         private static void MakeWallLine(Transform parent, string name, string content, int fontSize,
@@ -4182,8 +4652,10 @@ namespace IterationRoom.EditorTools
             canvas.renderMode = RenderMode.WorldSpace;
 
             RectTransform rect = faceGO.GetComponent<RectTransform>();
-            rect.sizeDelta = new Vector2(1600f, 660f);
-            rect.localScale = Vector3.one * 0.004f;       // -> 6.4m x 2.64m on an 8.75m wall
+            // Taller than it was, because the plate that used to bound it is gone. Nothing physical
+            // sits under this on the south wall, so the height is free.
+            rect.sizeDelta = new Vector2(1600f, 820f);
+            rect.localScale = Vector3.one * 0.004f;       // -> 6.4m x 3.28m on an 8.75m x 5.41m wall
             rect.anchorMin = new Vector2(0.5f, 0.5f);
             rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.pivot = new Vector2(0.5f, 0.5f);
@@ -4199,43 +4671,66 @@ namespace IterationRoom.EditorTools
             wallGroup.blocksRaycasts = false;
             wallGroup.interactable = false;
 
-            GameObject plateGO = new GameObject("Plate");
-            plateGO.transform.SetParent(faceGO.transform, false);
-            Image plate = plateGO.AddComponent<Image>();
-            plate.color = new Color(0.04f, 0.04f, 0.045f, 0.94f);
-            plate.raycastTarget = false;
-            Stretch(plate.GetComponent<RectTransform>());
+            // NO PLATE. This used to sit on a lit near-black slab, the same one Room3's message uses,
+            // and it was removed for the reason the Room2 pictogram's was: a plate is the facility
+            // interrupting, which suits a sign that stops an iteration and does not suit the room
+            // quietly labelling its own controls. Stencilled on the panelling, it belongs to the wall.
+            //
+            // Two consequences, both handled below. Everything got BIGGER, because a plate was the only
+            // thing making the old sizes feel filled - on bare wall the same glyphs read as small. And
+            // the colours changed: the old red-on-black values were chosen against a dark ground and
+            // wash out on white panelling.
 
             // --- controls, upper half ---
-            // Sized in canvas units; at 0.004 scale a 62px cap is 0.25m of wall.
-            const float key = 62f, gap = 7f, step = key + gap, capGap = 30f;
-            const float keysW = 3f * key + 2f * gap;   // 200
-            Color wallText = new Color(1f, 0.4f, 0.4f, 0.95f);
+            // Sized in canvas units; at 0.004 scale an 84px cap is 0.34m of wall, up from 0.25m.
+            const float key = 84f, gap = 9f, step = key + gap, capGap = 30f;
+            const float keysW = 3f * key + 2f * gap;   // 270
+            // Charcoal, not the old pale red: on white panelling a light red is barely there, and this
+            // is the same ink the Room2 sign uses, so the game's two wordless displays match. Well
+            // clear of GrooveDark (0.04) so a glyph cannot be mistaken for a seam.
+            Color wallText = new Color(0.20f, 0.20f, 0.23f, 0.78f);
 
             const float keysX = -430f;
             // Spaced from the edges of what sits on each row, not by a uniform pitch: the W/A/S/D
             // block is two caps deep and straddles its row where SPACE is a single 44px bar. A
             // uniform pitch is what put the bar inside the A/S/D row twice on the screen version.
-            const float rowMove = 240f;         // A/S/D bottom 174.5
-            const float rowJump = 134.5f;       // SPACE 112.5..156.5, so 18 clear of A/S/D
-            const float rowInteract = 63.5f;    // E 32.5..94.5, so 18 clear of SPACE
+            // Spaced from the bottom edge of what sits on the row above, not by a uniform pitch: the
+            // W/A/S/D block is two caps deep and straddles its row where SPACE is a single bar. A
+            // uniform pitch is what put the bar inside the A/S/D row twice on the screen version.
+            const float rowMove = 300f;          // W 304.5..388.5, A/S/D 211.5..295.5
+            const float rowJump = 162.5f;        // SPACE 133.5..191.5, so 20 clear of A/S/D
+            const float rowInteract = 71.5f;     // E 29.5..113.5, so 20 clear of SPACE
 
-            MakeKeyCap(faceGO.transform, "KeyW", "W", new Vector2(keysX, rowMove + step / 2f), new Vector2(key, key), 28);
-            MakeKeyCap(faceGO.transform, "KeyA", "A", new Vector2(keysX - step, rowMove - step / 2f), new Vector2(key, key), 28);
-            MakeKeyCap(faceGO.transform, "KeyS", "S", new Vector2(keysX, rowMove - step / 2f), new Vector2(key, key), 28);
-            MakeKeyCap(faceGO.transform, "KeyD", "D", new Vector2(keysX + step, rowMove - step / 2f), new Vector2(key, key), 28);
-            MakeKeyCap(faceGO.transform, "KeySpace", "SPACE", new Vector2(keysX, rowJump), new Vector2(keysW, 44f), 20);
-            MakeKeyCap(faceGO.transform, "KeyE", "E", new Vector2(keysX, rowInteract), new Vector2(key, key), 28);
+            MakeKeyCap(faceGO.transform, "KeyW", "W", new Vector2(keysX, rowMove + step / 2f), new Vector2(key, key), 36);
+            MakeKeyCap(faceGO.transform, "KeyA", "A", new Vector2(keysX - step, rowMove - step / 2f), new Vector2(key, key), 36);
+            MakeKeyCap(faceGO.transform, "KeyS", "S", new Vector2(keysX, rowMove - step / 2f), new Vector2(key, key), 36);
+            MakeKeyCap(faceGO.transform, "KeyD", "D", new Vector2(keysX + step, rowMove - step / 2f), new Vector2(key, key), 36);
+            MakeKeyCap(faceGO.transform, "KeySpace", "SPACE", new Vector2(keysX, rowJump), new Vector2(keysW, 58f), 26);
+            MakeKeyCap(faceGO.transform, "KeyE", "E", new Vector2(keysX, rowInteract), new Vector2(key, key), 36);
 
-            const float keyCaptionX = keysX + keysW / 2f + capGap;
-            MakeCaption(faceGO.transform, "MoveLabel", "MOVE", new Vector2(keyCaptionX, rowMove), wallText);
-            MakeCaption(faceGO.transform, "JumpLabel", "JUMP", new Vector2(keyCaptionX, rowJump), wallText);
-            MakeCaption(faceGO.transform, "InteractLabel", "INTERACT", new Vector2(keyCaptionX, rowInteract), wallText);
+            // FIGURES INSTEAD OF WORDS. The room says nothing else in English, and this wall is the
+            // first thing a player sees - so the one screen that has to be understood before the game
+            // starts is the worst place to require reading. Same treatment as the Room2 sign.
+            //
+            // 100 against the keycaps' 84, because a figure needs more room than a letter to read at
+            // all: the glyph is a whole body where a cap is one character. Centred on the row rather
+            // than left-aligned as the old captions were, so both columns line up as a grid whatever
+            // each row's key happens to be.
+            const float figure = 100f;
+            const float keyFigureX = keysX + keysW / 2f + capGap + figure / 2f;
 
-            const float glyph = 78f;
+            MakeWallIcon(faceGO.transform, "MoveFigure", FigureWalkIcon(), new Vector2(keyFigureX, rowMove), figure, wallText);
+            MakeWallIcon(faceGO.transform, "JumpFigure", FigureJumpIcon(), new Vector2(keyFigureX, rowJump), figure, wallText);
+            MakeWallIcon(faceGO.transform, "InteractFigure", FigurePressIcon(), new Vector2(keyFigureX, rowInteract), figure, wallText);
+
+            // The right column is the mouse alone. Sprint and crouch were briefly here and moved to the
+            // side walls: they are the two controls that are about HOW you cross a room, and putting
+            // them on the walls you cross between says that better than a fifth row can.
+            const float glyph = 104f;
             const float glyphX = 300f;
-            // Level with the middle of the keyboard block, which spans 32.5 to 305.5.
-            const float rowLook = 169f;
+            // Level with the middle of the keyboard block, which spans 29.5 to 388.5.
+            const float rowLook = 209f;
+            const float rightFigureX = glyphX + glyph / 2f + capGap + figure / 2f;
 
             GameObject mouseGO = new GameObject("MouseGlyph");
             mouseGO.transform.SetParent(faceGO.transform, false);
@@ -4243,32 +4738,40 @@ namespace IterationRoom.EditorTools
             mouse.sprite = MouseIcon();
             mouse.color = wallText;
             mouse.raycastTarget = false;
+            mouse.preserveAspect = true;
             RectTransform mouseRect = mouse.GetComponent<RectTransform>();
             mouseRect.anchorMin = new Vector2(0.5f, 0.5f);
             mouseRect.anchorMax = new Vector2(0.5f, 0.5f);
             mouseRect.sizeDelta = new Vector2(glyph, glyph);
             mouseRect.anchoredPosition = new Vector2(glyphX, rowLook);
 
-            MakeCaption(faceGO.transform, "LookLabel", "LOOK AROUND",
-                new Vector2(glyphX + glyph / 2f + capGap, rowLook), wallText);
+            MakeWallIcon(faceGO.transform, "LookFigure", FigureLookIcon(), new Vector2(rightFigureX, rowLook), figure, wallText);
 
             // --- sensitivity, lower half ---
-            MakeMenuLine(faceGO.transform, "Headline", "M O U S E   S E N S I T I V I T Y", 40,
-                Color.red, new Vector2(0f, -60f), new Vector2(1500f, 60f));
+            // The reds stay red - this is the facility's own voice and red on white panelling is the
+            // strongest thing in the room - but everything that WAS a pale red on black had to darken,
+            // because pale red on white is barely a mark.
+            Color wallRed = new Color(0.74f, 0.09f, 0.09f, 1f);
 
-            Text value = MakeMenuLine(faceGO.transform, "Value", "1.10", 46, Color.red,
-                new Vector2(0f, -140f), new Vector2(500f, 60f));
+            MakeMenuLine(faceGO.transform, "Headline", "M O U S E   S E N S I T I V I T Y", 48,
+                wallRed, new Vector2(0f, -40f), new Vector2(1500f, 70f));
+
+            Text value = MakeMenuLine(faceGO.transform, "Value", "1.10", 56, wallRed,
+                new Vector2(0f, -130f), new Vector2(500f, 70f));
 
             GameObject barGO = new GameObject("Gauge");
             barGO.transform.SetParent(faceGO.transform, false);
             Image bar = barGO.AddComponent<Image>();
-            bar.color = new Color(0f, 0f, 0f, 0.6f);
+            // The empty track. It was near-opaque black, which on a dark plate was a recess and on white
+            // panelling would be a solid bar with a red one inside it. Light enough now to read as the
+            // groove the fill sits in.
+            bar.color = new Color(0.18f, 0.18f, 0.20f, 0.30f);
             bar.raycastTarget = false;
             RectTransform barRect = bar.GetComponent<RectTransform>();
             barRect.anchorMin = new Vector2(0.5f, 0.5f);
             barRect.anchorMax = new Vector2(0.5f, 0.5f);
-            barRect.sizeDelta = new Vector2(880f, 22f);
-            barRect.anchoredPosition = new Vector2(0f, -210f);
+            barRect.sizeDelta = new Vector2(950f, 28f);
+            barRect.anchoredPosition = new Vector2(0f, -200f);
 
             GameObject fillGO = new GameObject("Fill");
             fillGO.transform.SetParent(barGO.transform, false);
@@ -4277,16 +4780,22 @@ namespace IterationRoom.EditorTools
             fill.type = Image.Type.Filled;
             fill.fillMethod = Image.FillMethod.Horizontal;
             fill.fillAmount = 0.5f;
-            fill.color = Color.red;
+            fill.color = wallRed;
             fill.raycastTarget = false;
             Stretch(fill.GetComponent<RectTransform>());
 
-            MakeMenuLine(faceGO.transform, "AdjustHint", "SCROLL TO ADJUST", 26,
-                new Color(1f, 0.35f, 0.35f, 0.75f), new Vector2(0f, -252f), new Vector2(1400f, 40f));
-            MakeMenuLine(faceGO.transform, "BeginHint", "PRESS [E] AT THE PANEL BEHIND YOU", 30,
-                Color.red, new Vector2(0f, -300f), new Vector2(1400f, 44f));
+            MakeMenuLine(faceGO.transform, "AdjustHint", "SCROLL TO ADJUST", 30,
+                new Color(0.62f, 0.10f, 0.10f, 0.85f), new Vector2(0f, -250f), new Vector2(1400f, 44f));
+            MakeMenuLine(faceGO.transform, "BeginHint", "PRESS [E] AT THE PANEL BEHIND YOU", 34,
+                wallRed, new Vector2(0f, -320f), new Vector2(1400f, 50f));
 
-            calibration.wallGroup = wallGroup;
+            // The two side walls: one control each, and nothing else on them.
+            CanvasGroup sprintWall = MakeCalibrationSideWall(root.transform, "SprintWall", roomCenterZ,
+                west: true, keyLabel: "SHIFT", figureSprite: FigureRunIcon(), ink: wallText);
+            CanvasGroup crouchWall = MakeCalibrationSideWall(root.transform, "CrouchWall", roomCenterZ,
+                west: false, keyLabel: "CTRL", figureSprite: FigureCrouchIcon(), ink: wallText);
+
+            calibration.wallGroups = new[] { wallGroup, sprintWall, crouchWall };
             calibration.fill = fill;
             calibration.valueLabel = value;
 
@@ -4380,6 +4889,59 @@ namespace IterationRoom.EditorTools
         // A key cap: a red rounded rect with a near-black one inset inside it, which is a border
         // without needing a border sprite. uGUI's own UISprite is 9-sliced, so one sprite gives
         // every size of cap the same corner radius - a square W and a wide SPACE bar included.
+        // One of the calibration room's side walls: a single key and the figure it produces, and
+        // nothing else on the whole wall.
+        //
+        // Sprint and crouch went here rather than staying as two more rows on the south wall, and the
+        // reason is what they are: the other four controls are things you do in a place, where these
+        // two are how you CROSS one. Putting them on the walls the player crosses between - and one
+        // each, so a wall means a control - says that better than a fifth and sixth row can. It also
+        // means the player meets them by turning their head, which is the thing this room exists to
+        // teach them to do.
+        //
+        // Bigger than anything on the south wall: it is one control on 10.5m of wall, so the sizes that
+        // made a dense list legible would look like a stamp in the corner here.
+        private static CanvasGroup MakeCalibrationSideWall(Transform parent, string name, float roomCenterZ,
+                                                          bool west, string keyLabel, Sprite figureSprite,
+                                                          Color ink)
+        {
+            const float standoff = 0.05f;
+            const float y = 2.4f;
+            const float worldWidth = 4.6f;
+
+            float x = (west ? -1f : 1f) * (RoomWidth / 2f - standoff);
+            // Forward INTO the wall, which for a side wall means a quarter turn. A world-space canvas is
+            // legible when its forward matches the direction the viewer is LOOKING - see
+            // MakeFourWallFaces - and a player in this room looking at the west wall is looking -X.
+            Quaternion rotation = Quaternion.Euler(0f, west ? -90f : 90f, 0f);
+
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            Canvas canvas = go.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+
+            RectTransform rect = go.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(1000f, 620f);
+            rect.localScale = Vector3.one * (worldWidth / 1000f);
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition3D = new Vector3(x, y, roomCenterZ);
+            rect.localRotation = rotation;
+
+            CanvasGroup group = go.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            group.blocksRaycasts = false;
+            group.interactable = false;
+
+            // Key above, figure below, both centred - a column rather than the south wall's rows,
+            // because one pair has no list to line up with and centring it owns the wall.
+            MakeKeyCap(go.transform, "Key", keyLabel, new Vector2(0f, 150f), new Vector2(460f, 120f), 54);
+            MakeWallIcon(go.transform, "Figure", figureSprite, new Vector2(0f, -110f), 300f, ink);
+            return group;
+        }
+
         private static void MakeKeyCap(Transform parent, string name, string label,
                                        Vector2 anchoredPosition, Vector2 size, int fontSize = 26)
         {

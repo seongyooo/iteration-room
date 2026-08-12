@@ -25,19 +25,23 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
    The shipped 2026-08-11 itch build has the mirroring in it.
 
 2. **`nightstand.glb` is no longer referenced by anything** — the nightstand is built from primitives now. 8.8MB of Git LFS that nothing loads. Delete it once it is clear nothing else wants it.
-3. **Shift to crouch, Ctrl to sprint.** ⚠️ This is **inverted from the near-universal convention** (shift=sprint, ctrl=crouch), so expect testers to fight it — flagging it now so the decision is deliberate rather than discovered in a play-test. Both also interact with things already tuned: sprint changes the 7.7m/1.7s margin the pad-to-door close is checked against (see Room1), and crouch changes the eye height the near-clip corner analysis assumed.
+3. **Crouch, and which key is left for it.** Sprint shipped on **Shift**, the conventional key — the old plan paired Ctrl-sprint with Shift-crouch, and that inversion only existed to free Shift, so it went with it. Crouch therefore needs its own key (Ctrl, or C) rather than the swap. It also still interacts with something tuned: crouch changes the eye height the near-clip corner analysis assumed.
 
-## Pin supply — mitigation for the pop gate
+## Open, from the future-ideas review
 
-Popping now requires holding the pin, for ghosts as well as the player (shipped 2026-08-11, costs
-accepted — see `docs/decisions.md`). With **one** pin that means at most one entity in the room can
-pop at a time, and Room2's accumulation does not survive it.
-
-The fix is a supply, not a rule change:
-
-1. Turn the pin from one object into a small supply — `ItemRegistry` resolving `"Tool"` to a free
-   instance from a pool, and the drawer visibly holding several.
-2. Nothing else. The gate is already in place and becomes free once every ghost can have one.
-
-Reach for this if play-testing says the room clears too slowly. Revert instead with
-`GhostReplayer.requirePopTool = false`.
+1. **How many pins is the right number?** Three is the player plus two past selves popping at once,
+   picked to prove the supply rather than tuned. Room2 holds ~70 balloons and a 60-second loop, so
+   whether three hands clear it at a rate worth playing is a play-test question. One number in
+   `SceneBuilder.BuildNightstand`.
+2. **`Iteration — Future Ideas.md` sits at the repo root and is untracked.** Every other design
+   document is in `docs/`, which `CLAUDE.md` §7 indexes. Two things in it need reconciling with what
+   is already true: §10's ghost-tool rule is **shipped**, not future work, and §13 restates this
+   file's Room-extension plan, so the two will drift.
+3. **Number-lock and chess puzzles (future-ideas §7, §8) are knowledge, not accumulation.** Once the
+   player knows the combination or the layout, no iteration reduces the work and ghosts cannot help —
+   the one puzzle shape where the core rule stops applying. §7 also contradicts §14, which asks for no
+   new operations before the final escape. Decide before either is built.
+4. **Timed chains (future-ideas §4) fight `signals` semantics.** A ghost advances by elapsed time and
+   can skip several recorded frames in one tick, which is why press-type interactables stretch their
+   pulse. Narrow timing windows are exactly where that bites. Plain simultaneity is safe; sequencing
+   with delays needs its own design pass.

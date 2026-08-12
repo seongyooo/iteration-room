@@ -4,6 +4,35 @@ Ideas weighed and not taken, and the questions still open. Kept because the grou
 
 ---
 
+### Decided 2026-08-12: accumulated work is RE-PERFORMED, never stored
+
+The tree that has to be felled, the aquarium that has to be filled, and anything else shaped like
+"more work than one iteration holds" all read two ways, and the two are not close:
+
+- **A — the damage persists.** The tree remembers being 40% cut, across iterations.
+- **B — enough simultaneous ghosts inside ONE 60-second loop finish it.** Nothing is stored. Iteration
+  N has N past selves, so the number of simultaneous axes rises on its own; once it is enough, the
+  tree falls that iteration *and every iteration after*, because the ghosts always redo it.
+
+**B.** A is the first piece of un-rewound state the game would have, and ghost possession was built
+specifically so that would never be needed — *"a solved room stays solved without the loop keeping
+un-rewound state"*. Room2's key already works exactly the way B does: a ghost re-fetches and
+re-inserts it every sixty seconds, and the door is open every time without anything being remembered.
+
+B also gives more of what the tree was for, not less. The wanted image is several past selves swinging
+at once and the player walking through it — that is a picture of *simultaneous* work, which is what B
+produces and what A does not: under A one ghost chipping away for twenty iterations would do.
+
+The water works the same way. Valves, buckets and pumps are roles that have to be filled at the same
+time, not deposits into a total.
+
+**What this costs:** the threshold is now a headcount, not a budget. A puzzle needing five simultaneous
+workers cannot be finished before iteration five whatever the player does, and every one of those
+iterations must be *worth* playing on its own. The ~5-iteration floor stops being a floor and starts
+being set by whichever accumulation puzzle wants the most hands at once.
+
+---
+
 ### Decided 2026-08-12: the nightstand is built, not imported
 
 `TODO.md` had this as a choice between building the carcass and sourcing a model with a real drawer

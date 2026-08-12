@@ -25,6 +25,20 @@ Things that cost a session to discover once. Do not rediscover them.
 - **A world-space Canvas is legible when its forward (+Z) matches the direction the viewer is LOOKING** — not when it points at the viewer. Unity's default scene is the proof: camera at z=-10 looking toward +Z, canvas unrotated, text the right way round. So a wall message must face **away from the room, into its wall**. Getting it backwards renders the text mirrored, which is what happened to all four of Room3's messages. "Face the normal inwards" is the intuition to distrust — it is what you would do for a physical sign.
 - **A `RectTransform`'s serialized `m_LocalPosition` is stale, and reading it will convince you a correct build is broken.** Its x and y come from `m_AnchoredPosition`; Room3's wall messages all serialize as `{0,0,0}` while sitting exactly where they should. **Inspect `m_AnchoredPosition`.** Related: `AddComponent<Canvas>()` (or any UI component) *replaces* a plain `Transform` with a `RectTransform`, so a position written before that call is discarded.
 - **There is no scripting API that creates a layer.** `EnsureLayer` edits `ProjectSettings/TagManager.asset` through a `SerializedObject`, so the build has a side effect **outside the scene** — expect that file in a diff after a fresh clone's first build. It is idempotent by name. Indices **0-7 are Unity's own**; three look blank and are not, and writing into one is silently dropped, so the search starts at 8.
+- **Driving the open scene to take a screenshot LEAVES IT DRIVEN — rebuild afterwards, always.**
+  Posing the player and camera through the editor to render a view of something is the fastest way to
+  check work, and the pose does not go away. Worse, it can reach disk: entering and leaving play mode
+  left the scene reporting `isDirty == false` with the player still parked where a screenshot had put
+  them, so the saved scene had it too.
+  - **It presents as two unrelated bugs, and neither one names the cause.** Left in Room2, the report
+    was "the game starts in Room2 **and the walls are black**" — the walls because panels are authored
+    at the switched-off value and `WakeUpSequence` boots them with `PowerDown()`/`PowerUp()`, and the
+    calibration room is deliberately excluded from that array. So starting anywhere but the
+    calibration room means starting before the boot, and the room looks broken rather than misplaced.
+  - The fix is one build: `SceneBuilder` is the source of truth for the player's start pose. The habit
+    is to rebuild after any inspection pass that moved something, rather than trying to restore each
+    field by hand - a `finally` that puts back `targetTexture` and `clearFlags` will not save you,
+    because the thing that mattered was the player's transform.
 - **Rewriting the URP asset during a build can cost that build's very next render.** The menu
   background is captured mid-`Build()`, and the one build that also rewrote `IterationURP` (main
   light shadows off, shadow atlas 4096→2048, shadow distance, SSAO downsample) captured a frame with

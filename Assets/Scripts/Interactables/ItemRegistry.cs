@@ -18,7 +18,7 @@ namespace IterationRoom
         bool AcceptFromGhost(CarryableItem item);
     }
 
-    // Resolves an itemId to the one object that wears it.
+    // Resolves an itemId to the objects that wear it - a SUPPLY of them, not one.
     //
     // Ghosts replay carries BY IDENTITY - the same decision balloon pops rest on, for the same
     // reason: an itemId means the same thing sixty seconds later, where a position does not. But an
@@ -27,35 +27,58 @@ namespace IterationRoom
     // because unlike `ghostInteractables` this is a lookup by name and has no bit positions to keep
     // stable - so nothing breaks if the order changes.
     //
-    // Static state in a project with none elsewhere, so: it is cleared on registration failure and
-    // both dictionaries drop their entry in OnDisable, which is what makes a scene reload clean.
+    // WHY A LIST, when this used to reject a second claimant loudly. Popping a balloon requires the
+    // pin IN HAND, for ghosts as for the player, and with one pin in the world that capped the whole
+    // room at ONE popper at a time - so Room2's accumulation, the thing every iteration is supposed
+    // to add to, did not survive its own rule. The accepted mitigation was always a supply rather
+    // than a softer rule (docs/decisions.md), and a supply means several objects sharing an id.
+    //
+    // What the old error protected is worth being explicit about, because it is now gone: it caught
+    // a NEW item accidentally named after an existing one. There is no way to tell that apart from a
+    // deliberate pool from in here, so the check is replaced by a log line every time a pool grows
+    // past one - an unintended collision shows up as an id you did not mean to have two of.
+    //
+    // "Exactly one object, never duplicated, never lost" is UNCHANGED by this. That invariant is
+    // about each object, not about each id: three pins are three objects, each in exactly one of the
+    // five states, each swept back to its own origin.
+    //
+    // Static state in a project with none elsewhere, so: entries are dropped in OnDisable, which is
+    // what makes a scene reload clean.
     public static class ItemRegistry
     {
-        private static readonly Dictionary<string, CarryableItem> items =
-            new Dictionary<string, CarryableItem>();
+        private static readonly Dictionary<string, List<CarryableItem>> items =
+            new Dictionary<string, List<CarryableItem>>();
         private static readonly Dictionary<string, IItemSocket> sockets =
             new Dictionary<string, IItemSocket>();
 
         public static void Register(CarryableItem item)
         {
             if (item == null || string.IsNullOrEmpty(item.itemId)) return;
-            // Two objects claiming one id would make "there is exactly one of each" false, which is
-            // the invariant the whole possession design rests on. Loud, because the symptom - a
-            // ghost carrying the wrong object - would be baffling to track down from the outside.
-            if (items.TryGetValue(item.itemId, out CarryableItem existing) && existing != null && existing != item)
+
+            if (!items.TryGetValue(item.itemId, out List<CarryableItem> pool))
             {
-                Debug.LogError($"[ItemRegistry] two items claim id '{item.itemId}': "
-                    + $"{existing.name} and {item.name}. Ghost carries will pick one arbitrarily.");
-                return;
+                pool = new List<CarryableItem>();
+                items[item.itemId] = pool;
             }
-            items[item.itemId] = item;
+
+            if (pool.Contains(item)) return;
+            pool.Add(item);
+
+            // The replacement for the duplicate-id error. Deliberately a plain log: a pool of three
+            // pins is correct and says so, and an id that reports a size nobody intended is the
+            // collision the old error existed to catch.
+            if (pool.Count > 1)
+                Debug.Log($"[ItemRegistry] id '{item.itemId}' is a supply of {pool.Count} "
+                        + $"(added {item.name})");
         }
 
         public static void Unregister(CarryableItem item)
         {
             if (item == null || string.IsNullOrEmpty(item.itemId)) return;
-            if (items.TryGetValue(item.itemId, out CarryableItem existing) && existing == item)
-                items.Remove(item.itemId);
+            if (!items.TryGetValue(item.itemId, out List<CarryableItem> pool)) return;
+
+            pool.Remove(item);
+            if (pool.Count == 0) items.Remove(item.itemId);
         }
 
         public static void RegisterSocket(IItemSocket socket)
@@ -86,17 +109,37 @@ namespace IterationRoom
         // regardless of which of the four places it spent the last sixty seconds in.
         public static void ReturnAllToOrigin()
         {
-            foreach (CarryableItem item in items.Values)
-                if (item != null) item.ReturnToOrigin();
+            foreach (List<CarryableItem> pool in items.Values)
+                for (int i = 0; i < pool.Count; i++)
+                    if (pool[i] != null) pool[i].ReturnToOrigin();
         }
 
-        public static CarryableItem Find(string itemId)
+        // One this ghost may actually take: the first in the supply that nothing else has.
+        //
+        // Named for what it decides rather than left as a general Find, because with a pool the
+        // question is no longer "which object is this" - it is "is there one going spare", and that
+        // is the only question a replayed take has ever wanted. A ghost recorded taking "Tool" is
+        // entitled to A pin, not to the pin it happened to hold sixty seconds ago; the recording
+        // carries the id precisely so it does not depend on which physical object was involved.
+        //
+        // Returning null is a real answer, not a failure: the supply is finite, so a fifth ghost
+        // reaching for a third pin gets nothing and its errand simply does not happen. That is the
+        // same honest outcome as a ghost finding the key already taken.
+        public static CarryableItem FindFreeForGhost(string itemId)
         {
             if (string.IsNullOrEmpty(itemId)) return null;
-            items.TryGetValue(itemId, out CarryableItem item);
-            // Unity's fake-null: a destroyed object compares equal to null but is still a live
-            // dictionary value, so the entry has to be tested rather than trusted.
-            return item != null ? item : null;
+            if (!items.TryGetValue(itemId, out List<CarryableItem> pool)) return null;
+
+            for (int i = 0; i < pool.Count; i++)
+            {
+                CarryableItem item = pool[i];
+                // Unity's fake-null: a destroyed object compares equal to null but is still a live
+                // list entry, so each one has to be tested rather than trusted.
+                if (item == null) continue;
+                if (item.ghostCarryable && item.IsFreeForGhost) return item;
+            }
+
+            return null;
         }
 
         public static IItemSocket FindSocket(string itemId)
