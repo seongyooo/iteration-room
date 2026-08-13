@@ -25,14 +25,16 @@ namespace IterationRoom
         // carried.
         public Transform seat;
 
-        // The plate the symbol is printed on. It lights while the cube that matches it is on the
-        // player - which is the whole of how a player learns the pairing without being told, and the
-        // reason the room needs no legend on the wall.
+        // The plate the symbol is printed on.
+        //
+        // ~~It lights while the cube that matches it is on the player~~ REMOVED 2026-08-13, by
+        // request: that was the whole of how a player learned the pairing without being told, and
+        // removing it means the room no longer volunteers the answer - the symbol on the cube and
+        // the symbol on the plate are the only pairing left, same as the room's own "no legend on
+        // the wall" rule already asked of everything else in it.
         public Renderer plateRenderer;
         public Color idleColor = new Color(0.20f, 0.20f, 0.23f);
         public float idleEmission = 0f;
-        public Color readyColor = new Color(0.55f, 0.85f, 1f);
-        public float readyEmission = 1.6f;
         public Color filledColor = new Color(0.35f, 0.62f, 0.75f);
         public float filledEmission = 0.5f;
 
@@ -49,15 +51,14 @@ namespace IterationRoom
 
         private bool Running => LoopManager.Instance == null || LoopManager.Instance.AcceptsInput;
 
-        // LIT WHILE IT IS CARRIED, prompted only while it is IN HAND. The two are deliberately
-        // different tests. The light is a beacon - it has to be readable from across the room, and a
-        // cube stowed by Tab is still a cube the player has to deliver. The prompt is a promise that
-        // the press will work, and the press needs the cube out, like every other fixture operated
-        // WITH an object.
+        // Still asked for the PROMPT's sake even though the plate no longer lights for it - the
+        // press needs the cube equipped, not merely carried, like every other fixture operated WITH
+        // an object.
         private bool Wanted => Running && !Filled && hand != null && hand.Has(acceptedItemId);
 
         public bool WantsInteractHint =>
-            Wanted && playerInRange && hand.Holding(acceptedItemId);
+            Wanted && playerInRange && hand.Holding(acceptedItemId)
+            && PlayerLookup.InView(HintAnchor);
 
         public Transform HintAnchor => seat != null ? seat : transform;
 
@@ -80,9 +81,7 @@ namespace IterationRoom
 
         private void Update()
         {
-            if (Filled) ApplyPlate(filledColor, filledEmission);
-            else if (Wanted) ApplyPlate(readyColor, readyEmission);
-            else ApplyPlate(idleColor, idleEmission);
+            ApplyPlate(Filled ? filledColor : idleColor, Filled ? filledEmission : idleEmission);
 
             if (!WantsInteractHint) return;
             if (!Input.GetKeyDown(KeyCode.E)) return;

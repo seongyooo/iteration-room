@@ -57,7 +57,11 @@ namespace IterationRoom
         // play mode nulls it without Awake running again and every SetPropertyBlock throws after.
         private MaterialPropertyBlock Block => block ??= new MaterialPropertyBlock();
 
-        public bool WantsInteractHint => inRange && IsLive;
+        // On screen as well as in reach, like every other E fixture - see PlayerLookup.InView. Safe
+        // for the one plate left, the calibration wall's: it is set into a WALL that the player is
+        // already standing in front of reading BEGIN, not a pad underfoot they would have to look
+        // down at.
+        public bool WantsInteractHint => inRange && IsLive && PlayerLookup.InView(HintAnchor);
 
         public Transform HintAnchor => transform;
 

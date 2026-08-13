@@ -129,7 +129,26 @@ namespace IterationRoom
             //
             // The balloon names its own key, so this needs no idea how many there are.
             if (balloon.heldKey != null)
+            {
                 balloon.heldKey.RevealAt(new Vector3(at.x, balloon.heldKey.floorY, at.z));
+
+                // LYING FLAT, not standing on its blade. RevealAt only ever moves an item - rotation
+                // is whatever it already had, which for a key is KeyRestRotation, the bow-up pose
+                // built for somewhere findable rather than for a floor. A key stood on end where it
+                // fell reads as placed on purpose; one lying on its side reads as dropped, which is
+                // what a burst balloon actually did to it.
+                //
+                // Rolled 90 off the LOCK's own axis (identity, shaft along +Z, KeyLock's insert
+                // frame) rather than off KeyRestRotation, because identity is the frame the blade's
+                // broad face is already known to be vertical in - "the keyhole's slot is vertical" -
+                // and rolling that face down onto the floor is exactly the quarter turn a key takes
+                // between held-for-a-lock and dropped-on-a-floor. Yawed by the balloon's own id
+                // rather than randomly, so which way a given key is facing stays the same every
+                // iteration a ghost bursts the same balloon - cosmetic, not gameplay, but nothing
+                // else in this room roots its visuals in Time.time either.
+                float yaw = (balloon.id * 47) % 360;
+                balloon.heldKey.transform.rotation = Quaternion.Euler(0f, yaw, 90f);
+            }
         }
     }
 }

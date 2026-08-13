@@ -82,9 +82,11 @@ namespace IterationRoom
         // E here would put the held object in. Everything is required: the room has to be live, the
         // object has to be the RIGHT one and IN HAND rather than merely carried, and the recess has
         // to be empty.
+        // ...and it has to be ON SCREEN, like every other E fixture - see PlayerLookup.InView.
         public bool WantsInteractHint =>
             Live && Declared && !Filled && playerInRange
-            && hand != null && hand.Holding(acceptedItemId);
+            && hand != null && hand.Holding(acceptedItemId)
+            && PlayerLookup.InView(HintAnchor);
 
         public Transform HintAnchor => seat != null ? seat : transform;
 

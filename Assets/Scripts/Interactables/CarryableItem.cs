@@ -79,6 +79,26 @@ namespace IterationRoom
         // against the 0.29m of frame it has to fit into.
         public Vector3 handLocalScale = Vector3.zero;
 
+        // The SOLID collider that makes this thing something you walk around rather than through.
+        // Optional - most carryables are small enough that walking through them never comes up, and
+        // they leave it null.
+        //
+        // NOT A SECOND COLLIDER ON THIS OBJECT. `trigger` is whatever `GetComponent<Collider>()`
+        // hands back, so a solid box added alongside the reach trigger would be a coin toss over
+        // which one becomes the reach - the trap BuildKeyPlinth already documents as "scenery gets a
+        // solid box, a takeable gets a trigger, and it is never both." A takeable that has to be
+        // solid puts the solid one on a CHILD, and points this at it.
+        //
+        // Enabled exactly while the object is standing in the world on its own. Every path that puts
+        // it in a hand turns it off, and for two separate reasons: in the PLAYER's hand a solid box
+        // parented under the camera is a block the player's own controller shoves itself against,
+        // and in a GHOST's hand it would give a past self the collider ghosts are not allowed to
+        // have (CLAUDE.md SS1.7 - a ghost is something you walk through, and one that pushed the
+        // player would change the recording being made against it). Off while socketed too: a cube
+        // is seated by a player standing right on top of a floor recess, and a solid box appearing
+        // under their feet is a shove, not a wall.
+        public Collider blocker;
+
         public AudioSource audioSource;
         public AudioClip pickupClip;
 
@@ -102,9 +122,13 @@ namespace IterationRoom
 
         // E here would pick this up. The drawer gate is part of the answer: prompting over a pin
         // inside a shut drawer would teach the key on the one press that does nothing.
+        // ON SCREEN is the last test rather than the first, and that ordering is load-bearing:
+        // ItemRegistry.NearestTakeable asks this of EVERY registered item, and `playerInRange` is
+        // false for all but the handful beside the player. See PlayerLookup.InView.
         public bool WantsInteractHint =>
             IsAvailable && playerInRange && !AlreadyHaveOne
-            && (HeldByGhost != null || requiresOpenDrawer == null || requiresOpenDrawer.IsFullyOpen);
+            && (HeldByGhost != null || requiresOpenDrawer == null || requiresOpenDrawer.IsFullyOpen)
+            && PlayerLookup.InView(HintAnchor);
 
         // The player is already carrying one of these. PlayerHand.Take refuses a second of the same
         // id - `carried` is a set of IDS, not of objects - so this has to be part of "E would do
@@ -176,6 +200,13 @@ namespace IterationRoom
 
             if (!Input.GetKeyDown(KeyCode.E)) return;
 
+            // This press has already been spent on something else. Nearest-wins arbitration below
+            // decides WHICH item, but it cannot decide HOW MANY: it is recomputed per item as each
+            // Update runs, and an item taken earlier in the same frame drops out of the running, so
+            // the next one down the pile becomes "nearest" and takes itself too. See
+            // PlayerHand.TookThisFrame.
+            if (hand.TookThisFrame) return;
+
             // ONE PRESS, ONE ITEM. Every takeable thing polls E for itself, so a press inside two
             // overlapping triggers used to be taken by both - fine while nothing overlapped and no two
             // takeable things shared a place, and wrong the moment 32 chess pieces stood a square apart
@@ -199,6 +230,7 @@ namespace IterationRoom
             HeldByGhost = null;
             IsCarried = true;
             if (trigger != null) trigger.enabled = false;
+            SetBlocking(false);
 
             transform.SetParent(anchor, false);
             transform.localPosition = handLocalPosition;
@@ -237,6 +269,7 @@ namespace IterationRoom
             // ControlHintDisplay already puts its own prompt over it because WantsInteractHint is
             // driven off IsAvailable.
             if (trigger != null) trigger.enabled = true;
+            SetBlocking(false);
 
             transform.SetParent(anchor, false);
             // NOT handLocalPosition. Those numbers are a first-person framing - 0.28 right and 0.42
@@ -280,6 +313,7 @@ namespace IterationRoom
             transform.localScale = originLocalScale;
             SetVisible(true);
             if (trigger != null) trigger.enabled = true;
+            SetBlocking(true);
         }
 
         // Carried but not shown - the key goes straight in a pocket.
@@ -288,6 +322,7 @@ namespace IterationRoom
             HeldByGhost = null;
             IsCarried = true;
             if (trigger != null) trigger.enabled = false;
+            SetBlocking(false);
 
             // Detached, and this only started mattering once the player could take an item off a
             // ghost. A pocketed item is not moved anywhere, so before that it simply stayed where it
@@ -314,6 +349,7 @@ namespace IterationRoom
             HeldByGhost = null;
             IsCarried = true;
             if (trigger != null) trigger.enabled = false;
+            SetBlocking(false);
 
             transform.SetParent(socket, false);
             transform.localPosition = Vector3.zero;
@@ -327,6 +363,7 @@ namespace IterationRoom
             HeldByGhost = null;
             IsCarried = false;
             if (trigger != null) trigger.enabled = true;
+            SetBlocking(true);
 
             transform.SetParent(originParent, false);
             transform.localPosition = originLocalPosition;
@@ -341,6 +378,7 @@ namespace IterationRoom
         {
             SetVisible(false);
             if (trigger != null) trigger.enabled = false;
+            SetBlocking(false);
         }
 
         public void RevealAt(Vector3 worldPosition)
@@ -349,6 +387,7 @@ namespace IterationRoom
             transform.position = worldPosition;
             SetVisible(true);
             if (trigger != null) trigger.enabled = true;
+            SetBlocking(true);
         }
 
         private void SetVisible(bool show)
@@ -356,6 +395,13 @@ namespace IterationRoom
             visible = show;
             foreach (Renderer r in GetComponentsInChildren<Renderer>(true))
                 r.enabled = show;
+        }
+
+        // Paired with SetVisible on every path: something you can see and cannot reach through, or
+        // something that is neither. An out-of-play object left solid is an invisible wall.
+        private void SetBlocking(bool solid)
+        {
+            if (blocker != null) blocker.enabled = solid;
         }
 
         private void PlayPickup()

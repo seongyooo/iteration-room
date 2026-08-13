@@ -12,9 +12,11 @@ namespace IterationRoom
     // any brightness. The cubes and the plates are the same six glyphs in the same near-black ink.
     //
     // THE SECOND ACCUMULATION ROOM, and deliberately the same shape as the first (`ChessBoard`): the
-    // work is errands, the loop divides them, and every delivery a past self made replays. What it is
-    // NOT is a memory test - each cube says on its face where it goes, and its recess lights up while
-    // it is in your hands, so the cost is the walk.
+    // work is errands, the loop divides them, and every delivery a past self made replays. ~~What it
+    // is not is a memory test - each cube says on its face where it goes, and its recess lights up
+    // while it is in your hands~~ - the recess no longer lights for it (removed 2026-08-13, by
+    // request), so working out which cube goes where is now something the room asks of the player
+    // rather than answers for them.
     //
     // GHOSTS TIDY IT FOR FREE, by the same route chess uses and for the same reason: one `IItemSocket`
     // per CUBE, each of which is that cube's own recess. A ghost's recorded hand-over carries an

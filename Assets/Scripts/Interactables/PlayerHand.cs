@@ -53,9 +53,30 @@ namespace IterationRoom
         // being in your hand, not somewhere on your person.
         public bool Holding(string itemId) => Held != null && Held.itemId == itemId;
 
+        // ONE PRESS TAKES ONE ITEM, and this is the half of that rule ItemRegistry.NearestTakeable
+        // could not enforce on its own.
+        //
+        // Every carryable polls E for itself and defers to the nearest candidate, which reads as
+        // watertight and is not: the candidates are recomputed by each item as its own Update runs,
+        // and taking one REMOVES it from the running (IsCarried kills IsAvailable, which kills
+        // WantsInteractHint). So if the nearest item's Update happens to run FIRST, it takes itself,
+        // and the next overlapping item - now the nearest of what is left - takes itself too, on the
+        // same press. Script execution order is arbitrary, so the same press did nothing wrong half
+        // the time and emptied a whole pile the other half. Found by stacking two cubes, but it was
+        // always live wherever two takeables of DIFFERENT ids overlapped; same id was never affected,
+        // because Take below refuses the second one anyway.
+        //
+        // A frame stamp rather than more arbitration: the question is not "which item" - that is
+        // NearestTakeable's job and it answers correctly - but "has this press already been spent",
+        // and the hand is the one thing every take goes through.
+        public bool TookThisFrame => takeFrame == Time.frameCount;
+        private int takeFrame = -1;
+
         public void Take(CarryableItem item)
         {
             if (item == null || carried.Contains(item.itemId)) return;
+
+            takeFrame = Time.frameCount;
 
             // Taking it off a past self. The ghost has to be told, or it would keep the item in its
             // own held list and try to surrender it later - and there is exactly one of each object,

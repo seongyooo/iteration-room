@@ -100,7 +100,9 @@ namespace IterationRoom
         // a failure in the middle of a success.
         public bool CanOpen => Inserting || (hand != null && hand.Holding(requiredItemId));
 
-        public bool WantsInteractHint => playerInRange && !IsSpent && !Inserting;
+        // On screen as well as in reach, like every other E fixture - see PlayerLookup.InView.
+        public bool WantsInteractHint =>
+            playerInRange && !IsSpent && !Inserting && PlayerLookup.InView(HintAnchor);
         public Transform HintAnchor => transform;
 
         // Once the door is open there is nothing left for E to do here. The loop shuts the door

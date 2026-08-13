@@ -39,7 +39,8 @@ namespace IterationRoom
 
         // Only while it is shut. Once it is open the press that matters is the one on the tool
         // inside, and that carries its own prompt.
-        public bool WantsInteractHint => playerInRange && !IsOpen;
+        // On screen as well as in reach, like every other E fixture - see PlayerLookup.InView.
+        public bool WantsInteractHint => playerInRange && !IsOpen && PlayerLookup.InView(HintAnchor);
         public Transform HintAnchor => drawerBody != null ? drawerBody : transform;
 
         // Only the rising edge means anything: the fall is the recorded pulse expiring, not anyone

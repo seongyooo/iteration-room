@@ -88,10 +88,26 @@ origin, **ghost destroyed → released** (`GhostReplayer.OnDestroy`).
 `ItemRegistry.ReturnAllToOrigin()` sweeps every registered item at the top of an iteration.
 `PlayerHand.ReturnAll` alone is **not** sufficient — it only knows what the *player* picked up.
 
-**One press takes ONE item.** Every `CarryableItem` polls E for itself, so overlapping triggers used
-to be taken by all of them at once — 32 chess pieces a square apart found it. Anything that answers a
-key press over a takeable must defer to `ItemRegistry.NearestTakeable(eye)`: **nearest to the camera**,
-which is also what the prompt disc is drawn over, so the press and the disc can never disagree.
+**E ONLY ACTS ON WHAT IS ON SCREEN.** Every fixture answers E on *proximity* — a polled volume — which
+says nothing about whether the player can see it, so a press used to take an item behind you. Every
+`WantsInteractHint` therefore ends in `PlayerLookup.InView(HintAnchor)`, and stating it against the
+**prompt** is the point: an interaction is available exactly when its prompt disc would be on screen,
+so a player never presses E on something the game gave them no mark for. Put it **last** in the
+condition — `NearestTakeable` asks `WantsInteractHint` of every registered item, and the cheap
+`playerInRange` test in front of it is what keeps that free. Frustum only, no occlusion test; see
+`PlayerLookup.InView` for why a line-of-sight raycast is the wrong trade here.
+
+**One press takes ONE item, and it takes TWO mechanisms to hold that.** Every `CarryableItem` polls E
+for itself, so overlapping triggers used to be taken by all of them at once — 32 chess pieces a
+square apart found it, two stacked cubes found the half of it that was left.
+
+1. **Which** — anything answering a key press over a takeable must defer to
+   `ItemRegistry.NearestTakeable(eye)`: **nearest to the camera**, which is also what the prompt disc
+   is drawn over, so the press and the disc can never disagree.
+2. **How many** — and nearest-wins cannot answer this, because each item recomputes it as its own
+   `Update` runs and a take already made drops out of the running, promoting the next one down the
+   pile. Gate on `PlayerHand.TookThisFrame` as well: one press, one take, whatever the script
+   execution order happens to be.
 
 **This is per OBJECT, not per id.** An id can name a supply — three pins share `"Tool"` — and each of
 the three obeys the five states and returns to its own origin. What is forbidden is two *holders* of
@@ -166,6 +182,8 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `GhostReplayer` | Replaying one timeline, and re-evaluating it |
 | `PlayerHand` | What the player carries and what is **in hand** |
 | `CarryableItem` | One object's own state and where it is parented |
+| `StackedItem` | One carryable that was built on another, and its fall when that one leaves |
+| `HeldItemClearance` | Keeping whatever is in the hand out of the walls |
 | `ItemRegistry` | id → the **supply** wearing it, id → socket, and the reset sweep |
 | `IItemSocket` | Anything that accepts an item and keeps it |
 | Room components | One puzzle's rule, nothing else |
