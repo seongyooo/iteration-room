@@ -1837,6 +1837,47 @@ namespace IterationRoom.EditorTools
             return SaveSprite(icon, "icon_figure_look");
         }
 
+        // TAB. Not one of the six body poses - switching what is in the hand moves no limb a figure
+        // could show - so this is the one calibration-wall control captioned with an object glyph
+        // instead: two arrows chasing each other round a ring, the ordinary mark for "cycle through".
+        // Built the same way the look icon's turn arc is, a ring cut to an arc with a half-disc
+        // arrowhead at its leading end, just carried all the way round instead of stopping at a head.
+        private static Sprite CycleIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 centre = new Vector2(0.5f, 0.5f);
+            const float outer = 0.36f, inner = 0.275f;
+            const float mid = (outer + inner) * 0.5f;
+
+            // Two arcs, opposite halves of the ring, each a little short of a true half so its
+            // arrowhead has clear ring under it rather than overlapping the far arc.
+            float[] starts = { 15f, 195f };
+            float[] ends = { 165f, 345f };
+
+            for (int i = 0; i < 2; i++)
+            {
+                float from = starts[i], to = ends[i];
+                icon.Shape(p =>
+                {
+                    Vector2 d = p - centre;
+                    float r = d.magnitude;
+                    if (r < inner || r > outer) return false;
+                    float deg = Mathf.Atan2(d.x, d.y) * Mathf.Rad2Deg;
+                    if (deg < 0f) deg += 360f;
+                    return deg >= from && deg <= to;
+                });
+
+                // The arrowhead sits at the arc's leading end - `to`, since the sweep runs clockwise -
+                // a half disc cut along the tangent so it points the way the ring is turning.
+                float tipRad = to * Mathf.Deg2Rad;
+                Vector2 tip = centre + new Vector2(Mathf.Sin(tipRad), Mathf.Cos(tipRad)) * mid;
+                float tangentRad = (to + 90f) * Mathf.Deg2Rad;
+                Vector2 dir = new Vector2(Mathf.Sin(tangentRad), Mathf.Cos(tangentRad));
+                icon.Shape(p => (p - tip).magnitude < 0.085f && Vector2.Dot(p - tip, dir) > 0f);
+            }
+            return SaveSprite(icon, "icon_cycle");
+        }
+
         // A balloon: egg-shaped body, knot, short string. Wider at the top than a circle and narrowed
         // to the knot, because a plain disc with a string under it reads as a lollipop.
         private static Sprite BalloonIcon()
@@ -1955,6 +1996,44 @@ namespace IterationRoom.EditorTools
             icon.Shape(p => toSpine(p) <= hollow && Mathf.Abs(p.y - 0.605f) < 0.017f);
             icon.Shape(p => toSpine(p) <= hollow && p.y > 0.605f && Mathf.Abs(p.x - 0.5f) < 0.017f);
             return SaveSprite(icon, "icon_mouse");
+        }
+
+        // A speaker with sound coming off it - "turn your volume up", over the calibration room's
+        // BEGIN button. The PA and every room's audio cues are half of what the facility tells the
+        // player, and this is the last screen before the loop's clock starts, so it is the one place
+        // a muted or silent tab can still be caught rather than discovered mid-iteration.
+        private static Sprite VolumeIcon()
+        {
+            var icon = new IconCanvas(128);
+
+            // The body: a plain box, standing in for the speaker cabinet.
+            icon.Bar(new Vector2(0.28f, 0.5f), new Vector2(0.07f, 0.11f));
+            // The cone, widening away from the box - the same tapered half-plane test the right
+            // arrow's head uses, just wider so it reads as a speaker rather than an arrow.
+            icon.Shape(p =>
+            {
+                if (p.x < 0.28f || p.x > 0.46f) return false;
+                float half = Mathf.Lerp(0.11f, 0.22f, (p.x - 0.28f) / 0.18f);
+                return Mathf.Abs(p.y - 0.5f) <= half;
+            });
+
+            // Three sound waves fanning out to the right, each a band of an arc rather than a full
+            // ring so they read as coming FROM the cone rather than surrounding it.
+            Vector2 mouth = new Vector2(0.46f, 0.5f);
+            for (int i = 0; i < 3; i++)
+            {
+                float r = 0.13f + i * 0.085f;
+                const float thickness = 0.026f;
+                icon.Shape(p =>
+                {
+                    Vector2 d = p - mouth;
+                    float dist = d.magnitude;
+                    if (dist < r - thickness || dist > r + thickness) return false;
+                    float deg = Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg;
+                    return Mathf.Abs(deg) <= 55f;
+                });
+            }
+            return SaveSprite(icon, "icon_volume");
         }
 
         // tiling is in repeats across one face. URP/Lit drives the normal map's UVs from _BaseMap's
@@ -3208,12 +3287,23 @@ namespace IterationRoom.EditorTools
                 return (plinth.transform, seat.transform, null);
             }
 
-            // Local units on a transform scaled to 0.30, so this is 0.66m across and 0.90 tall in the
+            // Local units on a transform scaled to 0.30, so this is 1.02m across and 0.90 tall in the
             // world: an arm's length rather than the object's own size, so it is taken from standing
             // at the plinth instead of from inside it.
+            //
+            // WIDE ENOUGH TO CLEAR THE PEDESTAL FROM EVERY SIDE, not just the width Body itself needs.
+            // Body is a solid 0.62m box (0.31 half-extent) and the player's CharacterController has a
+            // 0.08 skin width, so walking straight into ANY face - not a diagonal - stops the player's
+            // capsule 0.31 + 0.08 = 0.39m out. A trigger sized to only just clear Body's own half-extent
+            // (0.33m, one number over) was closer than that stop distance, so a square approach could
+            // never overlap it - only a corner-on approach, where the AABB test's two axes both shrink
+            // at once, ever reached it. Measured by walking a CharacterController at this pedestal from
+            // all four cardinal directions and a diagonal: the cardinals never overlapped, the diagonal
+            // always did - which is exactly "picks up from one angle, not from the side." 0.51m half
+            // extent clears the 0.39m stop distance with room to spare.
             BoxCollider trigger = key.AddComponent<BoxCollider>();
             trigger.isTrigger = true;
-            trigger.size = new Vector3(2.2f, 3.0f, 2.2f);
+            trigger.size = new Vector3(3.4f, 3.0f, 3.4f);
 
             CarryableItem item = key.AddComponent<CarryableItem>();
             item.itemId = itemId;
@@ -6786,6 +6876,13 @@ namespace IterationRoom.EditorTools
 
             MakeWallIcon(faceGO.transform, "LookFigure", FigureLookIcon(), new Vector2(rightFigureX, rowLook), figure, wallText);
 
+            // TAB, level with E on the other column - the two hand controls sharing the wall's
+            // bottom row. Nothing else the player carries is explained here otherwise, and a past
+            // self laying out everything it holds (GhostReplayer.LayOutCarried) is unreadable if the
+            // living player has never been told what puts one of those items in hand to begin with.
+            MakeKeyCap(faceGO.transform, "KeyTab", "TAB", new Vector2(glyphX, rowInteract), new Vector2(key, key), 28);
+            MakeWallIcon(faceGO.transform, "CycleFigure", CycleIcon(), new Vector2(rightFigureX, rowInteract), figure, wallText);
+
             // --- sensitivity, lower half ---
             // The reds stay red - this is the facility's own voice and red on white panelling is the
             // strongest thing in the room - but everything that WAS a pale red on black had to darken,
@@ -6893,6 +6990,12 @@ namespace IterationRoom.EditorTools
             // Identity: this wall faces north, so a player reading it is looking along +Z, and a
             // world-space canvas is legible when its forward matches the viewer's look direction.
             labelRect.localRotation = Quaternion.identity;
+
+            // The speaker, above the word rather than beside it - this is the room's last screen
+            // before the clock starts, and the PA and every room's audio cues are half of what the
+            // facility tells the player from here on. Red, the same voice BEGIN speaks in, because
+            // this is the facility's own instruction and not a HUD element laid over the room.
+            MakeWallIcon(labelGO.transform, "VolumeHint", VolumeIcon(), new Vector2(0f, 195f), 160f, Color.red);
 
             MakeMenuLine(labelGO.transform, "Text", "B E G I N", 150, Color.red,
                 Vector2.zero, new Vector2(850f, 220f));
