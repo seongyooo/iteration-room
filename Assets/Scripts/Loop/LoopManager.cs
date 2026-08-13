@@ -63,6 +63,15 @@ namespace IterationRoom
         public float ElapsedTime { get; private set; }
         public int IterationNumber { get; private set; }
 
+        // The clock's own running total, across every iteration this run has spent - what
+        // EndingSequence reports alongside the iteration count. `totalElapsedTime` accumulates each
+        // iteration's ElapsedTime the moment that iteration ends (see the top of RunLoop's while);
+        // the CURRENT iteration's own ElapsedTime is still live and not yet folded in, which is
+        // exactly right at the one moment this is read - RunEnding, while the escaping iteration is
+        // still the current one and has not gone through that accumulation step itself.
+        public float TotalElapsedTime => totalElapsedTime + ElapsedTime;
+        private float totalElapsedTime;
+
         // True only while the clock is actually running - not during the wake-up, not during the
         // eyelid close. The end-cycle control reads this so it can't be charged up out of turn.
         public bool IterationRunning { get; private set; }
@@ -136,6 +145,10 @@ namespace IterationRoom
             while (true)
             {
                 IterationNumber++;
+                // Folded in BEFORE the reset, so the iteration just finished counts toward the
+                // total exactly once. On the very first pass ElapsedTime is still its default zero,
+                // so this is a harmless no-op rather than a special case to guard.
+                totalElapsedTime += ElapsedTime;
                 ElapsedTime = 0f;
 
                 if (playerController != null && bedSpawnPoint != null)
@@ -370,7 +383,7 @@ namespace IterationRoom
             if (playerController != null) playerController.ControlEnabled = false;
 
             if (endingSequence != null)
-                yield return endingSequence.Play(IterationNumber);
+                yield return endingSequence.Play(IterationNumber, TotalElapsedTime);
         }
     }
 }

@@ -9,13 +9,26 @@ How to keep that split working is §6.
 ## Current state
 
 Complete end to end — three puzzle rooms, a fourth room that is the ending, a title screen, a
-sensitivity calibration step. Behind Room2's red door is **Room2West, the chess board**: twelve of a
-set's thirty-two pieces scattered across the floor, put back one at a time. The room is **dark**
-until the last one lands; then its lights come up, the board splits down the middle and a plinth
-rises out of the gap carrying a red cube. Behind the blue door is **Room2East, the cube room**: six
-cubes carrying six symbols and six recesses in the walls that want them, paying out a blue sphere.
-**Room3** pays out a yellow triangle on the same condition that opens its door. All three are
-`CarryableItem`s and Room4's console has a shaped recess for each — see `docs/puzzle-design.md`.
+sensitivity calibration step. **The building is ONE CORRIDOR**: Room1 → Room2 → Room2West → Room2East
+→ Room3 → Room4, six shells in a line, each sharing a divider with the next — there is no branching
+hub. Room2 is the balloon room and holds all three coloured keys; red opens the door onto Room2West,
+blue the door onto Room2East, yellow the door onto Room3, in that order. **Room2West, the chess
+board**: twelve of a set's thirty-two pieces scattered across the floor, put back one at a time. The
+room is **dark** until the last one lands; then its lights come up, the board splits down the middle
+and a plinth rises out of the gap carrying a red cube. **Room2East, the cube room**: six cubes
+carrying six symbols and six recesses in the walls that want them (three per wall on the two walls
+without a doorway, now that the room has doorways on both its south and north walls), paying out a
+blue sphere. **Room3** pays out a yellow triangle on the same condition that opens its door. All
+three are `CarryableItem`s and Room4's console has a shaped recess for each — see
+`docs/puzzle-design.md`.
+
+**LAYOUT CHANGED 2026-08-13, from a hub (three coloured doors off Room2's own walls) to the linear
+corridor above** — play-tested as tedious, backtracking to Room2 between the two side rooms rather
+than making progress. Verified in code only (SceneBuilder compiles, the scene builds with no errors,
+probe/room counts match): the iteration-count and final-lap-timing figures below were measured
+2026-08-12 against the OLD hub layout and have **not** been re-measured against this one. Walk
+distances changed with the topology, so treat every number below as needing a fresh playthrough
+before it is trusted again.
 
 **The three escape objects are valid within ONE iteration only, and putting all three into Room4's
 console is the game's ONLY EXIT CONDITION.** Nothing exempts them from
@@ -95,8 +108,14 @@ whether the ghost still holds an item, whether it is *equipped*, and `requiresOp
 
 ### 1.4 Identity, never position
 
-Pops carry a `balloonId`; carries carry an `itemId`. Replaying "the player acted *here*" against a
-world that has moved makes a ghost's contribution luck.
+Pops carry a `balloonId`; a `Take` carries an `itemId` **and**, since 2026-08-13, an
+`instanceName` — which physical object, not just which id. Replaying "the player acted *here*"
+against a world that has moved makes a ghost's contribution luck, and for a SUPPLY id (three pins
+share `"Tool"`) `itemId` alone has exactly the same problem one level up: "took a Tool" replays as
+"took *a* free one", which loses which physical pin a take off a ghost actually meant and can leave
+two pins out where the original iteration only ever had one taken. `GhostReplayer.TryTake` tries the
+named object first (unless the living player holds it) and falls back to "any free one, or any
+ghost-held one for a socketed item" only when it cannot.
 
 ### 1.5 Signals are levels; events are instants
 
@@ -215,9 +234,17 @@ player less to do.** Do not damage that when adding rooms.
 - **Ghosts can carry things and use them**, including putting Room2's key in the lock — so a solved
   room stays solved without the loop keeping un-rewound state. Full argument:
   `docs/ghost-possession-design.md`.
-- **The completed-errand rule**: a ghost replays a pickup only if that same recording also
-  surrendered the item — and this applies **only to items that have a socket**. Unscoped it silently
-  forbids ghosts to carry anything that is never delivered.
+- **~~The completed-errand rule~~ REMOVED 2026-08-13, by explicit request**, along with the
+  ghost-to-ghost close it used to backstop (next bullet). It used to require a recording to have also
+  surrendered an item before a ghost would even attempt to retake it — the arbitration that stopped a
+  recording that fetched a key and fumbled from robbing one that fetched it and delivered. Now a take
+  is a fact this ghost always tries to reproduce, whether or not anything came of it. **The cost is
+  real: whichever recording's Take fires earliest at replay wins a contested item, which can silently
+  fail another ghost's OWN later delivery of that same item.** Accepted anyway, because it is not
+  unrecoverable within a run — the ghost that lost the item still performs everything else in its
+  recording (§1.3/§1.5, every action re-evaluates its own condition independently), and the living
+  player can simply finish the one delivery that did not land. See
+  `docs/ghost-possession-design.md` §4 and §5c for the full argument.
 - **Tab cycles what is in the hand**; everything else carried is stowed and invisible, and the cycle
   ends on empty hands. Fixtures operated *with* an item gate on `hand.Holding(id)`, **not**
   `hand.Has(id)`. Equips are recorded, so a ghost swaps when the player did.
@@ -229,10 +256,13 @@ player less to do.** Do not damage that when adding rooms.
   every tool-shaped action on the one in the hand, so §4's tool rule is untouched. Tab is unchanged;
   the player's own stow is still invisible, because the player has `CarriedItemsDisplay` and a ghost
   has no readout but the objects themselves.
-- **Ghost-to-ghost taking stays CLOSED.** `IsFreeForGhost` is `!IsCarried && visible`, so an item in
-  any ghost's hands is off limits to every other ghost; only the living player can take from one.
-  Opening it would let past selves rob each other's errands, which is the class of failure the
-  completed-errand rule exists to prevent.
+- **Ghost-to-ghost taking is OPEN again, reversed 2026-08-13 by explicit request.** `IsFreeForGhost`
+  is still `!IsCarried && visible` and still shuts out `FindFreeForGhost`, so this runs through a
+  second lookup, `ItemRegistry.FindHeldByGhost`, which `GhostReplayer.TryTake` falls back to when the
+  free one comes back empty. It reproduces a take the living player genuinely made off a past self -
+  `PlayerHand.Take` always records one, off a ghost or off the floor alike - at that take's own
+  recorded timestamp. Still scoped to items with a socket, now purely as its own eligibility filter:
+  a pin has no destination a hand-over could matter for.
 - **A ghost shows what it is holding** — otherwise "who has the key" and "why did the door stop
   opening" are unanswerable.
 - **A TOOL-SHAPED ACTION REQUIRES THE TOOL, for ghosts as for the player.** An interaction performed

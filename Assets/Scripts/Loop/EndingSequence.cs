@@ -31,6 +31,10 @@ namespace IterationRoom
         public CanvasGroup cardGroup;
         public Text headline;
         public Text detail;
+        // Beneath `detail`. Added 2026-08-13, by request: the run's own clock total, folded across
+        // every iteration rather than read off any one of them - LoopManager.TotalElapsedTime is the
+        // number, this only formats and shows it.
+        public Text timeDetail;
 
         public float scrimFade = 2.4f;
         // A beat of pure black between the room going and the card arriving. Without it the two
@@ -47,7 +51,7 @@ namespace IterationRoom
             if (cardGroup != null) cardGroup.alpha = 0f;
         }
 
-        public IEnumerator Play(int iterationNumber)
+        public IEnumerator Play(int iterationNumber, float totalSeconds)
         {
             // Spaced out in the string, as everything in this typeface is - uGUI's Text has no
             // tracking control at all, and in a monospace face a space is exactly one cell.
@@ -58,6 +62,11 @@ namespace IterationRoom
                     // otherwise read "ESCAPED ON ITERATION 1" in the singular-plural sense wrong.
                     ? "ESCAPED ON THE FIRST ITERATION"
                     : $"ESCAPED ON ITERATION {iterationNumber}";
+            // Not spaced out either, matching `detail` - the facility's record of the run, not its
+            // verdict. M:SS rather than clock-style MM:SS: this game has never run long enough for
+            // an hour digit, and a leading zero on the minute would claim a precision ("this was
+            // measured to the tenth of a minute") the number does not have anything to back up.
+            if (timeDetail != null) timeDetail.text = $"TOTAL TIME {FormatTime(totalSeconds)}";
 
             yield return Fade(scrimGroup, 1f, scrimFade);
             yield return Wait(blackHold);
@@ -68,6 +77,17 @@ namespace IterationRoom
             // player has finished, and a prompt would ask them to do one more thing in a game that
             // has just stopped asking. The menu unlocks the cursor itself in Start.
             SceneManager.LoadScene(menuScene);
+        }
+
+        // Floor, not round - a run that stopped the clock at 14:59.8 read as 15:00 would be claiming
+        // a minute it did not spend. Negative-proofed only because the source is a float that has
+        // already been through several frames of addition; it should never actually go below zero.
+        private static string FormatTime(float seconds)
+        {
+            int total = Mathf.Max(0, Mathf.FloorToInt(seconds));
+            int minutes = total / 60;
+            int secs = total % 60;
+            return $"{minutes}:{secs:00}";
         }
 
         private static string Space(string text)

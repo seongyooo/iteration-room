@@ -114,13 +114,37 @@ namespace IterationRoom
                     if (pool[i] != null) pool[i].ReturnToOrigin();
         }
 
-        // One this ghost may actually take: the first in the supply that nothing else has.
+        // THE PHYSICAL OBJECT A TAKE ACTUALLY MEANT, by the name CarryEvent.instanceName carries
+        // (added 2026-08-13). Every id used to be treated as interchangeable within its pool - "an
+        // id can be a supply, entitled to A pin, not THE pin" - which is exactly right when the pool
+        // has one member (a key, a chess piece) and wrong the moment it has several: a take
+        // recorded as "off ghost 1's pin" was replaying as "whichever pin happens to be free",
+        // which could leave ghost 1 still holding its own pin while a second ghost picked up a
+        // DIFFERENT one - two pins out where the original iteration only ever had one taken. Not a
+        // duplication (three physical pins exist either way) but not a reproduction of what actually
+        // happened either.
         //
-        // Named for what it decides rather than left as a general Find, because with a pool the
-        // question is no longer "which object is this" - it is "is there one going spare", and that
-        // is the only question a replayed take has ever wanted. A ghost recorded taking "Tool" is
-        // entitled to A pin, not to the pin it happened to hold sixty seconds ago; the recording
-        // carries the id precisely so it does not depend on which physical object was involved.
+        // Returns whichever pool member has this name, free or ghost-held alike - unlike
+        // FindFreeForGhost, availability is not this method's question. The caller decides what to
+        // do with a held one (steal it) versus a free one (just take it).
+        public static CarryableItem FindInstance(string itemId, string instanceName)
+        {
+            if (string.IsNullOrEmpty(itemId) || string.IsNullOrEmpty(instanceName)) return null;
+            if (!items.TryGetValue(itemId, out List<CarryableItem> pool)) return null;
+
+            for (int i = 0; i < pool.Count; i++)
+            {
+                CarryableItem item = pool[i];
+                if (item != null && item.name == instanceName) return item;
+            }
+
+            return null;
+        }
+
+        // One this ghost may actually take: the first in the supply that nothing else has. The
+        // FALLBACK when a Take's own recorded instance (see FindInstance) cannot be honoured - the
+        // named pin is in someone else's hands, say - because a ghost recorded taking "Tool" is
+        // still entitled to A pin even when it cannot have the one it originally got.
         //
         // Returning null is a real answer, not a failure: the supply is finite, so a fifth ghost
         // reaching for a third pin gets nothing and its errand simply does not happen. That is the
@@ -137,6 +161,32 @@ namespace IterationRoom
                 // list entry, so each one has to be tested rather than trusted.
                 if (item == null) continue;
                 if (item.ghostCarryable && item.IsFreeForGhost) return item;
+            }
+
+            return null;
+        }
+
+        // One a GHOST is currently holding - the other half of a take a ghost's own recording is
+        // entitled to replay. GhostReplayer.TryTake asks this only when FindFreeForGhost has already
+        // come back empty: a past self that genuinely took this item off another past self must be
+        // able to reproduce doing so, or a hand-over that genuinely happened between two iterations
+        // can never be replayed by either of them. NOT gated on the completed-errand rule - see the
+        // call site for why that scoping was deliberately dropped for this path. See
+        // docs/ghost-possession-design.md.
+        //
+        // Never returns something the PLAYER holds - IsCarried is true for both, but only
+        // HeldByGhost distinguishes them, and a ghost must never reach into the living player's
+        // pocket.
+        public static CarryableItem FindHeldByGhost(string itemId)
+        {
+            if (string.IsNullOrEmpty(itemId)) return null;
+            if (!items.TryGetValue(itemId, out List<CarryableItem> pool)) return null;
+
+            for (int i = 0; i < pool.Count; i++)
+            {
+                CarryableItem item = pool[i];
+                if (item == null) continue;
+                if (item.ghostCarryable && item.HeldByGhost != null) return item;
             }
 
             return null;

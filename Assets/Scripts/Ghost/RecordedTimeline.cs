@@ -27,25 +27,6 @@ namespace IterationRoom
         }
 
         public int FrameCount => frames != null ? frames.Count : 0;
-
-        // THE COMPLETED-ERRAND RULE. A ghost only repeats a pickup whose recording also put the item
-        // somewhere; errands this run started and abandoned are not replayed at all.
-        //
-        // Without it one common case fails silently and unexplainably. Say iteration 3 fetched the
-        // key at t=20 and unlocked the door at t=40, and iteration 5 fetched it at t=18 and got
-        // distracted. There is ONE key, so on replay the second ghost wins it by two seconds, the
-        // first ghost's whole chain dies, and a door that has been opening for five iterations stops
-        // - with nothing on screen to say why. Every iteration spent fetching the key mints another
-        // competitor for it, so this is not a rare collision.
-        //
-        // Decidable from the timeline alone, which is what keeps it deterministic.
-        public bool Delivers(string itemId)
-        {
-            if (carries == null) return false;
-            foreach (CarryEvent e in carries)
-                if (e.kind == CarryKind.Surrender && e.itemId == itemId) return true;
-            return false;
-        }
     }
 
     // Equip is the Tab press: which of the carried items is actually in the hand. An Equip with an
@@ -65,11 +46,21 @@ namespace IterationRoom
         public string itemId;
         public CarryKind kind;
 
-        public CarryEvent(float time, string itemId, CarryKind kind)
+        // WHICH physical object, for a Take - empty for Equip/Surrender, which never need it: a
+        // ghost holds at most one instance per id, so itemId alone already picks the right one out
+        // of `held`. A Take is different the moment an id is a SUPPLY (the three pins): itemId alone
+        // only ever says "give me a free one", which loses which one a take off a GHOST actually
+        // meant. `instanceName` is the object's own GameObject name (unique within a supply, fixed
+        // at build time, e.g. "BalloonTool_1") - the same identity `docs/gotchas.md`-style balloon
+        // ids and chess piece ids already lean on, just borrowed rather than a new number scheme.
+        public string instanceName;
+
+        public CarryEvent(float time, string itemId, CarryKind kind, string instanceName = null)
         {
             this.time = time;
             this.itemId = itemId;
             this.kind = kind;
+            this.instanceName = instanceName;
         }
     }
 

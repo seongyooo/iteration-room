@@ -26,6 +26,10 @@ namespace IterationRoom
     //     the room the moment the second pad went down.
     public class EscapeTrigger : MonoBehaviour
     {
+        // BalloonField's pattern, for the same reason: a ghost has no collider to trip this with,
+        // so it has to be handed the position itself - see TryArm and GhostReplayer.Tick.
+        public static EscapeTrigger Instance { get; private set; }
+
         public Door door;
 
         // Half-extents about this object's position, in world axes. Y is deliberately not tested:
@@ -38,10 +42,30 @@ namespace IterationRoom
 
         public void Rearm() => PlayerArrived = false;
 
+        private void Awake() => Instance = this;
+
         // Polled, like every other volume in this project - see FloorButton for why trigger
         // callbacks are not trustworthy across the loop's teleport. This one would survive them,
         // but two conventions for the same job is worse than one.
         private void FixedUpdate()
+        {
+            Collider playerCollider = PlayerLookup.Collider;
+            if (playerCollider == null) return;
+            TryArm(playerCollider.transform.position);
+        }
+
+        // Shared by the living player's own poll above and a replaying ghost's, in
+        // GhostReplayer.Tick. WITHOUT THIS SECOND CALLER, Room4's console could only ever arm on
+        // the CURRENT iteration's own living player crossing this threshold - so a past self that
+        // genuinely delivered an escape object here, in its own original run, could never
+        // successfully replay that delivery unless the living player independently reached Room4
+        // again in the SAME later iteration. Every other socket a ghost delivers into (a key's
+        // lock, a chess square, a cube's recess) re-evaluates a condition ghosts themselves can
+        // satisfy; this one used to re-evaluate a condition only the player could, which is exactly
+        // the "weaker fact that correlates with it" CLAUDE.md's replay invariant warns against - the
+        // fact that actually enabled the ORIGINAL delivery was "something crossed this doorway with
+        // the door open", not "the living player, specifically, did".
+        public void TryArm(Vector3 position)
         {
             if (PlayerArrived) return;
             if (door == null || !door.IsOpen) return;
@@ -50,10 +74,7 @@ namespace IterationRoom
             // already back at the bed. Nowhere near this volume, but the guard costs nothing.
             if (LoopManager.Instance != null && !LoopManager.Instance.IterationRunning) return;
 
-            Collider playerCollider = PlayerLookup.Collider;
-            if (playerCollider == null) return;
-
-            Vector3 offset = playerCollider.transform.position - transform.position;
+            Vector3 offset = position - transform.position;
             if (Mathf.Abs(offset.x) > halfWidth) return;
             if (Mathf.Abs(offset.z) > halfDepth) return;
 

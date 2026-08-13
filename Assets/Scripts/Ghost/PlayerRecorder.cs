@@ -42,12 +42,15 @@ namespace IterationRoom
             pops.Add(new PopEvent(LoopManager.Instance.ElapsedTime, balloonId));
         }
 
-        // Called by PlayerHand on every take and surrender of an item flagged ghostCarryable.
+        // Called by PlayerHand on every take, surrender and equip of an item flagged ghostCarryable.
         // Stamped off the loop clock for the same reason pops are.
-        public void RecordCarry(string itemId, CarryKind kind)
+        //
+        // `instanceName` is only ever meaningful for a Take - see CarryEvent - so callers recording
+        // an Equip or a Surrender simply omit it.
+        public void RecordCarry(string itemId, CarryKind kind, string instanceName = null)
         {
             if (!recording || LoopManager.Instance == null || string.IsNullOrEmpty(itemId)) return;
-            carries.Add(new CarryEvent(LoopManager.Instance.ElapsedTime, itemId, kind));
+            carries.Add(new CarryEvent(LoopManager.Instance.ElapsedTime, itemId, kind, instanceName));
         }
 
         private void Update()

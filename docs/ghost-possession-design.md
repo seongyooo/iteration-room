@@ -73,27 +73,29 @@ A separate list on `RecordedTimeline`, not more bits in `RecordedFrame.signals`.
 
 A ghost never simply replays a carry. Both ends are conditional:
 
-- **Take** succeeds only if the item is actually available — not player-held, not already in a socket, not held by another ghost.
+- **Take** succeeds if the item is actually available — not player-held, not already in a socket — or, failing that, if a ghost is holding it (§5c: reopened 2026-08-13, and not player-held even then).
 - **Surrender** succeeds only if *this ghost is holding the item*.
 
 That is `record the attempt, re-evaluate the condition` applied honestly. If the player steals the key at t=25, the ghost's recorded t=40 insertion finds nothing in its hands and the door stays shut.
 
-### The completed-errand rule — and what it applies to
+### ~~The completed-errand rule~~ — existed, and was removed 2026-08-13
 
-Left at that, one failure would be common and completely opaque to the player:
+This section is kept as the record of a rule that shipped, was load-bearing for a long time, and was then deliberately taken back out — not as a bug fix, as a design reversal, on explicit request. Read it as history.
+
+Left unconditional, one failure was common and completely opaque to the player:
 
 - Ghost **A** (from iteration 3): takes the key at t=20, puts it in the lock at t=40. The door opens.
 - Ghost **B** (from iteration 5): takes the key at t=18, gets distracted, never delivers.
 
-Replay both and **B** wins the key by two seconds, **A**'s whole chain dies, and the door that has been opening for five iterations stops — with nothing on screen to say why. Every iteration spent fetching the key mints another competitor.
+Replay both and **B** wins the key by two seconds, **A**'s whole chain dies, and the door that has been opening for five iterations stops — with nothing on screen to say why. Every iteration spent fetching the key minted another competitor.
 
-> **A ghost only replays a take if that same recording also surrenders the item.** Errands it finished, not errands it started.
+> A ghost only replayed a take if that same recording also surrendered the item. Errands it finished, not errands it started.
 
-Deterministic, decidable from the timeline alone, and explicable in one sentence. It also has a tidy consequence: **the key is only ever in the hands of a ghost that is on its way to the lock.**
+Deterministic, decidable from the timeline alone, and explicable in one sentence. It also had a tidy consequence: the key was only ever in the hands of a ghost that was on its way to the lock. It applied only to items with a socket — the pin has none and is never surrendered, so unscoped the rule forbade ghosts to carry it at all, which was the first version's bug.
 
-**It applies ONLY to items that have a socket, and getting that wrong was the first version's bug.** The rule's job is arbitration — several ghosts want the one key, and a fumbled fetch must not rob a successful one. Arbitration needs a notion of *finished*, which needs somewhere to finish. The pin has no socket and is never surrendered, so by that measure every pin errand is unfinished, and the rule silently forbade ghosts to carry it at all. A rule about scarcity was blocking an item nobody was fighting over. Scoped to socketed items, both work.
+**Why it came back out**: it also blocked the opposite of a fumble — a take that was never MEANT to deliver anything, just to reclaim an item for the taking ghost's own later use (see §5c). Scoping around that case turned out to want the same knob as removing the rule entirely, and the decision was to just remove it: a recorded take is now a fact this ghost always tries to reproduce, whether or not it went anywhere. **The cost the rule existed to prevent is real and is now live**: whichever recording's take fires earliest at replay wins a contested item, and can silently break another ghost's own later delivery of the same one. Accepted on the argument that it is not unrecoverable within a run — see §5c for the full reasoning, which is the same reasoning that applies here.
 
-This forecloses one emergent idea worth naming so it is not lost: a *courier*, where you carry the key halfway, press `N`, and a past self delivers it partway for you every iteration afterwards. It is a genuinely nice second meaning for `EndCycleControl`. It is also speculative, and it requires exactly the half-finished errands this rule discards. Not built.
+This retires one emergent idea worth naming so it is not lost: a *courier*, where you carry the key halfway, press `N`, and a past self delivers it partway for you every iteration afterwards. It is a genuinely nice second meaning for `EndCycleControl`. It wanted exactly the half-finished errands the old rule discarded, and did not get built while the rule stood; it is unblocked now, but still not built.
 
 ### Two more conditions, re-evaluated for the same reason
 
@@ -102,7 +104,7 @@ This forecloses one emergent idea worth naming so it is not lost: a *courier*, w
 
 ### Stranding
 
-The completed-errand rule does not make drop-on-retire unnecessary. A ghost can still be left holding the key: its recorded surrender can *fail* because another ghost already opened the door, and then it holds the key until its timeline ends. That is the case §2 covers.
+Whether or not the completed-errand rule exists, drop-on-retire is still necessary. A ghost can still be left holding the key: its recorded surrender can *fail* because another ghost already opened the door, and then it holds the key until its timeline ends. That is the case §2 covers.
 
 ---
 
@@ -126,9 +128,25 @@ The real content of "both at the same anchor" was a complaint about **the anchor
 
 **Equipped and visible are now two questions instead of one.** `HoldingEquipped` is unchanged and still gates every tool-shaped action on the item in the hand, so a ghost wearing the key on its belt and the pin in its fist cannot unlock a door — the rule this whole section is about survives intact. What changed is only that you can see the key, and take it.
 
-### 5c. Ghost-to-ghost taking is closed, deliberately
+### 5c. ~~Ghost-to-ghost taking is closed, deliberately~~ IT IS OPEN NOW, on a different rule (2026-08-13)
 
-`IsFreeForGhost` is `!IsCarried && visible`. An item in **any** ghost's hands fails the first test, so past selves cannot take from one another; only the living player can take from a ghost. Making items visible on the belt does not open this, and it should not: a recording that fetched the key and delivered it losing the key to one that fetched it two seconds earlier and fumbled is the exact failure mode §4's completed-errand rule was written to prevent, and it would arrive with nothing on screen to explain why a door that had been opening for five iterations stopped. The traffic stays one-way.
+`IsFreeForGhost` is still `!IsCarried && visible`, and an item in any ghost's hands still fails that test — `FindFreeForGhost` is unchanged. What changed is that `GhostReplayer.TryTake` no longer stops there: when the free lookup comes back empty, `ItemRegistry.FindHeldByGhost` finds one a ghost is holding, and the take proceeds against it.
+
+The original close was reasoned from an **unrecorded** steal: nothing stops a ghost reaching for a free item whenever it likes, so if "free" also meant "or in another ghost's hands", the earliest-recorded taker would win every contested item regardless of which one actually finished the job — a recording that fetched the key and delivered it losing the key to one that fetched it two seconds earlier and fumbled, with nothing on screen to explain why a door that had been opening for five iterations stopped. That reasoning is still correct about *unrecorded* takes; it just turned out not to describe this one.
+
+**The living player taking an item off a ghost is not unrecorded.** `PlayerHand.Take` writes an ordinary `CarryEvent(Take, ...)` regardless of whether the item came off the floor or out of a past self's hands — the recording does not distinguish the two, because the game does not: a take is a take. Reproducing that recorded event, at its own timestamp, against whichever ghost currently holds the item, is the same "record the attempt, re-evaluate the condition" rule every other replayed action follows.
+
+**This was requested reopened WITHOUT the completed-errand gate** — deliberately, not an oversight, and it is what led to §4 being removed outright rather than merely not applying here: a version scoped to "the same feature, but only for a take that also delivered" was rejected, because a recorded take is state whether or not the errand it started ever finished. The cost that reopens is the one §4 existed to prevent: an iteration that grabs an item off a ghost and then does nothing with it will, from then on, intercept that item at the same instant every iteration — including out of the hands of a *different* ghost that is trying to deliver it on schedule, silently breaking a delivery chain that used to work.
+
+**Accepted on a specific argument, not just knowingly**: a ghost whose delivery is broken this way does not lose anything else. §1.3/§1.5 already mean every recorded action re-evaluates its own condition independently — one failed `Surrender` does not touch that ghost's walk or any other room's errand it performs — so "the door doesn't open by itself any more" is the whole of the damage, and the living player can simply close it out themselves, the same way any room a ghost could not finish gets closed out. Nothing is unrecoverable within a run. If it surfaces as a worse problem than that in practice, `git log` has the completed-errand rule's old implementation to restore.
+
+### 5d. Ghost-to-ghost taking needed the WRONG OBJECT bug fixed too (2026-08-13)
+
+§5c reopened stealing, but play-testing it against the pins found a second, separate problem: **`itemId` alone is not enough identity for a supply.** A key or a chess piece has exactly one instance per id, so "took the Tool" and "took *this specific* pin" mean the same thing. A pin does not — three objects share `"Tool"` — and a Take recorded as "off ghost 1's pin" was replaying as "whichever pin happens to be free right now" via `FindFreeForGhost`, which finds a *different* pin if one is free and never touches ghost 1's at all. The visible result: ghost 1 keeps its own pin (nothing ever took it away, in THIS replay), a second ghost ALSO ends up holding a pin (a different physical one), and the drawer reads one short of what the player expected. Not a duplication — the three pin GameObjects never changed count — but not a reproduction of the recorded hand-over either, and indistinguishable from one at a glance since every pin looks identical.
+
+**Fix: `CarryEvent` for a `Take` now also carries `instanceName`** — the taken object's own GameObject name (`"BalloonTool_1"`, fixed at build time, already unique within a supply; borrowed rather than inventing a new id scheme). `PlayerHand.Take` fills it from `item.name`; `ItemRegistry.FindInstance(itemId, instanceName)` resolves it back. `GhostReplayer.TryTake` tries that exact object FIRST — free or ghost-held alike, just never the living player's — and only falls through to `FindFreeForGhost` / `FindHeldByGhost` (§5c) when the named object cannot be found or is unavailable. Equip and Surrender did not need the same fix: a ghost holds at most one instance per id at a time, so `itemId` alone already picks the right one out of `held` for those two.
+
+This does not reopen anything §5c did not already open. Stealing a *specific, named* pin off a *specific* ghost is a narrower claim than "steal whichever pin is free", not a wider one - the fallback path is exactly what shipped in §5c, unchanged, still scoped to sockets, still there for recordings (or objects) instanceName cannot resolve.
 
 ## 5a. The rewind has to be total
 

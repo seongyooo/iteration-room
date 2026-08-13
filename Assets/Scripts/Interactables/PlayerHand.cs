@@ -68,7 +68,7 @@ namespace IterationRoom
             // return the same object twice.
             if (!taken.Contains(item)) taken.Add(item);
             carriedItems.Add(item);
-            recorder?.RecordCarry(item.itemId, CarryKind.Take);
+            recorder?.RecordCarry(item.itemId, CarryKind.Take, item.name);
             Version++;
 
             // Straight into the hand. You just picked it up, so having to press Tab to see what you

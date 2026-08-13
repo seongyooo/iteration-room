@@ -124,13 +124,7 @@ namespace IterationRoom.EditorTools
         // Kept well clear of GrooveDark (0.04) so the seams still read against it.
         private static readonly Color WallPanelColor = new Color(0.13f, 0.135f, 0.15f);
 
-        // Where the two side rooms ended up, filled in by BuildShell and read by whatever goes in them.
-        // A field rather than a return value because BuildShell already returns nothing and builds
-        // everything, and threading two Vector3s out through it would say these are special when the
-        // only thing special about them is that they are not on the chain's axis.
-        private static Vector3 Room2WestCentre;
-        private static Vector3 Room2EastCentre;
-        // Room2West's ceiling fixtures, kept for the same reason and read by one thing: the chess
+        // Room2West's ceiling fixtures, filled in by BuildShell and read by one thing: the chess
         // board dims them and brings them back up as its reward. Held here rather than found by name
         // later, because a lookup by name is a second statement of what BuildCeilingLights called them.
         private static Light[] Room2WestLights;
@@ -347,25 +341,30 @@ namespace IterationRoom.EditorTools
                 new Vector3(2.8f, 0.03f, -1.75f));
             Door door = BuildPadDoor(room.transform, "Door", 0f, new[] { floorButton }, propMat);
 
-            // Room2: a roomful of balloons and a key door. The key door is not a GhostInteractable -
-            // carrying is not part of a recording, so a ghost cannot open it for you. Getting
-            // yourself to it holding the key is the last thing the room asks.
-            // THREE KEYED DOORS, one per key colour, and the colours are the only instruction the player
-            // gets. Yellow is the original way out on the north wall; red and blue are the side doors.
-            // Each door's lock and its key are built from the same KeySpec entry, so a plate cannot end
-            // up wanting a key that does not match it.
+            // Room2: a roomful of balloons and three keys. None of the three doors they open is a
+            // GhostInteractable - carrying is not part of a recording, so a ghost cannot open one for
+            // you. Getting yourself to each one holding its key is what the room asks.
             //
-            // Order matters only in that Room2Keys[0] is yellow, which is the id and the door that were
-            // already play-tested - see the table for why that one keeps the plain id "Key".
-            (Door door2, KeyLock keyLock) = BuildKeyDoor(room.transform, RoomPitch, propMat, Room2Keys[0]);
-            (Door door2W, KeyLock lockW) = BuildSideDoor(room.transform, "Door2West", RoomPitch, propMat,
-                                                         west: true, Room2Keys[1]);
-            (Door door2E, KeyLock lockE) = BuildSideDoor(room.transform, "Door2East", RoomPitch, propMat,
-                                                         west: false, Room2Keys[2]);
+            // THREE KEYED DOORS, one per key colour, and the colours are the only instruction the
+            // player gets - but they are no longer three exits off Room2's own walls. The whole run is
+            // ONE CORRIDOR now: Room2 -> Room2West -> Room2East -> Room3 -> Room4, and a coloured door
+            // sits at each of the first three joins, in the order the keys have to be spent. Red and
+            // blue used to be side doors off Room2 leading straight to these same two rooms; they keep
+            // exactly that pairing (red still opens onto the chess room, blue still onto the cube room)
+            // and only their POSITION moved, from a wall in Room2 to the threshold of the room itself.
+            // Yellow was Room2's original way out and is still the last of the three, now handing off
+            // to Room3 instead of straight to it. Each door's lock and its key are built from the same
+            // KeySpec entry, so a plate cannot end up wanting a key that does not match it.
+            (Door doorRed, KeyLock lockRed) =
+                BuildKeyDoor(room.transform, "DoorRed", RoomPitch, propMat, Room2Keys[1]);
+            (Door doorBlue, KeyLock lockBlue) =
+                BuildKeyDoor(room.transform, "DoorBlue", 2f * RoomPitch, propMat, Room2Keys[2]);
+            (Door doorYellow, KeyLock lockYellow) =
+                BuildKeyDoor(room.transform, "DoorYellow", 3f * RoomPitch, propMat, Room2Keys[0]);
             (BalloonField balloonField, CarryableItem[] keys) = BuildBalloons(room.transform);
 
-            // The red door's room: a chess set in the middle of the floor, with a dozen of its pieces
-            // scattered around it and its lights turned down until they are all back.
+            // Room2West, behind the red door: a chess set in the middle of the floor, with a dozen of
+            // its pieces scattered around it and its lights turned down until they are all back.
             //
             // ON THE FLOOR at 1.8m rather than on a table, because at that size the pieces are 0.4m
             // tall - things a person could pick up and put down, which is the shape any puzzle here is
@@ -375,20 +374,24 @@ namespace IterationRoom.EditorTools
             // it is 17.77m at scale 1 and 1.8 / 17.77 is this. The -90 X is the same Z-up correction the
             // bed and the nightstand need - PlaceModel REPLACES the prefab's own rotation, so the 270 X
             // the import gives it does not survive and has to be asked for again.
-            // The doorway is in the wall this room shares with Room2, which for the WEST room is its
-            // +X side - a side room's near face is RoomDepth/2 out from its centre, the chain's axes
-            // swapped. Handed in as a point rather than re-derived inside, because the only thing the
-            // board needs to know about a door is that pieces must not be scattered in front of it.
-            Vector3 room2WestDoorway = new Vector3(Room2WestCentre.x + RoomDepth / 2f - 0.6f,
-                                                   0f, Room2WestCentre.z);
+            //
+            // Room2West is a room on the chain now, the same shape and orientation as Room1-4, entered
+            // from its SOUTH wall - not the rotated side room this used to be, entered from the east.
+            // The doorway hint only guards the entrance (south); the room also has a north doorway
+            // through to Room2East, and pieces are not scattered densely enough near it to need a
+            // second guard - the same one-doorway simplification the room lived with before, when a
+            // second doorway did not yet exist.
+            Vector3 room2WestCentre = new Vector3(0f, 0f, 2f * RoomPitch);
+            Vector3 room2EastCentre = new Vector3(0f, 0f, 3f * RoomPitch);
+            Vector3 room2WestDoorway = new Vector3(0f, 0f, room2WestCentre.z - RoomDepth / 2f + 0.6f);
             (CarryableItem[] chessPieces, ChessBoard chessBoard) =
-                BuildChessSet(room.transform, Room2WestCentre, room2WestDoorway, propMat,
+                BuildChessSet(room.transform, room2WestCentre, room2WestDoorway, propMat,
                               Room2WestLights, Room2WestPanels);
 
-            // The blue door's room: six symbol cubes on the floor and six recesses in the walls that
-            // want them, paying out the blue sphere.
+            // Room2East, behind the blue door: six symbol cubes on the floor and six recesses in the
+            // walls that want them, paying out the blue sphere.
             (CarryableItem[] symbolCubes, CubeRoom cubeRoom) =
-                BuildCubeRoom(room.transform, Room2EastCentre, propMat);
+                BuildCubeRoom(room.transform, room2EastCentre, propMat);
 
             // Room3: TWO pads and one door that needs both at once. Deliberately the plainest room
             // of the three - no items, nothing to search, nothing to carry. Room2 already costs the
@@ -408,7 +411,7 @@ namespace IterationRoom.EditorTools
             // and the clear walk come free - each pad sits 3.2m off the line, eight times its own
             // reach. Standing on one is the only way to learn what the other is for, so the room has
             // to show them together and never trigger by accident.
-            const float roomThreeZ = 2f * RoomPitch;
+            const float roomThreeZ = 4f * RoomPitch;
             // 3.2 from the centre line leaves 1.175m to the wall face - against the wall as read
             // from the middle of the room, with room to stand on the pad rather than in the wall.
             const float padWallX = 3.2f;
@@ -517,9 +520,9 @@ namespace IterationRoom.EditorTools
             // prompt is what says "this is the thing you can act on from here".
             var pinTargets = new System.Collections.Generic.List<MonoBehaviour> { drawer };
             pinTargets.AddRange(pins);
-            pinTargets.Add(keyLock);
-            pinTargets.Add(lockW);
-            pinTargets.Add(lockE);
+            pinTargets.Add(lockRed);
+            pinTargets.Add(lockBlue);
+            pinTargets.Add(lockYellow);
             pinTargets.AddRange(keys);
             // And every chess piece, so E over one shows the prompt like E over anything else. Thirty-two
             // more entries in a list NearestWantingHint walks every frame, which is nothing next to what
@@ -563,7 +566,7 @@ namespace IterationRoom.EditorTools
 
             // Room4 and the plate that ends the run. Its narration is wired after BuildAudio below;
             // control is LoopManager's to take, at the scrim, so nothing here needs the player.
-            FinalRoomSequence finalRoom = BuildFinalRoom(room.transform, 3f * RoomPitch, propMat,
+            FinalRoomSequence finalRoom = BuildFinalRoom(room.transform, 5f * RoomPitch, propMat,
                                                         door3, wallDisplay, shaker, hand,
                                                         CubeKeyItemId, SphereKeyItemId, TriangleKeyItemId);
 
@@ -612,7 +615,7 @@ namespace IterationRoom.EditorTools
             wallMessage.retireOnEndCycle = canvas.GetComponentInChildren<EndCycleControl>(true);
 
             (NarrationDirector narration, RoomAmbience ambience) =
-                BuildAudio(player, new[] { door, door2, door3 },
+                BuildAudio(player, new[] { door, doorRed, doorBlue, doorYellow, door3 },
                            new[] { floorButton, roomThreePads[0], roomThreePads[1] },
                            wakeUp);
 
@@ -628,10 +631,9 @@ namespace IterationRoom.EditorTools
             loop.playerRecorder = recorder;
             loop.playerController = fpc;
             loop.ghostInteractables = ghostInteractables;
-            // Room2's two side doors are in here now that they have locks. This array is what the loop
-            // SHUTS at the top of an iteration, and a door that can be opened has to be one of them -
-            // leaving them out was correct only while nothing could open them.
-            loop.doors = new[] { door, door2, door2W, door2E, door3 };
+            // Every door on the one corridor. This array is what the loop SHUTS at the top of an
+            // iteration, and a door that can be opened has to be one of them.
+            loop.doors = new[] { door, doorRed, doorBlue, doorYellow, door3 };
             loop.drawers = new[] { drawer };
             loop.playerHand = hand;
             loop.balloonField = balloonField;
@@ -2421,71 +2423,38 @@ namespace IterationRoom.EditorTools
             // door instead of the door having to fit a whole number of cells.
             Rect doorway = new Rect(-DoorWidth / 2f, 0f, DoorWidth, DoorHeight);
 
-            // Four identical rooms in a line, each sharing a divider with the next: a room's north
-            // wall and its neighbour's south wall face each other across the door pocket, each with
-            // the same doorway cut out of its panelling, its backing and its collision, so the
-            // opening is a real hole. Room1 is the only one with no doorway to the south, and
-            // ROOM4 THE ONLY ONE WITH NONE TO THE NORTH - it is the end of the building, and there
-            // is deliberately nothing past it to look at or walk to.
-            BuildRoomShell(parent, "Room1", 0f, floorMat, grooveMat, panelMat, Rect.zero, doorway);
-            // ROOM2 IS THE ONLY ROOM WITH FOUR DOORWAYS. Its side ones are the expansion recorded in
-            // TODO.md: the balloon room is where extra keys and extra locks go, because popping there
-            // is currently spot-one-and-go and more destinations is what turns it into work iterations
-            // divide. Centred on each side wall, so they line up with the door out and with each
-            // other - a player who has found one knows where the other is.
+            // Six rooms in a line, each sharing a divider with the next: a room's north wall and its
+            // neighbour's south wall face each other across the door pocket, each with the same
+            // doorway cut out of its panelling, its backing and its collision, so the opening is a
+            // real hole. Room1 is the only one with no doorway to the south, and ROOM4 THE ONLY ONE
+            // WITH NONE TO THE NORTH - it is the end of the building, and there is deliberately
+            // nothing past it to look at or walk to.
             //
-            // NOTHING IS THROUGH THEM YET. Both are plain slabs with no pad and no lock, and
-            // FloorButton.AllActive returns false for an empty array, so they stay shut on their own
-            // rather than by anything holding them - see the pocket caps below for the other half of
-            // that.
-            BuildRoomShell(parent, "Room2", RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway,
-                           westCutout: doorway, eastCutout: doorway);
-            BuildRoomShell(parent, "Room3", 2f * RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway);
+            // Room2West and Room2East used to be a pair of side rooms turned ninety degrees off
+            // Room2's east and west walls. They are ON THE CHAIN now, the same shape and orientation
+            // as every other room here, between Room2 and Room3 - see Build() for why: a hub with
+            // three doors home to the same room read as a walk back and forth between them rather
+            // than as progress, and the fix was to let the coloured doors BE the corridor instead of
+            // branching off it.
+            BuildRoomShell(parent, "Room1", 0f, floorMat, grooveMat, panelMat, Rect.zero, doorway);
+            BuildRoomShell(parent, "Room2", RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway);
+            BuildRoomShell(parent, "Room2West", 2f * RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway);
+            BuildRoomShell(parent, "Room2East", 3f * RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway);
+            BuildRoomShell(parent, "Room3", 4f * RoomPitch, floorMat, grooveMat, panelMat, doorway, doorway);
             // Identical to the others in every way, and that is the point rather than a saving:
             // the room the player finally gets out into is the same white cell they have been in
             // for the whole run.
-            BuildRoomShell(parent, "Room4", 3f * RoomPitch, floorMat, grooveMat, panelMat, doorway, Rect.zero);
+            BuildRoomShell(parent, "Room4", 5f * RoomPitch, floorMat, grooveMat, panelMat, doorway, Rect.zero);
 
+            // One pocket per join, all UNCAPPED: every one of them has a room through it, and a cap
+            // would be a wall across the only way to the next. Room4 needs no pocket of its own - its
+            // north wall has no doorway cut in it, so there is no cavity there to close, the same
+            // reason the calibration room has none.
             BuildDoorPocketFill(parent, "DoorPocketFill_1", 0f, grooveMat, capFarSide: false);
             BuildDoorPocketFill(parent, "DoorPocketFill_2", RoomPitch, grooveMat, capFarSide: false);
-            // Uncapped now that Room4 is behind it. It was capped while Room3's north door opened
-            // onto nothing, so that the doorway showed a sealed reveal with a collider rather than
-            // a hole out of the world; there is a room through it now, and a cap would be a wall
-            // across the only way to the ending.
             BuildDoorPocketFill(parent, "DoorPocketFill_3", 2f * RoomPitch, grooveMat, capFarSide: false);
-            // Room4 needs no pocket of its own: its north wall has no doorway cut in it, so there
-            // is no cavity there to close - the same reason the calibration room has none.
-
-            // Room2's two side pockets. UNCAPPED now: each has a room through it, and a cap would be a
-            // wall across the only way into it - the same call Room3's north pocket got the day Room4
-            // was built. They were capped while there was nothing there, which is what made an opened
-            // side door show a sealed reveal instead of a hole out of the world.
-            //
-            // crossHalfWidth runs along the wall, so it is the DEPTH of the room here, not its width -
-            // reaching the outer faces of the north and south walls the way the end pockets reach the
-            // side ones.
-            const float sidePocketCross = RoomDepth / 2f + WallDepth;
-            BuildDoorPocketFill(parent, "DoorPocketFill_2W", RoomPitch, grooveMat, capFarSide: false,
-                                RoomWidth / 2f, sidePocketCross, -90f);
-            BuildDoorPocketFill(parent, "DoorPocketFill_2E", RoomPitch, grooveMat, capFarSide: false,
-                                RoomWidth / 2f, sidePocketCross, 90f);
-
-            // Floor and ceiling under those pockets. The room slabs are sized RoomWidth + 2*WallDepth
-            // across, which stops at the outer face of the side walls - so the side pockets are the one
-            // cavity in the building with nothing under them. It cannot be reached today, with the
-            // doors shut and the pockets capped, and that is exactly why it goes in now: the day a key
-            // opens one of these is the day someone walks into a hole, and the cause would be two
-            // commits behind.
-            float sidePocketX = RoomWidth / 2f + WallDepth + DoorPocketDepth / 2f;
-            for (int s = -1; s <= 1; s += 2)
-            {
-                Prim(PrimitiveType.Cube, s < 0 ? "SidePocketFloor_W" : "SidePocketFloor_E", parent,
-                    new Vector3(s * sidePocketX, -WallThickness / 2f, RoomPitch),
-                    new Vector3(DoorPocketDepth, WallThickness, sidePocketCross * 2f), floorMat);
-                Prim(PrimitiveType.Cube, s < 0 ? "SidePocketCeiling_W" : "SidePocketCeiling_E", parent,
-                    new Vector3(s * sidePocketX, RoomHeight + WallThickness / 2f, RoomPitch),
-                    new Vector3(DoorPocketDepth, WallThickness, sidePocketCross * 2f), floorMat);
-            }
+            BuildDoorPocketFill(parent, "DoorPocketFill_4", 3f * RoomPitch, grooveMat, capFarSide: false);
+            BuildDoorPocketFill(parent, "DoorPocketFill_5", 4f * RoomPitch, grooveMat, capFarSide: false);
 
             // A sealed copy of the same shell, well clear of the chain, used for nothing but the
             // mouse-sensitivity step before iteration 1. Rect.zero for both cutouts, so it has no
@@ -2504,25 +2473,18 @@ namespace IterationRoom.EditorTools
 
             Material fixtureMat = MakeEmissiveMaterial("CeilingFixture", Color.white, 3.5f);
 
-            // The two rooms the coloured doors lead to, off Room2's sides. Built here with the rest of
-            // the shell rather than beside their doors, because they ARE shell - the doors and locks are
-            // fixtures in a wall, and this is the building those walls belong to.
-            //
-            // Red is west and blue is east, matching the locks in Build(). The centres come back because
-            // whatever goes in a room has to be placed relative to it.
-            Room2WestCentre = BuildSideRoom(parent, "Room2West", RoomPitch, west: true,
-                                            floorMat, grooveMat, panelMat, fixtureMat,
-                                            out Room2WestLights, out Room2WestPanels);
-            Room2EastCentre = BuildSideRoom(parent, "Room2East", RoomPitch, west: false,
-                                            floorMat, grooveMat, panelMat, fixtureMat, out _, out _);
-
             // Shadows only in Room1. Every additional light's shadow shares one atlas, and the
             // rooms past the first hold nothing that casts a shadow worth the map: Room2 is
             // balloons, Room3 is two floor pads.
             BuildCeilingLights(parent, "Room1", 0f, fixtureMat, castShadows: true);
             BuildCeilingLights(parent, "Room2", RoomPitch, fixtureMat, castShadows: false);
-            BuildCeilingLights(parent, "Room3", 2f * RoomPitch, fixtureMat, castShadows: false);
-            BuildCeilingLights(parent, "Room4", 3f * RoomPitch, fixtureMat, castShadows: false);
+            // Room2West's fixtures are kept: the chess board dims them and brings them back up as
+            // its reward, so something downstream needs the references rather than just the room.
+            (Room2WestLights, Room2WestPanels) =
+                BuildCeilingLights(parent, "Room2West", 2f * RoomPitch, fixtureMat, castShadows: false);
+            BuildCeilingLights(parent, "Room2East", 3f * RoomPitch, fixtureMat, castShadows: false);
+            BuildCeilingLights(parent, "Room3", 4f * RoomPitch, fixtureMat, castShadows: false);
+            BuildCeilingLights(parent, "Room4", 5f * RoomPitch, fixtureMat, castShadows: false);
             BuildCeilingLights(parent, CalibrationRoomName, CalibrationRoomZ, fixtureMat, castShadows: false);
 
             // Built after the lights, so the probes capture the rooms already lit. The calibration
@@ -2530,8 +2492,10 @@ namespace IterationRoom.EditorTools
             // they mirror the procedural sky and come out tinted blue.
             BuildReflectionProbe(parent, "Room1", 0f);
             BuildReflectionProbe(parent, "Room2", RoomPitch);
-            BuildReflectionProbe(parent, "Room3", 2f * RoomPitch);
-            BuildReflectionProbe(parent, "Room4", 3f * RoomPitch);
+            BuildReflectionProbe(parent, "Room2West", 2f * RoomPitch);
+            BuildReflectionProbe(parent, "Room2East", 3f * RoomPitch);
+            BuildReflectionProbe(parent, "Room3", 4f * RoomPitch);
+            BuildReflectionProbe(parent, "Room4", 5f * RoomPitch);
             BuildReflectionProbe(parent, CalibrationRoomName, CalibrationRoomZ);
         }
 
@@ -2602,68 +2566,12 @@ namespace IterationRoom.EditorTools
                 mat);
         }
 
-        // Room2's side rooms - the two the coloured doors lead to. TURNED NINETY DEGREES: their long
-        // dimension is RoomDepth running along X where every room in the chain has it running along Z,
-        // so from inside they are the same 8.75 x 10.5 cell as everywhere else, entered from the short
-        // end. Same shell, same panelling, same lights: what is through a door in this building is more
-        // of the building.
-        //
-        // Placed by the same arithmetic that spaces the chain. A room centre sits one wall build-up, one
-        // door pocket and one more wall build-up out from the neighbour's inner face - which for the
-        // chain is RoomPitch and here is the same sum with RoomWidth and RoomDepth swapped round.
-        //
-        // Returns the room's centre, because everything put INSIDE one needs it.
-        private static Vector3 BuildSideRoom(Transform parent, string roomName, float roomCenterZ, bool west,
-                                            Material floorMat, Material grooveMat, Material panelMat,
-                                            Material fixtureMat, out Light[] ceilingLights,
-                                            out Renderer[] ceilingPanels)
-        {
-            float side = west ? -1f : 1f;
-            Rect doorway = new Rect(-DoorWidth / 2f, 0f, DoorWidth, DoorHeight);
-
-            // The face of this room's wall that looks back at Room2, across the door pocket.
-            float nearFaceX = side * (RoomWidth / 2f + 2f * WallDepth + DoorPocketDepth);
-            float centerX = nearFaceX + side * (RoomDepth / 2f);
-            float farFaceX = nearFaceX + side * RoomDepth;
-            float halfZ = RoomWidth / 2f;
-
-            GameObject room = new GameObject(roomName);
-            room.transform.SetParent(parent, false);
-            Transform t = room.transform;
-
-            // Overrunning the interior by a wall depth on both axes, like the chain's slabs, so this
-            // room's floor meets the pocket patch under the doorway instead of stopping short of it.
-            Prim(PrimitiveType.Cube, "Floor", t, new Vector3(centerX, -WallThickness / 2f, roomCenterZ),
-                new Vector3(RoomDepth + 2f * WallDepth, WallThickness, RoomWidth + 2f * WallDepth), floorMat);
-            Prim(PrimitiveType.Cube, "Ceiling", t, new Vector3(centerX, RoomHeight + WallThickness / 2f, roomCenterZ),
-                new Vector3(RoomDepth + 2f * WallDepth, WallThickness, RoomWidth + 2f * WallDepth), floorMat);
-
-            // The doorway is cut in the wall facing Room2 and nowhere else - this is the end of the
-            // building in that direction, the same way Room4 is to the north.
-            //
-            // `inward` points INTO this room, which for the near wall is AWAY from Room2. Getting that
-            // backwards builds a room whose panels face the pocket.
-            BuildPanelWall(t, "Wall_Near", new Vector3(nearFaceX, 0f, roomCenterZ),
-                Vector3.forward, west ? Vector3.left : Vector3.right, RoomWidth, grooveMat, panelMat, doorway);
-            BuildPanelWall(t, "Wall_Far", new Vector3(farFaceX, 0f, roomCenterZ),
-                Vector3.forward, west ? Vector3.right : Vector3.left, RoomWidth, grooveMat, panelMat, Rect.zero);
-            // The long walls, running along X. Their length is the room's X extent, not RoomWidth.
-            BuildPanelWall(t, "Wall_South", new Vector3(centerX, 0f, roomCenterZ - halfZ),
-                Vector3.right, Vector3.forward, RoomDepth, grooveMat, panelMat, Rect.zero);
-            BuildPanelWall(t, "Wall_North", new Vector3(centerX, 0f, roomCenterZ + halfZ),
-                Vector3.right, Vector3.back, RoomDepth, grooveMat, panelMat, Rect.zero);
-
-            // castShadows false, like every room but Room1: the shadow atlas is sized for exactly the
-            // four fixtures that cast, and two more rooms of them would take every map down a tier.
-            (ceilingLights, ceilingPanels) = BuildCeilingLights(t, roomName, roomCenterZ, fixtureMat, castShadows: false, xCenter: centerX);
-            BuildReflectionProbe(t, roomName, roomCenterZ, centerX, longAxisIsX: true);
-
-            return new Vector3(centerX, 0f, roomCenterZ);
-        }
-
-        // westCutout/eastCutout default to none, and adding them was the whole of what made side doors
-        // possible: BuildPanelWall has always taken a cutout in wall-local coordinates and been
-        // indifferent to which axis the wall runs along - the side walls were simply handed Rect.zero.
+        // westCutout/eastCutout default to none and nothing in the chain uses them any more -
+        // Room2West and Room2East were the one thing that did, back when they were side rooms turned
+        // ninety degrees off Room2's walls. Left on `BuildPanelWall`, which has always taken a cutout
+        // in wall-local coordinates and been indifferent to which axis the wall runs along, on the
+        // reasoning that a wall with a doorway in an unusual side is cheap to keep able and expensive
+        // to re-derive the day something needs it again.
         private static void BuildRoomShell(Transform parent, string roomName, float zCenter, Material floorMat, Material grooveMat, Material panelMat, Rect southCutout, Rect northCutout, Rect westCutout = default, Rect eastCutout = default)
         {
             GameObject room = new GameObject(roomName);
@@ -3106,11 +3014,23 @@ namespace IterationRoom.EditorTools
             reward.boardEast = halfEast;
             reward.boardCollider = boardCollider;
             reward.plinth = plinth;
+            reward.key = redCube;
             // 1.7 each way opens a 3.4m gap in a 5.4m board - wide enough that the plinth comes up
             // through clear floor rather than between two ledges - and leaves the far half 1.6m short
             // of the wall, which is where the room stops being able to give any more.
             reward.openTravel = 1.7f;
             board.reward = reward;
+            // NO ResetNow() HERE, ON PURPOSE. AddComponent already ran Awake, before `plinth`/`key`
+            // above were assigned - the same order RewardPlinth's own rooms are already built in,
+            // and the reason "a scene whose one prop is invisible cannot be checked without pressing
+            // Play" is written on that class rather than solved for it. Calling ResetNow (or
+            // anything else that reads plinthUp/plinthDown) here would run it against the zeroed
+            // values Awake's skipped capture left behind and BAKE a wrong position into the saved
+            // scene - which is exactly what happened the first time this line existed: the plinth
+            // landed at world (0,0,0), Room1, and stayed there even once Play mode's own fresh Awake
+            // ran, because by then (0,0,0) was the authored position it captured FROM. Play mode's
+            // own Awake, running against the fully-serialized scene, is what correctly captures the
+            // closed/up state - same as it already does for Room2East and Room3.
 
             // EVERY PIECE ON A SQUARE OF ITS OWN, checked rather than assumed. Two pieces resolving to
             // one square is exactly what a mis-measured pitch looks like, and the symptom in play would
@@ -3340,9 +3260,10 @@ namespace IterationRoom.EditorTools
             const float doorClear = 1.6f;    // the way in stays the way in
             const float apart = 0.62f;       // one square: two pieces never share one E press
 
-            // A side room runs its DEPTH along X and its WIDTH along Z - the chain's axes swapped.
-            float halfX = RoomDepth / 2f - wallMargin;
-            float halfZ = RoomWidth / 2f - wallMargin;
+            // Room2West is a room on the chain now, same orientation as every other: WIDTH along X,
+            // DEPTH along Z.
+            float halfX = RoomWidth / 2f - wallMargin;
+            float halfZ = RoomDepth / 2f - wallMargin;
             float keepOut = boardHalfSpan + boardMargin;
 
             Vector3 fallback = roomCentre;
@@ -3641,18 +3562,21 @@ namespace IterationRoom.EditorTools
             rise.keySeat = seat;
             rise.riseHeight = 1.25f;
 
-            // A side room runs its DEPTH along X and its WIDTH along Z, the chain's axes swapped. The
-            // doorway is in the -X wall, facing back at Room2, so that wall gets no recesses.
-            float halfX = RoomDepth / 2f;
-            float halfZ = RoomWidth / 2f;
+            // Room2East is a room on the chain now, between Room2West and Room3 - it has a doorway on
+            // BOTH its south wall (in from Room2West) and its north wall (out to Room3), where the
+            // side room this used to be had only the one. That leaves just the west and east walls
+            // free, so the six recesses go three to a wall instead of two to a wall on three of them.
+            // The centre one of each three sits on the room's own mid-line, which a doorway can never
+            // reach - a doorway is always cut into a Z wall - so it needs no clearance of its own.
+            float halfX = RoomWidth / 2f;
             var mounts = new[]
             {
+                (pos: new Vector3(roomCentre.x - halfX, slotY, roomCentre.z - alongWall), yaw: 90f),
+                (pos: new Vector3(roomCentre.x - halfX, slotY, roomCentre.z), yaw: 90f),
+                (pos: new Vector3(roomCentre.x - halfX, slotY, roomCentre.z + alongWall), yaw: 90f),
                 (pos: new Vector3(roomCentre.x + halfX, slotY, roomCentre.z - alongWall), yaw: -90f),
+                (pos: new Vector3(roomCentre.x + halfX, slotY, roomCentre.z), yaw: -90f),
                 (pos: new Vector3(roomCentre.x + halfX, slotY, roomCentre.z + alongWall), yaw: -90f),
-                (pos: new Vector3(roomCentre.x - alongWall, slotY, roomCentre.z - halfZ), yaw: 0f),
-                (pos: new Vector3(roomCentre.x + alongWall, slotY, roomCentre.z - halfZ), yaw: 0f),
-                (pos: new Vector3(roomCentre.x - alongWall, slotY, roomCentre.z + halfZ), yaw: 180f),
-                (pos: new Vector3(roomCentre.x + alongWall, slotY, roomCentre.z + halfZ), yaw: 180f),
             };
 
             SymbolSpec[] symbols = CubeSymbols();
@@ -3662,7 +3586,11 @@ namespace IterationRoom.EditorTools
             // Deterministic, like the chess scatter and for the same reason: a scene is build output,
             // so two builds of one commit have to lay the room out identically.
             System.Random rng = new System.Random(CubeScatterSeed);
-            Vector3 doorwayInside = new Vector3(roomCentre.x - halfX + 0.6f, 0f, roomCentre.z);
+            // Only the entrance (south) is guarded - the same one-doorway simplification the chess
+            // room's scatter keeps, for the same reason: this room lived with a single doorway for
+            // long enough that a second guard was never needed, and the scatter is sparse enough
+            // (six cubes in an 8.75 x 10.5 floor) that it rarely reaches the north doorway anyway.
+            Vector3 doorwayInside = new Vector3(roomCentre.x, 0f, roomCentre.z - RoomDepth / 2f + 0.6f);
             var spots = new System.Collections.Generic.List<Vector3>();
 
             for (int i = 0; i < symbols.Length; i++)
@@ -3888,7 +3816,7 @@ namespace IterationRoom.EditorTools
             }
 
             BuildNightstandLamp(unit.transform, new Vector3(-0.13f, h, 0.03f));
-            BuildNightstandPot(unit.transform, new Vector3(0.16f, h, -0.05f));
+            BuildNightstandCube(unit.transform, new Vector3(0.16f, h, -0.05f));
 
             // The drawer's own root sits at the CENTRE OF ITS FRONT PANEL, not at the unit origin,
             // because Drawer.HintAnchor is drawerBody - anchored at the floor the E prompt would
@@ -4042,22 +3970,28 @@ namespace IterationRoom.EditorTools
                 new Vector3(0.20f, 0.072f, 0.20f), shade);
         }
 
-        // And the little planted pot beside it. Two primitives: the point is that the top of the
-        // nightstand is not bare, not that anyone can identify the species.
-        private static void BuildNightstandPot(Transform unit, Vector3 baseLocal)
+        // The little Rubik's cube beside the lamp, swapped in for a potted plant 2026-08-13 - the
+        // point is still just that the top of the nightstand is not bare, not anything about which
+        // prop it is.
+        //
+        // `baseLocal` is where the pot's own root used to sit - `unit`'s local space, Y already at
+        // the nightstand's top surface - so PlaceModel is handed unit.position + baseLocal as its
+        // WORLD target rather than being reparented under a second empty the way the pot's two
+        // primitives were. addBoxCollider false: a solid decorative object nobody can reach behind
+        // the lamp does not need one, and it is one fewer collider on a footprint this small.
+        private static void BuildNightstandCube(Transform unit, Vector3 baseLocal)
         {
-            Material pot = MakeColorMaterial("PlantPot", new Color(0.07f, 0.07f, 0.075f));
-            SetSmoothness(pot, 0.35f);
-            Material leaf = MakeColorMaterial("PlantLeaf", new Color(0.33f, 0.47f, 0.24f));
+            Vector3 target = unit.position + baseLocal;
 
-            GameObject go = new GameObject("Pot");
-            go.transform.SetParent(unit, false);
-            go.transform.localPosition = baseLocal;
-
-            Prim(PrimitiveType.Cylinder, "Pot", go.transform, new Vector3(0f, 0.026f, 0f),
-                new Vector3(0.078f, 0.026f, 0.078f), pot);
-            Prim(PrimitiveType.Sphere, "Foliage", go.transform, new Vector3(0f, 0.062f, 0f),
-                new Vector3(0.072f, 0.048f, 0.072f), leaf, removeCollider: true);
+            // Measured off the imported model: its renderer bounds are 0.13m across at the prefab's
+            // own default root scale of 1.15, so 0.113m per unit of PlaceModel's uniformScale here.
+            // 0.8 lands just under 0.09m - small enough to read as a desk toy next to the lamp
+            // rather than a prop competing with it. Rotation matches the prefab's own saved root
+            // rotation (270, 0, 0) - PlaceModel overwrites rotation to identity unless told
+            // otherwise, and identity here stood the cube on a corner.
+            PlaceModel($"{FurnitureDir}/rubiks_cube.glb", unit, "Cube",
+                new Vector3(target.x, 0f, target.z), target.y, 0.8f,
+                addBoxCollider: false, rotation: Quaternion.Euler(-90f, 0f, 0f));
         }
 
         // One key shape, used three times over: lying on the floor once its balloon bursts, seen
@@ -4533,27 +4467,16 @@ namespace IterationRoom.EditorTools
             return door;
         }
 
-        // One of Room2's side doors, with its own coloured lock. Identical to the north door in every
-        // way except the wall it is in and the key it wants - which is the point: three doors that
-        // behave the same and differ only by colour is what makes the colour readable as the rule.
-        //
-        // Still nothing through them. The pockets stay capped until there are rooms, so an opened side
-        // door shows a sealed reveal rather than a hole out of the world.
-        private static (Door, KeyLock) BuildSideDoor(Transform parent, string name, float roomCenterZ,
-                                                    Material mat, bool west, KeySpec spec)
+        // A keyed door on the north wall of the room centred at roomCenterZ - no pad and no condition
+        // to hold open, and deliberately not a button: the shape of the thing on the wall is the
+        // puzzle telling you what it wants. Called three times now, once per coloured key, at three
+        // different joins in the corridor - identical every time except the wall it ends up in and
+        // the key it wants, which is the point: three doors that behave the same and differ only by
+        // colour is what makes the colour readable as the rule.
+        private static (Door, KeyLock) BuildKeyDoor(Transform parent, string name, float roomCenterZ, Material mat, KeySpec spec)
         {
             (Door door, DoorIndicator indicator, float wallInnerZ) =
-                BuildDoorShell(parent, name, roomCenterZ, mat, RoomWidth / 2f, west ? -90f : 90f);
-            return (door, AttachKeyLock(door, indicator, wallInnerZ, mat, spec));
-        }
-
-        // Room2's way OUT, north, and the yellow one - no pad and no condition to hold open, and
-        // deliberately not a button: the shape of the thing on the wall is the puzzle telling you what
-        // it wants.
-        private static (Door, KeyLock) BuildKeyDoor(Transform parent, float roomCenterZ, Material mat, KeySpec spec)
-        {
-            (Door door, DoorIndicator indicator, float wallInnerZ) =
-                BuildDoorShell(parent, "Door2", roomCenterZ, mat);
+                BuildDoorShell(parent, name, roomCenterZ, mat);
             return (door, AttachKeyLock(door, indicator, wallInnerZ, mat, spec));
         }
 
@@ -5638,11 +5561,33 @@ namespace IterationRoom.EditorTools
             detailRect.sizeDelta = new Vector2(1000f, 40f);
             detailRect.anchoredPosition = new Vector2(0f, -40f);
 
+            // The run's total clock time, under the iteration count - the facility's record again,
+            // not its verdict, so it gets the same treatment `detail` does rather than the
+            // headline's. Smaller and dimmer still: this is the second line of a record, not a
+            // second thing being announced.
+            GameObject timeDetailGO = new GameObject("TimeDetail");
+            timeDetailGO.transform.SetParent(cardGO.transform, false);
+            Text timeDetail = timeDetailGO.AddComponent<Text>();
+            timeDetail.font = UIFont();
+            timeDetail.fontSize = 18;
+            timeDetail.alignment = TextAnchor.MiddleCenter;
+            timeDetail.color = new Color(1f, 0.35f, 0.35f, 0.6f);
+            timeDetail.text = "TOTAL TIME 0:00";
+            timeDetail.horizontalOverflow = HorizontalWrapMode.Overflow;
+            timeDetail.verticalOverflow = VerticalWrapMode.Overflow;
+            timeDetail.raycastTarget = false;
+            RectTransform timeDetailRect = timeDetail.GetComponent<RectTransform>();
+            timeDetailRect.anchorMin = new Vector2(0.5f, 0.5f);
+            timeDetailRect.anchorMax = new Vector2(0.5f, 0.5f);
+            timeDetailRect.sizeDelta = new Vector2(1000f, 34f);
+            timeDetailRect.anchoredPosition = new Vector2(0f, -72f);
+
             EndingSequence ending = root.AddComponent<EndingSequence>();
             ending.scrimGroup = scrimGroup;
             ending.cardGroup = cardGroup;
             ending.headline = headline;
             ending.detail = detail;
+            ending.timeDetail = timeDetail;
             ending.menuScene = "MainMenu";
 
             return ending;

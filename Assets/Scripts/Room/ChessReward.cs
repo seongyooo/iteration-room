@@ -50,6 +50,15 @@ namespace IterationRoom
         public Transform plinth;
         public float riseHeight = 1.25f;
 
+        // THE RED CUBE ITSELF. Added 2026-08-13: this class moved the PLINTH but never told the
+        // CUBE to hide, which every other escape object's reward (RewardPlinth.HideKey/ShowKey)
+        // does as a matter of course. Sunk 1.25m below the floor was doing the job by accident for
+        // the *rendered* cube - buried in the floor slab, nothing to see - but CarryableItem.visible
+        // was never set false, so `IsAvailable` (and the pickup trigger, which is taller than the
+        // sink depth) stayed true the whole time: a player standing over an unsolved board could
+        // press E through the floor and take the reward before finishing the puzzle it pays out.
+        public CarryableItem key;
+
         // The three beats overlap: the lights are already coming up as the board starts to move, and
         // the plinth starts while it is still opening. Played strictly in sequence this is six
         // seconds of a sixty-second iteration, and the player is standing still for all of it.
@@ -64,6 +73,9 @@ namespace IterationRoom
         private MaterialPropertyBlock block;
         private float elapsed;
         private bool running;
+        // Mirrors RewardPlinth.offered: set once the cube has been revealed, so ShowKey does not
+        // call RevealAt every frame the plinth sits fully up.
+        private bool offered;
         // The panels are all painted identically, driven by one scalar - so one guard for the whole
         // array is enough. -1 is never a valid `lit`, so the first Apply always paints.
         private float appliedLit = -1f;
@@ -142,6 +154,33 @@ namespace IterationRoom
             if (boardCollider != null) boardCollider.enabled = open <= 0f;
 
             if (plinth != null) plinth.localPosition = Vector3.Lerp(plinthDown, plinthUp, rise);
+
+            // OUT OF PLAY UNTIL THE PLINTH IS ALL THE WAY UP, and hidden rather than merely out of
+            // reach - the same rule RewardPlinth's ShowKey/HideKey apply to the other two escape
+            // objects. Sunk 1.25m the cube is out of camera view, but its pickup trigger is taller
+            // than that and pokes back up through the floor - visible was never the same question
+            // as reachable, and only hiding answers both at once.
+            if (rise >= 1f) ShowKey();
+            else HideKey();
+        }
+
+        private void ShowKey()
+        {
+            if (offered || key == null) return;
+            offered = true;
+            // RevealAt refuses while the item is carried, so this cannot pull it out of anyone's
+            // hands, and it is called once on the change rather than every frame.
+            key.RevealAt(key.transform.position);
+        }
+
+        private void HideKey()
+        {
+            if (key == null) return;
+            offered = false;
+            // NOT while someone is holding it - Hide() knows nothing about custody, and sinking the
+            // plinth under a player who has just picked the cube up would make what they are
+            // carrying invisible for the rest of the run.
+            if (!key.IsCarried) key.Hide();
         }
 
         // Smoothstep rather than linear. These are heavy objects: a slab that starts at full speed

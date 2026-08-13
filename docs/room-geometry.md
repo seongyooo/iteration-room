@@ -6,7 +6,17 @@ Shell construction, the wall grid, and doors. Every constant here was measured o
 
 ## Room shells and geometry
 
-**Five shells**, all from `BuildRoomShell` at different Z centres: `Room1` (Z=0), `Room2` (Z=`RoomPitch`=10.85), `Room3` (Z=`2·RoomPitch`=21.7), `Room4` (Z=`3·RoomPitch`=32.55), and a sealed `CalibrationRoom` at `-2·RoomPitch` used only for the sensitivity step. **Room4 is the ending** — it has a doorway south and none north, so it is the end of the building, and `DoorPocketFill_3` is uncapped now that there is a room behind Room3's north door rather than a sealed reveal. `RoomPitch` = `RoomDepth 10.5 + 2×WallDepth 0.125 + DoorPocketDepth 0.1`.
+**Seven shells**, all from `BuildRoomShell` at different Z centres, one straight corridor: `Room1`
+(Z=0), `Room2` (Z=`RoomPitch`=10.85), `Room2West` (Z=`2·RoomPitch`=21.7), `Room2East`
+(Z=`3·RoomPitch`=32.55), `Room3` (Z=`4·RoomPitch`=43.4), `Room4` (Z=`5·RoomPitch`=54.25), and a
+sealed `CalibrationRoom` at `-2·RoomPitch` used only for the sensitivity step. Room2West and
+Room2East used to be a pair of side rooms turned ninety degrees off Room2's east and west walls,
+each reached through its own coloured door on Room2 itself; they are on the chain now, same
+orientation as every other room, and the coloured doors sit at the three joins between Room2 and
+Room3 instead (see `docs/puzzle-design.md` for why). **Room4 is the ending** — it has a doorway
+south and none north, so it is the end of the building, and every door pocket between it and Room1
+is uncapped, one per join, five in total. `RoomPitch` = `RoomDepth 10.5 + 2×WallDepth 0.125 +
+DoorPocketDepth 0.1`.
 
 - Adjacent rooms share a divider: one room's north wall and its neighbour's south wall sit back to back with the same doorway cut out of the panelling, the backing **and** the collision. Scene paths are `Room/Room1/...`; furniture and pads hang off `Room/` directly.
 - **Floor/ceiling slabs span the full `RoomPitch`**, not the interior, so adjacent floors meet exactly under the divider. Sized to the interior they leave a gap at the threshold and the player drops through it. They are also pushed **out by half their thickness** so their inner faces sit on the room bounds.

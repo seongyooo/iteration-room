@@ -241,6 +241,10 @@ namespace IterationRoom
             // down at the same instant every iteration - which is what keeps every later recording
             // aligned with the field it was made against.
             if (BalloonField.Instance != null) BalloonField.Instance.TriggerIfInside(transform.position);
+            // Same reason: a ghost that once reached Room4 has to be ABLE to reach it again on
+            // replay, or its own recorded delivery into the console can never re-land. See
+            // EscapeTrigger.TryArm.
+            if (EscapeTrigger.Instance != null) EscapeTrigger.Instance.TryArm(transform.position);
 
             SwingLimbs();
         }
@@ -292,7 +296,7 @@ namespace IterationRoom
                 CarryEvent e = carries[carryCursor];
                 carryCursor++;
 
-                if (e.kind == CarryKind.Take) TryTake(e.itemId);
+                if (e.kind == CarryKind.Take) TryTake(e.itemId, e.instanceName);
                 else if (e.kind == CarryKind.Equip) ApplyEquip(e.itemId);
                 else TrySurrender(e.itemId);
             }
@@ -345,39 +349,76 @@ namespace IterationRoom
             }
         }
 
-        private void TryTake(string itemId)
+        private void TryTake(string itemId, string instanceName)
         {
-            // Asks for a FREE one rather than for the object: an id can be a supply now (three pins
-            // live in the drawer), and a ghost is entitled to one of them, not to a particular one.
-            // The freedom test is inside that lookup - IsFreeForGhost, not IsAvailable, because a
-            // ghost must never lift something out of the living player's pocket and must never pull
-            // one back out of a lock it is already seated in. The traffic only goes the other way:
-            // the player can take from a ghost.
+            // THE COMPLETED-ERRAND RULE IS GONE (2026-08-13, removed by explicit request, along
+            // with the ghost-to-ghost close it used to backstop - see docs/ghost-possession-design.md
+            // §5c). It used to require a recording to have also SURRENDERED an item before this
+            // would replay taking it at all, which was the arbitration that stopped a recording that
+            // fetched a key and fumbled from robbing one that fetched it and delivered. Removing it
+            // makes "I took this" a fact this ghost will always try to reproduce, whether or not
+            // anything came of it afterwards - and reopens exactly the failure that rule existed to
+            // prevent: whichever recording's Take fires EARLIEST at replay now wins a contested item
+            // regardless of which one actually finished the job, silently breaking another ghost's
+            // OWN delivery of that same item.
             //
-            // Null means the supply is exhausted, which is a legitimate outcome. With three pins the
-            // player and two past selves can pop at once; a third ghost reaching for a fourth pin
-            // finds none and does not pop, and nothing anywhere has to special-case that.
-            CarryableItem item = ItemRegistry.FindFreeForGhost(itemId);
-            if (item == null) return;
+            // Accepted knowingly, on the reasoning that "silently breaking" overstates it: a ghost
+            // whose delivery fails this way still does everything ELSE in its recording exactly as
+            // before (see §1.5/§1.3 - every action re-evaluates its own condition independently, so
+            // one failed Surrender does not cancel the walk or any other room's errand), and the
+            // living player can simply finish the one delivery that did not land, the same way they
+            // finish any room a ghost could not. Nothing here is unrecoverable within a run; it is
+            // just no longer fully automatic once an item's custody has been contested.
 
-            // THE COMPLETED-ERRAND RULE, and it applies ONLY to items with a destination.
+            // THE EXACT OBJECT, when the recording names one (2026-08-13, alongside the removal
+            // above). Every id was treated as interchangeable within its pool before this - correct
+            // for a pool of one (a key, a chess piece), and wrong for the pins: a take recorded as
+            // "off ghost 1's pin" replayed as "whichever pin happens to be free", which could leave
+            // ghost 1 still holding its own while a SECOND ghost picked up a different one - two
+            // pins out where only one ever left the drawer originally. Not a duplication (three
+            // physical pins exist either way) but not a reproduction of what happened either.
             //
-            // Its job is arbitration: several ghosts want the one key, and a recording that fetched
-            // it and fumbled must not rob the recording that fetched it and delivered. That needs a
-            // notion of "finished", which needs somewhere to finish - a socket.
-            //
-            // The pin has no socket and is never surrendered, so every pin errand is unfinished by
-            // that measure and the rule would silently forbid ghosts to hold it at all. That is
-            // exactly the bug this scoping fixes: a rule about scarcity was blocking an item that
-            // was never contended for in a way that mattered.
-            if (ItemRegistry.FindSocket(itemId) != null
-                && (recording == null || !recording.Delivers(itemId))) return;
+            // Never the living player's, named object or not - a ghost must never reach into their
+            // pocket. Falling through to the generic paths below on that rejection is correct: this
+            // ghost is still entitled to A pin even when it specifically cannot have the one it
+            // originally got.
+            CarryableItem item = null;
+            if (!string.IsNullOrEmpty(instanceName))
+            {
+                CarryableItem named = ItemRegistry.FindInstance(itemId, instanceName);
+                if (named != null && !named.IsCarriedByPlayer) item = named;
+            }
+
+            // FALLBACK 1: asks for a FREE one rather than for the object - an id can be a supply
+            // (three pins), and a ghost is entitled to one of them, not to a particular one. Reached
+            // when nothing above named an object, or the named one is unavailable right now.
+            if (item == null) item = ItemRegistry.FindFreeForGhost(itemId);
+
+            // FALLBACK 2: GHOST-TO-GHOST, restored 2026-08-13. Reproduces a take the living player
+            // genuinely made off SOME past self when the recording does not (or cannot) name which
+            // one - PlayerHand.Take always records a Take, off a ghost or off the floor alike, so
+            // this is the same kind of event fallback 1 replays. Still scoped to items with a
+            // socket, purely as its own eligibility filter: a pin has no destination a hand-over
+            // could matter for, and letting one ghost's recording steal it mid-pop from another is a
+            // failure mode nobody asked to open.
+            if (item == null && ItemRegistry.FindSocket(itemId) != null)
+                item = ItemRegistry.FindHeldByGhost(itemId);
+
+            if (item == null) return;
 
             // The condition that ENABLED the pickup, re-evaluated - same rule as everywhere else.
             // The pin lives inside the nightstand drawer, and a ghost must no more take it through
             // a shut drawer than the player can. Its own replayed pull is what opens it, so in
             // practice this passes; it is here so that stops being a coincidence.
             if (item.requiresOpenDrawer != null && !item.requiresOpenDrawer.IsFullyOpen) return;
+
+            // Taking it out of another past self's hands rather than out of the world - true when
+            // the named object (above) turned out to be ghost-held, or fallback 2 found one; never
+            // true off fallback 1, since FindFreeForGhost never returns something IsCarried. The
+            // same custody hand-off ReleaseItem gives the LIVING player, just triggered by a ghost's
+            // own recording instead of an E press.
+            if (item.HeldByGhost != null && item.HeldByGhost != this)
+                item.HeldByGhost.ReleaseItem(item, toWorld: false);
 
             held.Add(item);
             // Straight into the hand, mirroring PlayerHand.Take - and the recording's own Equip
