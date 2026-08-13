@@ -52,7 +52,7 @@ map down a tier without saying so.
 
 One thing found only by rendering it: the tray had inherited the room's white prop material, and in
 wood the pin vanished — a dark handle on dark wood. The tray is lined in pale grey for that reason
-alone. `nightstand.glb` is now unreferenced; it stays on disk until someone decides to delete it.
+alone. `nightstand.glb` was left unreferenced on disk by this change and **was deleted 2026-08-14** — 8.5 MB of LFS and a CC-BY attribution obligation for a model no build loads. See `asset-licences.md`.
 
 ---
 

@@ -37,20 +37,26 @@ have already finished and carrying them to the console. **The clock runs through
 it ends nothing, and a run that gets there with two objects is pulled back to the bed like any
 other. There is no button anywhere in the game that ends it.
 
-**PLAYED THROUGH TO THE THREE-OBJECT ESCAPE, 2026-08-14, ON THE ONE-OBJECT DESIGN: cleared on
-ITERATION 14 in 8:29 of total elapsed time.** Casual play by the player's own account — not an
-optimised run — so both numbers are ceilings rather than floors. This is the first measurement of the
-game as it now is: Tab and the pocket gone, one object in the hand, E to put down, held objects at
-true size. What it settles:
+**PLAYED THROUGH TO THE THREE-OBJECT ESCAPE ON THE ONE-OBJECT DESIGN, 2026-08-14. Best of two runs
+that day: ITERATION 12 in 7:30 of total elapsed time** (the first was 14 in 8:29). Both are the game
+as it now is: Tab and the pocket gone, one object in the hand, E to put down, held objects at true
+size. What they settle:
+
+- **Two iterations and a minute came off between the first run and the second, on the same build.**
+  Nothing changed but the player knowing what to do. So **12 is a skill figure approaching a floor,
+  not a measure of how much game there is** — quote it as "about a dozen", expect a first-time player
+  to need more, and do not read a future rise or fall of one or two iterations as content having
+  changed.
 
 - **Removing the pocket did not lengthen the run. It shortened it.** The prediction on the way in was
   that one-object-at-a-time would cost iterations, because three escape objects can no longer reach
-  Room4 in one trip. It came out at 14 against the old design's 15, and 8:29 against its ~15 minutes.
-  Some of that is a practised player, but the direction is the opposite of the one that was feared,
-  and the design argument for the change no longer has to be paid for in length.
-- **14 iterations in 8:29 means most of them are ended EARLY** — sixty seconds apiece would be 14
-  minutes. That is `EndCycleControl` being used the moment an errand is done, which is the loop
-  working as intended: an iteration is worth exactly as long as it takes to add one thing.
+  Room4 in one trip. It came out at 14 and then 12, against the old design's 15 — and 7:30 against its
+  ~15 minutes. Some of that is a practised player, but the direction is the opposite of the one that
+  was feared, and the design argument for the change no longer has to be paid for in length.
+- **12 iterations in 7:30 means most of them are ended EARLY** — sixty seconds apiece would be 12
+  minutes, and the average is nearer 37 seconds. That is `EndCycleControl` being used the moment an
+  errand is done, which is the loop working as intended: an iteration is worth exactly as long as it
+  takes to add one thing.
 - **The endgame shape works in a human's hands.** Past selves deliver the escape objects they
   delivered while the living player brings the last one. The known sharp edge — a ghost's recorded
   delivery is refused outright if this run's console has not risen yet, and never retried — did not
@@ -426,6 +432,7 @@ and only the second answers whether something is understandable or enjoyable.
 | `docs/room-geometry.md` | Shells, the wall grid, doors |
 | `docs/rendering-notes.md` | Lighting, materials, probes |
 | `docs/audio.md` | PA schedule, filter chain, clip generation |
+| `docs/asset-licences.md` | Every third-party file and what it is licensed under |
 | `docs/gotchas.md` | Costly one-time discoveries |
 | `docs/decisions.md` | Rejected ideas and open questions |
 | `iteration-game-spec.md` | Original spec |
