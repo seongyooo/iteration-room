@@ -29,11 +29,16 @@ namespace IterationRoom
         public int FrameCount => frames != null ? frames.Count : 0;
     }
 
-    // Equip is the Tab press: which of the carried items is actually in the hand. An Equip with an
-    // empty itemId is empty hands, the slot at the end of Tab's cycle. Recorded because a ghost
-    // carrying two things would otherwise put both in one fist, and because a ghost's unlock has to
-    // be re-evaluated against the same condition the player's was - key IN HAND, not key on person.
-    public enum CarryKind { Take, Surrender, Equip }
+    // ~~Equip was the Tab press~~ GONE 2026-08-13, with Tab itself: the player carries exactly ONE
+    // object now, so "carried" and "in hand" are the same fact and there is nothing left for a third
+    // event to say. Everything Equip protected still holds, and holds more cheaply - a ghost cannot
+    // put two things in one fist because it can never have two, and "key IN HAND, not key on person"
+    // is now true by construction rather than by bookkeeping.
+    //
+    // Drop replaces it, and is a different kind of thing: Surrender is an object given to something
+    // that KEEPS it, Drop is an object put back on the floor still in play. A ghost has to reproduce
+    // both or the world it leaves behind is not the world the recording was made in.
+    public enum CarryKind { Take, Surrender, Drop }
 
     // The player picking an item up, or giving it to something that keeps it. Both ends are
     // RE-EVALUATED at replay rather than simply applied - see GhostReplayer.DrainCarries. A take
@@ -46,7 +51,7 @@ namespace IterationRoom
         public string itemId;
         public CarryKind kind;
 
-        // WHICH physical object, for a Take - empty for Equip/Surrender, which never need it: a
+        // WHICH physical object, for a Take - empty for Drop/Surrender, which never need it: a
         // ghost holds at most one instance per id, so itemId alone already picks the right one out
         // of `held`. A Take is different the moment an id is a SUPPLY (the three pins): itemId alone
         // only ever says "give me a free one", which loses which one a take off a GHOST actually

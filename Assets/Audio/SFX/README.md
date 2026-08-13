@@ -28,6 +28,7 @@ valid state: the scene runs silent on the SFX channel while the narration plays.
 | `sfx_ominous_loop` | The room tone bed. Loops continuously — **make sure it's seamless.** The generated one is 8s, and every partial in it is a multiple of 1/8 Hz so the tone wraps exactly; the noise layer is wrapped by crossfading its own tail over its head. A replacement that isn't seamless clicks every 8 seconds, forever. | `RoomAmbience` |
 | `sfx_pull_in` | The loop taking you. Fires as the eyelids start to fall, so it plays against the collapse rather than after it. | `RoomAmbience.PlayPullIn` |
 | `sfx_power_down` | The room switching off, under the black. The wall panels booting during the wake-up are the other half of it. | `RoomAmbience.PlayPowerDown` |
+| `sfx_item_drop` | An object let go of, landing. A THUD and not a note: 85ms, energy under 500 Hz, gone before it can ring. It exists because the fall borrowed `sfx_floor_button_press` pitched down, and pitching a struck C6 down leaves a struck C6 - a dropped cube announced itself like a doorbell. Each object carries its own fixed pitch offset (SceneBuilder), so two cubes off one tower do not land in unison. | `FallingItem` |
 | `sfx_chime` | *(bell dings)* / *(machine beeps)* ahead of an announcement. Plays before the iteration line and the "10 seconds remaining" line, but **not** before each countdown digit. | `NarrationDirector` |
 
 ## Narration is generated, not dropped here

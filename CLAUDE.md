@@ -37,29 +37,37 @@ have already finished and carrying them to the console. **The clock runs through
 it ends nothing, and a run that gets there with two objects is pulled back to the bed like any
 other. There is no button anywhere in the game that ends it.
 
-**PLAYED THROUGH TO THE THREE-OBJECT ESCAPE, 2026-08-12: cleared on ITERATION 15, with 8 SECONDS
-left on the final lap's clock.** The whole chain works in a human's hands — both accumulation rooms,
-three collections and the walk to the console, inside one sixty-second iteration. What this measures:
+**PLAYED THROUGH TO THE THREE-OBJECT ESCAPE, 2026-08-14, ON THE ONE-OBJECT DESIGN: cleared on
+ITERATION 14 in 8:29 of total elapsed time.** Casual play by the player's own account — not an
+optimised run — so both numbers are ceilings rather than floors. This is the first measurement of the
+game as it now is: Tab and the pocket gone, one object in the hand, E to put down, held objects at
+true size. What it settles:
 
-- **Fifteen iterations, not four.** The earlier four-iteration figure was the game whose exit was
-  crossing Room3's threshold; the two side rooms were optional then and are on the critical path now.
-  Quote 15 as the run length, and expect it to come DOWN with practice — the player who measured it
-  judged there was time to be found in tidier play, not that 15 was a floor.
-- **The final lap fits, and 8 seconds is the whole margin.** Three pickups plus the walk to Room4 is
-  the tightest thing in the game. It is also the one number that moves with *when past selves
-  finished their rooms*, so treat 8s as an observation of one run, not a guarantee. Anything that
-  lengthens that lap — a room past Room4, a fourth escape object, a slower walk — spends this margin
-  first.
-- **60 seconds is still not the binding constraint anywhere else.** Measured at `walkSpeed` 2.5 with
-  sprint unused. A new room's cost is paid in ITERATIONS, never in metres — the exception being the
-  final lap above.
-- **Fifteen minutes is the whole game**, up from four. That is a direct answer to the itch.io "small"
-  feedback, and it came from the two side rooms rather than from any new mechanic.
+- **Removing the pocket did not lengthen the run. It shortened it.** The prediction on the way in was
+  that one-object-at-a-time would cost iterations, because three escape objects can no longer reach
+  Room4 in one trip. It came out at 14 against the old design's 15, and 8:29 against its ~15 minutes.
+  Some of that is a practised player, but the direction is the opposite of the one that was feared,
+  and the design argument for the change no longer has to be paid for in length.
+- **14 iterations in 8:29 means most of them are ended EARLY** — sixty seconds apiece would be 14
+  minutes. That is `EndCycleControl` being used the moment an errand is done, which is the loop
+  working as intended: an iteration is worth exactly as long as it takes to add one thing.
+- **The endgame shape works in a human's hands.** Past selves deliver the escape objects they
+  delivered while the living player brings the last one. The known sharp edge — a ghost's recorded
+  delivery is refused outright if this run's console has not risen yet, and never retried — did not
+  stop a clear; whether it was ever hit is unknown.
+- **60 seconds is still not the binding constraint.** Measured at `walkSpeed` 2.5 with sprint unused.
+  A new room's cost is paid in ITERATIONS, never in metres.
 
-Room2West and Room2East have now both been played end to end (a clear requires them). What one
-clear does **not** answer is whether twelve pieces is the right length or whether the lit square
-teaches the left button. What play CONTRADICTED is recorded in `docs/puzzle-design.md` — Room2's
-popping is not accumulative, and the three pins currently have no consumer.
+**Superseded**: the old figures were 15 iterations, ~15 minutes, and a final lap with 8 seconds of
+margin — that lap was three collections in one trip and cannot happen now. `git log` has the rest.
+
+What one clear still does **not** answer: whether twelve chess pieces is the right length, whether a
+metre of glass held at true size is pleasant or merely tolerable, and whether any of it is enjoyable
+rather than merely finishable.
+
+Room2West and Room2East have both been played end to end — a clear requires them. What play
+CONTRADICTED is recorded in `docs/puzzle-design.md`: Room2's popping is not accumulative, and the
+three pins currently have no consumer.
 
 ---
 
@@ -106,15 +114,27 @@ square apart found it, two stacked cubes found the half of it that was left.
    is drawn over, so the press and the disc can never disagree.
 2. **How many** — and nearest-wins cannot answer this, because each item recomputes it as its own
    `Update` runs and a take already made drops out of the running, promoting the next one down the
-   pile. Gate on `PlayerHand.TookThisFrame` as well: one press, one take, whatever the script
+   pile. Gate on `PlayerHand.InteractedThisFrame` as well: one press, one action, whatever the script
    execution order happens to be.
+
+**Every fixture that answers an E press must CHECK `PlayerLookup.InteractTaken` and CLAIM the press
+with `PlayerLookup.ClaimInteract()` — and claim it only when it actually acts.** All three halves are
+load-bearing:
+
+- **Check**, or two fixtures answer one press and which pair fires is a coin toss on script execution
+  order. Play found it as picking a key up and putting it in the lock with a single press.
+- **Claim**, or `PlayerHand.LateUpdate` reads the press as *put down* and throws the held object on
+  the floor — E means "put down" exactly when nothing else wanted it.
+- **Only when acting.** A fixture that claims a press it then refuses is a deadlock: `KeyLock` used to
+  flash red at an empty hand and eat the press, which made a key lying beside its own lock impossible
+  to pick up. Refusing a press you were never offered is not a refusal — leave it for someone else.
 
 **This is per OBJECT, not per id.** An id can name a supply — three pins share `"Tool"` — and each of
 the three obeys the five states and returns to its own origin. What is forbidden is two *holders* of
 one object, never two objects of one id. A ghost asks for a free instance
-(`ItemRegistry.FindFreeForGhost`), and the player is limited to one per id by `PlayerHand`, whose
-`carried` set is keyed by id — so anything gating on "E would pick this up" must check that too, or it
-prompts for a press that cannot succeed.
+(`ItemRegistry.FindFreeForGhost`); **the player carries exactly one object, full stop** (§4), so
+anything gating on "E would pick this up" must check `PlayerHand.HandsFull`, or it prompts for a press
+that cannot succeed.
 
 ### 1.3 Record the attempt, re-evaluate the condition
 
@@ -182,7 +202,7 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `GhostReplayer` | Replaying one timeline, and re-evaluating it |
 | `PlayerHand` | What the player carries and what is **in hand** |
 | `CarryableItem` | One object's own state and where it is parented |
-| `StackedItem` | One carryable that was built on another, and its fall when that one leaves |
+| `FallingItem` | One carryable's fall when nothing holds it up — dropped, or its support taken |
 | `HeldItemClearance` | Keeping whatever is in the hand out of the walls |
 | `ItemRegistry` | id → the **supply** wearing it, id → socket, and the reset sweep |
 | `IItemSocket` | Anything that accepts an item and keeps it |
@@ -263,17 +283,30 @@ player less to do.** Do not damage that when adding rooms.
   recording (§1.3/§1.5, every action re-evaluates its own condition independently), and the living
   player can simply finish the one delivery that did not land. See
   `docs/ghost-possession-design.md` §4 and §5c for the full argument.
-- **Tab cycles what is in the hand**; everything else carried is stowed and invisible, and the cycle
-  ends on empty hands. Fixtures operated *with* an item gate on `hand.Holding(id)`, **not**
-  `hand.Has(id)`. Equips are recorded, so a ghost swaps when the player did.
-- **A ghost shows EVERYTHING it carries** — equipped item in the hand, the rest on a belt line
-  across the hips (`GhostReplayer.LayOutCarried`). It used to hide all but the equipped one, and
-  since `CarryableItem.IsAvailable` reads `visible` that made them **untakeable as well as unseen**:
-  a past self holding pin and key with the pin out put the key where the player could neither find
-  nor reach it. **Visible and equipped are two separate questions** — `HoldingEquipped` still gates
-  every tool-shaped action on the one in the hand, so §4's tool rule is untouched. Tab is unchanged;
-  the player's own stow is still invisible, because the player has `CarriedItemsDisplay` and a ghost
-  has no readout but the objects themselves.
+- **ONE OBJECT IN THE HAND, OR NONE. Tab is gone** (2026-08-13, by request), and with it the pocket,
+  `hand.Has`, and `CarryKind.Equip`. Carried and in-hand are the same fact now, so every "operated
+  *with* an item" gate is `hand.Holding(id)` and nothing has to keep two answers in agreement.
+  - **E is the whole of handling an object**: press to take, press again to put down. `CarryKind` is
+    `Take | Surrender | Drop`; a drop is recorded and a ghost reproduces it, or the world a recording
+    leaves behind is not the world it was made in.
+  - **Hands full REFUSES a take, it does not swap.** E has one meaning at a time, and a press that
+    silently exchanged one object for another would be a third meaning with no prompt for it.
+  - **The last lap changed shape as a direct consequence**: three escape objects can no longer reach
+    Room4 in one trip, so finishing means past selves delivering what they delivered while the living
+    player brings the last one. The 15-iteration and 8-second figures above were measured before this
+    and are void.
+- **Held objects are their TRUE SIZE.** The shrink-to-fit every carryable used to carry is gone;
+  `handLocalScale` is now the object's own world scale, and where it sits comes from
+  `SceneBuilder.HandPoseFor(size)` — bigger things are held further out and lower. A metre of glass is
+  genuinely in the way, and that is the accepted trade. `handLocalScale` is still **required** for
+  anything under a scaled parent (every chess piece), or it is handed over at 1/0.3039 of its size.
+- **A ghost shows what it carries**, in its hand (`GhostReplayer.LayOutCarried`). It used to hide all
+  but the equipped one, and since `CarryableItem.IsAvailable` reads `visible` that made them
+  **untakeable as well as unseen**: a past self holding pin and key with the pin out put the key where
+  the player could neither find nor reach it. The belt line the fix added is now mostly vestigial —
+  recordings made after Tab's removal never hold more than one thing — but `HoldingEquipped` still
+  gates every tool-shaped action, and `equippedId` is set by the take and cleared by the drop,
+  surrender or steal, rather than replayed from an Equip event.
 - **Ghost-to-ghost taking is OPEN again, reversed 2026-08-13 by explicit request.** `IsFreeForGhost`
   is still `!IsCarried && visible` and still shuts out `FindFreeForGhost`, so this runs through a
   second lookup, `ItemRegistry.FindHeldByGhost`, which `GhostReplayer.TryTake` falls back to when the
@@ -296,8 +329,12 @@ player less to do.** Do not damage that when adding rooms.
     one instead. Raising the count is one number in `SceneBuilder`. Revert the gate itself with
     `requirePopTool = false`.
 
-- **`CarryKind` is `Take | Surrender | Equip`.** Equip is the Tab press — an empty `itemId` means
-  empty hands.
+- **Carryables have NO Rigidbody, and a fall is scripted** (`FallingItem`, on every carryable). The
+  loop must put every object back exactly, and a simulated settle lands somewhere different every
+  time. PhysX is reproducible in principle and cannot be here: it solves in islands, so where a
+  dropped object ends up depends on every body near it — including a living player who moves
+  differently every iteration, which would break "a past self does exactly what you did". One axis,
+  real gravity, one known height. Nothing about a fall is recorded; it is *derived* from the release.
 
 Room-by-room reasoning: `docs/puzzle-design.md`.
 

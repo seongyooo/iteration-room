@@ -10,12 +10,16 @@ namespace IterationRoom
     // left poking a third of a metre through it. Walk up to a wall with something in hand and rub
     // along it and you watch your own key inside the plaster.
     //
-    // THE FIX IS SCALE, NOT POSITION, and that is what makes it invisible. The anchor sits AT the
-    // camera and the item's offset is expressed inside it, so scaling the anchor moves the item
-    // closer along the exact line it already sat on AND shrinks it by the same factor. Apparent size
-    // and screen position are both unchanged - perspective divides out - and all that changes is how
-    // far into the room the object physically reaches. Pulling it in without shrinking it would swell
-    // it across the screen every time the player brushed a wall.
+    // THE FIX IS TO PULL IT IN along the line it already sits on, so it stops at the surface instead
+    // of passing through it. The anchor sits AT the camera and the item's offset is expressed inside
+    // it, so moving the anchor to `rest * (f - 1)` puts the item at `rest * f` - same direction, same
+    // true size, nearer.
+    //
+    // IT USED TO SHRINK IT INSTEAD (scaling the anchor moves and shrinks by one factor, so apparent
+    // size never changed) and that is gone with the shrink-to-fit hold: objects are held at their
+    // real size now, and a clearance that quietly resized them would be the same lie by another
+    // route. The cost is honest and visible - a big object pressed against a wall comes toward the
+    // camera and takes more of the screen, because that is what a big object against a wall does.
     //
     // WHY NOT A SECOND CAMERA. The usual answer to a clipping viewmodel is to render it with its own
     // camera on its own layer, over the top of everything. That means a second camera, a layer, and a
@@ -40,13 +44,16 @@ namespace IterationRoom
         // distance zero every single frame and pin the item to the player's nose.
         public Transform ignoreRoot;
 
-        // Half the width of the object being protected, near enough. The cast stops the item's CENTRE
-        // this far short of a surface, which is the gap its own body then fills.
-        public float probeRadius = 0.11f;
+        // Floor and ceiling on the probe. It is derived from the HELD object - half its own width,
+        // because the cast stops the item's centre that far short of a surface and its own body
+        // fills the gap - and clamped, because a metre-wide cube would otherwise cast a sphere so
+        // large it is inside the wall before it starts and the item would never leave the camera.
+        public float minProbe = 0.06f;
+        public float maxProbe = 0.22f;
 
         // Never closer than this fraction of the item's normal distance. The camera's near plane is
         // 0.05m and the item has to stay outside it whatever it is pressed against.
-        public float minScale = 0.22f;
+        public float minFraction = 0.22f;
 
         private readonly RaycastHit[] hits = new RaycastHit[8];
 
@@ -58,16 +65,19 @@ namespace IterationRoom
             if (anchor == null || eye == null || hand == null) return;
 
             CarryableItem held = hand.Held;
-            if (held == null) { anchor.localScale = Vector3.one; return; }
+            if (held == null) { anchor.localPosition = Vector3.zero; return; }
 
             // The item's own resting offset, so this works for whatever is in the hand rather than
             // for one hard-coded pose.
             Vector3 rest = held.handLocalPosition;
             float reach = rest.magnitude;
-            if (reach <= 0.0001f) { anchor.localScale = Vector3.one; return; }
+            if (reach <= 0.0001f) { anchor.localPosition = Vector3.zero; return; }
 
             Vector3 origin = eye.position;
             Vector3 dir = eye.rotation * (rest / reach);
+
+            // Half the object's own width, within reason - see minProbe/maxProbe.
+            float probeRadius = Mathf.Clamp(held.handLocalScale.x * 0.5f, minProbe, maxProbe);
 
             float allowed = reach;
             int count = Physics.SphereCastNonAlloc(origin, probeRadius, dir, hits, reach,
@@ -86,7 +96,10 @@ namespace IterationRoom
                 if (hits[i].distance < allowed) allowed = hits[i].distance;
             }
 
-            anchor.localScale = Vector3.one * Mathf.Clamp(allowed / reach, minScale, 1f);
+            // The anchor sits at the camera and the item's offset lives inside it, so displacing the
+            // anchor by (f - 1) x rest lands the item at f x rest: same direction, same size, nearer.
+            float f = Mathf.Clamp(allowed / reach, minFraction, 1f);
+            anchor.localPosition = rest * (f - 1f);
         }
     }
 }

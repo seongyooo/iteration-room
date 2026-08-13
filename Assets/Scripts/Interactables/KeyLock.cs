@@ -163,16 +163,35 @@ namespace IterationRoom
             if (!playerInRange || IsSpent || Inserting) return;
             if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
 
-            if (Input.GetKeyDown(KeyCode.E)) TryUnlock();
+            if (!Input.GetKeyDown(KeyCode.E)) return;
+            // Checked as well as claimed - see PlayerLookup.InteractTaken.
+            if (PlayerLookup.InteractTaken) return;
+
+            TryUnlock();
         }
 
         private void TryUnlock()
         {
             if (!CanOpen)
             {
+                // EMPTY HANDS ARE NOT A REFUSAL, they are not a press at this fixture at all - and
+                // claiming one would deadlock the room. A key lying on the floor beside its own lock
+                // is exactly where the player wants to press E to PICK IT UP, and a lock that ate
+                // every press to flash red at an empty hand would make that key unreachable.
+                //
+                // Holding the wrong thing IS a refusal, and gets the flash and the press: the player
+                // asked this fixture a question and it answered no, and reading that same press as
+                // "put it down" on top of the red flash would be two answers to one key.
+                if (hand == null || !hand.HandsFull) return;
+
+                hand.MarkInteract();
                 Flash(deniedColor);
                 return;
             }
+
+            // Claimed here rather than in Update, so that everything above this line - out of range,
+            // spent, mid-insert, empty-handed - leaves the press for whoever else wants it.
+            hand.MarkInteract();
 
             // Surrendered before anything moves, so the order on screen is the order of cause: the
             // key leaves the player, goes in, is turned, and then the door opens. It is gone from

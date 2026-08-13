@@ -66,6 +66,12 @@ namespace IterationRoom
         public AudioSource audioSource;
         public AudioClip insertClip;
 
+        // How the object arrives - see SymbolSlot for the same three, and SocketInsert for what they
+        // mean. Up, here, because the recesses are wells in the top of the console.
+        public Vector3 insertOffer = new Vector3(0f, 0.40f, 0f);
+        public Vector3 insertTilt = new Vector3(6f, 20f, -5f);
+        public float insertDuration = 0.5f;
+
         public bool Filled { get; private set; }
 
         // Declared means "there is an object in the game that belongs here". An unconfigured slot is
@@ -153,6 +159,10 @@ namespace IterationRoom
 
             if (!WantsInteractHint) return;
             if (!Input.GetKeyDown(KeyCode.E)) return;
+            // Checked as well as claimed - see PlayerLookup.InteractTaken.
+            if (PlayerLookup.InteractTaken) return;
+
+            hand.MarkInteract();
 
             // Surrendered rather than taken straight out of the hand: PlayerHand owns `carried`,
             // `carriedItems` and which item is out, and CarryableItem knows about none of it.
@@ -181,10 +191,18 @@ namespace IterationRoom
         // placement and a ghost's, so both land in exactly one piece of code.
         private void Accept(CarryableItem item)
         {
-            item.InsertInto(seat != null ? seat : transform);
+            Transform socket = seat != null ? seat : transform;
+            item.InsertInto(socket);
             Filled = true;
 
-            if (audioSource != null && insertClip != null) audioSource.PlayOneShot(insertClip);
+            // `Filled` is set before the slide rather than after it, and that is the answer to "what
+            // if the third object is still moving when the console decides the run is over": the
+            // console's condition is about custody, which InsertInto has already settled. The object
+            // finishes seating itself while the ending plays, which is what it would look like
+            // anyway. Straight DOWN, because these recesses are wells in the top of the console -
+            // see SocketInsert on why each caller states its own direction.
+            StartCoroutine(SocketInsert.Slide(item, socket, insertOffer, insertTilt, insertDuration,
+                                              audioSource, insertClip));
         }
 
         // The loop rewinding. The object itself is already back on its own plinth by now; this only

@@ -30,7 +30,7 @@ namespace IterationRoom
 
         // How many pieces this player has actually put down, ever - not reset at the loop boundary,
         // because learning a control is not state the iteration rewinds. The left-click prompt retires
-        // against this. Same rule as PlayerHand.CycleCount, for the same reason.
+        // against this. Same rule as CarriedItemsDisplay's put-down prompt, for the same reason.
         public int PlacementCount { get; private set; }
 
         // ONCE. Not "three times" like the Tab prompt, and not "until it is used" like the swing:

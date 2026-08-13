@@ -82,8 +82,10 @@ namespace IterationRoom
 
         protected virtual void Update()
         {
-            if (WantsInteractHint && Input.GetKeyDown(KeyCode.E))
+            if (WantsInteractHint && Input.GetKeyDown(KeyCode.E) && !PlayerLookup.InteractTaken)
             {
+                // Checked as well as claimed - see PlayerLookup.InteractTaken.
+                PlayerLookup.ClaimInteract();
                 litUntil = Time.unscaledTime + 0.2f;
                 if (audioSource != null && pressClip != null) audioSource.PlayOneShot(pressClip);
                 OnPressed();

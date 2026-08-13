@@ -147,7 +147,7 @@ namespace IterationRoom
                 // iteration a ghost bursts the same balloon - cosmetic, not gameplay, but nothing
                 // else in this room roots its visuals in Time.time either.
                 float yaw = (balloon.id * 47) % 360;
-                balloon.heldKey.transform.rotation = Quaternion.Euler(0f, yaw, 90f);
+                balloon.heldKey.LieDown(yaw);
             }
         }
     }

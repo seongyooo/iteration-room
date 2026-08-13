@@ -53,6 +53,17 @@ namespace IterationRoom
         // not in whatever code happens to drop it.
         public float floorY = 0.06f;
 
+        // HOW THIS LIES WHEN IT IS PUT DOWN, as a roll in degrees. Zero - almost everything - means
+        // "however it was built", which is right for anything that stands up on its own: a cube, a
+        // chess piece with its own measured tilt, an escape object on its base.
+        //
+        // The key needs 90. Its built pose is KeyRestRotation, bow up and standing on its blade,
+        // which was chosen for a key sitting somewhere findable rather than for one that has been
+        // dropped - and a key stood on end where it fell reads as PLACED on purpose. BalloonField
+        // already had this fix for a key coming out of a burst balloon; the same key put down by
+        // hand went on standing up, because that path restored the built rotation instead.
+        public float restRoll = 0f;
+
         public Vector3 handLocalPosition = new Vector3(0.28f, -0.24f, 0.42f);
         public Vector3 handLocalEuler = new Vector3(12f, -8f, 18f);
 
@@ -104,6 +115,17 @@ namespace IterationRoom
 
         public bool IsCarried { get; private set; }
 
+        // LET GO OF, as opposed to sitting where it was built. `FallingItem` reads this, and without
+        // it every object that starts life above the floor falls off its own shelf the moment the
+        // scene loads: the pin is in a drawer, the three escape objects are on plinths, a stacked
+        // cube is on another cube. Being above floorY is not the same fact as having been dropped,
+        // and the first version of the fall treated them as one.
+        //
+        // Only DropAt sets it. Every other way out of a hand - a socket, a pocket, the loop's rewind
+        // - puts the object somewhere on purpose, and a thing placed on purpose is at rest wherever
+        // it was placed.
+        public bool Released { get; private set; }
+
         // IsCarried covers "in someone's hands", ghost or player. Almost every guard below wants the
         // narrower one: a ghost-held item is still very much in play for the living player.
         public bool IsCarriedByPlayer => IsCarried && HeldByGhost == null;
@@ -130,12 +152,15 @@ namespace IterationRoom
             && (HeldByGhost != null || requiresOpenDrawer == null || requiresOpenDrawer.IsFullyOpen)
             && PlayerLookup.InView(HintAnchor);
 
-        // The player is already carrying one of these. PlayerHand.Take refuses a second of the same
-        // id - `carried` is a set of IDS, not of objects - so this has to be part of "E would do
-        // something here" now that an id can be a SUPPLY. Three pins share one drawer: without this
-        // the two left behind sit there offering a prompt for a press that is guaranteed to no-op,
-        // which is exactly the thing the prompt is supposed never to do.
-        private bool AlreadyHaveOne => hand != null && hand.Has(itemId);
+        // The player's hands are full. PlayerHand.Take refuses outright rather than swapping, so
+        // this is part of "E would do something here": prompting over an object the press cannot
+        // pick up is exactly the thing a prompt is supposed never to do.
+        //
+        // It used to be "already carrying one of THIS id", which was the same guard against a
+        // narrower pocket - three pins in one drawer, two of them offering a prompt for a press
+        // guaranteed to no-op. One object at a time makes the id irrelevant: what refuses the take
+        // is having anything at all.
+        private bool AlreadyHaveOne => hand != null && hand.HandsFull;
 
         public Transform HintAnchor => transform;
 
@@ -204,8 +229,8 @@ namespace IterationRoom
             // decides WHICH item, but it cannot decide HOW MANY: it is recomputed per item as each
             // Update runs, and an item taken earlier in the same frame drops out of the running, so
             // the next one down the pile becomes "nearest" and takes itself too. See
-            // PlayerHand.TookThisFrame.
-            if (hand.TookThisFrame) return;
+            // PlayerHand.InteractedThisFrame.
+            if (hand.InteractedThisFrame) return;
 
             // ONE PRESS, ONE ITEM. Every takeable thing polls E for itself, so a press inside two
             // overlapping triggers used to be taken by both - fine while nothing overlapped and no two
@@ -229,6 +254,7 @@ namespace IterationRoom
         {
             HeldByGhost = null;
             IsCarried = true;
+            Released = false;
             if (trigger != null) trigger.enabled = false;
             SetBlocking(false);
 
@@ -264,6 +290,7 @@ namespace IterationRoom
 
             HeldByGhost = ghost;
             IsCarried = true;
+            Released = false;
             // The trigger stays ON and rides the ghost, which is the whole taking-it-back mechanism:
             // walk up to the past self holding the key and press E. No new verb, no new input, and
             // ControlHintDisplay already puts its own prompt over it because WantsInteractHint is
@@ -295,25 +322,47 @@ namespace IterationRoom
         // to do with whatever it was holding - a recording made from an iteration ended at t=5
         // retires at t=5 of every iteration after it, and it must not take the key with it.
         //
-        // ON THE FLOOR UNDER where it stood, not at the height it was let go from. Only the XZ of
-        // the argument is used. A ghost's grip is a wrist bone about a metre up, so dropping at the
-        // hand's own position left the item hanging in mid-air: a carryable has no Rigidbody, and
-        // deliberately so - the loop has to be able to put every object back exactly, and a
-        // simulated fall settles somewhere slightly different every time. Placing it is the same
-        // answer BalloonField already gave for a key coming out of a burst balloon, which is why
-        // the height now lives on the item and both paths read it.
+        // WHERE IT WAS LET GO OF, and then it falls the rest of the way. The height used to be
+        // forced to floorY here - the argument's XZ and nothing else - because a carryable has no
+        // Rigidbody and an object released at a ghost's wrist would otherwise hang in mid-air a
+        // metre up. `FallingItem` answers that properly now: one axis, real gravity, to floorY, and
+        // deterministic in a way physics cannot be here. So this keeps the height it is given and
+        // lets the fall be seen.
+        //
+        // Clamped at floorY rather than trusted, because the callers are not all above the floor: a
+        // ghost's timeline ending passes the item's own position, which is fine, and the player's
+        // own put-down passes a point ahead of them, which could be below the object's resting
+        // height on a floor recess.
         public void DropAt(Vector3 worldPosition)
         {
             HeldByGhost = null;
             IsCarried = false;
+            Released = true;
 
             transform.SetParent(originParent, true);
-            transform.position = new Vector3(worldPosition.x, floorY, worldPosition.z);
-            transform.localRotation = originLocalRotation;
+            transform.position = new Vector3(worldPosition.x,
+                                             Mathf.Max(worldPosition.y, floorY),
+                                             worldPosition.z);
+            // Whichever way it was already facing, so a dropped thing points where the player was
+            // looking - it fell out of their hand, it did not turn itself to north on the way down.
+            LieDown(transform.eulerAngles.y);
             transform.localScale = originLocalScale;
             SetVisible(true);
             if (trigger != null) trigger.enabled = true;
             SetBlocking(true);
+        }
+
+        // The pose of something at rest on a floor, yawed however the caller wants it. `restRoll` 0
+        // means the object stands the way it was built, which is the answer for everything that has
+        // a base; anything else lays it over by that much.
+        //
+        // Public because a burst balloon puts its key down too, and that path picks its own yaw -
+        // derived from the balloon's id, so which way a given key points is the same every iteration
+        // rather than a thing that changes under the player.
+        public void LieDown(float yaw)
+        {
+            if (Mathf.Abs(restRoll) < 0.01f) { transform.localRotation = originLocalRotation; return; }
+            transform.rotation = Quaternion.Euler(0f, yaw, restRoll);
         }
 
         // Carried but not shown - the key goes straight in a pocket.
@@ -321,6 +370,7 @@ namespace IterationRoom
         {
             HeldByGhost = null;
             IsCarried = true;
+            Released = false;
             if (trigger != null) trigger.enabled = false;
             SetBlocking(false);
 
@@ -348,6 +398,7 @@ namespace IterationRoom
 
             HeldByGhost = null;
             IsCarried = true;
+            Released = false;
             if (trigger != null) trigger.enabled = false;
             SetBlocking(false);
 
@@ -362,6 +413,7 @@ namespace IterationRoom
         {
             HeldByGhost = null;
             IsCarried = false;
+            Released = false;
             if (trigger != null) trigger.enabled = true;
             SetBlocking(true);
 
@@ -384,6 +436,7 @@ namespace IterationRoom
         public void RevealAt(Vector3 worldPosition)
         {
             if (IsCarried) return;
+            Released = false;
             transform.position = worldPosition;
             SetVisible(true);
             if (trigger != null) trigger.enabled = true;

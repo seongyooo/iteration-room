@@ -32,7 +32,7 @@ namespace IterationRoom
 
         // How many times the player has actually ended a cycle themselves. Read by PanelMessage,
         // which retires the wall sign teaching this control once it has been USED - the same rule
-        // the Tab hint uses (PlayerHand.CycleCount) and the same one the left-click prompt settled
+        // the put-down hint uses (CarriedItemsDisplay) and the same one the left-click prompt settled
         // on. A sign that has been seen has taught nothing; one whose action has been performed has
         // nothing left to say.
         //

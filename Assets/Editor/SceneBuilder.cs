@@ -668,6 +668,12 @@ namespace IterationRoom.EditorTools
             // Baking last is also strictly better than baking early: the rooms are furnished by now,
             // so what a glossy wall mirrors is the room as the player sees it rather than a bare
             // shell. Before the save, because the reference lives in the scene.
+            // Before the bake, because it adds an AudioSource child to every carryable and the sweep
+            // that marks static renderers walks the scene as it finds it. A scene walk rather than a
+            // line in every room's builder: a new carryable anywhere gets the behaviour without its
+            // author having to know the rule exists.
+            AddFallingToEveryCarryable();
+
             BakeReflectionProbes();
 
             Directory.CreateDirectory("Assets/Scenes");
@@ -3297,14 +3303,15 @@ namespace IterationRoom.EditorTools
             // Its own half-height: the mesh is centred on its pivot, so this is what puts it ON a
             // floor rather than half through one. Only a ghost's timeline ending under it drops one.
             item.floorY = keySize / 2f;
-            item.handLocalPosition = new Vector3(0.28f, -0.26f, 0.46f);
+            item.handLocalPosition = HandPoseFor(keySize);
             // Tipped TOWARD the eye, not away. A prism seen square-on is a rectangle; -25 about X
             // brings its top face into view, which is the face that says which shape this is. The
             // yaw follows, so it is a three-quarter view like the chess pieces'.
             item.handLocalEuler = new Vector3(-25f, 20f, 0f);
-            // The anchor is unscaled and this object is 0.30 in the world, so without this it would be
-            // handed over at its full size 0.46m from the eye.
-            item.handLocalScale = Vector3.one * 0.22f;
+            // ITS OWN SIZE. The anchor is unscaled, so writing the object's world scale here is what
+            // "held at true size" means - it used to be shrunk to 0.22 to fit the view, and the view
+            // is what gives way now instead of the object.
+            item.handLocalScale = key.transform.lossyScale;
             return (plinth.transform, seat.transform, item);
         }
 
@@ -3455,16 +3462,21 @@ namespace IterationRoom.EditorTools
             // The yaw is applied AFTER the pitch (Unity's order is Z, X, then Y), so it spins the piece
             // about its own vertical rather than tipping it: a three-quarter view, where face-on a
             // bishop and a pawn are the same silhouette.
-            item.handLocalPosition = new Vector3(0.28f, -0.30f, 0.52f);
+            // Sized from the piece's own board footprint, so a king is held further out than a pawn.
+            // Its own measured height, so a king is held further out than a pawn. `bounds` is the
+            // world-space extent the trigger above is already sized from.
+            item.handLocalPosition = HandPoseFor(bounds.size.y);
             item.handLocalEuler = new Vector3(tiltX, HeldPieceYaw, 0f);
             // The same correction on a ghost's wrist, with no yaw: that anchor is tuned for the key and
             // hands a piece over lying along the forearm otherwise. A past self carrying a rook has to
             // read as carrying a rook - who is holding what is half of what makes ghosts legible.
             item.ghostLocalEuler = new Vector3(tiltX, 0f, 0f);
-            // Its board size scaled down. Not optional: the hand anchor is unscaled and the set is not, so
-            // without this the piece is handed over at 1/0.3039 of its own size. See handLocalScale.
+            // ITS BOARD SIZE, exactly. Not optional even for true-size holding: the hand anchor is
+            // unscaled and the set is not, so this is the correction that stops a piece being handed
+            // over at 1/0.3039 of its own size - a 3.5m king. What is gone is the extra 0.28 that
+            // used to shrink it below board size on top of that.
             // The SIGN matters as much as the size - it is what keeps a mirrored piece mirrored.
-            item.handLocalScale = piece.lossyScale * HeldPieceScale;
+            item.handLocalScale = piece.lossyScale;
             return item;
         }
 
@@ -3834,28 +3846,57 @@ namespace IterationRoom.EditorTools
             root.transform.position = position;
             root.transform.localRotation = rotation;
 
-            float frameSize = cubeSize + 0.5f;
-            float plateSize = cubeSize + 0.2f;
+            // A REAL HOLLOW, not a dark rectangle pretending to be one. It used to be a flat frame
+            // with the glyph panel laid on top of it, on the reasoning that there is no CSG here so a
+            // cavity has to be near-black inside a lighter border - true, but only ever convincing
+            // head-on. A raised RIM makes the same hole out of geometry: four bars standing proud of
+            // the wall with the glyph panel at the bottom of the well between them, so the depth is
+            // something the light and the viewing angle agree about instead of a trick of tone.
+            //
+            // The wall cannot be cut into, which is what decides the direction. Everything at local
+            // -Z is behind an opaque wall and simply invisible, so the well is built OUT of the
+            // surface. `lip` is therefore both how far the fixture protrudes and how deep the recess
+            // reads - shallow, because a deep box at head height on a corridor wall stops being a
+            // recess and becomes a shelf.
+            float mouth = cubeSize + 0.10f;    // the opening: 5cm of clearance round the cube
+            const float lip = 0.16f;           // how far the rim stands proud = how deep it reads
+            const float rimBand = 0.20f;       // the width of the rim itself
+            float frameSize = mouth + 2f * rimBand;
 
-            // The frame reads as the hole; the plate inside it carries the glyph. Same pair the final
-            // room's console uses, and the same reason: there is no CSG here, so what makes a cavity
-            // is near-black inside a lighter border rather than an actual void. Sized by a fixed
-            // margin over the cube rather than the old multiple of it - at nine times the cube's size
-            // the old 1.75x ratio would have made a frame wider than the room is deep.
-            GameObject frame = Prim(PrimitiveType.Cube, "Frame", root.transform,
-                new Vector3(0f, 0f, 0.02f), new Vector3(frameSize, frameSize, 0.05f),
-                MakeColorMaterial("SymbolSlotFrame", new Color(0.10f, 0.10f, 0.12f)),
+            Material rimMat = MakeColorMaterial("SymbolSlotFrame", new Color(0.10f, 0.10f, 0.12f));
+
+            // Four bars, mitred the way BuildCubeEdging mitres its own and for the same reason: bars
+            // cut to one length overlap at the corners with coplanar faces and flicker. The
+            // horizontals run the full width and take the corners; the verticals stop against them.
+            var rim = new Renderer[4];
+            float band = (mouth + rimBand) / 2f;
+            rim[0] = Prim(PrimitiveType.Cube, "RimTop", root.transform,
+                new Vector3(0f, band, lip / 2f), new Vector3(frameSize, rimBand, lip),
+                rimMat, removeCollider: true).GetComponent<Renderer>();
+            rim[1] = Prim(PrimitiveType.Cube, "RimBottom", root.transform,
+                new Vector3(0f, -band, lip / 2f), new Vector3(frameSize, rimBand, lip),
+                rimMat, removeCollider: true).GetComponent<Renderer>();
+            rim[2] = Prim(PrimitiveType.Cube, "RimLeft", root.transform,
+                new Vector3(-band, 0f, lip / 2f), new Vector3(rimBand, mouth, lip),
+                rimMat, removeCollider: true).GetComponent<Renderer>();
+            rim[3] = Prim(PrimitiveType.Cube, "RimRight", root.transform,
+                new Vector3(band, 0f, lip / 2f), new Vector3(rimBand, mouth, lip),
+                rimMat, removeCollider: true).GetComponent<Renderer>();
+
+            // The floor of the well, carrying the glyph. A cube rather than a quad: every face of a
+            // Unity cube takes the whole texture, so the one facing the room shows the glyph the
+            // right way round with nothing to configure. Sized to the mouth, so the well has no
+            // visible seam between its walls and its back.
+            Prim(PrimitiveType.Cube, "Plate", root.transform,
+                new Vector3(0f, 0f, 0.015f), new Vector3(mouth, mouth, 0.03f), faceMat,
                 removeCollider: true);
 
-            // A cube rather than a quad: every face of a Unity cube takes the whole texture, so the
-            // one facing the room shows the glyph the right way round with nothing to configure.
-            GameObject plate = Prim(PrimitiveType.Cube, "Plate", root.transform,
-                new Vector3(0f, 0f, 0.045f), new Vector3(plateSize, plateSize, 0.03f), faceMat,
-                removeCollider: true);
-
-            // In FRONT of the plate and half buried in it, so a seated cube reads as pushed into the
-            // recess rather than stuck onto it. It also covers its own symbol once it is home, which
-            // is the correct thing for it to do - that pairing has been answered.
+            // Where the cube ends up. Deep enough that it is INSIDE the well rather than resting on
+            // its lip - a third of the cube is past the rim, and the back of it is inside the wall,
+            // which is the one thing this project can do that a real hollow cannot: the wall is the
+            // occluder, so the cube looks buried rather than clipped. It also covers its own symbol
+            // once it is home, which is the correct thing for it to do - that pairing has been
+            // answered by the time anything is placed.
             GameObject seat = new GameObject("Seat");
             seat.transform.SetParent(root.transform, false);
             seat.transform.localPosition = new Vector3(0f, 0f, cubeSize * 0.30f);
@@ -3878,9 +3919,18 @@ namespace IterationRoom.EditorTools
 
             SymbolSlot slot = root.AddComponent<SymbolSlot>();
             slot.seat = seat.transform;
-            slot.plateRenderer = frame.GetComponent<Renderer>();
+            slot.plateRenderers = rim;
             slot.audioSource = MakeSource(root.transform, "SlotAudio", 1f, 0.8f);
             slot.insertClip = LoadClip(SfxDir, "sfx_floor_button_press");
+
+            // Presented clear of the mouth before it slides home: the cube is 1m and sits with its
+            // centre cubeSize*0.30 inside the seat, so it has to start far enough out that no part of
+            // it begins already through the rim. The tilt is small and deliberately not symmetrical -
+            // a cube that straightens up as it goes in reads as placed by a hand, where one that
+            // arrives square reads as a machine feeding it.
+            slot.insertOffer = new Vector3(0f, 0f, cubeSize * 0.55f + lip);
+            slot.insertTilt = new Vector3(-7f, 13f, 4f);
+            slot.insertDuration = 0.45f;
             return slot;
         }
 
@@ -3959,32 +4009,87 @@ namespace IterationRoom.EditorTools
             item.displayName = spec.name.ToUpperInvariant();
             item.icon = icon;
             item.floorY = cubeSize / 2f;
-            item.handLocalPosition = new Vector3(0.27f, -0.25f, 0.44f);
+            item.handLocalPosition = HandPoseFor(cubeSize);
             // Off-axis on two axes, so what is in the hand is seen as a CUBE - square-on it is a
             // square, which is one of the six symbols and would read as a mistake.
             item.handLocalEuler = new Vector3(-20f, 28f, 0f);
-            // Absolute, not relative to cubeSize (CarryableItem.AttachTo/AttachToGhost overwrite
-            // localScale outright) - held at the size the cube used to BE, so a metre-plus of glass
-            // does not fill the screen the moment it is picked up. The silver frame is a child, so it
-            // comes down with it and the held cube stays the same object rather than a bare block.
-            item.handLocalScale = Vector3.one * 0.20f;
+            // ITS OWN SIZE. It used to be held at 0.20 - the size the cube was before it grew - so a
+            // metre of glass would not fill the screen. It is a metre of glass, and it is carried
+            // like one now: further out, lower, and genuinely in the way. That is the trade, taken
+            // deliberately (2026-08-13). HandPoseFor is where it is tuned.
+            item.handLocalScale = Vector3.one * cubeSize;
             return item;
         }
 
         // `upper` rests on `lower` and drops to the floor when it stops doing so. The values live
-        // here and the mechanism lives in StackedItem, like every other pairing in this file.
+        // here and the mechanism lives in FallingItem, like every other pairing in this file.
         //
         // The landing borrows the floor pads' clunk, pitched well down. It is the only impact in the
         // library and a metre of glass hitting a floor in silence is worse than a borrowed sound -
         // see docs/audio.md on the pads themselves.
         private static void StandOn(CarryableItem upper, CarryableItem lower)
         {
-            StackedItem stack = upper.gameObject.AddComponent<StackedItem>();
-            stack.item = upper;
+            FallingItem stack = AddFalling(upper);
             stack.support = lower;
-            stack.audioSource = MakeSource(upper.transform, "FallAudio", 1f, 0.85f);
-            stack.audioSource.pitch = 0.62f;
-            stack.landClip = LoadClip(SfxDir, "sfx_floor_button_press");
+        }
+
+        // WHERE A HELD OBJECT SITS, from how big it is. Held objects are their TRUE SIZE now - the
+        // shrink-to-fit that every carryable used to carry is gone - so a big one has to be held
+        // further out and lower, the way a person carries a box rather than a key.
+        //
+        // Grows SUB-LINEARLY with size on purpose. Scaling the distance in step with the object
+        // would put everything at the same angular size, which is exactly what the old shrink did by
+        // another route: a metre of glass would look like the 20cm prop it used to be. These
+        // coefficients keep a small object at roughly the pose it always had and push a large one out
+        // far enough to be seen at all, while still reading as large.
+        //
+        // `size` is the object's world size across, and the caller knows it because it built it.
+        private static Vector3 HandPoseFor(float size)
+        {
+            return new Vector3(0.28f + size * 0.20f,
+                              -(0.22f + size * 0.40f),
+                               0.45f + size * 0.55f);
+        }
+
+        // Everything that can be carried can be DROPPED, and a dropped object falls. One component
+        // per carryable, added here so a new carryable anywhere in the building gets it without its
+        // author having to know - the same reason the reflection-probe sweep walks the scene rather
+        // than trusting every room to opt in.
+        //
+        // Idempotent: the cube room's towers wire their own support before this runs, and get it
+        // back rather than a second copy.
+        private static FallingItem AddFalling(CarryableItem item)
+        {
+            FallingItem fall = item.GetComponent<FallingItem>();
+            if (fall != null) return fall;
+
+            fall = item.gameObject.AddComponent<FallingItem>();
+            fall.item = item;
+            // Its own clip, and it had to be: the landing borrowed the floor pads' clunk pitched
+            // down, and that clip is a struck C6 left to ring for a second, so a dropped object
+            // announced itself like a doorbell. Pitching a pitched sound down does not stop it being
+            // pitched. `sfx_item_drop` is 85ms with its energy under 500Hz - see Tools/generate_sfx.
+            fall.audioSource = MakeSource(item.transform, "FallAudio", 1f, 0.85f);
+            // A fixed offset PER OBJECT rather than a random one per landing: two cubes off one
+            // tower must not land in unison, and the build has to be reproducible. Derived from the
+            // name, so an object's own thud is the same weight every iteration - which is a thing
+            // the player can learn, where a per-landing shuffle is just noise.
+            fall.audioSource.pitch = 0.94f + (Mathf.Abs(item.name.GetHashCode()) % 13) * 0.01f;
+            fall.landClip = LoadClip(SfxDir, "sfx_item_drop");
+            return fall;
+        }
+
+        private static int AddFallingToEveryCarryable()
+        {
+            int added = 0;
+            CarryableItem[] items = UnityEngine.Object.FindObjectsByType<CarryableItem>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+
+            foreach (CarryableItem item in items)
+                if (item.GetComponent<FallingItem>() == null) { AddFalling(item); added++; }
+
+            Debug.Log($"[SceneBuilder] Falling: {items.Length} carryables, {added} newly wired");
+            return added;
         }
 
         // The silver frame: the twelve edges of the cube, in polished steel, on a glass body. Glass
@@ -4648,8 +4753,15 @@ namespace IterationRoom.EditorTools
                 // Held nose-first means walking up to the lock and pressing E needs no mental rotation.
                 // Angled up slightly and further from the eye than the pin, which is a short stub where
                 // this is 0.20m long and would otherwise cross the middle of the screen.
-                keyItem.handLocalPosition = new Vector3(0.3f, -0.26f, 0.46f);
+                keyItem.handLocalPosition = HandPoseFor(KeyScale);
                 keyItem.handLocalEuler = new Vector3(-12f, -14f, 0f);
+                // LIES FLAT WHEN PUT DOWN. The root's built pose is KeyRestRotation - bow up,
+                // standing on its blade - which is the pose of a key left somewhere to be FOUND, not
+                // of one that has been dropped. A key stood on end where it fell reads as placed on
+                // purpose. This is the same quarter turn BalloonField gives a key coming out of a
+                // burst balloon, now stated once on the object instead of at each place that puts
+                // one down.
+                keyItem.restRoll = 90f;
                 keyItem.audioSource = MakeSource(keyRoot.transform, "PickupAudio", 1f, 0.9f);
                 keyItem.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
 
@@ -4954,6 +5066,10 @@ namespace IterationRoom.EditorTools
 
             PlayerHand hand = player.AddComponent<PlayerHand>();
             hand.holdAnchor = handAnchor.transform;
+            // A put-down stops at a wall rather than going through it. Balloons excluded for the
+            // same reason the controller excludes them - an object put down in Room2 would otherwise
+            // be stopped short by whatever balloon happened to be drifting past.
+            hand.dropBlockers = ~(1 << balloonLayer);
 
             // Stops a held object reaching through a wall the player is standing against. Balloons
             // are excluded from the cast for the same reason the controller excludes them: the item
@@ -5485,12 +5601,10 @@ namespace IterationRoom.EditorTools
         // answerable by walking to the door and trying it.
         private static void BuildCarriedItems(Transform canvas, PlayerHand hand)
         {
-            // EIGHT. Four was "two more than the puzzle has", and the puzzle has moved: six symbol
-            // cubes can be carried at once, before the pin, three keys and three escape objects. A row
-            // that silently drops the seventh thing you picked up is worse than a wide row - this is
-            // the readout whose whole job is answering "what am I still carrying".
-            const int slotCount = 8;
-            const float slotSize = 58f, gap = 14f;
+            // ONE SLOT. It was a row of eight, sized for a pocket that could hold every symbol cube
+            // at once; the hand holds exactly one object now and the other seven were a readout of
+            // something that cannot happen.
+            const float slotSize = 58f;
 
             GameObject go = new GameObject("CarriedItems");
             go.transform.SetParent(canvas, false);
@@ -5499,39 +5613,31 @@ namespace IterationRoom.EditorTools
             rect.anchorMin = new Vector2(0f, 1f);
             rect.anchorMax = new Vector2(0f, 1f);
             rect.pivot = new Vector2(0f, 1f);
-            rect.sizeDelta = new Vector2(slotCount * (slotSize + gap), slotSize);
+            rect.sizeDelta = new Vector2(slotSize, slotSize);
             rect.anchoredPosition = new Vector2(36f, -30f);
 
-            // Four is two more than the puzzle currently has, which is the point: a slot is a few
-            // bytes and growing the pool later means rebuilding the scene.
-            Image[] slots = new Image[slotCount];
-            for (int i = 0; i < slotCount; i++)
-            {
-                GameObject slotGO = new GameObject($"Slot{i}");
-                slotGO.transform.SetParent(go.transform, false);
+            GameObject slotGO = new GameObject("Slot");
+            slotGO.transform.SetParent(go.transform, false);
 
-                Image image = slotGO.AddComponent<Image>();
-                // Red like the rest of the HUD: the walls are near-white, so a white glyph
-                // disappears into them.
-                image.color = Color.red;
-                image.raycastTarget = false;
-                image.preserveAspect = true;
-                image.enabled = false;
+            Image image = slotGO.AddComponent<Image>();
+            // Red like the rest of the HUD: the walls are near-white, so a white glyph disappears
+            // into them.
+            image.color = Color.red;
+            image.raycastTarget = false;
+            image.preserveAspect = true;
+            image.enabled = false;
 
-                RectTransform slotRect = image.GetComponent<RectTransform>();
-                slotRect.anchorMin = new Vector2(0f, 1f);
-                slotRect.anchorMax = new Vector2(0f, 1f);
-                slotRect.pivot = new Vector2(0f, 1f);
-                slotRect.sizeDelta = new Vector2(slotSize, slotSize);
-                slotRect.anchoredPosition = new Vector2(i * (slotSize + gap), 0f);
+            RectTransform slotRect = image.GetComponent<RectTransform>();
+            slotRect.anchorMin = new Vector2(0f, 1f);
+            slotRect.anchorMax = new Vector2(0f, 1f);
+            slotRect.pivot = new Vector2(0f, 1f);
+            slotRect.sizeDelta = new Vector2(slotSize, slotSize);
+            slotRect.anchoredPosition = Vector2.zero;
 
-                slots[i] = image;
-            }
-
-            // The Tab prompt, under the row rather than out in the middle of the screen: it
-            // explains this readout - one icon bright, the rest dimmed - so it belongs on it. A
-            // child of the row, so moving the row moves the label with it.
-            GameObject hintGO = new GameObject("SwapHint");
+            // The put-down prompt, under the icon rather than out in the middle of the screen: it
+            // explains this readout, so it belongs on it. A child of the row, so moving the row
+            // moves the label with it.
+            GameObject hintGO = new GameObject("DropHint");
             hintGO.transform.SetParent(go.transform, false);
 
             CanvasGroup hintGroup = hintGO.AddComponent<CanvasGroup>();
@@ -5545,8 +5651,8 @@ namespace IterationRoom.EditorTools
             hint.alignment = TextAnchor.UpperLeft;
             hint.color = Color.red;
             // Bracketed key then the verb, the same shape as the end-cycle control's label.
-            hint.text = "[TAB] — SWAP ITEM";
-            // 0.6 * 16 * 17 is about 163px against a 300px rect, but overflow is set anyway - a
+            hint.text = "[E] — PUT DOWN";
+            // 0.6 * 16 * 16 is about 154px against a 300px rect, but overflow is set anyway - a
             // silently rewrapping HUD label has bitten this project twice.
             hint.horizontalOverflow = HorizontalWrapMode.Overflow;
             hint.verticalOverflow = VerticalWrapMode.Overflow;
@@ -5563,8 +5669,8 @@ namespace IterationRoom.EditorTools
 
             CarriedItemsDisplay display = go.AddComponent<CarriedItemsDisplay>();
             display.hand = hand;
-            display.slots = slots;
-            display.swapHint = hintGroup;
+            display.slot = image;
+            display.dropHint = hintGroup;
         }
 
         // The two control prompts. A grey disc over whatever the player has walked up to, with an
@@ -7150,12 +7256,11 @@ namespace IterationRoom.EditorTools
 
             MakeWallIcon(faceGO.transform, "LookFigure", FigureLookIcon(), new Vector2(rightFigureX, rowLook), figure, wallText);
 
-            // TAB, level with E on the other column - the two hand controls sharing the wall's
-            // bottom row. Nothing else the player carries is explained here otherwise, and a past
-            // self laying out everything it holds (GhostReplayer.LayOutCarried) is unreadable if the
-            // living player has never been told what puts one of those items in hand to begin with.
-            MakeKeyCap(faceGO.transform, "KeyTab", "TAB", new Vector2(glyphX, rowInteract), new Vector2(key, key), 28);
-            MakeWallIcon(faceGO.transform, "CycleFigure", CycleIcon(), new Vector2(rightFigureX, rowInteract), figure, wallText);
+            // ~~TAB, level with E~~ REMOVED with Tab itself, 2026-08-13. The hand holds one object
+            // and E is the whole of handling it: press to pick up, press again to put down. The
+            // second half of that is taught by the HUD's own prompt under the carried icon, where it
+            // can appear at the moment there is something to put down - which a wall in the first
+            // room cannot do.
 
             // --- sensitivity, lower half ---
             // The reds stay red - this is the facility's own voice and red on white panelling is the

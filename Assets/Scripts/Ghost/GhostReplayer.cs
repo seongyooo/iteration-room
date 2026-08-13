@@ -297,16 +297,60 @@ namespace IterationRoom
                 carryCursor++;
 
                 if (e.kind == CarryKind.Take) TryTake(e.itemId, e.instanceName);
-                else if (e.kind == CarryKind.Equip) ApplyEquip(e.itemId);
+                else if (e.kind == CarryKind.Drop) TryDrop(e.itemId);
                 else TrySurrender(e.itemId);
             }
         }
 
-        // Which of this ghost's items is out. The rest are WORN rather than hidden.
+        // What is in this ghost's hand. There is no Equip event any more - Tab is gone and the
+        // player carries one object - so this is set by the take that filled the hand and cleared by
+        // whatever emptied it, rather than replayed from a third kind of event.
         private void ApplyEquip(string itemId)
         {
             equippedId = itemId;
             LayOutCarried();
+        }
+
+        // A past self putting something back on the floor. It has to be reproduced or the world the
+        // recording was made in is not the world it leaves behind: an object the player dropped in
+        // Room2 on the way through would otherwise ride that ghost to the end of its timeline and be
+        // dropped wherever it happened to stop.
+        //
+        // Where it stood, not where it was recorded standing - DropAt takes the ghost's own current
+        // position, so this is identity-based like everything else here (CLAUDE.md SS1.4). A ghost
+        // that never got the object simply has nothing to put down.
+        // THE CONDITION THAT ENABLED THE PICKUP, re-evaluated against the world as it is now - the
+        // rule in CLAUDE.md SS1.3, applied to the named object as well as to the fallbacks.
+        //
+        // It was NOT applied to the named one, and that is a bug play found as an escape object
+        // teleporting into a past self's hand: the named path only asked whether the LIVING player
+        // held it. An escape object is hidden until its plinth rises, so on any iteration where the
+        // ghost's recorded take came earlier than this run's plinth, the ghost reached through the
+        // floor and took a thing that was not in the room yet. `IsFreeForGhost` reads `visible`,
+        // which is exactly the fact that was being skipped.
+        //
+        // Three ways to be ineligible, all of them real: hidden (not in play yet), already seated in
+        // a socket or in the living player's hand (both `IsCarried` with no ghost), and held by
+        // another ghost when this item has nowhere a hand-over could matter - a pin.
+        private CarryableItem Eligible(CarryableItem item, bool hasSocket)
+        {
+            if (item == null || !item.ghostCarryable) return null;
+            if (item.IsFreeForGhost) return item;
+            return hasSocket && item.HeldByGhost != null ? item : null;
+        }
+
+        private void TryDrop(string itemId)
+        {
+            for (int i = 0; i < held.Count; i++)
+            {
+                CarryableItem item = held[i];
+                if (item == null || item.itemId != itemId) continue;
+
+                held.RemoveAt(i);
+                item.DropAt(item.transform.position);
+                ApplyEquip(string.Empty);
+                return;
+            }
         }
 
         // Equipped item in the hand, everything else spread along the belt.
@@ -382,27 +426,33 @@ namespace IterationRoom
             // pocket. Falling through to the generic paths below on that rejection is correct: this
             // ghost is still entitled to A pin even when it specifically cannot have the one it
             // originally got.
+            // A hand-over is only ever eligible for an item with somewhere to GO - see the fallback
+            // below, and the note on FindHeldByGhost.
+            bool hasSocket = ItemRegistry.FindSocket(itemId) != null;
+
             CarryableItem item = null;
             if (!string.IsNullOrEmpty(instanceName))
             {
-                CarryableItem named = ItemRegistry.FindInstance(itemId, instanceName);
-                if (named != null && !named.IsCarriedByPlayer) item = named;
+                // THE NAMED OBJECT OR NOTHING, 2026-08-13. There used to be a fallback here - "this
+                // ghost is still entitled to A pin even when it cannot have the one it originally
+                // got" - and play found what that actually looks like: taking a pin off a past self
+                // and putting it down reshuffles which ghost holds which pin, every time, so the
+                // three of them appear to cycle between the ghosts for no reason the player can see.
+                //
+                // A recording says this ghost took THAT object. If that object is not available, the
+                // honest answer is that the errand does not happen this iteration - the same answer
+                // a ghost already gets when the key is gone or the socket is full. It costs a pop;
+                // it buys "a past self does exactly what you did" holding without exception.
+                item = Eligible(ItemRegistry.FindInstance(itemId, instanceName), hasSocket);
             }
-
-            // FALLBACK 1: asks for a FREE one rather than for the object - an id can be a supply
-            // (three pins), and a ghost is entitled to one of them, not to a particular one. Reached
-            // when nothing above named an object, or the named one is unavailable right now.
-            if (item == null) item = ItemRegistry.FindFreeForGhost(itemId);
-
-            // FALLBACK 2: GHOST-TO-GHOST, restored 2026-08-13. Reproduces a take the living player
-            // genuinely made off SOME past self when the recording does not (or cannot) name which
-            // one - PlayerHand.Take always records a Take, off a ghost or off the floor alike, so
-            // this is the same kind of event fallback 1 replays. Still scoped to items with a
-            // socket, purely as its own eligibility filter: a pin has no destination a hand-over
-            // could matter for, and letting one ghost's recording steal it mid-pop from another is a
-            // failure mode nobody asked to open.
-            if (item == null && ItemRegistry.FindSocket(itemId) != null)
-                item = ItemRegistry.FindHeldByGhost(itemId);
+            else
+            {
+                // NO NAME RECORDED. Only reachable for a Take written before instanceName existed;
+                // every one made now carries it. Kept because the alternative is a recording that
+                // silently does nothing at all.
+                item = ItemRegistry.FindFreeForGhost(itemId);
+                if (item == null && hasSocket) item = ItemRegistry.FindHeldByGhost(itemId);
+            }
 
             if (item == null) return;
 
@@ -450,6 +500,11 @@ namespace IterationRoom
             if (socket == null || !socket.AcceptFromGhost(item)) return;
 
             held.Remove(item);
+            // The hand is empty again, and saying so is this method's job now: the Equip event that
+            // used to follow every surrender went with Tab. Without it the ghost would go on
+            // believing it had the thing equipped, and HoldingEquipped would keep arming tool-shaped
+            // actions for an object that is sitting in a lock.
+            ApplyEquip(string.Empty);
         }
 
         // Everything down where it stands, still in play.

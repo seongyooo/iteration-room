@@ -32,7 +32,12 @@ namespace IterationRoom
         // removing it means the room no longer volunteers the answer - the symbol on the cube and
         // the symbol on the plate are the only pairing left, same as the room's own "no legend on
         // the wall" rule already asked of everything else in it.
-        public Renderer plateRenderer;
+        // SEVERAL renderers, because the recess is a real hollow now rather than a flat panel: four
+        // bars make the rim standing proud of the wall, and they have to say the same thing at the
+        // same time or the hole lights up in pieces. One painter each - LitRendererPainter caches
+        // what it last wrote, so a single one shared across four renderers would paint the first and
+        // skip the rest.
+        public Renderer[] plateRenderers;
         public Color idleColor = new Color(0.20f, 0.20f, 0.23f);
         public float idleEmission = 0f;
         public Color filledColor = new Color(0.35f, 0.62f, 0.75f);
@@ -41,23 +46,32 @@ namespace IterationRoom
         public AudioSource audioSource;
         public AudioClip insertClip;
 
+        // How the cube arrives. `insertOffer` is where it starts in the seat's own frame - local +Z
+        // is the recess's outward normal, so this is straight out of the mouth - and the tilt is what
+        // it straightens up from on the way in. Values live in SceneBuilder like everything else;
+        // these are only what a slot built without them would do.
+        public Vector3 insertOffer = new Vector3(0f, 0f, 0.55f);
+        public Vector3 insertTilt = new Vector3(-7f, 13f, 4f);
+        public float insertDuration = 0.45f;
+
         // Derived from the room rather than tracked here, so there is exactly one record of "this
         // cube's seated" - CubeRoom.seated - instead of two that discipline alone keeps in step.
         public bool Filled => room != null && room.IsSeated(acceptedItemId);
 
         private Collider trigger;
         private bool playerInRange;
-        private readonly LitRendererPainter painter = new LitRendererPainter();
+        private LitRendererPainter[] painters;
 
         private bool Running => LoopManager.Instance == null || LoopManager.Instance.AcceptsInput;
 
         // Still asked for the PROMPT's sake even though the plate no longer lights for it - the
         // press needs the cube equipped, not merely carried, like every other fixture operated WITH
         // an object.
-        private bool Wanted => Running && !Filled && hand != null && hand.Has(acceptedItemId);
-
+        // `Has` is gone with Tab: one object at a time means carried and in-hand are the same fact,
+        // so the two tests this used to draw a careful line between have collapsed into one.
         public bool WantsInteractHint =>
-            Wanted && playerInRange && hand.Holding(acceptedItemId)
+            Running && !Filled && playerInRange
+            && hand != null && hand.Holding(acceptedItemId)
             && PlayerLookup.InView(HintAnchor);
 
         public Transform HintAnchor => seat != null ? seat : transform;
@@ -65,6 +79,10 @@ namespace IterationRoom
         private void Awake()
         {
             trigger = GetComponent<Collider>();
+
+            painters = new LitRendererPainter[plateRenderers != null ? plateRenderers.Length : 0];
+            for (int i = 0; i < painters.Length; i++) painters[i] = new LitRendererPainter();
+
             ApplyPlate(idleColor, idleEmission);
         }
 
@@ -85,6 +103,11 @@ namespace IterationRoom
 
             if (!WantsInteractHint) return;
             if (!Input.GetKeyDown(KeyCode.E)) return;
+            // Checked as well as claimed - see PlayerLookup.InteractTaken. E means one thing at a
+            // time, and standing at the right recess with the right cube is what decides which.
+            if (PlayerLookup.InteractTaken) return;
+
+            hand.MarkInteract();
 
             // Asked of the ROOM, not of this slot's own `Filled`. A cube can be seated by a past self
             // between one frame and the next, and the room is the one place that knows.
@@ -108,12 +131,25 @@ namespace IterationRoom
         public void Accept(CarryableItem cube)
         {
             if (cube == null) return;
-            cube.InsertInto(seat != null ? seat : transform);
-            if (audioSource != null && insertClip != null) audioSource.PlayOneShot(insertClip);
+
+            Transform socket = seat != null ? seat : transform;
+            // SEATED FIRST, then animated. InsertInto is what actually takes custody - after this
+            // line the cube is in state 4 of CLAUDE.md SS1.2 whatever happens next - and the slide
+            // only decides where it is drawn on the way. An animation that owned the hand-over could
+            // lose the object if it were interrupted; this one cannot.
+            cube.InsertInto(socket);
+            StartCoroutine(SocketInsert.Slide(cube, socket, insertOffer, insertTilt, insertDuration,
+                                              audioSource, insertClip));
         }
 
-        // Through a property block, because the six plates share one material and each is saying
+        // Through a property block, because the six recesses share one material and each is saying
         // something different about itself.
-        private void ApplyPlate(Color color, float emission) => painter.Paint(plateRenderer, color, color * emission);
+        private void ApplyPlate(Color color, float emission)
+        {
+            if (plateRenderers == null || painters == null) return;
+
+            int count = Mathf.Min(plateRenderers.Length, painters.Length);
+            for (int i = 0; i < count; i++) painters[i].Paint(plateRenderers[i], color, color * emission);
+        }
     }
 }

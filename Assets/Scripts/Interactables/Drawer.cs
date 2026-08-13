@@ -80,7 +80,13 @@ namespace IterationRoom
             // wake-up would otherwise open this before the player can see the room.
             if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
 
-            if (Input.GetKeyDown(KeyCode.E)) RegisterPlayerOpen();
+            if (!Input.GetKeyDown(KeyCode.E)) return;
+            // Checked as well as claimed - see PlayerLookup.InteractTaken. Checking stops a second
+            // fixture answering the same press; claiming stops PlayerHand reading it as "put down".
+            if (PlayerLookup.InteractTaken) return;
+
+            PlayerLookup.ClaimInteract();
+            RegisterPlayerOpen();
         }
 
         // The player's own pull, and only theirs, raises the pulse PlayerRecorder samples.

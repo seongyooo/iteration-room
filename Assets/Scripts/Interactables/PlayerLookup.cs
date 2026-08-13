@@ -42,6 +42,26 @@ namespace IterationRoom
             }
         }
 
+        // ONE PRESS, ONE ACTION. Every fixture polls E for itself in its own Update, and Unity's
+        // script execution order is arbitrary, so two of them answering the same press is decided by
+        // a coin toss - play found it as picking a key up and putting it in the lock with one press.
+        //
+        // A fixture must CHECK this before acting and CLAIM it when it does, and the two halves are
+        // equally load-bearing: claiming without checking is what let the second fixture through,
+        // and checking without claiming lets `PlayerHand.LateUpdate` read the press as "put it down"
+        // and throw the object on the floor.
+        //
+        // CLAIM ONLY WHEN YOU ACT. A fixture that claims a press it then refuses is a deadlock: a
+        // lock that eats every E because the player has the wrong key means they can never pick up
+        // the right one while standing next to it.
+        public static bool InteractTaken => Hand != null && Hand.InteractedThisFrame;
+
+        public static void ClaimInteract()
+        {
+            PlayerHand hand = Hand;
+            if (hand != null) hand.MarkInteract();
+        }
+
         // ON SCREEN. Every fixture in the game answers E on PROXIMITY - a polled volume around it -
         // which is right for "am I close enough to touch this" and says nothing at all about whether
         // the player can see it. So a press could take an item behind you, or work a recess you had

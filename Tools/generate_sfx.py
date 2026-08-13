@@ -532,6 +532,50 @@ def footstep(seed, weight=1.0, scuff=1.0):
     return fade_edges(normalize(out, 0.62))
 
 
+def item_drop(seed=7701):
+    """An object let go of, landing on a hard floor. A THUD, not a note.
+
+    It replaces `sfx_floor_button_press` pitched down, which is what the fall borrowed while nothing
+    better existed - and that clip is a struck C6 left to ring, so a dropped cube announced itself
+    like a doorbell however far the pitch came down. Pitching a pitched sound down does not stop it
+    being pitched.
+
+    Three layers, in order of how much they matter. The IMPACT is a burst of noise pushed into the
+    low-mids and cut off inside 15ms - almost the whole sound, and the reason it reads as an event
+    rather than a tone. The BODY is a short sine at 104 Hz for mass; it is deliberately lower and
+    shorter than a footstep's, because a dropped object is lighter than a person and stops sooner,
+    and anything longer starts to read as a kick drum - the mistake `button_tone` documents having
+    made in the other direction. The TAP is the only thing above 1 kHz and it is what says the floor
+    is hard rather than carpeted, the same job the sole does in `footstep`.
+
+    Then a much quieter second contact 55ms later: things dropped do not stop dead, they settle. It
+    is 18% of the level, which is under conscious notice and is what stops the clip sounding like a
+    sample rather than a thing happening.
+
+    Under 0.15s in total, for the reason `footstep` and `balloon_pop` both are: several objects can
+    land close together - a tower coming apart is two - and a tail turns that into a rumble."""
+    rng = random.Random(seed)
+
+    impact = apply_env(lowpass(noise(0.07, rng), 260.0, q=0.8),
+                       env_decay(int(0.07 * SR), 0.013, attack=0.0006))
+    body = apply_env(sine(0.06, 104.0), env_decay(int(0.06 * SR), 0.011, attack=0.0006))
+    tap = apply_env(bandpass(noise(0.02, rng), 1900.0, q=0.9),
+                    env_decay(int(0.02 * SR), 0.0035, attack=0.0003))
+
+    out = mix(scale(impact, 1.0), scale(body, 0.50))
+    # A hair after the impact rather than on top of it, so the surface is heard as a consequence of
+    # the arrival - the same offset the footstep's sole uses.
+    out = at(out, scale(tap, 0.28), 0.002)
+
+    settle = mix(scale(apply_env(lowpass(noise(0.03, rng), 300.0, q=0.8),
+                                 env_decay(int(0.03 * SR), 0.006, attack=0.0004)), 1.0),
+                 scale(apply_env(bandpass(noise(0.012, rng), 2100.0, q=0.9),
+                                 env_decay(int(0.012 * SR), 0.002, attack=0.0002)), 0.35))
+    out = at(out, scale(settle, 0.18), 0.055)
+
+    return fade_edges(normalize(out, 0.62))
+
+
 def main():
     print("Writing SFX to", os.path.normpath(OUT))
     # Three footfalls, deliberately uneven: no two real steps weigh the same, and the variation is
@@ -551,6 +595,7 @@ def main():
     write("sfx_balloon_pop", balloon_pop())
     write("sfx_drawer_open", drawer_open())
     write("sfx_item_pickup", item_pickup())
+    write("sfx_item_drop", item_drop())
     print("done")
 
 
