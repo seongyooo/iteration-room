@@ -110,7 +110,11 @@ namespace IterationRoom
         // describes can be taken away without asking: PlayerHand.Take pulls an item straight out of
         // a ghost's hands. Trusting the cache let a ghost keep popping balloons for the rest of the
         // iteration with the pin visibly in the living player's hand.
-        private bool HoldingEquipped(string itemId)
+        // PUBLIC because a tool-gated fixture has to ask it. `ChopStation` re-evaluates on every count
+        // rather than trusting the recorded signal: a past self that had an axe when the recording was
+        // made may not have one now, since the living player can take it straight out of its hands.
+        // That is the §1.3 re-evaluation, and it can only be done from outside.
+        public bool HoldingEquipped(string itemId)
         {
             if (string.IsNullOrEmpty(itemId) || equippedId != itemId) return false;
             for (int i = 0; i < held.Count; i++)

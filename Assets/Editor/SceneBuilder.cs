@@ -34,6 +34,10 @@ namespace IterationRoom.EditorTools
         // Three ids rather than one shared one, because `ItemRegistry` maps an id to exactly ONE
         // socket with the last writer winning - a shared id would leave two of the three recesses
         // unreachable.
+        // Room3's axes. A SUPPLY sharing one id, exactly as the pins are: what the room needs is
+        // several people each holding one, and `ItemRegistry` resolves an id to a free instance.
+        private const string AxeItemId = "Axe2";
+
         private const string ShardAItemId = "Shard2A";
         private const string ShardBItemId = "Shard2B";
         private const string ShardCItemId = "Shard2C";
@@ -3006,6 +3010,12 @@ namespace IterationRoom.EditorTools
             doors[1].condition = chorus;
             doors[1].openUntilPuzzled = false;
 
+            // ROOM3: the tree. Its door is the corner one out of room3, into room4.
+            (Tree tree, ChopStation[] chopStations, CarryableItem[] axes) =
+                BuildTreeRoom(rooms[2], propMat);
+            doors[2].condition = tree;
+            doors[2].openUntilPuzzled = false;
+
             // NO PUZZLES BEHIND THESE YET, so they stand open and the ring can be walked. Each flag
             // comes off as its room is built - see Door.openUntilPuzzled.
             //
@@ -3023,9 +3033,10 @@ namespace IterationRoom.EditorTools
             var signals = new System.Collections.Generic.List<GhostInteractable>();
             signals.AddRange(pads);
             signals.AddRange(chorusLevers);
+            signals.AddRange(chopStations);
 
             return (root.transform, spawn, gas, doors,
-                    new RoomCondition[] { numberLock, chorus },
+                    new RoomCondition[] { numberLock, chorus, tree },
                     signals.ToArray(), rooms);
         }
 
@@ -7733,6 +7744,131 @@ namespace IterationRoom.EditorTools
         // NORMALISED TO A UNIT BOUNDING BOX like the prism it generalises, so a localScale of 0.30
         // still means 0.30 ACROSS for every one of the three. The barrel ring is the widest part, so
         // it is the ring the bounds are taken from.
+        // ROOM3: THE TREE. `Iteration - Future Ideas.md` §3, and the room the whole design has been
+        // promising - the one whose payoff is five past selves swinging at once while the living
+        // player walks between them.
+        //
+        // WHICH WAY IT FALLS IS FORCED. This is a corner room: the player comes in through the NORTH
+        // wall and leaves through the WEST. A tree that fell north would block the way in on every
+        // later iteration, and one that fell west would block the way out - so east is the only
+        // direction left, and the trunk is sized to land inside the room rather than through its wall.
+        //
+        // THE TRUNK IS NOT WHAT BLOCKS THE ROOM - the buttresses either side of it are. A trunk alone
+        // leaves a gap at each wall wide enough to walk round, and the puzzle would be optional.
+        private static (Tree tree, ChopStation[] stations, CarryableItem[] axes)
+            BuildTreeRoom(Transform roomRoot, Material propMat)
+        {
+            GameObject root = new GameObject("TreeRoom");
+            root.transform.SetParent(roomRoot, false);
+
+            Material barkMat = MakeColorMaterial("TreeBark", new Color(0.20f, 0.14f, 0.10f));
+            SetSmoothness(barkMat, 0.18f);
+            Material markMat = MakeEmissiveMaterial("ChopMark", new Color(0.45f, 0.47f, 0.52f), 0f);
+
+            const float trunkRadius = 1.05f;
+            // Short enough that lying east it stops inside the room: 1.05 of trunk plus 3.1 of length
+            // against a wall 4.375 out.
+            const float trunkHeight = 3.1f;
+            const float wallHeight = 2.3f;
+
+            // Hinged at the base on the EAST side of the trunk, so the whole thing tips about the
+            // point it would actually break at.
+            GameObject hinge = new GameObject("TreeHinge");
+            hinge.transform.SetParent(root.transform, false);
+            hinge.transform.localPosition = new Vector3(trunkRadius, 0f, 0f);
+
+            Prim(PrimitiveType.Cylinder, "Trunk", hinge.transform,
+                 new Vector3(-trunkRadius, trunkHeight / 2f, 0f),
+                 new Vector3(trunkRadius * 2f, trunkHeight / 2f, trunkRadius * 2f), barkMat);
+
+            // The buttresses: what actually seals the room, from the trunk to each side wall. They
+            // tip with the trunk, which is what "the tree came down" has to look like - the way is
+            // clear because the whole thing moved, not because a barrier was switched off.
+            float halfX = RoomWidth / 2f;
+            float span = halfX - trunkRadius + WallDepth;
+            Prim(PrimitiveType.Cube, "Buttress_West", hinge.transform,
+                 new Vector3(-trunkRadius - trunkRadius - span / 2f, wallHeight / 2f, 0f),
+                 new Vector3(span, wallHeight, 1.1f), barkMat);
+            Prim(PrimitiveType.Cube, "Buttress_East", hinge.transform,
+                 new Vector3(-trunkRadius + trunkRadius + span / 2f, wallHeight / 2f, 0f),
+                 new Vector3(span, wallHeight, 1.1f), barkMat);
+
+            // FIVE PLACES TO STAND, on the north side - the side the player arrives from, and the
+            // side the tree does not fall onto. Spread across the room's width so five bodies fit
+            // without standing in each other.
+            var stations = new ChopStation[5];
+            for (int i = 0; i < stations.Length; i++)
+            {
+                float x = (i - 2) * 1.7f;
+                GameObject go = new GameObject($"ChopStation_{i}");
+                go.transform.SetParent(root.transform, false);
+                go.transform.localPosition = new Vector3(x, 0f, 1.9f);
+
+                GameObject mark = Prim(PrimitiveType.Cylinder, "Mark", go.transform,
+                    new Vector3(0f, 0.015f, 0f), new Vector3(1.1f, 0.015f, 1.1f), markMat,
+                    removeCollider: true);
+
+                ChopStation station = go.AddComponent<ChopStation>();
+                station.axeItemId = AxeItemId;
+                station.activationRadius = 0.6f;
+                station.markRenderer = mark.GetComponent<Renderer>();
+                stations[i] = station;
+            }
+
+            // SIX AXES FOR FIVE STATIONS, on a rack against the south wall - which this room has to
+            // itself, having no doorway in it. One spare, because a supply that exactly matches the
+            // requirement makes a single axe left in the wrong place unrecoverable.
+            Material headMat = MakePolishedMetalMaterial("AxeHead", new Color(0.86f, 0.87f, 0.90f), 0f);
+            Material haftMat = MakeColorMaterial("AxeHaft", new Color(0.42f, 0.28f, 0.16f));
+            var axes = new CarryableItem[6];
+            for (int i = 0; i < axes.Length; i++)
+                axes[i] = BuildAxe(root.transform, $"Axe_{i}",
+                    new Vector3((i - 2.5f) * 0.85f, 0f, -RoomDepth / 2f + 0.7f), headMat, haftMat);
+
+            Tree tree = root.AddComponent<Tree>();
+            tree.stations = stations;
+            tree.choppersNeeded = 5;
+            tree.hinge = hinge.transform;
+            tree.audioSource = MakeSource(root.transform, "TreeAudio", spatialBlend: 1f, volume: 1f);
+            tree.fallClip = LoadClip(SfxDir, "sfx_power_down");
+            return (tree, stations, axes);
+        }
+
+        // One axe. `BuildPin` is the template - the simplest complete carryable in the project - and
+        // this is the same thing at a different size with a head on it.
+        private static CarryableItem BuildAxe(Transform parent, string name, Vector3 localPos,
+                                              Material headMat, Material haftMat)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+
+            GameObject body = new GameObject("Body");
+            body.transform.SetParent(go.transform, false);
+            Prim(PrimitiveType.Cylinder, "Haft", body.transform, new Vector3(0f, 0.42f, 0f),
+                 new Vector3(0.07f, 0.42f, 0.07f), haftMat, removeCollider: true);
+            Prim(PrimitiveType.Cube, "Head", body.transform, new Vector3(0f, 0.80f, 0.06f),
+                 new Vector3(0.09f, 0.20f, 0.26f), headMat, removeCollider: true);
+
+            BoxCollider reach = go.AddComponent<BoxCollider>();
+            reach.isTrigger = true;
+            reach.center = new Vector3(0f, 0.5f, 0f);
+            reach.size = new Vector3(0.7f, 1.1f, 0.7f);
+
+            CarryableItem item = go.AddComponent<CarryableItem>();
+            item.itemId = AxeItemId;
+            item.displayName = "AXE";
+            item.floorY = 0.04f;
+            // Laid down rather than standing, so an axe on the floor reads as dropped rather than
+            // as planted.
+            item.restRoll = 90f;
+            item.handLocalPosition = HandPoseFor(0.9f);
+            item.handLocalEuler = new Vector3(-18f, 0f, 8f);
+            item.audioSource = MakeSource(go.transform, "AxeAudio", spatialBlend: 1f, volume: 0.8f);
+            item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+            return item;
+        }
+
         // ROOM2'S PUZZLE: three levers that come back up on their own.
         //
         // SPREAD AS FAR APART AS THE ROOM ALLOWS, and that spacing IS the difficulty. The levers hold
@@ -7802,6 +7938,11 @@ namespace IterationRoom.EditorTools
                 lever.arm = pivot.transform;
                 lever.lampRenderer = lamp.GetComponent<Renderer>();
                 lever.hintAnchor = pivot.transform;
+                // TWO SECONDS. The room's three separations are 4.4s, 3.2s and 2.0s of walking, so at
+                // four seconds one person could hold two of the three together and only the long
+                // diagonal was out of reach. At two, every pair but the shortest is beyond one person
+                // - and that shortest one is a dead heat rather than a walk.
+                lever.holdSeconds = 2f;
                 lever.audioSource = MakeSource(go.transform, "LeverAudio", spatialBlend: 1f, volume: 0.85f);
                 lever.pullClip = LoadClip(SfxDir, "sfx_drawer_open");
                 lever.releaseClip = LoadClip(SfxDir, "sfx_floor_button_release");
