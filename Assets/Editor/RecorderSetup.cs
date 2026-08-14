@@ -11,10 +11,10 @@ namespace IterationRoom.EditorTools
     // record rather than ready to be configured.
     //
     // WHY RECORDER AND NOT A SCREEN CAPTURE. Windows' own recorder writes whatever the game actually
-    // managed to draw. This game ACCUMULATES: a clear takes fourteen iterations, and by the end there
-    // are thirteen ghosts on screen, each with an animator and the afterimage shader. **The moment
-    // the game is most worth showing is the moment it runs slowest**, so a screen capture is at its
-    // worst exactly where a trailer needs it to be at its best.
+    // managed to draw. This game ACCUMULATES: a practised clear takes about ten iterations and a first
+    // one more, so by the end there are nine or more ghosts on screen, each with an animator and the
+    // afterimage shader. **The moment the game is most worth showing is the moment it runs slowest**,
+    // so a screen capture is at its worst exactly where a trailer needs it to be at its best.
     //
     // `FrameRatePlayback.Constant` is the whole answer: Recorder drives `Time.captureFramerate`, so
     // the game advances a fixed 1/60s per rendered frame no matter how long that frame took in real

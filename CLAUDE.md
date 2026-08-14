@@ -37,37 +37,40 @@ have already finished and carrying them to the console. **The clock runs through
 it ends nothing, and a run that gets there with two objects is pulled back to the bed like any
 other. There is no button anywhere in the game that ends it.
 
-**PLAYED THROUGH TO THE THREE-OBJECT ESCAPE ON THE ONE-OBJECT DESIGN, 2026-08-14. Best of two runs
-that day: ITERATION 12 in 7:30 of total elapsed time** (the first was 14 in 8:29). Both are the game
-as it now is: Tab and the pocket gone, one object in the hand, E to put down, held objects at true
-size. What they settle:
+**PLAYED THROUGH TO THE THREE-OBJECT ESCAPE ON THE ONE-OBJECT DESIGN. Three clears, 2026-08-14, all
+on one build: 14 iterations in 8:29, then 12 in 7:30, then ITERATION 10 in 4:47.** The build is the
+game as it now is: Tab and the pocket gone, one object in the hand, E to put down, held objects at
+true size. What they settle:
 
-- **Two iterations and a minute came off between the first run and the second, on the same build.**
-  Nothing changed but the player knowing what to do. So **12 is a skill figure approaching a floor,
-  not a measure of how much game there is** — quote it as "about a dozen", expect a first-time player
-  to need more, and do not read a future rise or fall of one or two iterations as content having
-  changed.
-
+- **Nothing changed across the three runs but the player knowing what to do, and the figure fell every
+  time — and it has NOT converged.** Reading twelve as "a skill figure approaching a floor" was
+  premature; it took one more run to find ten. Quote the count as **about ten for someone who knows the
+  game**, expect a first-time player to need considerably more, and do not read a movement of one or
+  two iterations as content having changed.
+- **The last run nearly halved the clock while taking only two iterations off.** Time is falling much
+  faster than the count, so what a practised player is saving is not errands — it is the walking
+  inside each one, and ending the iteration the moment its errand lands.
+- **10 iterations in 4:47 averages 29 seconds apiece** — under half the 60-second budget, down from
+  37. That is `EndCycleControl` used aggressively, which is the loop working as intended: an
+  iteration is worth exactly as long as it takes to add one thing.
+- **A practised clear is now under five minutes.** That is a statement about how much game there is,
+  not about pacing, and it is the strongest argument yet for the extra puzzles the Steam plan wants.
 - **Removing the pocket did not lengthen the run. It shortened it.** The prediction on the way in was
   that one-object-at-a-time would cost iterations, because three escape objects can no longer reach
-  Room4 in one trip. It came out at 14 and then 12, against the old design's 15 — and 7:30 against its
-  ~15 minutes. Some of that is a practised player, but the direction is the opposite of the one that
+  Room4 in one trip. It came out at 14, 12, 10 against the old design's 15 — and 4:47 against its
+  ~15 minutes. Much of that is a practised player, but the direction is the opposite of the one that
   was feared, and the design argument for the change no longer has to be paid for in length.
-- **12 iterations in 7:30 means most of them are ended EARLY** — sixty seconds apiece would be 12
-  minutes, and the average is nearer 37 seconds. That is `EndCycleControl` being used the moment an
-  errand is done, which is the loop working as intended: an iteration is worth exactly as long as it
-  takes to add one thing.
 - **The endgame shape works in a human's hands.** Past selves deliver the escape objects they
   delivered while the living player brings the last one. The known sharp edge — a ghost's recorded
   delivery is refused outright if this run's console has not risen yet, and never retried — did not
-  stop a clear; whether it was ever hit is unknown.
+  stop any of the three clears; whether it was ever hit is unknown.
 - **60 seconds is still not the binding constraint.** Measured at `walkSpeed` 2.5 with sprint unused.
   A new room's cost is paid in ITERATIONS, never in metres.
 
 **Superseded**: the old figures were 15 iterations, ~15 minutes, and a final lap with 8 seconds of
 margin — that lap was three collections in one trip and cannot happen now. `git log` has the rest.
 
-What one clear still does **not** answer: whether twelve chess pieces is the right length, whether a
+What three clears still do **not** answer: whether twelve chess pieces is the right length, whether a
 metre of glass held at true size is pleasant or merely tolerable, and whether any of it is enjoyable
 rather than merely finishable.
 
@@ -427,6 +430,7 @@ and only the second answers whether something is understandable or enjoyable.
 | `docs/build-and-stack.md` | Engine/pipeline detail, both rebuild paths |
 | `docs/ghost-possession-design.md` | Ghost custody: the full argument |
 | `docs/puzzle-design.md` | Room-by-room design, and the three puzzle shapes |
+| `docs/cycle-design.md` | The cycle paradigm: how new puzzles get added from here (designed, not built) |
 | `docs/ghosts.md` | Ghost appearance, the afterimage shader, animation scrubbing |
 | `docs/loop-and-ui.md` | Loop, wake-up, ending, sensitivity, pause, menu, HUD |
 | `docs/room-geometry.md` | Shells, the wall grid, doors |

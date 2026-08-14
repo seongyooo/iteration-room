@@ -113,7 +113,7 @@ never fights for a tool that gates nothing.
 Outcome: **the gate shipped with one pin**, the costs above accepted. The pin supply remains the
 mitigation to reach for if the room turns out to be too slow to clear.
 
-### Open question: one loop, or chapters?
+### Settled 2026-08-14: one loop, or chapters? — NEITHER, superseded by CYCLES
 
 Today every puzzle sits inside one 60-second loop, from one bed, with ghosts accumulating forever. The alternative is **chapters**: clear a section, wake in a *new* bed, start a fresh set of iterations.
 
@@ -124,6 +124,19 @@ Chapters would answer three live problems at once, which is why this needs decid
 - ~~**The ~7-iteration floor stops growing.**~~ Also largely answered by the same change — a room whose work a ghost can carry out stops adding to the floor once it is solved.
 
 **Two of the three reasons for chapters are now gone**, which weakens the case considerably: what is left is the ghost reset, and that has its own answer to find. The cost was always the thing the prototype is actually about — **one unbroken loop is the premise**, and cutting it into chapters makes each one a small puzzle box rather than a place you are trapped in. It also throws away accumulated ghosts, which are the visible record of the work; the ending's last image is two past selves holding pads, and that only lands because they were both earned in one run.
+
+**Outcome: chapters stay rejected, and the question is closed by a different proposal.** See
+`docs/cycle-design.md`. A **cycle** is not a chapter: the boundary is not a section clear but the
+**win** — all three escape objects into the console, `CYCLE BROKEN`, and then an opening behind the
+console onto another bed one floor down. That dodges the first objection outright, because inside a
+cycle nothing changes and the player never meets a puzzle box. The second objection stands and is
+paid: accumulated ghosts *are* discarded. What makes it payable is that the discard now happens at
+the one moment every ghost is working at once, with the player walking through them to reach the
+opening — spent rather than deleted, which is the climax `Iteration — Future Ideas.md` §14 has always
+asked for.
+
+This also supplies the **ghost reset trigger** that this entry said still had "its own answer to
+find" — which is the open spec §4.6 deviation listed below.
 
 ### Rejected, on grounds that could change
 

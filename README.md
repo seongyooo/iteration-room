@@ -14,7 +14,8 @@ past self is standing on the pad. The whole game is that idea extended.
 finishing it means three puzzle rooms' worth of errands divided across as many past selves as it
 takes.
 
-Best measured clear: **iteration 12, in 7:30 total** (2026-08-14).
+Best measured clear: **iteration 10, in 4:47 total** (2026-08-14). A first run takes considerably
+more.
 
 ---
 
@@ -135,6 +136,7 @@ under the same name and delete nothing else.
 | `CLAUDE.md` | The rules you must follow before changing code. Start here. |
 | `docs/architecture.md` | Script-by-script index |
 | `docs/puzzle-design.md` | Room-by-room design reasoning |
+| `docs/cycle-design.md` | The cycle paradigm: how new puzzles get added from here |
 | `docs/ghost-possession-design.md` | Ghost custody: the full argument |
 | `docs/loop-and-ui.md` | Loop, wake-up, ending, HUD, menus |
 | `docs/room-geometry.md` | Shells, the wall grid, doors |
