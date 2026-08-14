@@ -335,6 +335,32 @@ both floors existing except looking through the shaft.
    (§5a-4). Written that way, cycle 3 costs nothing to add and the question can stay open
    indefinitely.
 
+### 8a. An idea, recorded only — the walk back through every cycle
+
+**Raised 2026-08-14. Not decided, not planned, and nothing in this document depends on it.**
+
+Once every cycle is cleared — say there are ten — the player returns to `room1-1` and simply **walks
+forward through all ten cycles**, with every ghost from every cycle still there. No puzzle, no timer,
+nothing asked. Sightseeing your own record: *so this is what I have been doing.*
+
+**Why it is worth keeping.** It is §2's "spent, not deleted" argument applied to the whole game
+instead of one lap, and it is a far better answer to §8's open question than a results screen. It also
+gives the discarded ghosts a second life, which is the one cost of the cycle paradigm this document
+could not pay off.
+
+**Two things it collides with, so the price is known before anyone falls in love with it:**
+
+- **Ghosts are discarded at every boundary, and timelines live nowhere but on the ghost objects
+  themselves** (§5c-16). Bringing them all back means either never discarding — ten cycles at ten
+  iterations is on the order of **a hundred simultaneous ghosts**, a different question from the
+  thirteen already unprofiled — or **serialising every timeline**, which is exactly what §4b's
+  checkpoint was designed to avoid.
+- **The cheap version and the expensive version are very far apart, and they may deliver the same
+  feeling.** "So this is what I did" does not obviously require live replay: posed figures, a subset
+  of the ghosts, or an outright scripted diorama would read much the same walking past at speed.
+  **Decide which one is actually wanted before costing it** — the expensive version is the only one
+  that reopens serialisation.
+
 **Closed, and recorded because they nearly cost work:**
 
 - *"Do ghosts keep moving after completion?"* — answered by removing the break and by §2's
