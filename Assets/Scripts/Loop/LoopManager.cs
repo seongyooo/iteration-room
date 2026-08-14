@@ -47,6 +47,16 @@ namespace IterationRoom
         // Puts the player out at a boundary. Fires with no warning at all - see SleepingGas.
         public SleepingGas sleepingGas;
 
+        // HOW LONG THE PLAYER GETS IN THE NEW ROOM BEFORE THE GAS. Measured from the moment they
+        // land, not from the moment they drop: the fall is the last thing they chose to do and it
+        // should be allowed to finish.
+        //
+        // Five seconds is enough to stand up, turn round and see that there is a bed - which is the
+        // whole point of the beat, because the bed is what tells them what is about to happen. Much
+        // less and the room is gassed before it has been read; much more and the player starts
+        // looking for something to do, and there is nothing.
+        public float settleBeforeGas = 5f;
+
         // How long before the reset the room starts coming apart: the wall displays blow out and
         // the view begins to judder, both building to the moment the cycle takes you.
         public float collapseLeadTime = 10f;
@@ -154,7 +164,10 @@ namespace IterationRoom
             // incremented - the clock is stopped, IterationRunning is false, and every interactable is
             // therefore already inert. The player has full control meanwhile, which is the point;
             // iteration 1 teleports them back to the bed regardless.
-            if (calibration != null)
+            // Skipped on the test shortcut. Setting the sensitivity is the one thing that genuinely
+            // has to happen before the first iteration, and it is also the one thing nobody wants to
+            // do again on the twentieth run at a boundary.
+            if (calibration != null && !DebugStart.AtCycleBoundary)
             {
                 calibration.Begin();
                 while (!calibration.Confirmed) yield return null;
@@ -252,6 +265,14 @@ namespace IterationRoom
                     endRequested = false;
                     IterationRunning = true;
 
+                    // AFTER the clock is live, because everything it drives gates on AcceptsInput -
+                    // a console asked to rise while the iteration is not running does nothing.
+                    if (DebugStart.AtCycleBoundary)
+                    {
+                        DebugStart.AtCycleBoundary = false;
+                        yield return JumpToBoundary();
+                    }
+
                     while (ElapsedTime < loopDuration && !endRequested && !CycleComplete)
                     {
                         ElapsedTime += Time.deltaTime;
@@ -346,6 +367,47 @@ namespace IterationRoom
             }
         }
 
+        // ARRANGES THE WORLD AT A CYCLE BOUNDARY, without faking any of it.
+        //
+        // Every step here is something the player would otherwise have done: stand in the last room,
+        // let the console come up, put the three objects in. It then STOPS - `CycleComplete` is
+        // noticed by the ordinary inner loop and everything after that is the real path. A shortcut
+        // that jumped straight to `CrossToNextCycle` would test the shortcut rather than the game.
+        //
+        // See DebugStart. Editor-only in practice: nothing sets the flag except the title screen's
+        // test button.
+        private IEnumerator JumpToBoundary()
+        {
+            FinalRoomSequence room = Current != null ? Current.finalRoom : null;
+            if (room == null || room.console == null) yield break;
+
+            // Standing where the doorway leaves you, facing the console. The room is entered from -Z,
+            // so this is a short walk back from where the player would actually be.
+            if (playerController != null)
+            {
+                Vector3 at = room.console.transform.position;
+                playerController.Teleport(new Vector3(at.x, 0.05f, at.z - 2.6f), Quaternion.identity);
+            }
+
+            // The console rises on arrival, and arrival is a doorway the player never came through.
+            room.arrival?.ForceArrived();
+
+            // A sunk console accepts nothing - FinalSlot gates on the room being Active, which gates
+            // on the plinth being all the way up. So this waits rather than assuming.
+            while (!room.console.Raised) yield return null;
+
+            foreach (FinalSlot slot in room.slots)
+            {
+                if (slot == null || !slot.Declared) continue;
+
+                // The same lookup a ghost's delivery uses, and the same Accept path, so a slot that
+                // would refuse a real object refuses this too.
+                CarryableItem item = ItemRegistry.FindFreeForGhost(slot.AcceptedItemId)
+                                     ?? ItemRegistry.FindHeldByGhost(slot.AcceptedItemId);
+                if (item != null) slot.AcceptFromGhost(item);
+            }
+        }
+
         // This cycle's console is full. The only way out of a cycle, and it used to be the only way
         // out of the game - reaching Room4 once ended a run, then filling its console did.
         private bool CycleComplete => Current != null && Current.Complete;
@@ -408,6 +470,12 @@ namespace IterationRoom
                 exit.Open();
                 while (!exit.PlayerThrough) yield return null;
                 exit.Seal();
+
+                // DOWN, AND STANDING. Waiting on the landing rather than on the drop is what stops
+                // the gas arriving while the player is still in the air, which would read as being
+                // shot down rather than as the room deciding something.
+                while (playerController != null && !playerController.IsGrounded) yield return null;
+                yield return new WaitForSeconds(settleBeforeGas);
             }
 
             // AND THEN, WITH NO WARNING. Not announced, not telegraphed: the player is not in a bed

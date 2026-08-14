@@ -134,6 +134,11 @@ namespace IterationRoom
         private CharacterController controller;
         private float pitch;
         private float verticalVelocity;
+
+        // STANDING ON SOMETHING. Read by LoopManager at a cycle boundary, which holds the gas until
+        // the player has actually landed in the room below rather than firing it at someone still
+        // falling - the drop is the last thing they chose to do, and it should finish.
+        public bool IsGrounded => controller != null && controller.isGrounded;
         // Metres walked, ever. The gait's phase, and the reason it is distance and not time.
         private float bobDistance;
         private int lastStepIndex;

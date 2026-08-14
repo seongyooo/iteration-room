@@ -21,6 +21,11 @@ namespace IterationRoom
         public CanvasGroup loadingGroup;
         public Button playButton;
         public Button quitButton;
+
+        // Straight to the cycle boundary, with cycle 1 already finished. A development shortcut and
+        // labelled as one - see DebugStart for why eight minutes of play per test is the thing it
+        // exists to avoid.
+        public Button testBoundaryButton;
         public Image loadingFill;
         public Text loadingLabel;
 
@@ -39,6 +44,7 @@ namespace IterationRoom
             // an editor script has to be serialized through UnityEventTools, and this is one line.
             if (playButton != null) playButton.onClick.AddListener(Play);
             if (quitButton != null) quitButton.onClick.AddListener(Quit);
+            if (testBoundaryButton != null) testBoundaryButton.onClick.AddListener(PlayFromBoundary);
         }
 
         private void Start()
@@ -62,11 +68,25 @@ namespace IterationRoom
         {
             if (starting) return;
             if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter)) Play();
+            // Return starts the game; the shortcut is deliberately click-only, so it cannot be
+            // reached by the key somebody presses to start playing.
         }
 
         public void Play()
         {
             if (starting) return;
+            // Cleared on the normal route as well as set on the other one: the flag is static, so a
+            // test run followed by PLAY without leaving the editor would otherwise start the real
+            // game at the boundary.
+            DebugStart.AtCycleBoundary = false;
+            starting = true;
+            StartCoroutine(LoadGame());
+        }
+
+        public void PlayFromBoundary()
+        {
+            if (starting) return;
+            DebugStart.AtCycleBoundary = true;
             starting = true;
             StartCoroutine(LoadGame());
         }

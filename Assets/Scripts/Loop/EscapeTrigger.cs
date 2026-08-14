@@ -42,6 +42,11 @@ namespace IterationRoom
 
         public void Rearm() => PlayerArrived = false;
 
+        // Says it happened without anyone walking through the doorway. Only the editor test jump
+        // uses this - it drops the player straight into the last room, which means none of the
+        // conditions TryArm checks were ever met on the way.
+        public void ForceArrived() => PlayerArrived = true;
+
         private void Awake() => Instance = this;
 
         // Polled, like every other volume in this project - see FloorButton for why trigger

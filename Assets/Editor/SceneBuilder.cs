@@ -22,6 +22,7 @@ namespace IterationRoom.EditorTools
         // Item ids are a WIRE VALUE - KeyLock asks for "Key", BalloonTool and GhostReplayer both
         // ask for "Tool". Declared once so a rename cannot silently disarm one side of a gate.
         private const string ToolItemId = "Tool";
+        private const string CycleTwoToolItemId = "Tool2";
         // Yellow keeps the id "Key" it has always had. It is a wire value shared by the key object and
         // its lock, and both come from here, so renaming it would be safe - but there is nothing to buy
         // and the yellow key, its door and its lock are the ones already play-tested.
@@ -619,6 +620,12 @@ namespace IterationRoom.EditorTools
             // the door that entry is reached through.
             CycleExit cycleOneExit = BuildCycleExit(room.transform, 5f * RoomPitch, floorMat, fpc.transform);
             finalRoom.wayOut = cycleOneExit;
+
+            // The console retracts a metre below the floor, which is now a metre INTO room2-1. Give
+            // it something to retract into - see BuildPlinthHousing. Sized off the plinth (1.70 x
+            // 1.15) with clearance, and deep enough to swallow its full 1.13m travel.
+            BuildPlinthHousing(room.transform, "ConsoleHousing",
+                new Vector3(0f, 0f, 5f * RoomPitch), 1.86f, 1.31f, 1.45f, floorMat);
 
             // Appended after the fact because both buttons live in rooms built later than the hint
             // display. They are the two E fixtures OUTSIDE the loop - one before the first
@@ -2633,7 +2640,58 @@ namespace IterationRoom.EditorTools
             bedRoot.transform.localPosition = new Vector3(0f, 0f, CycleTwoFirstRoomZ);
             (_, Transform spawn) = BuildBed(bedRoot.transform, propMat);
 
+            // AND THE NIGHTSTAND, so waking here reads as waking in room1-1 again rather than in a
+            // storeroom. That sameness is the point: a new cycle is the same cell, not a new place.
+            //
+            // Its pins carry a cycle-2 id of their own. `ItemRegistry` maps an id to ONE socket with
+            // the last writer winning, and a shared id would make one six-deep supply that either
+            // cycle's ghosts could draw from.
+            BuildNightstand(bedRoot.transform, CycleTwoToolItemId);
+
             return (root.transform, spawn);
+        }
+
+        // WHAT A RETRACTED PLINTH RETRACTS INTO.
+        //
+        // Every `RewardPlinth` is authored raised and sunk by `riseHeight` in Awake, so when it is
+        // down it sits about a metre BELOW the floor. That was invisible for as long as there was
+        // nothing under the floor to see it from. With a storey below, room1-0's console hangs a
+        // metre out of room2-1's ceiling - the reported "cycle 1's structures are visible in cycle
+        // 2's ceiling".
+        //
+        // Five sides, open at the top, so the plinth still rises straight out of it. From above
+        // nothing changes: the floor slab is opaque and the housing is under it. From below it reads
+        // as building services, which is what a retracting plinth would actually need.
+        //
+        // Only built where a room exists underneath. The other three plinths - Room3's, the cube
+        // room's, and the chess reward - sink into nothing today, and will want this when cycle 2
+        // grows rooms beneath them.
+        private static void BuildPlinthHousing(Transform parent, string name, Vector3 centreXZ,
+                                               float footprintX, float footprintZ, float depth, Material mat)
+        {
+            GameObject well = new GameObject(name);
+            well.transform.SetParent(parent, false);
+            // Hung from the underside of the floor slab, which is where its open top belongs.
+            well.transform.localPosition = new Vector3(centreXZ.x, -WallThickness, centreXZ.z);
+
+            float halfX = footprintX / 2f, halfZ = footprintZ / 2f;
+
+            Prim(PrimitiveType.Cube, "Bottom", well.transform,
+                new Vector3(0f, -depth - WallThickness / 2f, 0f),
+                new Vector3(footprintX + 2f * WallThickness, WallThickness, footprintZ + 2f * WallThickness), mat);
+
+            Prim(PrimitiveType.Cube, "Side_West", well.transform,
+                new Vector3(-halfX - WallThickness / 2f, -depth / 2f, 0f),
+                new Vector3(WallThickness, depth, footprintZ + 2f * WallThickness), mat);
+            Prim(PrimitiveType.Cube, "Side_East", well.transform,
+                new Vector3(halfX + WallThickness / 2f, -depth / 2f, 0f),
+                new Vector3(WallThickness, depth, footprintZ + 2f * WallThickness), mat);
+            Prim(PrimitiveType.Cube, "Side_South", well.transform,
+                new Vector3(0f, -depth / 2f, -halfZ - WallThickness / 2f),
+                new Vector3(footprintX, depth, WallThickness), mat);
+            Prim(PrimitiveType.Cube, "Side_North", well.transform,
+                new Vector3(0f, -depth / 2f, halfZ + WallThickness / 2f),
+                new Vector3(footprintX, depth, WallThickness), mat);
         }
 
         // The lid over that hole: a slab of floor that slides aside when the console is full.
@@ -4448,7 +4506,11 @@ namespace IterationRoom.EditorTools
         //
         // The footprint reproduces the model's measured bounds - min (-1.23, 0, 1.16), max
         // (-0.67, 0.59, 1.52) - so nothing else in the room has to move.
-        private static (Drawer, CarryableItem[]) BuildNightstand(Transform parent)
+        // pinItemId: the id the three pins share. A parameter rather than a constant because a second
+        // cycle gets its own nightstand, and `ItemRegistry` maps an id to ONE socket with the last
+        // writer winning - two cycles' pins under one id would be a single six-deep supply that
+        // either cycle's ghosts could draw from.
+        private static (Drawer, CarryableItem[]) BuildNightstand(Transform parent, string pinItemId = ToolItemId)
         {
             // Footprint centre, on the floor. The front face looks down the room, away from the
             // pillow, which is the side the player is on when they turn round from the bed.
@@ -4473,7 +4535,11 @@ namespace IterationRoom.EditorTools
 
             GameObject unit = new GameObject("Nightstand");
             unit.transform.SetParent(parent, false);
-            unit.transform.position = centre;
+            // LOCAL, not world. It was `position`, which was the same thing for as long as the only
+            // nightstand was in a room whose parent sat at the origin - and silently wrong the moment
+            // one is built under a parent carrying a storey offset, where it would land on the floor
+            // above.
+            unit.transform.localPosition = centre;
 
             // Carcass: five boards with the front left OFF. That absence is the recess - there is
             // nothing else to build, and it is what the imported mesh could not give.
@@ -4573,7 +4639,7 @@ namespace IterationRoom.EditorTools
             float pinSpacing = (frontW - 0.09f) / 2f;
             for (int i = 0; i < pins.Length; i++)
                 pins[i] = BuildPin(bodyGO.transform, i,
-                    new Vector3((i - 1) * pinSpacing, -frontH / 2f + 0.032f, trayD * 0.38f), drawerComp);
+                    new Vector3((i - 1) * pinSpacing, -frontH / 2f + 0.032f, trayD * 0.38f), drawerComp, pinItemId);
 
             return (drawerComp, pins);
         }
@@ -4585,7 +4651,7 @@ namespace IterationRoom.EditorTools
         // All three share ToolItemId, which is the point - a recorded "took the Tool" has to be
         // satisfiable by whichever one is going spare. They differ only in name, so the console can
         // say which object a ghost picked up.
-        private static CarryableItem BuildPin(Transform drawerBody, int index, Vector3 localPos, Drawer drawer)
+        private static CarryableItem BuildPin(Transform drawerBody, int index, Vector3 localPos, Drawer drawer, string itemId)
         {
             GameObject toolRoot = new GameObject(index == 0 ? "BalloonTool" : $"BalloonTool_{index}");
             toolRoot.transform.SetParent(drawerBody, false);
@@ -4607,7 +4673,7 @@ namespace IterationRoom.EditorTools
             toolTrigger.size = new Vector3(0.7f, 0.7f, 0.7f);
 
             CarryableItem toolItem = toolRoot.AddComponent<CarryableItem>();
-            toolItem.itemId = ToolItemId;
+            toolItem.itemId = itemId;
             toolItem.displayName = "PIN";
             toolItem.icon = PinIcon();
             // Nearer and higher than CarryableItem's default, which put almost none of the pin on
@@ -7276,7 +7342,16 @@ namespace IterationRoom.EditorTools
             titleRect.anchoredPosition = new Vector2(0f, 190f);
 
             Button playButton = MakeMenuButton(menuGO.transform, "PlayButton", "PLAY", new Vector2(0f, -30f));
-            Button quitButton = MakeMenuButton(menuGO.transform, "QuitButton", "QUIT", new Vector2(0f, -118f));
+            // A DEVELOPMENT SHORTCUT, and labelled loudly enough that it cannot be mistaken for
+            // content. Drops straight into the cycle boundary with cycle 1 already finished, which
+            // is otherwise about eight minutes of play away - see DebugStart.
+            //
+            // It sits between PLAY and QUIT rather than at the bottom because it is pressed far more
+            // often than QUIT during development, and it is click-only: Return starts the real game,
+            // and the key somebody presses to begin playing must never reach this.
+            Button testButton = MakeMenuButton(menuGO.transform, "TestBoundaryButton",
+                                               "TEST: CYCLE BOUNDARY", new Vector2(0f, -118f));
+            Button quitButton = MakeMenuButton(menuGO.transform, "QuitButton", "QUIT", new Vector2(0f, -206f));
 
             // The loading state, built over the same middle of the screen the buttons occupy so
             // one replaces the other in place instead of the eye having to travel.
@@ -7350,6 +7425,7 @@ namespace IterationRoom.EditorTools
             mainMenu.loadingGroup = loadingGroup;
             mainMenu.playButton = playButton;
             mainMenu.quitButton = quitButton;
+            mainMenu.testBoundaryButton = testButton;
             mainMenu.loadingFill = fill;
             mainMenu.loadingLabel = loadingLabel;
 
