@@ -2899,6 +2899,13 @@ namespace IterationRoom.EditorTools
             (NumberLock numberLock, CountPad[] pads) = BuildNumberLock(r1, 0f, propMat);
             doors[0].numberLock = numberLock;
 
+            // NO PUZZLES BEHIND THESE YET, so they stand open and the ring can be walked. Each flag
+            // comes off as its room is built - see Door.openUntilPuzzled.
+            //
+            // Room1's is included even though its number lock works, because the ring cannot be
+            // walked without it. Turning the lock back on is deleting one line.
+            foreach (Door d in doors) d.openUntilPuzzled = true;
+
             ParticleSystem[] gas = BuildGasEmitters(r1, "Room2_1_Gas", 0f);
 
             return (root.transform, spawn, gas, doors, numberLock, pads);

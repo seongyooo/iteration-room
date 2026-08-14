@@ -37,8 +37,20 @@ namespace IterationRoom
         // the same reason `FloorButton.AllActive` lives in one place.
         public NumberLock numberLock;
 
+        // THIS DOOR'S ROOM HAS NO PUZZLE YET, so it stands open.
+        //
+        // Deliberately NOT the same as being wired to nothing. `FloorButton.AllActive` refuses an
+        // empty array precisely so a mis-wired door is obvious - it stays shut and somebody notices.
+        // A room that is genuinely unbuilt is a different fact, and saying it out loud is what keeps
+        // the two from being confused: this flag is a to-do list in the scene.
+        //
+        // **Every one of these must come off as its room's puzzle lands.** A door left on this after
+        // its room is finished is a puzzle that can be walked past.
+        public bool openUntilPuzzled;
+
         public bool HeldOpen =>
-            numberLock != null ? numberLock.Solved : FloorButton.AllActive(requiredFloorButtons);
+            openUntilPuzzled
+            || (numberLock != null ? numberLock.Solved : FloorButton.AllActive(requiredFloorButtons));
 
         public Transform doorPanel;
         public Vector3 openLocalOffset = new Vector3(0f, 2.2f, 0f);
