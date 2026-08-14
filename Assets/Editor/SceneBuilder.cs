@@ -273,7 +273,21 @@ namespace IterationRoom.EditorTools
         // beneath cycle 1's last, so the drop is short and vertical and the player can see the bed
         // through the opening before committing to it; everything after it walks toward -Z.
         private const float CycleTwoFirstRoomZ = 5f * RoomPitch;
-        private const float CycleTwoSecondRoomZ = 4f * RoomPitch;
+
+        // HOW FAR APART TWO ROOMS SIT AT A CORNER, where one presents its WEST wall and the next
+        // presents its NORTH wall.
+        //
+        // `RoomPitch` cannot serve, and that is the one piece of arithmetic the ring turns on: a room
+        // is 8.75 across and 10.5 deep, so two rooms meeting along the same axis are a different
+        // distance apart than two meeting across a corner. Half of each, plus the same divider every
+        // other join has.
+        private const float CornerPitch = RoomWidth / 2f + RoomDepth / 2f + 2f * WallDepth + DoorPocketDepth;
+
+        // THE WINDOW ONTO THE CORE: three grid cells wide, two tall, starting one cell up. Sized off
+        // the grid rather than picked, so it reads as part of the wall's own module - the same
+        // argument the floor opening in `room1-0` is sized by.
+        private static readonly Rect CoreWindow = Rect.MinMaxRect(
+            -1.5f * GridCellWidth, GridCellHeight, 1.5f * GridCellWidth, 3f * GridCellHeight);
 
         // ROOM2-1'S COMBINATION, left to right along the south wall as the player faces it from the
         // door. One digit per grid cell, one pad in front of each.
@@ -356,7 +370,7 @@ namespace IterationRoom.EditorTools
             // Cycle 2, one storey down. Deliberately OUTSIDE `room` - see BuildCycleTwoShell for why
             // the panel gather below is the reason.
             (Transform cycleTwoRoot, Transform cycleTwoBedSpawn, ParticleSystem[] cycleTwoGas,
-             Door cycleTwoDoor, NumberLock cycleTwoLock, CountPad[] cycleTwoPads) =
+             Door[] cycleTwoDoors, NumberLock cycleTwoLock, CountPad[] cycleTwoPads) =
                 BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat);
 
             // Every wall panel, gathered by parent name rather than threaded back out through
@@ -741,7 +755,7 @@ namespace IterationRoom.EditorTools
             GameObject cycleTwoGO = new GameObject("Cycle2");
             Cycle cycleTwo = cycleTwoGO.AddComponent<Cycle>();
             cycleTwo.bedSpawnPoint = cycleTwoBedSpawn;
-            cycleTwo.doors = new[] { cycleTwoDoor };
+            cycleTwo.doors = cycleTwoDoors;
             cycleTwo.drawers = cycleTwoRoot.GetComponentsInChildren<Drawer>(true);
             // Its own array, numbered from ZERO - cycle 2's five pads are bits 0-4, where cycle 1's
             // pad is also bit 0. Legal because every ghost is destroyed at the boundary, so no
@@ -2683,8 +2697,95 @@ namespace IterationRoom.EditorTools
             return display;
         }
 
+        // ONE ROOM OF THE RING: a parent carrying its world position and facing, with the room built
+        // at local zero inside it.
+        //
+        // **A parent per room rather than a parent per leg**, which is what makes the whole ring
+        // reuse builders that only ever take a `zCenter`. `BuildRoomShell`, `BuildCeilingLights` and
+        // `BuildReflectionProbe` know nothing about X or rotation; handed a rotated, positioned parent
+        // and a zCenter of zero, every one of them lands correctly with no new parameters. The
+        // alternative was threading an X and a yaw through five signatures and every call site.
+        //
+        // Travel is always local -Z, so every room's NORTH wall is where you came in and its SOUTH
+        // wall is where you leave - except at a corner, where you leave through the WEST wall.
+        // **West is always the way on**, either to the next room or, mid-leg, onto the core.
+        private static Transform BuildRingRoom(Transform parent, string name, float x, float z, float yaw,
+                                               Material floorMat, Material grooveMat, Material panelMat,
+                                               Rect south, Rect north, Rect west,
+                                               Rect ceilingHole = default)
+        {
+            GameObject holder = new GameObject(name + "_Root");
+            holder.transform.SetParent(parent, false);
+            holder.transform.localPosition = new Vector3(x, 0f, z);
+            holder.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+
+            BuildRoomShell(holder.transform, name, 0f, floorMat, grooveMat, panelMat,
+                south, north, west, Rect.zero, Rect.zero, ceilingHole);
+
+            return holder.transform;
+        }
+
+        // The pane in a core window. Not a door and not a wall - a sheet of glass filling a hole that
+        // is never opened, so it is the one piece of this building the player can see through and
+        // never pass.
+        private static void BuildCoreWindow(Transform roomRoot, Material glassMat)
+        {
+            float w = CoreWindow.width, h = CoreWindow.height;
+            GameObject pane = Prim(PrimitiveType.Cube, "CoreWindow", roomRoot,
+                new Vector3(-RoomWidth / 2f, CoreWindow.yMin + h / 2f, CoreWindow.center.x),
+                new Vector3(0.05f, h, w), glassMat);
+            // Kept solid on purpose. The window is a hole in the wall's collision as well as its
+            // panelling - `SubtractRect` cuts both - so without this the player walks into the core.
+            pane.name = "CoreWindow";
+        }
+
+        // THE MACHINE THE RING IS BUILT AROUND.
+        //
+        // A sealed casing the player never enters, seen only through four windows. Inset from the
+        // rooms' inner faces rather than flush with them, which does two things: it avoids two
+        // coplanar walls fighting over the same plane, and it leaves a shallow chamber so the core
+        // reads as a thing standing in a shaft rather than as a solid block of building.
+        //
+        // Deliberately plain at this stage. What the core DOES - clamps releasing, an axle turning,
+        // shards pushed out through hatches - belongs with the puzzles that drive it, and a casing
+        // that already moved would be machinery with nothing operating it.
+        private static Transform BuildCore(Transform parent, Vector3 centre, float span, Material propMat)
+        {
+            GameObject core = new GameObject("Core");
+            core.transform.SetParent(parent, false);
+            core.transform.localPosition = centre;
+
+            Material casing = MakeColorMaterial("CoreCasing", new Color(0.17f, 0.18f, 0.21f));
+            SetSmoothness(casing, 0.55f);
+
+            // Solid, and the only thing between the player and the core's insides.
+            Prim(PrimitiveType.Cube, "Casing", core.transform,
+                new Vector3(0f, RoomHeight / 2f, 0f),
+                new Vector3(span, RoomHeight, span), casing);
+
+            // Something to look at through the glass: a lit column standing in the casing's mouth on
+            // each of the four window faces. Emissive rather than lit, so it reads through glass in a
+            // room whose own lights are behind the viewer.
+            Material glow = MakeEmissiveMaterial("CoreGlow", new Color(0.45f, 0.75f, 1f), 2.6f);
+            float face = span / 2f;
+            var faces = new[]
+            {
+                new Vector3( face, 0f, 0f), new Vector3(-face, 0f, 0f),
+                new Vector3(0f, 0f,  face), new Vector3(0f, 0f, -face),
+            };
+            for (int i = 0; i < faces.Length; i++)
+            {
+                Vector3 inward = -faces[i].normalized * 0.28f;
+                Prim(PrimitiveType.Cylinder, $"CoreRotor_{i}", core.transform,
+                    faces[i] + inward + Vector3.up * (GridCellHeight * 2f),
+                    new Vector3(0.55f, GridCellHeight * 0.9f, 0.55f), glow, removeCollider: true);
+            }
+
+            return core.transform;
+        }
+
         private static (Transform root, Transform bedSpawn, ParticleSystem[] gas,
-                        Door door, NumberLock numberLock, CountPad[] pads) BuildCycleTwoShell(
+                        Door[] doors, NumberLock numberLock, CountPad[] pads) BuildCycleTwoShell(
             Material floorMat, Material grooveMat, Material panelMat, Material propMat)
         {
             GameObject root = new GameObject("Room_Cycle2");
@@ -2692,72 +2793,115 @@ namespace IterationRoom.EditorTools
 
             Rect doorway = new Rect(-DoorWidth / 2f, 0f, DoorWidth, DoorHeight);
 
-            // The ceiling carries the SAME hole as room1-0's floor, so the opening runs clean through
-            // the void between the storeys instead of into a lid.
+            // THE RING. Eight rooms around the perimeter of a 3x3 block with the core in the middle,
+            // turning WEST three times - at room3, room5 and room7, which are its corners.
             //
-            // ITS DOORWAY IS SOUTH, because cycle 2 runs back the way cycle 1 came. Nothing to the
-            // north: this is the end of its building the way room1-0 is the end of cycle 1's.
-            BuildRoomShell(root.transform, "Room2_1", CycleTwoFirstRoomZ, floorMat, grooveMat, panelMat,
-                doorway, Rect.zero, ceilingHole: CycleExitHole);
+            // Room1 keeps the position it already had, so the drop from `room1-0` lands exactly where
+            // it did. Everything else is walked out from there: `RoomPitch` along a leg, `CornerPitch`
+            // across a turn, and a quarter turn of yaw at each corner.
+            //
+            // **Only four rooms share a wall with the core** - 2, 4, 6 and 0, the mid-leg ones. The
+            // corners touch it diagonally and cannot see in at all. That is not a limitation to work
+            // around; it is the rhythm the layout hands over for free: one glass room and one corner
+            // room per leg.
+            float ringZ = CycleTwoFirstRoomZ;
 
-            // The room across, and the direction of travel: -Z, one pitch at a time, back under the
-            // corridor the player has already walked.
-            BuildRoomShell(root.transform, "Room2_2", CycleTwoSecondRoomZ, floorMat, grooveMat, panelMat,
-                Rect.zero, doorway);
+            Transform r1 = BuildRingRoom(root.transform, "Room2_1", 0f, ringZ, 0f,
+                floorMat, grooveMat, panelMat, doorway, Rect.zero, Rect.zero, CycleExitHole);
+            Transform r2 = BuildRingRoom(root.transform, "Room2_2", 0f, ringZ - RoomPitch, 0f,
+                floorMat, grooveMat, panelMat, doorway, doorway, CoreWindow);
+            Transform r3 = BuildRingRoom(root.transform, "Room2_3", 0f, ringZ - 2f * RoomPitch, 0f,
+                floorMat, grooveMat, panelMat, Rect.zero, doorway, doorway);
 
-            // Uncapped: there is a room through it.
-            BuildDoorPocketFill(root.transform, "DoorPocketFill_Cycle2_1", CycleTwoSecondRoomZ,
-                grooveMat, capFarSide: false);
+            float legTwoZ = ringZ - 2f * RoomPitch;
+            Transform r4 = BuildRingRoom(root.transform, "Room2_4", -CornerPitch, legTwoZ, 90f,
+                floorMat, grooveMat, panelMat, doorway, doorway, CoreWindow);
+            Transform r5 = BuildRingRoom(root.transform, "Room2_5", -CornerPitch - RoomPitch, legTwoZ, 90f,
+                floorMat, grooveMat, panelMat, Rect.zero, doorway, doorway);
+
+            float legThreeX = -CornerPitch - RoomPitch;
+            Transform r6 = BuildRingRoom(root.transform, "Room2_6", legThreeX, legTwoZ + CornerPitch, 180f,
+                floorMat, grooveMat, panelMat, doorway, doorway, CoreWindow);
+            Transform r7 = BuildRingRoom(root.transform, "Room2_7", legThreeX, legTwoZ + CornerPitch + RoomPitch, 180f,
+                floorMat, grooveMat, panelMat, Rect.zero, doorway, doorway);
+
+            Transform r0 = BuildRingRoom(root.transform, "Room2_0", legThreeX + CornerPitch,
+                legTwoZ + CornerPitch + RoomPitch, 270f,
+                floorMat, grooveMat, panelMat, Rect.zero, doorway, CoreWindow);
+
+            var rooms = new[] { r1, r2, r3, r4, r5, r6, r7, r0 };
+            var names = new[] { "Room2_1", "Room2_2", "Room2_3", "Room2_4",
+                                "Room2_5", "Room2_6", "Room2_7", "Room2_0" };
+
+            // The four windows, and the machine behind them. The casing is inset so it is not
+            // coplanar with the walls it is seen through - see BuildCore.
+            Material glassMat = MakeTranslucentMaterial("CoreGlass", new Color(0.72f, 0.82f, 0.88f, 0.16f), 0.94f);
+            BuildCoreWindow(r2, glassMat);
+            BuildCoreWindow(r4, glassMat);
+            BuildCoreWindow(r6, glassMat);
+            BuildCoreWindow(r0, glassMat);
+
+            const float coreInset = 0.15f;
+            float coreSpan = RoomPitch + CornerPitch - RoomWidth - 2f * coreInset;
+            Vector3 coreCentre = new Vector3(
+                (0f - RoomWidth / 2f + legThreeX + RoomWidth / 2f) / 2f, 0f,
+                (legTwoZ + RoomWidth / 2f + legTwoZ + CornerPitch + RoomPitch - RoomWidth / 2f) / 2f);
+            BuildCore(root.transform, coreCentre, coreSpan, propMat);
+
+            // THE DOORS, each built under the room it leaves FROM and set in that room's exit wall.
+            // Straight joins use the south wall (yaw 180 from the builder's default north); the three
+            // corners use the west wall (yaw 270) and the room's narrower half-extent.
+            var doors = new Door[7];
+            doors[0] = BuildPadDoor(r1, "Door2_1", 0f, new FloorButton[0], propMat, yaw: 180f);
+            doors[1] = BuildPadDoor(r2, "Door2_2", 0f, new FloorButton[0], propMat, yaw: 180f);
+            doors[2] = BuildPadDoor(r3, "Door2_3", 0f, new FloorButton[0], propMat, yaw: 270f,
+                                    wallHalfExtent: RoomWidth / 2f);
+            doors[3] = BuildPadDoor(r4, "Door2_4", 0f, new FloorButton[0], propMat, yaw: 180f);
+            doors[4] = BuildPadDoor(r5, "Door2_5", 0f, new FloorButton[0], propMat, yaw: 270f,
+                                    wallHalfExtent: RoomWidth / 2f);
+            doors[5] = BuildPadDoor(r6, "Door2_6", 0f, new FloorButton[0], propMat, yaw: 180f);
+            doors[6] = BuildPadDoor(r7, "Door2_7", 0f, new FloorButton[0], propMat, yaw: 270f,
+                                    wallHalfExtent: RoomWidth / 2f);
+
+            // One pocket per join, all uncapped: every one has a room through it.
+            BuildDoorPocketFill(r1, "Pocket2_1", 0f, grooveMat, capFarSide: false, yaw: 180f);
+            BuildDoorPocketFill(r2, "Pocket2_2", 0f, grooveMat, capFarSide: false, yaw: 180f);
+            BuildDoorPocketFill(r3, "Pocket2_3", 0f, grooveMat, capFarSide: false,
+                                wallHalfExtent: RoomWidth / 2f, crossHalfWidth: RoomDepth / 2f, yaw: 270f);
+            BuildDoorPocketFill(r4, "Pocket2_4", 0f, grooveMat, capFarSide: false, yaw: 180f);
+            BuildDoorPocketFill(r5, "Pocket2_5", 0f, grooveMat, capFarSide: false,
+                                wallHalfExtent: RoomWidth / 2f, crossHalfWidth: RoomDepth / 2f, yaw: 270f);
+            BuildDoorPocketFill(r6, "Pocket2_6", 0f, grooveMat, capFarSide: false, yaw: 180f);
+            BuildDoorPocketFill(r7, "Pocket2_7", 0f, grooveMat, capFarSide: false,
+                                wallHalfExtent: RoomWidth / 2f, crossHalfWidth: RoomDepth / 2f, yaw: 270f);
 
             Material fixtureMat = MakeEmissiveMaterial("CeilingFixtureCycle2", Color.white, 3.5f);
-            BuildCeilingLights(root.transform, "Room2_1", CycleTwoFirstRoomZ, fixtureMat, castShadows: false);
-            BuildCeilingLights(root.transform, "Room2_2", CycleTwoSecondRoomZ, fixtureMat, castShadows: false);
-            BuildReflectionProbe(root.transform, "Room2_1", CycleTwoFirstRoomZ);
-            BuildReflectionProbe(root.transform, "Room2_2", CycleTwoSecondRoomZ);
+            for (int i = 0; i < rooms.Length; i++)
+            {
+                BuildCeilingLights(rooms[i], names[i], 0f, fixtureMat, castShadows: false);
+                BuildReflectionProbe(rooms[i], names[i], 0f);
+            }
 
-            // The bed, on a node carrying the room's Z. `BuildBed` places everything relative to its
-            // parent and was written when the only bed was in a room centred on zero - offsetting the
-            // parent is what lets it be reused verbatim rather than growing a coordinate argument.
-            GameObject bedRoot = new GameObject("Room2_1_Bed");
-            bedRoot.transform.SetParent(root.transform, false);
-            bedRoot.transform.localPosition = new Vector3(0f, 0f, CycleTwoFirstRoomZ);
-            (_, Transform spawn) = BuildBed(bedRoot.transform, propMat,
-                                            floorY: -StoreyDrop, zCentre: CycleTwoFirstRoomZ, yaw: 180f);
+            // The bed, on room1's own root. `BuildBed` goes through `PlaceModel`, which corrects a
+            // WORLD-space delta - so it still has to be told the storey and the room's world Z, and it
+            // is only safe here because leg 1 carries no rotation.
+            (_, Transform spawn) = BuildBed(r1, propMat,
+                                            floorY: -StoreyDrop, zCentre: ringZ, yaw: 180f);
 
-            // AND THE NIGHTSTAND, so waking here reads as waking in room1-1 again rather than in a
-            // storeroom. That sameness is the point: a new cycle is the same cell, not a new place.
-            //
-            // Its pins carry a cycle-2 id of their own. `ItemRegistry` maps an id to ONE socket with
-            // the last writer winning, and a shared id would make one six-deep supply that either
-            // cycle's ghosts could draw from.
-            // Turned with the bed. A rotated wrapper is safe here in a way it is not for the bed: the
-            // nightstand is built entirely from `localPosition`, so the parent's rotation is simply
-            // inherited.
+            // The nightstand, turned with the bed. A rotated wrapper is safe for this one in a way it
+            // is not for the bed: everything under it is placed with `localPosition`, so the parent's
+            // rotation is simply inherited.
             GameObject furniture = new GameObject("Room2_1_Furniture");
-            furniture.transform.SetParent(root.transform, false);
-            furniture.transform.localPosition = new Vector3(0f, 0f, CycleTwoFirstRoomZ);
+            furniture.transform.SetParent(r1, false);
             furniture.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
             BuildNightstand(furniture.transform, CycleTwoToolItemId);
 
-            // THE NUMBER LOCK. Five digits scrawled along the south wall and five pads in front of
-            // them - see BuildNumberLock. It replaces the single hold-pad this room was built with:
-            // that taught the same lesson room1-1 already teaches, and a second cycle should be a
-            // second idea rather than the first one again.
-            (NumberLock numberLock, CountPad[] pads) =
-                BuildNumberLock(root.transform, CycleTwoFirstRoomZ, propMat);
+            (NumberLock numberLock, CountPad[] pads) = BuildNumberLock(r1, 0f, propMat);
+            doors[0].numberLock = numberLock;
 
-            // At the SECOND room's centre, which puts the slab in the pocket on ITS north side -
-            // between the two rooms. Same call shape as cycle 1's, one room along.
-            Door door = BuildPadDoor(root.transform, "Door_Cycle2", CycleTwoSecondRoomZ,
-                                     new FloorButton[0], propMat);
-            // Held by the lock instead of by pads. `Door.HeldOpen` prefers this when it is set, and
-            // the indicator lamp reads the door rather than re-deriving the rule.
-            door.numberLock = numberLock;
+            ParticleSystem[] gas = BuildGasEmitters(r1, "Room2_1_Gas", 0f);
 
-            // What puts the player out at the end of the drop into this room.
-            ParticleSystem[] gas = BuildGasEmitters(root.transform, "Room2_1_Gas", CycleTwoFirstRoomZ);
-
-            return (root.transform, spawn, gas, door, numberLock, pads);
+            return (root.transform, spawn, gas, doors, numberLock, pads);
         }
 
         // WHAT A RETRACTED PLINTH RETRACTS INTO.
@@ -5958,10 +6102,15 @@ namespace IterationRoom.EditorTools
         // locate it - testers held the pad, walked to the door and expected it to open. See Door's
         // own note for why they were right and what removing the button buys. Note the wall beside
         // these doors is bare, which is part of the point: there is no affordance left to mislead.
+        // yaw / wallHalfExtent pass straight through to `BuildDoorShell`, which has always taken them -
+        // this only ever hid them. The ring needs both: its three corner doors sit in a WEST wall
+        // (yaw 270) whose half-extent is `RoomWidth/2`, not the `RoomDepth/2` a north wall has.
         private static Door BuildPadDoor(Transform parent, string name, float roomCenterZ,
-                                         FloorButton[] pads, Material mat)
+                                         FloorButton[] pads, Material mat,
+                                         float yaw = 0f, float wallHalfExtent = RoomDepth / 2f)
         {
-            (Door door, DoorIndicator indicator, float _) = BuildDoorShell(parent, name, roomCenterZ, mat);
+            (Door door, DoorIndicator indicator, float _) =
+                BuildDoorShell(parent, name, roomCenterZ, mat, wallHalfExtent, yaw);
 
             // The lamp tracks the condition, not the door, so it goes green the moment the pads are
             // all held. With no button anywhere it is the room's only readout for that, which makes
