@@ -3013,24 +3013,33 @@ namespace IterationRoom.EditorTools
             // from - "the player has fallen well below the floor they were standing on".
             go.transform.localPosition = new Vector3(0f, 0f, roomCenterZ + CycleExitZ);
 
-            // FILLS THE WHOLE INTER-STOREY SLAB, not just the floor. There are two slabs between the
-            // rooms - this floor spans y -WallThickness..0 and the ceiling below it spans
-            // -2*WallThickness..-WallThickness - and the hole goes through both, so a lid that only
-            // plugged the top one would leave a 0.1m void under it to see into.
-            //
-            // Its top sits `seam` BELOW the floor surface rather than flush with it, and that 10mm is
-            // doing two jobs. Flush, the cover's top face and the floor's top face are coplanar and
-            // z-fight along the whole square - and they still would once it slid aside, because it
-            // retracts into the floor slab rather than into a pocket. Recessed, it is inside solid
-            // floor the moment it moves, and while closed it reads as a hatch seam, which is a fair
-            // mark for "something is here" without saying what.
             const float seam = 0.01f;
-            GameObject cover = Prim(PrimitiveType.Cube, "Cover", go.transform,
-                new Vector3(0f, -(2f * WallThickness + seam) / 2f, 0f),
-                new Vector3(GridCellWidth, 2f * WallThickness - seam, GridCellWidth), floorMat);
+
+            // THE FLOOR ABOVE. Its top sits `seam` below the floor surface rather than flush with it,
+            // and that 10mm is doing two jobs. Flush, the cover's top face and the floor's top face
+            // are coplanar and z-fight along the whole square - and they still would once it slid
+            // aside, because it retracts into the floor slab rather than into a pocket. Recessed, it
+            // is inside solid floor the moment it moves, and while closed it reads as a hatch seam,
+            // which is a fair mark for "something is here" without saying what.
+            GameObject upper = Prim(PrimitiveType.Cube, "Cover_Floor", go.transform,
+                new Vector3(0f, -(WallThickness + seam) / 2f, 0f),
+                new Vector3(GridCellWidth, WallThickness - seam, GridCellWidth), floorMat);
+
+            // AND THE CEILING BELOW, which the first version left out - so the hole was covered from
+            // above and still a square recess with the shaft up inside it when seen from the room
+            // underneath. The opening goes through two slabs with the service void between them, and
+            // a lid on one of them is a lid on neither.
+            //
+            // Recessed by the same seam, measured from the ceiling's LOWER face this time: that is
+            // the one on show, and the one that would z-fight.
+            float ceilingTop = -(ServiceVoid + WallThickness);
+            float ceilingBottom = -(ServiceVoid + 2f * WallThickness);
+            GameObject lower = Prim(PrimitiveType.Cube, "Cover_Ceiling", go.transform,
+                new Vector3(0f, (ceilingBottom + seam + ceilingTop) / 2f, 0f),
+                new Vector3(GridCellWidth, WallThickness - seam, GridCellWidth), floorMat);
 
             CycleExit exit = go.AddComponent<CycleExit>();
-            exit.cover = cover.transform;
+            exit.covers = new[] { upper.transform, lower.transform };
             // By its own width, so the opening is fully clear rather than merely mostly.
             exit.openLocalOffset = new Vector3(GridCellWidth, 0f, 0f);
             exit.player = player;

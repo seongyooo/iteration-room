@@ -21,9 +21,14 @@ namespace IterationRoom
     // owns.
     public class CycleExit : MonoBehaviour
     {
-        // The slab filling the opening, authored CLOSED. Slides aside by `openLocalOffset`, the same
-        // way every door in the game moves - a wall panel sliding into the wall beside it.
-        public Transform cover;
+        // The slabs filling the opening, authored CLOSED. They slide aside by `openLocalOffset`, the
+        // same way every door in the game moves - a wall panel sliding into the wall beside it.
+        //
+        // THERE ARE TWO, because the opening goes through two slabs with a service void between them:
+        // the floor of the room above and the ceiling of the room below. Plugging only the top one
+        // left a square recess in the lower room's ceiling with the shaft visible up inside it - the
+        // hole was covered from one side and open from the other.
+        public Transform[] covers;
         public Vector3 openLocalOffset = new Vector3(0f, 0f, 1.75f);
         public float openDuration = 2.2f;
         public float sealDuration = 1.1f;
@@ -39,7 +44,7 @@ namespace IterationRoom
         public AudioClip openClip;
         public AudioClip sealClip;
 
-        private Vector3 closedLocalPos;
+        private Vector3[] closedLocalPos;
         private float openAmount;
         private float rate;
         private bool wantOpen;
@@ -51,7 +56,10 @@ namespace IterationRoom
 
         private void Awake()
         {
-            if (cover != null) closedLocalPos = cover.localPosition;
+            if (covers == null) return;
+            closedLocalPos = new Vector3[covers.Length];
+            for (int i = 0; i < covers.Length; i++)
+                if (covers[i] != null) closedLocalPos[i] = covers[i].localPosition;
         }
 
         public void Open()
@@ -72,12 +80,14 @@ namespace IterationRoom
 
         private void Update()
         {
-            if (cover != null)
+            if (covers != null && closedLocalPos != null)
             {
                 float step = Time.unscaledDeltaTime / Mathf.Max(0.01f, rate);
                 openAmount = Mathf.MoveTowards(openAmount, wantOpen ? 1f : 0f, step);
                 // Eased, so the wall neither snaps aside nor stops dead. Same curve the plinth uses.
-                cover.localPosition = closedLocalPos + openLocalOffset * Mathf.SmoothStep(0f, 1f, openAmount);
+                Vector3 slide = openLocalOffset * Mathf.SmoothStep(0f, 1f, openAmount);
+                for (int i = 0; i < covers.Length; i++)
+                    if (covers[i] != null) covers[i].localPosition = closedLocalPos[i] + slide;
             }
 
             // Only ever asked while the opening is actually open, so nothing can be "through" a hole
