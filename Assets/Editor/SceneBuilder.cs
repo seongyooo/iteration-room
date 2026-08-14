@@ -272,6 +272,11 @@ namespace IterationRoom.EditorTools
         // Cycle 2 sits one storey down and runs BACK the way cycle 1 came. Its first room is directly
         // beneath cycle 1's last, so the drop is short and vertical and the player can see the bed
         // through the opening before committing to it; everything after it walks toward -Z.
+        // HOW MANY CYCLES THE GAME HAS. Read by the title screen's picker; `LoopManager` derives the
+        // same fact from the length of its own array, which is the authority. Adding a cycle means
+        // changing both, and they are meant to be found together.
+        private const int CycleCount = 2;
+
         private const float CycleTwoFirstRoomZ = 5f * RoomPitch;
 
         // HOW FAR APART TWO ROOMS SIT AT A CORNER, where one presents its WEST wall and the next
@@ -302,6 +307,26 @@ namespace IterationRoom.EditorTools
         // a room's worth of nothing between them.
         private const string CalibrationRoomName = "CalibrationRoom";
         private const float CalibrationRoomZ = -2f * RoomPitch;
+
+        // SKIPS THE REFLECTION PROBE BAKE, and that is nearly the whole of the build.
+        //
+        // Fifteen probes, each rendering the scene six times at 512, is 35 MB of cubemap and the
+        // overwhelming majority of a rebuild - the geometry itself is fast. During a session spent
+        // moving a wall or retuning a pad, none of that work is being looked at.
+        //
+        // Existing `.exr` files are left in place, so the scene still comes up lit and reflective; it
+        // simply reflects the building as it was at the last full build. **Use the full build before
+        // judging anything reflective**, and always before a commit that moves geometry - the same
+        // bargain `-nographics` already makes (see BakeReflectionProbes).
+        [MenuItem("Iteration Room/Build Whitebox Scene (fast, no probes)")]
+        public static void BuildFast()
+        {
+            skipProbeBake = true;
+            try { Build(); }
+            finally { skipProbeBake = false; }
+        }
+
+        private static bool skipProbeBake;
 
         [MenuItem("Iteration Room/Build Whitebox Scene")]
         public static void Build()
@@ -2299,6 +2324,13 @@ namespace IterationRoom.EditorTools
 
         private static void BakeReflectionProbes()
         {
+            if (skipProbeBake)
+            {
+                Debug.Log("[SceneBuilder] Reflection probes NOT baked (fast build); existing cubemaps left in place. "
+                        + "Run the full build before judging anything reflective.");
+                return;
+            }
+
             if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
             {
                 Debug.Log("[SceneBuilder] Reflection probes NOT baked (-nographics); existing cubemaps left in place.");
@@ -8253,9 +8285,31 @@ namespace IterationRoom.EditorTools
             // It sits between PLAY and QUIT rather than at the bottom because it is pressed far more
             // often than QUIT during development, and it is click-only: Return starts the real game,
             // and the key somebody presses to begin playing must never reach this.
+            Button continueButton = MakeMenuButton(menuGO.transform, "ContinueButton",
+                                                   "CONTINUE", new Vector2(0f, -118f));
             Button testButton = MakeMenuButton(menuGO.transform, "TestBoundaryButton",
-                                               "TEST: CYCLE BOUNDARY", new Vector2(0f, -118f));
-            Button quitButton = MakeMenuButton(menuGO.transform, "QuitButton", "QUIT", new Vector2(0f, -206f));
+                                               "TEST: CYCLE BOUNDARY", new Vector2(0f, -206f));
+            Button quitButton = MakeMenuButton(menuGO.transform, "QuitButton", "QUIT", new Vector2(0f, -294f));
+
+            // THE CYCLE PICKER, on a page of its own over the same background. A title screen that
+            // grows a row every time the game grows a cycle stops being a title screen.
+            GameObject continueGO = new GameObject("Continue");
+            continueGO.transform.SetParent(canvasGO.transform, false);
+            CanvasGroup continueGroup = continueGO.AddComponent<CanvasGroup>();
+            continueGroup.alpha = 0f;
+            continueGroup.blocksRaycasts = false;
+            Stretch(continueGO.AddComponent<RectTransform>());
+
+            // One per cycle. The count is read from the cycle list rather than written here, so
+            // adding a cycle adds its button - the same rule LoopManager follows for deciding which
+            // cycle is the last.
+            var cycleButtons = new Button[CycleCount];
+            for (int i = 0; i < CycleCount; i++)
+                cycleButtons[i] = MakeMenuButton(continueGO.transform, $"CycleButton_{i + 1}",
+                                                 $"CYCLE {i + 1}", new Vector2(0f, -30f - i * 88f));
+
+            Button continueBack = MakeMenuButton(continueGO.transform, "ContinueBackButton",
+                                                 "BACK", new Vector2(0f, -30f - CycleCount * 88f));
 
             // The loading state, built over the same middle of the screen the buttons occupy so
             // one replaces the other in place instead of the eye having to travel.
@@ -8330,6 +8384,10 @@ namespace IterationRoom.EditorTools
             mainMenu.playButton = playButton;
             mainMenu.quitButton = quitButton;
             mainMenu.testBoundaryButton = testButton;
+            mainMenu.continueButton = continueButton;
+            mainMenu.continueBackButton = continueBack;
+            mainMenu.continueGroup = continueGroup;
+            mainMenu.cycleButtons = cycleButtons;
             mainMenu.loadingFill = fill;
             mainMenu.loadingLabel = loadingLabel;
 

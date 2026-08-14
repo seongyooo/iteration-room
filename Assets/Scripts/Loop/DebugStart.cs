@@ -24,5 +24,24 @@ namespace IterationRoom
     {
         // Set by the title screen's test button, consumed by LoopManager on the first iteration.
         public static bool AtCycleBoundary;
+
+        // WHICH CYCLE TO WAKE IN. -1 means the ordinary route: cycle 1, from the beginning.
+        //
+        // A cycle is a whole game, and by the time there are several, reaching the third by playing
+        // the first two is twenty minutes before the thing under test is even on screen. This is the
+        // same argument the boundary jump was built on, one level up.
+        //
+        // It starts the cycle PROPERLY - at its own bed, iteration 1, no ghosts - rather than
+        // dropping the player into the middle of one. So what it skips is the cycles before it, not
+        // any part of the cycle it selects.
+        public static int StartCycle = -1;
+
+        // Both cleared together, so a test run followed by an ordinary PLAY cannot inherit either -
+        // these are statics and survive until the domain reloads.
+        public static void Clear()
+        {
+            AtCycleBoundary = false;
+            StartCycle = -1;
+        }
     }
 }

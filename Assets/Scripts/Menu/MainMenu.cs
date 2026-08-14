@@ -26,6 +26,14 @@ namespace IterationRoom
         // labelled as one - see DebugStart for why eight minutes of play per test is the thing it
         // exists to avoid.
         public Button testBoundaryButton;
+
+        // THE CYCLE PICKER. One button per cycle, on a page of its own so the title screen stays two
+        // choices wide - a menu that grows a row every time the game does is a menu that stops being
+        // a title screen.
+        public Button continueButton;
+        public Button continueBackButton;
+        public CanvasGroup continueGroup;
+        public Button[] cycleButtons;
         public Image loadingFill;
         public Text loadingLabel;
 
@@ -45,6 +53,18 @@ namespace IterationRoom
             if (playButton != null) playButton.onClick.AddListener(Play);
             if (quitButton != null) quitButton.onClick.AddListener(Quit);
             if (testBoundaryButton != null) testBoundaryButton.onClick.AddListener(PlayFromBoundary);
+
+            if (continueButton != null) continueButton.onClick.AddListener(() => ShowContinue(true));
+            if (continueBackButton != null) continueBackButton.onClick.AddListener(() => ShowContinue(false));
+
+            if (cycleButtons == null) return;
+            for (int i = 0; i < cycleButtons.Length; i++)
+            {
+                // Captured per iteration, or every button would close over the loop variable and
+                // start the last cycle.
+                int cycle = i + 1;
+                if (cycleButtons[i] != null) cycleButtons[i].onClick.AddListener(() => PlayFromCycle(cycle));
+            }
         }
 
         private void Start()
@@ -55,6 +75,7 @@ namespace IterationRoom
             Cursor.visible = true;
 
             if (menuGroup != null) menuGroup.alpha = 1f;
+            ShowContinue(false);
             if (loadingGroup != null)
             {
                 loadingGroup.alpha = 0f;
@@ -75,10 +96,10 @@ namespace IterationRoom
         public void Play()
         {
             if (starting) return;
-            // Cleared on the normal route as well as set on the other one: the flag is static, so a
-            // test run followed by PLAY without leaving the editor would otherwise start the real
-            // game at the boundary.
-            DebugStart.AtCycleBoundary = false;
+            // Cleared on the normal route as well as set on the others: these are statics, so a test
+            // run followed by PLAY without leaving the editor would otherwise inherit whichever
+            // shortcut was used last.
+            DebugStart.Clear();
             starting = true;
             StartCoroutine(LoadGame());
         }
@@ -86,9 +107,35 @@ namespace IterationRoom
         public void PlayFromBoundary()
         {
             if (starting) return;
+            DebugStart.Clear();
             DebugStart.AtCycleBoundary = true;
             starting = true;
             StartCoroutine(LoadGame());
+        }
+
+        // Cycle 1 goes through the ordinary route rather than the picker's, so choosing it is exactly
+        // the same run as pressing PLAY - including the sensitivity step.
+        public void PlayFromCycle(int cycle)
+        {
+            if (starting) return;
+            DebugStart.Clear();
+            if (cycle > 1) DebugStart.StartCycle = cycle;
+            starting = true;
+            StartCoroutine(LoadGame());
+        }
+
+        private void ShowContinue(bool show)
+        {
+            if (continueGroup != null)
+            {
+                continueGroup.alpha = show ? 1f : 0f;
+                continueGroup.blocksRaycasts = show;
+            }
+            if (menuGroup != null)
+            {
+                menuGroup.alpha = show ? 0f : 1f;
+                menuGroup.blocksRaycasts = !show;
+            }
         }
 
         public void Quit()

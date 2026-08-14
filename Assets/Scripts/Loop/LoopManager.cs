@@ -164,10 +164,23 @@ namespace IterationRoom
             // incremented - the clock is stopped, IterationRunning is false, and every interactable is
             // therefore already inert. The player has full control meanwhile, which is the point;
             // iteration 1 teleports them back to the bed regardless.
-            // Skipped on the test shortcut. Setting the sensitivity is the one thing that genuinely
+            // STARTING PARTWAY ALONG. Everything before the chosen cycle is skipped outright: its
+            // rooms go to sleep and the chosen one wakes, exactly as a boundary would have left them.
+            //
+            // `CycleNumber` is pre-set rather than counted up to, because the loop increments it on
+            // entry - so cycle 3 starts from 2 and the HUD reads what it would have read.
+            if (DebugStart.StartCycle > 1 && cycles != null)
+            {
+                int index = Mathf.Clamp(DebugStart.StartCycle - 1, 0, cycles.Length - 1);
+                for (int i = 0; i < cycles.Length; i++) cycles[i]?.SetAwake(i == index);
+                cycleIndex = index;
+                CycleNumber = index;
+            }
+
+            // Skipped on either shortcut. Setting the sensitivity is the one thing that genuinely
             // has to happen before the first iteration, and it is also the one thing nobody wants to
             // do again on the twentieth run at a boundary.
-            if (calibration != null && !DebugStart.AtCycleBoundary)
+            if (calibration != null && !DebugStart.AtCycleBoundary && DebugStart.StartCycle < 0)
             {
                 calibration.Begin();
                 while (!calibration.Confirmed) yield return null;
