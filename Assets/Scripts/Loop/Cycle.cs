@@ -45,7 +45,9 @@ namespace IterationRoom
         public BalloonField balloonField;
         public ChessBoard chessBoard;
         public CubeRoom cubeRoom;
-        public NumberLock numberLock;
+        // Every room rule in this cycle. An array rather than one field per type, so a new puzzle
+        // is an entry here instead of a line in this file and another in `ResetRooms`.
+        public RoomCondition[] conditions;
 
         // The room this cycle ENDS in - `room<cycle>-0`, the hinge. Filling its console is the only
         // way out of a cycle, and `Completed` is what `LoopManager` watches for.
@@ -92,10 +94,11 @@ namespace IterationRoom
             finalRoom?.ResetRoom();
             chessBoard?.ResetBoard();
             cubeRoom?.ResetRoom();
-            // The pad counts are world state exactly like a door's position: left standing, every pad
-            // would start the next iteration wherever the last one finished and the ghosts would
-            // replay their presses on top of that.
-            numberLock?.ResetLock();
+            // Room rules are world state exactly like a door's position: left standing, a latched
+            // chorus would still be latched and every pad would start the next iteration wherever the
+            // last one finished, with the ghosts replaying on top of that.
+            if (conditions == null) return;
+            foreach (RoomCondition c in conditions) c?.ResetCondition();
         }
 
         // All three objects are in this cycle's console. The one way out of a cycle.

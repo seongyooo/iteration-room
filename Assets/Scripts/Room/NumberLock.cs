@@ -19,7 +19,7 @@ namespace IterationRoom
     // overshot is never stuck, only wrong. Without that, one miscounted iteration would poison the
     // room permanently - the ghost would replay the wrong count forever and nothing could subtract
     // from it.
-    public class NumberLock : MonoBehaviour
+    public class NumberLock : RoomCondition
     {
         public CountPad[] pads;
 
@@ -28,7 +28,7 @@ namespace IterationRoom
         // An empty or null array is NOT solved, for the reason `FloorButton.AllActive` refuses one: a
         // door wired to no pads should stay shut rather than stand permanently open, which is what
         // "all zero of them are correct" would otherwise vacuously mean.
-        public bool Solved
+        public override bool Satisfied
         {
             get
             {
@@ -41,7 +41,7 @@ namespace IterationRoom
 
         // The loop rewinding. Called from `Cycle.ResetRooms` with the other room resets, after the
         // item sweep - the counts are world state exactly like a door's position or a drawer's.
-        public void ResetLock()
+        public override void ResetCondition()
         {
             if (pads == null) return;
             foreach (CountPad pad in pads) pad?.ResetCount();

@@ -27,15 +27,17 @@ namespace IterationRoom
     {
         // WHAT HOLDS THIS DOOR OPEN, and a door has exactly one of them.
         //
-        // Pads are the original: hold them all down at once. A number lock is room2-1's: every pad
-        // reading the digit scrawled in front of it. Both are TRACKED rather than latched - the door
+        // Pads are the original: hold them all down at once. Everything else is a `RoomCondition` -
+        // room2-1's number lock, room2-2's chorus. All of them are TRACKED rather than latched - the door
         // follows its condition and shuts again when the condition lapses - which is what makes
         // either of them a thing past selves can satisfy on the player's behalf.
         //
         // Kept as one property rather than two tests at the call site so that the door, its
         // indicator lamp and anything else reading it can never disagree about what "open" means -
         // the same reason `FloorButton.AllActive` lives in one place.
-        public NumberLock numberLock;
+        // The room's own rule, whatever kind it is - a number lock, a chorus of levers, a ratchet.
+        // One field rather than one per type: see RoomCondition for why Door asks the question once.
+        public RoomCondition condition;
 
         // THIS DOOR'S ROOM HAS NO PUZZLE YET, so it stands open.
         //
@@ -50,7 +52,7 @@ namespace IterationRoom
 
         public bool HeldOpen =>
             openUntilPuzzled
-            || (numberLock != null ? numberLock.Solved : FloorButton.AllActive(requiredFloorButtons));
+            || (condition != null ? condition.Satisfied : FloorButton.AllActive(requiredFloorButtons));
 
         public Transform doorPanel;
         public Vector3 openLocalOffset = new Vector3(0f, 2.2f, 0f);

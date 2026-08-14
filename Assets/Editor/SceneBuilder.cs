@@ -409,8 +409,8 @@ namespace IterationRoom.EditorTools
             // Cycle 2, one storey down. Deliberately OUTSIDE `room` - see BuildCycleTwoShell for why
             // the panel gather below is the reason.
             (Transform cycleTwoRoot, Transform cycleTwoBedSpawn, ParticleSystem[] cycleTwoGas,
-             Door[] cycleTwoDoors, NumberLock cycleTwoLock, CountPad[] cycleTwoPads,
-             Transform[] cycleTwoRooms) =
+             Door[] cycleTwoDoors, RoomCondition[] cycleTwoConditions,
+             GhostInteractable[] cycleTwoSignals, Transform[] cycleTwoRooms) =
                 BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat);
 
             // Every wall panel, gathered by parent name rather than threaded back out through
@@ -816,8 +816,8 @@ namespace IterationRoom.EditorTools
             // pad is also bit 0. Legal because every ghost is destroyed at the boundary, so no
             // surviving timeline refers to cycle 1's bits, and the recorder is repointed at this
             // array when the cycle starts. See Cycle.ghostInteractables.
-            cycleTwo.ghostInteractables = cycleTwoPads;
-            cycleTwo.numberLock = cycleTwoLock;
+            cycleTwo.ghostInteractables = cycleTwoSignals;
+            cycleTwo.conditions = cycleTwoConditions;
 
             // ROOM0: the console the three shards go into, and the end of the cycle.
             //
@@ -2884,7 +2884,7 @@ namespace IterationRoom.EditorTools
         // Handing the transforms back and finishing room0 at the call site is what keeps that
         // ordering honest rather than shuffling half of `Build` around it.
         private static (Transform root, Transform bedSpawn, ParticleSystem[] gas,
-                        Door[] doors, NumberLock numberLock, CountPad[] pads,
+                        Door[] doors, RoomCondition[] conditions, GhostInteractable[] signals,
                         Transform[] rooms) BuildCycleTwoShell(
             Material floorMat, Material grooveMat, Material panelMat, Material propMat)
         {
@@ -2997,18 +2997,34 @@ namespace IterationRoom.EditorTools
             BuildNightstand(furniture.transform, CycleTwoToolItemId);
 
             (NumberLock numberLock, CountPad[] pads) = BuildNumberLock(r1, 0f, propMat);
-            doors[0].numberLock = numberLock;
+            doors[0].condition = numberLock;
+
+            // ROOM2: the chorus. Its door is the one out of room2, into room3.
+            (Chorus chorus, ChorusLever[] chorusLevers) = BuildChorus(rooms[1], propMat);
+            doors[1].condition = chorus;
+            doors[1].openUntilPuzzled = false;
 
             // NO PUZZLES BEHIND THESE YET, so they stand open and the ring can be walked. Each flag
             // comes off as its room is built - see Door.openUntilPuzzled.
             //
             // Room1's is included even though its number lock works, because the ring cannot be
             // walked without it. Turning the lock back on is deleting one line.
+            // Set on every door first and cleared again by each room as its puzzle lands, so the
+            // flag is impossible to forget: a room that gets built takes its own door off the list.
             foreach (Door d in doors) d.openUntilPuzzled = true;
 
             ParticleSystem[] gas = BuildGasEmitters(r1, "Room2_1_Gas", 0f);
 
-            return (root.transform, spawn, gas, doors, numberLock, pads, rooms);
+            // EVERY SIGNAL IN THIS CYCLE, IN ONE ARRAY, and its order is the wire format - an
+            // entry's index is its bit in RecordedFrame.signals. Append as rooms are built, never
+            // reorder: a bit that changes meaning is a past self holding the wrong thing.
+            var signals = new System.Collections.Generic.List<GhostInteractable>();
+            signals.AddRange(pads);
+            signals.AddRange(chorusLevers);
+
+            return (root.transform, spawn, gas, doors,
+                    new RoomCondition[] { numberLock, chorus },
+                    signals.ToArray(), rooms);
         }
 
         // WHAT A RETRACTED PLINTH RETRACTS INTO.
@@ -7715,6 +7731,78 @@ namespace IterationRoom.EditorTools
         // NORMALISED TO A UNIT BOUNDING BOX like the prism it generalises, so a localScale of 0.30
         // still means 0.30 ACROSS for every one of the three. The barrel ring is the widest part, so
         // it is the ring the bounds are taken from.
+        // ROOM2'S PUZZLE: three levers that come back up on their own.
+        //
+        // SPREAD ACROSS THREE WALLS, as far apart as the room allows, and that spacing IS the
+        // difficulty. The levers hold for four seconds, and the walk between two of them is most of
+        // that - so a single person can just about catch two and can never catch three. Bring them
+        // closer and one past self is enough; push them further and even two cannot overlap.
+        //
+        // Not on the core wall. That one has the window, and a lever in front of it would stand
+        // between the player and the thing the room is about.
+        private static (Chorus chorus, ChorusLever[] levers) BuildChorus(Transform roomRoot, Material propMat)
+        {
+            GameObject root = new GameObject("Chorus");
+            root.transform.SetParent(roomRoot, false);
+
+            Material postMat = MakeColorMaterial("ChorusPost", new Color(0.22f, 0.23f, 0.27f));
+            SetSmoothness(postMat, 0.55f);
+            Material armMat = MakeColorMaterial("ChorusArm", new Color(0.78f, 0.79f, 0.82f));
+            SetSmoothness(armMat, 0.7f);
+            Material lampMat = MakeEmissiveMaterial("ChorusLamp", new Color(0.42f, 0.45f, 0.52f), 0f);
+
+            float halfX = RoomWidth / 2f, halfZ = RoomDepth / 2f;
+            // East wall, and the two ends of the room. The west wall is the window.
+            var spots = new (Vector3 at, float yaw)[]
+            {
+                (new Vector3(halfX - 0.45f, 0f, 0f), 90f),
+                (new Vector3(0f, 0f, halfZ - 0.45f), 180f),
+                (new Vector3(0f, 0f, -halfZ + 0.45f), 0f),
+            };
+
+            var levers = new ChorusLever[spots.Length];
+            for (int i = 0; i < spots.Length; i++)
+            {
+                GameObject go = new GameObject($"ChorusLever_{i}");
+                go.transform.SetParent(root.transform, false);
+                go.transform.localPosition = spots[i].at;
+                go.transform.localRotation = Quaternion.Euler(0f, spots[i].yaw, 0f);
+
+                Prim(PrimitiveType.Cube, "Housing", go.transform, new Vector3(0f, 0.75f, 0f),
+                     new Vector3(0.46f, 1.5f, 0.26f), postMat);
+
+                // The arm hangs off a pivot at the top of the housing, so it swings about a point
+                // rather than about its own middle.
+                GameObject pivot = new GameObject("Pivot");
+                pivot.transform.SetParent(go.transform, false);
+                pivot.transform.localPosition = new Vector3(0f, 1.32f, -0.13f);
+
+                Prim(PrimitiveType.Cube, "Arm", pivot.transform, new Vector3(0f, 0f, -0.22f),
+                     new Vector3(0.09f, 0.09f, 0.46f), armMat, removeCollider: true);
+                Prim(PrimitiveType.Sphere, "Grip", pivot.transform, new Vector3(0f, 0f, -0.44f),
+                     new Vector3(0.15f, 0.15f, 0.15f), armMat, removeCollider: true);
+
+                // The state light, high on the housing so it is readable from the far end of the
+                // room - which is where the player will be standing when they need to know.
+                GameObject lamp = Prim(PrimitiveType.Cube, "Lamp", go.transform,
+                    new Vector3(0f, 1.62f, 0f), new Vector3(0.3f, 0.09f, 0.16f), lampMat,
+                    removeCollider: true);
+
+                ChorusLever lever = go.AddComponent<ChorusLever>();
+                lever.arm = pivot.transform;
+                lever.lampRenderer = lamp.GetComponent<Renderer>();
+                lever.hintAnchor = pivot.transform;
+                lever.audioSource = MakeSource(go.transform, "LeverAudio", spatialBlend: 1f, volume: 0.85f);
+                lever.pullClip = LoadClip(SfxDir, "sfx_drawer_open");
+                lever.releaseClip = LoadClip(SfxDir, "sfx_floor_button_release");
+                levers[i] = lever;
+            }
+
+            Chorus chorus = root.AddComponent<Chorus>();
+            chorus.levers = levers;
+            return (chorus, levers);
+        }
+
         // ONE SHARD, as a carryable. `BuildPin` is the template this follows - the simplest complete
         // carryable in the project.
         //
