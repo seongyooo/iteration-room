@@ -3249,10 +3249,17 @@ namespace IterationRoom.EditorTools
 
             // Ten readouts and five pieces of graffiti. The pad digits are drawn clean and thin - a
             // machine showing a number - and the wall ones thick and wobbling, drawn by a hand.
+            // RED, not white. They were white on a pale emissive face, which is very nearly
+            // invisible - play reported the pads as having no numbers at all. Red is also what every
+            // other readout in this game uses (the iteration label, the clock, the ending card),
+            // because the walls are near-white and white text has nowhere to sit.
+            //
+            // The ink's RGB is what the texture is filled with; only the alpha is drawn. So this one
+            // colour is the whole of the change.
             var readouts = new Texture2D[10];
             for (int d = 0; d < 10; d++)
-                readouts[d] = MakeDigitTexture($"Digit_{d}", d, 128, 0.10f, 0f,
-                                               Color.white, 4700 + d);
+                readouts[d] = MakeDigitTexture($"Digit_{d}", d, 128, 0.11f, 0f,
+                                               new Color(0.92f, 0.10f, 0.08f), 4700 + d);
 
             // One material for all five readouts; CountPad swaps the texture through a property
             // block, so the pads share it without sharing a digit.
@@ -3326,7 +3333,11 @@ namespace IterationRoom.EditorTools
             // Every height here is absolute and every part sits ABOVE the one under it. Note a Unity
             // cylinder is TWO units tall, so its y-scale is a HALF-height - which is what made the
             // first version's arithmetic come out shallow.
-            const float ringTop = 0.05f;
+            // 100mm, up from 50mm. At half this the press was invisible at a walking glance, and
+            // for a fixture whose whole job is to be pressed a countable number of times that is the
+            // wrong thing to be subtle about. It is still low enough to walk onto rather than step up
+            // onto - the controller's step offset clears it.
+            const float ringTop = 0.10f;
             const float faceThickness = 0.014f;
             const float faceTop = ringTop + 0.010f;      // proud of the ring, not sunk into it
             const float digitLift = 0.0015f;

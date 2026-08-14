@@ -87,6 +87,16 @@ namespace IterationRoom
         // press.
         public static bool InView(Transform anchor) => anchor != null && InView(anchor.position);
 
+        // How close to the target a blocker may be and still not count as blocking. It exists to
+        // spare the target ITSELF: most fixtures have a solid collider at the very point their hint
+        // anchor sits, so a strict linecast would report every prompt in the game as occluded by the
+        // thing it is pointing at.
+        //
+        // Wide enough to clear an object's own body, narrow enough that a wall in front of it is
+        // still a wall - the thinnest wall here is 0.1m and the nearest a fixture ever sits to one is
+        // further than this.
+        private const float OcclusionSlack = 0.5f;
+
         public static bool InView(Vector3 worldPoint)
         {
             Camera cam = Eye;
@@ -95,7 +105,33 @@ namespace IterationRoom
             Vector3 v = cam.WorldToViewportPoint(worldPoint);
             // z is distance ALONG the view axis: negative means behind the camera, where the x/y of
             // a viewport point are mirrored and would otherwise read as perfectly on screen.
-            return v.z > 0f && v.x >= 0f && v.x <= 1f && v.y >= 0f && v.y <= 1f;
+            if (v.z <= 0f || v.x < 0f || v.x > 1f || v.y < 0f || v.y > 1f) return false;
+
+            return !Occluded(cam.transform.position, worldPoint);
+        }
+
+        // ON SCREEN IS NOT THE SAME AS VISIBLE, and this half was missing.
+        //
+        // The frustum test alone was deliberate and it was right while the building was one corridor:
+        // a fixture in the room ahead is behind a door, and a door is either shut - so the fixture is
+        // not in range anyway - or open, so you can see it. Rooms that WRAP, with a fixture one wall
+        // away at a diagonal, broke that: play reported an E prompt floating in mid-air beyond a
+        // wall, which is a promise the game cannot keep.
+        //
+        // TRIGGERS ARE IGNORED, and that is essential rather than tidy. Every carryable's reach
+        // volume, every pad's range and every doorway trigger is a trigger collider sitting in open
+        // air; counted as geometry they would occlude everything behind them, including themselves.
+        private static bool Occluded(Vector3 from, Vector3 to)
+        {
+            Vector3 delta = to - from;
+            float distance = delta.magnitude;
+            if (distance <= OcclusionSlack) return false;
+
+            // Stopped short of the target by the slack, so the object's own body is never the
+            // blocker - which is cheaper and steadier than raycasting the whole way and then
+            // deciding which hits to forgive.
+            return Physics.Raycast(from, delta / distance, distance - OcclusionSlack,
+                                   ~0, QueryTriggerInteraction.Ignore);
         }
 
         private static bool Resolve()
