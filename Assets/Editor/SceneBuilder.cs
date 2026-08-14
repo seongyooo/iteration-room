@@ -3315,35 +3315,41 @@ namespace IterationRoom.EditorTools
             plunger.transform.SetParent(root.transform, false);
 
             const float padRadius = 0.42f;
-            const float ringHeight = 0.055f;
 
-            // WRITTEN AS ABSOLUTE HEIGHTS, not as fractions of the ring. The first version used
-            // multipliers and buried the readout inside the face - a Unity cylinder is TWO units
-            // tall, so a y-scale of 0.22 * ringHeight is a slab 0.024 high, and the digit sitting at
-            // 1.02 * ringHeight was three millimetres UNDER its top. Nothing rendered, and nothing
-            // about the numbers looked wrong on paper.
-            const float faceTop = ringHeight - 0.006f;   // the face, recessed into the ring
-            const float faceThickness = 0.012f;
-            const float digitLift = 0.0015f;             // the readout, clear of the face
+            // STACKED, NOT NESTED, and that is the second attempt at this.
+            //
+            // The first built a "ring" that was actually a SOLID cylinder 55mm tall and then set the
+            // face and the readout INTO it at 43mm and 50mm - both entirely inside solid geometry, so
+            // the pad rendered as a plain dark disc with no number and no state. Nothing about the
+            // numbers looked wrong; the parts were simply underneath.
+            //
+            // Every height here is absolute and every part sits ABOVE the one under it. Note a Unity
+            // cylinder is TWO units tall, so its y-scale is a HALF-height - which is what made the
+            // first version's arithmetic come out shallow.
+            const float ringTop = 0.05f;
+            const float faceThickness = 0.014f;
+            const float faceTop = ringTop + 0.010f;      // proud of the ring, not sunk into it
+            const float digitLift = 0.0015f;
 
             Material ringMat = MakeColorMaterial("CountPadRing", new Color(0.20f, 0.21f, 0.24f));
             SetSmoothness(ringMat, 0.62f);
 
             Prim(PrimitiveType.Cylinder, "Ring", plunger.transform,
-                new Vector3(0f, ringHeight / 2f, 0f),
-                new Vector3(padRadius * 2f, ringHeight / 2f, padRadius * 2f), ringMat,
+                new Vector3(0f, ringTop / 2f, 0f),
+                new Vector3(padRadius * 2f, ringTop / 2f, padRadius * 2f), ringMat,
                 removeCollider: true);
 
-            // The face, set INTO the ring. Emissive and driven by CountPad, so a matched pad reads
-            // from across the room without having to walk over and look at the number.
+            // Standing proud of the ring and overlapping it, so there is no seam to see between them.
+            // Emissive and driven by CountPad, so a matched pad reads from across the room without
+            // having to walk over and look at the number.
             Material faceMat = MakeEmissiveMaterial("CountPadFace", new Color(0.55f, 0.60f, 0.68f), 1.6f);
             GameObject face = Prim(PrimitiveType.Cylinder, "Face", plunger.transform,
                 new Vector3(0f, faceTop - faceThickness / 2f, 0f),
                 new Vector3(padRadius * 1.55f, faceThickness / 2f, padRadius * 1.55f), faceMat,
                 removeCollider: true);
 
-            // The readout, lying flat and clear of the face it sits on. Rotated +90 about X, which
-            // turns a quad's -Z normal to face straight up.
+            // The readout, lying flat and clear of everything. Rotated +90 about X, which turns a
+            // quad's -Z normal to face straight up.
             GameObject digit = Prim(PrimitiveType.Quad, "Digit", plunger.transform,
                 new Vector3(0f, faceTop + digitLift, 0f),
                 new Vector3(padRadius * 1.2f, padRadius * 1.2f, 1f), digitMat,
@@ -3410,35 +3416,32 @@ namespace IterationRoom.EditorTools
             // from - "the player has fallen well below the floor they were standing on".
             go.transform.localPosition = new Vector3(0f, 0f, roomCenterZ + CycleExitZ);
 
-            const float seam = 0.01f;
-
-            // THE FLOOR ABOVE. Its top sits `seam` below the floor surface rather than flush with it,
-            // and that 10mm is doing two jobs. Flush, the cover's top face and the floor's top face
-            // are coplanar and z-fight along the whole square - and they still would once it slid
-            // aside, because it retracts into the floor slab rather than into a pocket. Recessed, it
-            // is inside solid floor the moment it moves, and while closed it reads as a hatch seam,
-            // which is a fair mark for "something is here" without saying what.
-            GameObject upper = Prim(PrimitiveType.Cube, "Cover_Floor", go.transform,
-                new Vector3(0f, -(WallThickness + seam) / 2f, 0f),
-                new Vector3(GridCellWidth, WallThickness - seam, GridCellWidth), floorMat);
-
-            // AND THE CEILING BELOW, which the first version left out - so the hole was covered from
-            // above and still a square recess with the shaft up inside it when seen from the room
-            // underneath. The opening goes through two slabs with the service void between them, and
-            // a lid on one of them is a lid on neither.
+            // BOTH LIDS ARE FLUSH WITH THE SURFACE THEY FILL, and both retract into the service
+            // void - the floor one drops as it slides, the ceiling one rises.
             //
-            // Recessed by the same seam, measured from the ceiling's LOWER face this time: that is
-            // the one on show, and the one that would z-fight.
-            float ceilingTop = -(ServiceVoid + WallThickness);
-            float ceilingBottom = -(ServiceVoid + 2f * WallThickness);
+            // The first version recessed each by 10mm to dodge a coplanar-face z-fight against the
+            // slab it slid into. That worked and left a 10mm hatch outline in the ceiling of the room
+            // below, lit differently from everything round it - which is exactly what a lid is not
+            // supposed to look like when it is shut. Retracting out of the slab instead means there
+            // is nothing to be coplanar with, so the lid can fill its hole exactly.
+            GameObject upper = Prim(PrimitiveType.Cube, "Cover_Floor", go.transform,
+                new Vector3(0f, -WallThickness / 2f, 0f),
+                new Vector3(GridCellWidth, WallThickness, GridCellWidth), floorMat);
+
+            float ceilingMid = -(ServiceVoid + 1.5f * WallThickness);
             GameObject lower = Prim(PrimitiveType.Cube, "Cover_Ceiling", go.transform,
-                new Vector3(0f, (ceilingBottom + seam + ceilingTop) / 2f, 0f),
-                new Vector3(GridCellWidth, WallThickness - seam, GridCellWidth), floorMat);
+                new Vector3(0f, ceilingMid, 0f),
+                new Vector3(GridCellWidth, WallThickness, GridCellWidth), floorMat);
 
             CycleExit exit = go.AddComponent<CycleExit>();
             exit.covers = new[] { upper.transform, lower.transform };
-            // By its own width, so the opening is fully clear rather than merely mostly.
-            exit.openLocalOffset = new Vector3(GridCellWidth, 0f, 0f);
+            // Sideways by its own width so the hole is fully clear, and out of its own slab by rather
+            // more than the slab is thick so neither lid can be seen edge-on through the opening.
+            exit.openOffsets = new[]
+            {
+                new Vector3(GridCellWidth, -0.16f, 0f),
+                new Vector3(GridCellWidth,  0.16f, 0f),
+            };
             exit.player = player;
             exit.audioSource = MakeSource(go.transform, "ExitAudio", spatialBlend: 1f, volume: 0.9f);
             exit.openClip = LoadClip(SfxDir, "sfx_door_open");

@@ -29,7 +29,17 @@ namespace IterationRoom
         // left a square recess in the lower room's ceiling with the shaft visible up inside it - the
         // hole was covered from one side and open from the other.
         public Transform[] covers;
-        public Vector3 openLocalOffset = new Vector3(0f, 0f, 1.75f);
+
+        // ONE OFFSET PER COVER, and they are not the same. Both retract INTO THE SERVICE VOID rather
+        // than sideways within their own slab - the floor lid drops as it slides, the ceiling lid
+        // rises.
+        //
+        // Sliding sideways alone put each lid inside solid slab with a face coplanar to the one on
+        // show, which z-fights across the whole square. Recessing the lid to avoid that left a
+        // 10mm-deep hatch outline in the ceiling of the room below, lit differently from everything
+        // round it. Moving them out of the slab entirely is what lets them be flush when closed and
+        // gone when open, which is also what a real hatch does.
+        public Vector3[] openOffsets;
         public float openDuration = 2.2f;
         public float sealDuration = 1.1f;
 
@@ -85,9 +95,14 @@ namespace IterationRoom
                 float step = Time.unscaledDeltaTime / Mathf.Max(0.01f, rate);
                 openAmount = Mathf.MoveTowards(openAmount, wantOpen ? 1f : 0f, step);
                 // Eased, so the wall neither snaps aside nor stops dead. Same curve the plinth uses.
-                Vector3 slide = openLocalOffset * Mathf.SmoothStep(0f, 1f, openAmount);
+                float eased = Mathf.SmoothStep(0f, 1f, openAmount);
                 for (int i = 0; i < covers.Length; i++)
-                    if (covers[i] != null) covers[i].localPosition = closedLocalPos[i] + slide;
+                {
+                    if (covers[i] == null) continue;
+                    Vector3 offset = openOffsets != null && i < openOffsets.Length
+                        ? openOffsets[i] : Vector3.zero;
+                    covers[i].localPosition = closedLocalPos[i] + offset * eased;
+                }
             }
 
             // Only ever asked while the opening is actually open, so nothing can be "through" a hole

@@ -52,7 +52,10 @@ namespace IterationRoom
         // DOWN FAST, UP SLOWER, which is the whole of what makes it read as sprung rather than as a
         // value being animated. A pad that returns as fast as it went is a slider.
         public Transform plunger;
-        public float plungerDrop = 0.014f;
+        // 22mm against a pad that stands 60mm tall, so the travel is better than a third of it. The
+        // first pass used 14mm and could not be seen at a walking glance, which for a pad whose whole
+        // job is to be pressed a countable number of times is the wrong thing to be subtle about.
+        public float plungerDrop = 0.022f;
         public float pressSeconds = 0.055f;
         public float releaseSeconds = 0.20f;
 
