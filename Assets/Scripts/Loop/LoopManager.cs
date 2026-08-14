@@ -529,9 +529,18 @@ namespace IterationRoom
             // are spent with the player's legs still working - long enough to look up and find the
             // slots it is pouring out of. Taking control the moment it starts would make it a
             // cutscene beginning rather than something happening to them.
-            if (sleepingGas != null) yield return sleepingGas.Administer();
+            // THE ROOM FIRST. This returns when the vapour has crossed the room, not when the player
+            // is down - they watch it arrive with their legs still working, which is what makes it
+            // something that happened rather than a cut.
+            if (sleepingGas != null) yield return sleepingGas.Fill();
 
             ambience?.PlayPullIn();
+
+            // AND THEN THEY BREATHE IT. The wash deepens WHILE the body falls rather than before it:
+            // the two are one event, and making them take turns is what made the first version read
+            // as a screen effect followed by an animation.
+            float goingUnder = wakeUpSequence != null ? wakeUpSequence.collapseDuration : 2.3f;
+            sleepingGas?.Overcome(goingUnder * 1.15f);
 
             // Down first, then the eyes. Not the loop's blink: that one is instant and involuntary,
             // and this has to read as losing rather than as being switched off.

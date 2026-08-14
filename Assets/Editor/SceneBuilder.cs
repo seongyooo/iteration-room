@@ -347,7 +347,7 @@ namespace IterationRoom.EditorTools
 
             // Cycle 2, one storey down. Deliberately OUTSIDE `room` - see BuildCycleTwoShell for why
             // the panel gather below is the reason.
-            (Transform cycleTwoRoot, Transform cycleTwoBedSpawn, Transform[] cycleTwoPlumes,
+            (Transform cycleTwoRoot, Transform cycleTwoBedSpawn, ParticleSystem[] cycleTwoGas,
              Door cycleTwoDoor, FloorButton cycleTwoPad) =
                 BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat);
 
@@ -766,9 +766,9 @@ namespace IterationRoom.EditorTools
             // teaches. Reset and driven at a cycle boundary respectively.
             loop.endCycleControl = canvas.GetComponentInChildren<EndCycleControl>(true);
             loop.sleepingGas = canvas.GetComponentInChildren<SleepingGas>(true);
-            // The room-side half of the gas. The wash on the canvas is what it feels like; the plumes
-            // are what it looks like.
-            if (loop.sleepingGas != null) loop.sleepingGas.plumes = cycleTwoPlumes;
+            // The room-side half of the gas. The wash on the canvas is what it feels like; the vapour
+            // is what it looks like.
+            if (loop.sleepingGas != null) loop.sleepingGas.emitters = cycleTwoGas;
 
             // THE PROBES ARE BAKED HERE, LAST, AND THAT IS A FIX RATHER THAN A TIDY-UP.
             //
@@ -2336,6 +2336,9 @@ namespace IterationRoom.EditorTools
                 // so baked in it would leave a shut floor in every reflection of a room the player is
                 // standing in with it open.
                 if (t.GetComponent<CycleExit>() != null) return true;
+                // The gas. A particle system baked into a probe would put vapour in the reflection
+                // of a room that has not been gassed yet.
+                if (t.GetComponent<ParticleSystem>() != null) return true;
                 if (t.CompareTag("Player")) return true;
                 t = t.parent;
             }
@@ -2641,7 +2644,7 @@ namespace IterationRoom.EditorTools
             return display;
         }
 
-        private static (Transform root, Transform bedSpawn, Transform[] plumes,
+        private static (Transform root, Transform bedSpawn, ParticleSystem[] gas,
                         Door door, FloorButton pad) BuildCycleTwoShell(
             Material floorMat, Material grooveMat, Material panelMat, Material propMat)
         {
@@ -2714,9 +2717,9 @@ namespace IterationRoom.EditorTools
                                      new[] { pad }, propMat);
 
             // What puts the player out at the end of the drop into this room.
-            Transform[] plumes = BuildGasPlumes(root.transform, "Room2_1_GasPlumes", CycleTwoFirstRoomZ);
+            ParticleSystem[] gas = BuildGasEmitters(root.transform, "Room2_1_Gas", CycleTwoFirstRoomZ);
 
-            return (root.transform, spawn, plumes, door, pad);
+            return (root.transform, spawn, gas, door, pad);
         }
 
         // WHAT A RETRACTED PLINTH RETRACTS INTO.
@@ -2762,62 +2765,206 @@ namespace IterationRoom.EditorTools
                 new Vector3(footprintX, depth, WallThickness), mat);
         }
 
+        // A SOFT ROUND BLOB, which is the whole of what a vapour particle needs to be. Generated
+        // like every other texture here rather than sourced.
+        //
+        // The falloff is squared rather than linear: a linear ramp gives a disc with a visible rim,
+        // and what has to be invisible is the EDGE of the sprite - a hundred overlapping billboards
+        // only read as one cloud if none of them has a boundary you can find.
+        private static Texture2D MakeSoftBlobTexture(string name, int size)
+        {
+            Color[] px = new Color[size * size];
+            float half = size / 2f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = (x + 0.5f - half) / half;
+                    float dy = (y + 0.5f - half) / half;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    float a = Mathf.Clamp01(1f - d);
+                    a *= a;
+                    px[y * size + x] = new Color(1f, 1f, 1f, a);
+                }
+            }
+
+            return WriteTexture(name, size, size, px, TextureWrapMode.Clamp, FilterMode.Bilinear);
+        }
+
         // WHERE THE GAS COMES FROM: the top of every wall, all four sides, nowhere to stand that is
         // not under one.
         //
-        // A source you can point at, rather than a screen effect with no cause. The wash on the HUD is
-        // what being inside it feels like; this is what makes it something the room did.
+        // PARTICLES, after two simpler attempts failed for the same reason. A lit slot along each
+        // wall left four near-black strips in a white room permanently, in exchange for a moment; a
+        // translucent box that grew downward left a zero-height quad at the wall head that still
+        // caught a specular highlight. Both were trying to fake a volume with a surface, and a
+        // surface always has an edge you can find.
         //
-        // NOTHING IS BUILT THAT CAN BE SEEN AT REST. The first version put a dark slot along each wall
-        // to be the outlet, and in a white room four near-black strips are the most noticeable thing in
-        // it - permanently, in exchange for a moment. The plume alone says everything the slot said:
-        // it appears at the ceiling line and pours down, so where it came from is not in question.
-        //
-        // The plume is a translucent box that grows DOWNWARD out of the wall top. Not a particle
-        // system: this project has no particle infrastructure, and boxes that grow do the one thing
-        // that has to read - gas arriving from above and filling down - without a new subsystem.
-        private static Transform[] BuildGasPlumes(Transform parent, string name, float roomCenterZ)
+        // What makes this read as vapour rather than as sprites is the NOISE module - without it a
+        // hundred soft blobs drifting on straight lines look exactly like a hundred soft blobs. The
+        // damping is the other half: the gas decelerates as it comes off the wall, so it pours in
+        // and then hangs, which is what a heavier-than-air gas does in a sealed room.
+        private static ParticleSystem[] BuildGasEmitters(Transform parent, string name, float roomCenterZ)
         {
             GameObject root = new GameObject(name);
             root.transform.SetParent(parent, false);
             root.transform.localPosition = new Vector3(0f, 0f, roomCenterZ);
 
-            // Authored fully clear; SleepingGas writes the alpha. A plume at rest is nothing at all.
-            Material plumeMat = MakeTranslucentMaterial("GasPlume", new Color(0.93f, 0.95f, 0.97f, 0f), 0.1f);
+            Texture2D blob = MakeSoftBlobTexture("GasBlob", 128);
+            Material gasMat = MakeParticleMaterial("GasVapour", blob);
 
-            const float plumeHeight = 2.4f;
-            const float plumeThickness = 0.5f;
-
-            float y = RoomHeight - 0.04f;
+            float y = RoomHeight - 0.25f;
             float halfX = RoomWidth / 2f;
             float halfZ = RoomDepth / 2f;
 
-            var walls = new (Vector3 at, Vector3 size)[]
+            // Position, the direction it blows, and how wide the emitter slot is along the wall.
+            var walls = new (Vector3 at, Vector3 inward, float run)[]
             {
-                (new Vector3(0f, y, -halfZ + plumeThickness / 2f), new Vector3(RoomWidth * 0.86f, plumeHeight, plumeThickness)),
-                (new Vector3(0f, y,  halfZ - plumeThickness / 2f), new Vector3(RoomWidth * 0.86f, plumeHeight, plumeThickness)),
-                (new Vector3(-halfX + plumeThickness / 2f, y, 0f), new Vector3(plumeThickness, plumeHeight, RoomDepth * 0.86f)),
-                (new Vector3( halfX - plumeThickness / 2f, y, 0f), new Vector3(plumeThickness, plumeHeight, RoomDepth * 0.86f)),
+                (new Vector3(0f, y, -halfZ + 0.3f), Vector3.forward, RoomWidth * 0.8f),
+                (new Vector3(0f, y,  halfZ - 0.3f), Vector3.back,    RoomWidth * 0.8f),
+                (new Vector3(-halfX + 0.3f, y, 0f), Vector3.right,   RoomDepth * 0.8f),
+                (new Vector3( halfX - 0.3f, y, 0f), Vector3.left,    RoomDepth * 0.8f),
             };
 
-            var plumes = new System.Collections.Generic.List<Transform>();
+            var systems = new System.Collections.Generic.List<ParticleSystem>();
+
             for (int i = 0; i < walls.Length; i++)
             {
-                // Pivoted at the TOP, so scaling Y makes it grow out of the wall head rather than out
-                // of its own middle. A wrapper does that without a custom mesh.
-                GameObject pivot = new GameObject($"PlumePivot_{i}");
-                pivot.transform.SetParent(root.transform, false);
-                pivot.transform.localPosition = walls[i].at;
+                GameObject go = new GameObject($"GasEmitter_{i}");
+                go.transform.SetParent(root.transform, false);
+                go.transform.localPosition = walls[i].at;
+                // Aimed inward AND down. Gas coming straight off a wall reads as a fan; this is a
+                // vent in a ceiling corner, so it should already be falling as it arrives.
+                go.transform.localRotation = Quaternion.LookRotation(
+                    (walls[i].inward + Vector3.down * 0.7f).normalized, Vector3.up);
 
-                Prim(PrimitiveType.Cube, "Plume", pivot.transform,
-                    new Vector3(0f, -walls[i].size.y / 2f, 0f), walls[i].size, plumeMat,
-                    removeCollider: true);
-
-                pivot.transform.localScale = new Vector3(1f, 0f, 1f);
-                plumes.Add(pivot.transform);
+                ParticleSystem ps = go.AddComponent<ParticleSystem>();
+                ConfigureGasEmitter(ps, walls[i].run, gasMat);
+                systems.Add(ps);
             }
 
-            return plumes.ToArray();
+            return systems.ToArray();
+        }
+
+        private static void ConfigureGasEmitter(ParticleSystem ps, float run, Material mat)
+        {
+            // Stopped, and stopped from the start: the room is not being gassed until it is.
+            ParticleSystem.MainModule main = ps.main;
+            main.playOnAwake = false;
+            main.loop = true;
+            main.duration = 12f;
+            // LONG-LIVED and SLOW. Vapour that clears in two seconds is a puff of smoke; this has to
+            // still be in the air while the player goes down on top of it.
+            main.startLifetime = new ParticleSystem.MinMaxCurve(7f, 11f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.22f, 0.55f);
+            main.startSize = new ParticleSystem.MinMaxCurve(1.7f, 3.4f);
+            main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+            // Very low alpha per particle. The cloud is built out of overlap, not out of any one
+            // billboard being visible - which is what stops it looking like sprites.
+            main.startColor = new Color(0.95f, 0.965f, 0.98f, 0.085f);
+            // Barely heavier than air. Enough that it settles rather than hangs at head height.
+            main.gravityModifier = 0.014f;
+            // WORLD, or the whole cloud would drag along with anything that moved the emitter.
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.maxParticles = 260;
+
+            ParticleSystem.EmissionModule emission = ps.emission;
+            emission.rateOverTime = 13f;
+
+            // A slot along the wall rather than a point, so it arrives as a sheet.
+            ParticleSystem.ShapeModule shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Box;
+            shape.scale = new Vector3(run, 0.25f, 0.15f);
+            shape.randomDirectionAmount = 0.12f;
+
+            // It pours in and then hangs. Without the damping it crosses the room and piles up
+            // against the far wall, which is a wind tunnel rather than a room filling.
+            ParticleSystem.LimitVelocityOverLifetimeModule limit = ps.limitVelocityOverLifetime;
+            limit.enabled = true;
+            limit.dampen = 0.055f;
+            limit.limit = new ParticleSystem.MinMaxCurve(0.5f);
+
+            // THE ONE THAT MAKES IT VAPOUR. Straight-line blobs read as sprites however soft they
+            // are; a slow large-scale wobble reads as something moving through air.
+            ParticleSystem.NoiseModule noise = ps.noise;
+            noise.enabled = true;
+            noise.strength = new ParticleSystem.MinMaxCurve(0.55f);
+            noise.frequency = 0.17f;
+            noise.scrollSpeed = new ParticleSystem.MinMaxCurve(0.09f);
+            noise.damping = true;
+            noise.quality = ParticleSystemNoiseQuality.High;
+
+            // Fade in over the first fifth, hold, fade out over the last third - so nothing ever
+            // appears or vanishes, which is the other half of not looking like sprites.
+            ParticleSystem.ColorOverLifetimeModule colour = ps.colorOverLifetime;
+            colour.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                new[]
+                {
+                    new GradientAlphaKey(0f, 0f),
+                    new GradientAlphaKey(1f, 0.22f),
+                    new GradientAlphaKey(0.85f, 0.62f),
+                    new GradientAlphaKey(0f, 1f),
+                });
+            colour.color = new ParticleSystem.MinMaxGradient(gradient);
+
+            // Spreading as it goes, which is what a gas does and what hides the billboard edges.
+            ParticleSystem.SizeOverLifetimeModule size = ps.sizeOverLifetime;
+            size.enabled = true;
+            var grow = new AnimationCurve();
+            grow.AddKey(0f, 0.55f);
+            grow.AddKey(1f, 1.45f);
+            size.size = new ParticleSystem.MinMaxCurve(1f, grow);
+
+            ParticleSystem.RotationOverLifetimeModule spin = ps.rotationOverLifetime;
+            spin.enabled = true;
+            spin.z = new ParticleSystem.MinMaxCurve(-0.25f, 0.25f);
+
+            var psr = ps.GetComponent<ParticleSystemRenderer>();
+            psr.renderMode = ParticleSystemRenderMode.Billboard;
+            psr.alignment = ParticleSystemRenderSpace.View;
+            psr.sharedMaterial = mat;
+            psr.sortMode = ParticleSystemSortMode.Distance;
+            // Nothing this soft should be casting or catching a shadow.
+            psr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            psr.receiveShadows = false;
+        }
+
+        // Unlit and alpha-blended, NOT premultiplied. The translucent Lit material this replaces
+        // preserved specular at zero alpha, which is exactly how an invisible box ended up as a
+        // visible band along the wall head - see BuildGasEmitters. Unlit has no specular to preserve.
+        private static Material MakeParticleMaterial(string name, Texture2D map)
+        {
+            string path = $"{MaterialsDir}/{name}.mat";
+            Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
+
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = shader;
+            mat.SetTexture("_BaseMap", map);
+            mat.mainTexture = map;
+            mat.SetColor("_BaseColor", Color.white);
+
+            mat.SetFloat("_Surface", 1f);
+            mat.SetFloat("_Blend", 0f);
+            mat.SetFloat("_ZWrite", 0f);
+            mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+
+            EditorUtility.SetDirty(mat);
+            return mat;
         }
 
         // WHAT THE PLAYER FALLS THROUGH between the two storeys: a square tube joining the hole in
