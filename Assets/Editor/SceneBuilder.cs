@@ -680,7 +680,22 @@ namespace IterationRoom.EditorTools
             // THE WAY ON, in room1-0's floor behind that console. Wiring it is what makes cycle 1 not
             // the last cycle - LoopManager reads "is there another entry in the array", and this is
             // the door that entry is reached through.
-            CycleExit cycleOneExit = BuildCycleExit(room.transform, 5f * RoomPitch, floorMat, fpc.transform);
+            // THE JOIN BELONGS TO NEITHER CYCLE, so it hangs off its own root rather than off cycle
+            // 1's.
+            //
+            // It was under `Room`, which is cycle 1's world root - and that root is deactivated the
+            // moment cycle 1 ends. So the lid over the hole went with it, and room2-1 spent the whole
+            // of cycle 2 with an open square in its ceiling. It reads as a patch of wrong colour
+            // rather than as a hole, which is why it took a walk-through to notice: what is visible
+            // through it is the void between the storeys.
+            //
+            // The shaft has the same problem in the other direction - it is what the player falls
+            // down, at the one moment both cycles are awake - so it moves here too. The console
+            // housing does NOT: it is cycle 1's machinery, it sits inside the service void where
+            // neither room can see it, and it should sleep when cycle 1 does.
+            GameObject join = new GameObject("CycleJoin_1_2");
+
+            CycleExit cycleOneExit = BuildCycleExit(join.transform, 5f * RoomPitch, floorMat, fpc.transform);
             finalRoom.wayOut = cycleOneExit;
 
             // The console retracts a metre below the floor, which is now a metre INTO room2-1. Give
@@ -691,7 +706,7 @@ namespace IterationRoom.EditorTools
 
             // And the tube the player falls down, joining this floor's hole to the ceiling hole of
             // the room below across the service void.
-            BuildExitShaft(room.transform, "ExitShaft_Cycle1", 5f * RoomPitch, floorMat);
+            BuildExitShaft(join.transform, "ExitShaft_Cycle1", 5f * RoomPitch, floorMat);
 
             // Appended after the fact because both buttons live in rooms built later than the hint
             // display. They are the two E fixtures OUTSIDE the loop - one before the first
