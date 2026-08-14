@@ -34,13 +34,14 @@ namespace IterationRoom
         public float fillOpacity = 0.92f;
 
         // THE ROOM-SIDE HALF, and the reason it exists: a wash with no source is a screen effect, and
-        // the player has to be able to see where this came from. The slots light along the top of
-        // every wall and the plumes pour down out of them.
-        public Renderer[] vents;
-        public Color ventLit = new Color(0.86f, 0.92f, 1f);
-        public float ventEmission = 2.2f;
-
-        // Pivoted at the slot, so scaling Y grows them downward. Driven 0..1 alongside the wash.
+        // the player has to be able to see where this came from.
+        //
+        // A lit slot along each wall was built for this first and taken out again - in a white room
+        // four near-black strips are the most noticeable thing in it, permanently, in exchange for a
+        // moment. The plume says everything the slot said: it appears at the ceiling line and pours
+        // down, so where it came from is not in question, and at rest there is nothing to see.
+        //
+        // Pivoted at the wall head, so scaling Y grows them downward. Driven 0..1 alongside the wash.
         public Transform[] plumes;
         public float plumeAlpha = 0.34f;
 
@@ -69,25 +70,9 @@ namespace IterationRoom
             SetRoom(0f);
         }
 
-        // The slots and the plumes, driven together on one 0..1.
+        // The plumes, on one 0..1.
         private void SetRoom(float t)
         {
-            if (vents != null)
-            {
-                Color glow = ventLit * (ventEmission * t);
-                foreach (Renderer vent in vents)
-                {
-                    if (vent == null) continue;
-                    // A property block rather than a material write: these share one material, and
-                    // setting it would light every slot in the building at once.
-                    var block = new MaterialPropertyBlock();
-                    vent.GetPropertyBlock(block);
-                    block.SetColor(EmissionId, glow);
-                    block.SetColor(BaseColorId, Color.Lerp(Color.black, ventLit, t));
-                    vent.SetPropertyBlock(block);
-                }
-            }
-
             if (plumes == null) return;
             foreach (Transform plume in plumes)
             {
@@ -106,11 +91,10 @@ namespace IterationRoom
             }
         }
 
-        private static readonly int EmissionId = Shader.PropertyToID("_EmissionColor");
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
         private static readonly Color plumeColour = new Color(0.93f, 0.95f, 0.97f, 1f);
 
-        // roomFrom/roomTo run the slots and plumes on their own curve, because the room fills FASTER
+        // roomFrom/roomTo run the plumes on their own curve, because the room fills FASTER
         // than the player goes under - the gas is visible in the air well before it has done anything.
         private IEnumerator Wash(float from, float to, float duration, float roomFrom, float roomTo)
         {

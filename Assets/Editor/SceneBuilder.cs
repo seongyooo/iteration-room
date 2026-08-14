@@ -273,6 +273,7 @@ namespace IterationRoom.EditorTools
         // beneath cycle 1's last, so the drop is short and vertical and the player can see the bed
         // through the opening before committing to it; everything after it walks toward -Z.
         private const float CycleTwoFirstRoomZ = 5f * RoomPitch;
+        private const float CycleTwoSecondRoomZ = 4f * RoomPitch;
 
         // The sensitivity room. Deliberately NOT a multiple of RoomPitch in the positive direction
         // - it is not part of the chain and must never be walked into, so it sits behind Room1 with
@@ -346,8 +347,8 @@ namespace IterationRoom.EditorTools
 
             // Cycle 2, one storey down. Deliberately OUTSIDE `room` - see BuildCycleTwoShell for why
             // the panel gather below is the reason.
-            (Transform cycleTwoRoot, Transform cycleTwoBedSpawn,
-             Renderer[] cycleTwoVents, Transform[] cycleTwoPlumes) =
+            (Transform cycleTwoRoot, Transform cycleTwoBedSpawn, Transform[] cycleTwoPlumes,
+             Door cycleTwoDoor, FloorButton cycleTwoPad) =
                 BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat);
 
             // Every wall panel, gathered by parent name rather than threaded back out through
@@ -731,11 +732,13 @@ namespace IterationRoom.EditorTools
             GameObject cycleTwoGO = new GameObject("Cycle2");
             Cycle cycleTwo = cycleTwoGO.AddComponent<Cycle>();
             cycleTwo.bedSpawnPoint = cycleTwoBedSpawn;
-            cycleTwo.doors = new Door[0];
-            cycleTwo.drawers = new Drawer[0];
-            // Its own array, numbered from zero. Legal because every ghost is destroyed at the
-            // boundary, so no surviving timeline refers to cycle 1's bits - see Cycle.ghostInteractables.
-            cycleTwo.ghostInteractables = new GhostInteractable[0];
+            cycleTwo.doors = new[] { cycleTwoDoor };
+            cycleTwo.drawers = cycleTwoRoot.GetComponentsInChildren<Drawer>(true);
+            // Its own array, numbered from ZERO - cycle 2's pad is bit 0, where cycle 1's is also bit
+            // 0. Legal because every ghost is destroyed at the boundary, so no surviving timeline
+            // refers to cycle 1's bits, and the recorder is repointed at this array when the cycle
+            // starts. See Cycle.ghostInteractables.
+            cycleTwo.ghostInteractables = new GhostInteractable[] { cycleTwoPad };
             cycleTwo.wallPanels = cycleTwoDisplay;
 
             // Everything down there stands on a floor one storey below zero, and every carryable has
@@ -763,14 +766,9 @@ namespace IterationRoom.EditorTools
             // teaches. Reset and driven at a cycle boundary respectively.
             loop.endCycleControl = canvas.GetComponentInChildren<EndCycleControl>(true);
             loop.sleepingGas = canvas.GetComponentInChildren<SleepingGas>(true);
-            // The room-side half of the gas: the slots it comes out of and the plumes that pour from
-            // them. The wash on the canvas is what it feels like; these are what it looks like.
-            SleepingGas gas = loop.sleepingGas;
-            if (gas != null)
-            {
-                gas.vents = cycleTwoVents;
-                gas.plumes = cycleTwoPlumes;
-            }
+            // The room-side half of the gas. The wash on the canvas is what it feels like; the plumes
+            // are what it looks like.
+            if (loop.sleepingGas != null) loop.sleepingGas.plumes = cycleTwoPlumes;
 
             // THE PROBES ARE BAKED HERE, LAST, AND THAT IS A FIX RATHER THAN A TIDY-UP.
             //
@@ -2643,20 +2641,37 @@ namespace IterationRoom.EditorTools
             return display;
         }
 
-        private static (Transform root, Transform bedSpawn, Renderer[] vents, Transform[] plumes) BuildCycleTwoShell(
+        private static (Transform root, Transform bedSpawn, Transform[] plumes,
+                        Door door, FloorButton pad) BuildCycleTwoShell(
             Material floorMat, Material grooveMat, Material panelMat, Material propMat)
         {
             GameObject root = new GameObject("Room_Cycle2");
             root.transform.position = new Vector3(0f, -StoreyDrop, 0f);
 
+            Rect doorway = new Rect(-DoorWidth / 2f, 0f, DoorWidth, DoorHeight);
+
             // The ceiling carries the SAME hole as room1-0's floor, so the opening runs clean through
-            // the 0.2m of slab between the storeys instead of into a void with a lid on it.
+            // the void between the storeys instead of into a lid.
+            //
+            // ITS DOORWAY IS SOUTH, because cycle 2 runs back the way cycle 1 came. Nothing to the
+            // north: this is the end of its building the way room1-0 is the end of cycle 1's.
             BuildRoomShell(root.transform, "Room2_1", CycleTwoFirstRoomZ, floorMat, grooveMat, panelMat,
-                Rect.zero, Rect.zero, ceilingHole: CycleExitHole);
+                doorway, Rect.zero, ceilingHole: CycleExitHole);
+
+            // The room across, and the direction of travel: -Z, one pitch at a time, back under the
+            // corridor the player has already walked.
+            BuildRoomShell(root.transform, "Room2_2", CycleTwoSecondRoomZ, floorMat, grooveMat, panelMat,
+                Rect.zero, doorway);
+
+            // Uncapped: there is a room through it.
+            BuildDoorPocketFill(root.transform, "DoorPocketFill_Cycle2_1", CycleTwoSecondRoomZ,
+                grooveMat, capFarSide: false);
 
             Material fixtureMat = MakeEmissiveMaterial("CeilingFixtureCycle2", Color.white, 3.5f);
             BuildCeilingLights(root.transform, "Room2_1", CycleTwoFirstRoomZ, fixtureMat, castShadows: false);
+            BuildCeilingLights(root.transform, "Room2_2", CycleTwoSecondRoomZ, fixtureMat, castShadows: false);
             BuildReflectionProbe(root.transform, "Room2_1", CycleTwoFirstRoomZ);
+            BuildReflectionProbe(root.transform, "Room2_2", CycleTwoSecondRoomZ);
 
             // The bed, on a node carrying the room's Z. `BuildBed` places everything relative to its
             // parent and was written when the only bed was in a room centred on zero - offsetting the
@@ -2665,7 +2680,7 @@ namespace IterationRoom.EditorTools
             bedRoot.transform.SetParent(root.transform, false);
             bedRoot.transform.localPosition = new Vector3(0f, 0f, CycleTwoFirstRoomZ);
             (_, Transform spawn) = BuildBed(bedRoot.transform, propMat,
-                                            floorY: -StoreyDrop, zCentre: CycleTwoFirstRoomZ);
+                                            floorY: -StoreyDrop, zCentre: CycleTwoFirstRoomZ, yaw: 180f);
 
             // AND THE NIGHTSTAND, so waking here reads as waking in room1-1 again rather than in a
             // storeroom. That sameness is the point: a new cycle is the same cell, not a new place.
@@ -2673,13 +2688,35 @@ namespace IterationRoom.EditorTools
             // Its pins carry a cycle-2 id of their own. `ItemRegistry` maps an id to ONE socket with
             // the last writer winning, and a shared id would make one six-deep supply that either
             // cycle's ghosts could draw from.
-            BuildNightstand(bedRoot.transform, CycleTwoToolItemId);
+            // Turned with the bed. A rotated wrapper is safe here in a way it is not for the bed: the
+            // nightstand is built entirely from `localPosition`, so the parent's rotation is simply
+            // inherited.
+            GameObject furniture = new GameObject("Room2_1_Furniture");
+            furniture.transform.SetParent(root.transform, false);
+            furniture.transform.localPosition = new Vector3(0f, 0f, CycleTwoFirstRoomZ);
+            furniture.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            BuildNightstand(furniture.transform, CycleTwoToolItemId);
+
+            // The pad and the door it holds, arranged exactly as room1-1's are: the pad out on the
+            // open floor past the foot of the bed, the door in the far wall - so standing on one and
+            // being at the other is the thing a single player cannot do. It is the first thing this
+            // game teaches, and a new cycle should teach it again in its own room rather than assume
+            // it carried over.
+            //
+            // Under the turned wrapper with the furniture, so the pad mirrors with the bed instead of
+            // ending up on the wrong side of a room that has been turned round.
+            FloorButton pad = BuildFloorButton(furniture.transform, propMat, "FloorButton_Cycle2",
+                new Vector3(2.8f, 0.03f, -1.75f));
+
+            // At the SECOND room's centre, which puts the slab in the pocket on ITS north side -
+            // between the two rooms. Same call shape as cycle 1's, one room along.
+            Door door = BuildPadDoor(root.transform, "Door_Cycle2", CycleTwoSecondRoomZ,
+                                     new[] { pad }, propMat);
 
             // What puts the player out at the end of the drop into this room.
-            (Renderer[] vents, Transform[] plumes) =
-                BuildGasVents(root.transform, "Room2_1_GasVents", CycleTwoFirstRoomZ);
+            Transform[] plumes = BuildGasPlumes(root.transform, "Room2_1_GasPlumes", CycleTwoFirstRoomZ);
 
-            return (root.transform, spawn, vents, plumes);
+            return (root.transform, spawn, plumes, door, pad);
         }
 
         // WHAT A RETRACTED PLINTH RETRACTS INTO.
@@ -2725,72 +2762,62 @@ namespace IterationRoom.EditorTools
                 new Vector3(footprintX, depth, WallThickness), mat);
         }
 
-        // WHERE THE GAS COMES FROM: a slot along the top of each wall, and the plume that pours out
-        // of it.
+        // WHERE THE GAS COMES FROM: the top of every wall, all four sides, nowhere to stand that is
+        // not under one.
         //
-        // A source you can point at, rather than a screen effect with no cause. The wash on the HUD
-        // is what being inside it feels like; these are what makes it something the room did. Put at
-        // the very top of the wall because that is where a room gasses somebody from - high, on all
-        // four sides, nowhere to stand that is not under one.
+        // A source you can point at, rather than a screen effect with no cause. The wash on the HUD is
+        // what being inside it feels like; this is what makes it something the room did.
         //
-        // The plume is a translucent box that grows DOWNWARD out of the slot and fades in, driven by
-        // SleepingGas. Not a particle system: this project has no particle infrastructure, and four
-        // boxes that grow do the one thing that has to read - gas arriving from above and filling
-        // down - without a new subsystem to tune.
-        private static (Renderer[] vents, Transform[] plumes) BuildGasVents(
-            Transform parent, string name, float roomCenterZ)
+        // NOTHING IS BUILT THAT CAN BE SEEN AT REST. The first version put a dark slot along each wall
+        // to be the outlet, and in a white room four near-black strips are the most noticeable thing in
+        // it - permanently, in exchange for a moment. The plume alone says everything the slot said:
+        // it appears at the ceiling line and pours down, so where it came from is not in question.
+        //
+        // The plume is a translucent box that grows DOWNWARD out of the wall top. Not a particle
+        // system: this project has no particle infrastructure, and boxes that grow do the one thing
+        // that has to read - gas arriving from above and filling down - without a new subsystem.
+        private static Transform[] BuildGasPlumes(Transform parent, string name, float roomCenterZ)
         {
             GameObject root = new GameObject(name);
             root.transform.SetParent(parent, false);
             root.transform.localPosition = new Vector3(0f, 0f, roomCenterZ);
 
-            Material slotMat = MakeColorMaterial("GasVentSlot", new Color(0.10f, 0.11f, 0.13f));
-            SetSmoothness(slotMat, 0.4f);
-            // Alpha is written at runtime; authored clear so the room looks untouched until it is not.
+            // Authored fully clear; SleepingGas writes the alpha. A plume at rest is nothing at all.
             Material plumeMat = MakeTranslucentMaterial("GasPlume", new Color(0.93f, 0.95f, 0.97f, 0f), 0.1f);
 
-            const float slotDrop = 0.16f;      // below the ceiling plane
-            const float slotHeight = 0.10f;
-            const float slotProud = 0.05f;
-            const float plumeHeight = 2.4f;    // full extent once it has poured
+            const float plumeHeight = 2.4f;
+            const float plumeThickness = 0.5f;
 
-            float y = RoomHeight - slotDrop;
+            float y = RoomHeight - 0.04f;
             float halfX = RoomWidth / 2f;
             float halfZ = RoomDepth / 2f;
 
-            var vents = new System.Collections.Generic.List<Renderer>();
-            var plumes = new System.Collections.Generic.List<Transform>();
-
-            // (position, size) for the four walls: two running along X, two along Z.
-            var walls = new (Vector3 at, Vector3 slot, Vector3 plume)[]
+            var walls = new (Vector3 at, Vector3 size)[]
             {
-                (new Vector3(0f, y, -halfZ + slotProud), new Vector3(RoomWidth * 0.86f, slotHeight, slotProud * 2f), new Vector3(RoomWidth * 0.86f, plumeHeight, 0.5f)),
-                (new Vector3(0f, y,  halfZ - slotProud), new Vector3(RoomWidth * 0.86f, slotHeight, slotProud * 2f), new Vector3(RoomWidth * 0.86f, plumeHeight, 0.5f)),
-                (new Vector3(-halfX + slotProud, y, 0f), new Vector3(slotProud * 2f, slotHeight, RoomDepth * 0.86f), new Vector3(0.5f, plumeHeight, RoomDepth * 0.86f)),
-                (new Vector3( halfX - slotProud, y, 0f), new Vector3(slotProud * 2f, slotHeight, RoomDepth * 0.86f), new Vector3(0.5f, plumeHeight, RoomDepth * 0.86f)),
+                (new Vector3(0f, y, -halfZ + plumeThickness / 2f), new Vector3(RoomWidth * 0.86f, plumeHeight, plumeThickness)),
+                (new Vector3(0f, y,  halfZ - plumeThickness / 2f), new Vector3(RoomWidth * 0.86f, plumeHeight, plumeThickness)),
+                (new Vector3(-halfX + plumeThickness / 2f, y, 0f), new Vector3(plumeThickness, plumeHeight, RoomDepth * 0.86f)),
+                (new Vector3( halfX - plumeThickness / 2f, y, 0f), new Vector3(plumeThickness, plumeHeight, RoomDepth * 0.86f)),
             };
 
+            var plumes = new System.Collections.Generic.List<Transform>();
             for (int i = 0; i < walls.Length; i++)
             {
-                GameObject slot = Prim(PrimitiveType.Cube, $"Vent_{i}", root.transform,
-                    walls[i].at, walls[i].slot, slotMat, removeCollider: true);
-                vents.Add(slot.GetComponent<Renderer>());
-
-                // Pivoted at the TOP, so scaling Y down the axis makes it grow out of the slot rather
-                // than out of its own middle. A wrapper does that without a custom mesh.
+                // Pivoted at the TOP, so scaling Y makes it grow out of the wall head rather than out
+                // of its own middle. A wrapper does that without a custom mesh.
                 GameObject pivot = new GameObject($"PlumePivot_{i}");
                 pivot.transform.SetParent(root.transform, false);
-                pivot.transform.localPosition = new Vector3(walls[i].at.x, y, walls[i].at.z);
+                pivot.transform.localPosition = walls[i].at;
 
                 Prim(PrimitiveType.Cube, "Plume", pivot.transform,
-                    new Vector3(0f, -walls[i].plume.y / 2f, 0f), walls[i].plume, plumeMat,
+                    new Vector3(0f, -walls[i].size.y / 2f, 0f), walls[i].size, plumeMat,
                     removeCollider: true);
 
                 pivot.transform.localScale = new Vector3(1f, 0f, 1f);
                 plumes.Add(pivot.transform);
             }
 
-            return (vents.ToArray(), plumes.ToArray());
+            return plumes.ToArray();
         }
 
         // WHAT THE PLAYER FALLS THROUGH between the two storeys: a square tube joining the hole in
@@ -3235,8 +3262,17 @@ namespace IterationRoom.EditorTools
         //
         // The spawn point below is unaffected - it is placed with `localPosition` and inherits the
         // parent normally - which is why the player woke in the right room with no bed in it.
+        // yaw turns the whole arrangement about the room centre - the bed, which end of the room it is
+        // at, and which way the sleeper faces - rather than spinning the model on the spot. Cycle 2
+        // uses 180 so its bed head is at the other end from cycle 1's.
+        //
+        // Applied as a SIGN on the layout rather than a rotation on the parent, because `PlaceModel`
+        // corrects `localPosition` by a world-space delta: under a rotated parent that correction goes
+        // in the wrong direction entirely. Anything placed with plain `localPosition` (the spawn point
+        // here, the nightstand elsewhere) can use a rotated wrapper quite safely.
         private static (Transform bed, Transform spawn) BuildBed(Transform parent, Material mat,
-                                                                 float floorY = 0f, float zCentre = 0f)
+                                                                 float floorY = 0f, float zCentre = 0f,
+                                                                 float yaw = 0f)
         {
             // Combined bed + bedside table model, which replaces the old separate Kenney bed,
             // drawer, lamp and cup. It is authored Z-up in centimetres, hence the -90 X rotation
@@ -3247,9 +3283,13 @@ namespace IterationRoom.EditorTools
             // -90 X uprights it (authored Z-up), then 180 Y turns the headboard toward the door.
             // Keep the glTF materials it ships with - they carry metallic/roughness maps that a
             // hand-rolled URP/Lit stand-in would drop.
+            // +1 at yaw 0, -1 at yaw 180. Rounded, so it is exactly a sign rather than a float that
+            // happens to be near one.
+            float facing = Mathf.Round(Mathf.Cos(yaw * Mathf.Deg2Rad));
+
             (GameObject bed, _) = PlaceModel($"{FurnitureDir}/messy_bed.glb", parent, "Bed",
-                new Vector3(0f, 0f, zCentre + 0.7f), floorY, 0.00941f, addBoxCollider: true,
-                rotation: Quaternion.Euler(-90f, 180f, 0f));
+                new Vector3(0f, 0f, zCentre + 0.7f * facing), floorY, 0.00941f, addBoxCollider: true,
+                rotation: Quaternion.Euler(-90f, 180f + yaw, 0f));
 
             UseSinglePillow(bed, keepName: "Pillow_2", hideName: "Pillow_1", centreX: 0f);
 
@@ -3277,8 +3317,8 @@ namespace IterationRoom.EditorTools
             // Keeping X=0 preserves the deliberate door/bed/spawn centre line.
             GameObject spawn = new GameObject("BedSpawnPoint");
             spawn.transform.SetParent(parent, false);
-            spawn.transform.localPosition = new Vector3(0f, 0.05f, -0.7f);
-            spawn.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            spawn.transform.localPosition = new Vector3(0f, 0.05f, -0.7f * facing);
+            spawn.transform.localRotation = Quaternion.Euler(0f, 180f + yaw, 0f);
 
             return (bed.transform, spawn.transform);
         }
