@@ -11,4 +11,10 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/IterationRoom.unity
     guid: 6dbba5986a8a6a14bb63219c815a5df1
+  - enabled: 1
+    path: Assets/Scenes/Cycle1.unity
+    guid: ad35410d7fc79964f84c0a0b938562f1
+  - enabled: 1
+    path: Assets/Scenes/Cycle2.unity
+    guid: 76045d3740c964b4281228570c91718f
   m_configObjects: {}

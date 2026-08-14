@@ -64,6 +64,10 @@ Captures/
 # different GUID and dirties that file.
 [Aa]ssets/[Ss]cenes/*.unity
 
+# What the cross-scene reference check writes on every build. Build output about build output -
+# it says what the CURRENT scenes look like, so a committed copy would only ever be someone else's.
+cross-scene-report.txt
+
 # Byte-cache from the Tools/ generator scripts.
 __pycache__/
 

@@ -68,12 +68,28 @@ namespace IterationRoom
 
         private void Awake()
         {
-            int count = interactTargets != null ? interactTargets.Length : 0;
-            targets = new IInteractHintTarget[count];
-            for (int i = 0; i < count; i++) targets[i] = interactTargets[i] as IInteractHintTarget;
+            CacheTargets();
 
             if (interactGroup != null) interactGroup.alpha = 0f;
             if (swingGroup != null) swingGroup.alpha = 0f;
+        }
+
+        // ASSIGN THROUGH THIS, NEVER BY WRITING THE FIELD, once anything sets it after build time.
+        // The cast to the interface happens once in `Awake`, so a later write to `interactTargets`
+        // alone changes nothing at all - and Unity does not define the order of two `Awake`s, so
+        // whether a rebind is seen would be a coin toss decided per build. `CycleBinding` rebuilds
+        // this list at startup as the groundwork for the per-cycle scene split.
+        public void SetTargets(MonoBehaviour[] value)
+        {
+            interactTargets = value;
+            CacheTargets();
+        }
+
+        private void CacheTargets()
+        {
+            int count = interactTargets != null ? interactTargets.Length : 0;
+            targets = new IInteractHintTarget[count];
+            for (int i = 0; i < count; i++) targets[i] = interactTargets[i] as IInteractHintTarget;
         }
 
         private void Update()

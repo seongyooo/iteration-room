@@ -16,6 +16,14 @@ namespace IterationRoom.EditorTools
     {
         private const string ScenePath = "Assets/Scenes/IterationRoom.unity";
         private const string MenuScenePath = "Assets/Scenes/MainMenu.unity";
+
+        // ONE SCENE PER CYCLE, on top of the core one. `IterationRoom` keeps the player, the HUD, the
+        // loop and the join between storeys; everything a cycle IS moves out into these.
+        //
+        // The order is play order, and it is the same order `CycleSceneLoader` reads them back in - so
+        // a cycle's position in this array is what says which cycle it is. Append, never reorder.
+        private static readonly string[] CycleSceneNames = { "Cycle1", "Cycle2" };
+        private static string CycleScenePath(string name) => $"Assets/Scenes/{name}.unity";
         private const string MaterialsDir = "Assets/Materials";
         private const string PrefabsDir = "Assets/Prefabs";
         private const string ShadersDir = "Assets/Shaders";
@@ -322,6 +330,69 @@ namespace IterationRoom.EditorTools
         // The bake is genuinely most of the build's time - fifteen probes, six faces each. If that
         // becomes intolerable the answer is the per-cycle scene split (`docs/cycle-design.md` §7b),
         // which cuts what has to be baked, rather than a switch that bakes nothing and says nothing.
+        // REBUILDS ONE CYCLE, INTO ITS OWN SCENE, AND BAKES ONLY ITS PROBES.
+        //
+        // This is what the scene split was FOR. The full build re-bakes all fifteen reflection probes,
+        // six faces each, and that is nearly all of the minutes it takes - while a session spent moving
+        // a switch in room2-2 is not looking at cycle 1 at all. Here the scene contains one cycle, so
+        // `BakeReflectionProbes` finds eight probes instead of fifteen and `Cycle1.unity` is not touched.
+        //
+        // NOT THE SAME BARGAIN AS THE OLD "fast, no probes" BUILD, which was removed as a trap. That one
+        // left STALE cubemaps in place and said nothing about it, so a room could reflect a building
+        // that no longer existed. This bakes every probe it is responsible for, in full; what it leaves
+        // alone is a different cycle, whose geometry this cannot have changed because it is not in the
+        // scene. Nothing goes out of date without the file it belongs to being rebuilt.
+        //
+        // The core scene is not needed and not opened. Everything cycle 2 points at outside itself is
+        // re-established at runtime by `CycleBinding`, which is why the core references below are null.
+        [MenuItem("Iteration Room/Rebuild Cycle 2 Only")]
+        public static void RebuildCycleTwo()
+        {
+            EnsureFolders();
+            PlayerSettings.runInBackground = true;
+
+            EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
+            Scene scene = SceneManager.GetActiveScene();
+
+            Material floorMat = MakeColorMaterial("FloorWhite", Color.white);
+            Material grooveMat = MakeColorMaterial("GrooveDark", new Color(0.04f, 0.04f, 0.045f));
+            Material propMat = MakeColorMaterial("PropLight", new Color(0.85f, 0.85f, 0.85f));
+            Material panelMat = MakeColorMaterial("PanelWhite", Color.white);
+            Texture2D surfaceGrain = MakeNoiseNormalMap("SurfaceGrain", 512, 2.5f);
+            ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), 0.85f);
+            ApplySurfaceDetail(floorMat, surfaceGrain, 1.8f, new Vector2(26f, 30f), 0.18f);
+
+            (Transform root, Transform bedSpawn, ParticleSystem[] _,
+             Door[] doors, RoomCondition[] conditions,
+             GhostInteractable[] signals, Transform[] rooms) =
+                BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat, null);
+
+            (Cycle cycle, _) = AssembleCycleTwo(
+                root, bedSpawn, doors, conditions, signals, rooms,
+                floorMat, propMat, MakeTestCardTexture("TvTestCard"), MakeStaticTexture("TvStatic", 64),
+                null, null, null);
+
+            // The same lighting the full build sets up, and it has to be here rather than inherited:
+            // a probe bakes what the scene is lit by, and an unlit scene bakes eight black cubemaps.
+            SetupLighting();
+            AddFallingToEveryCarryable();
+            BakeReflectionProbes();
+
+            // The cycle's world goes under its own component, exactly as the split leaves it, so the
+            // scene has one root and `CycleSceneLoader` finds it the same way.
+            root.SetParent(cycle.transform, true);
+            if (cycle.wallPanels != null) cycle.wallPanels.transform.SetParent(cycle.transform, true);
+            SleepCycle(root);
+
+            Directory.CreateDirectory("Assets/Scenes");
+            EditorSceneManager.SaveScene(scene, CycleScenePath("Cycle2"));
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("[SceneBuilder] Cycle 2 rebuilt on its own at " + CycleScenePath("Cycle2")
+                    + " - cycle 1 and the core scene were not touched.");
+        }
+
         [MenuItem("Iteration Room/Build Whitebox Scene")]
         public static void Build()
         {
@@ -421,17 +492,8 @@ namespace IterationRoom.EditorTools
             WallPanelDisplay wallDisplay = MakeWallPanelDisplay(
                 "WallPanelDisplay", wallPanelRenderers.ToArray(), testCard, staticNoise);
 
-            // ONE DISPLAY PER CYCLE. The ERROR spreading from a console means *this bed's cycle is
-            // over*, so a panel in a cycle the player has not reached has no business failing - and
-            // the gather is by name, which would otherwise sweep up every storey at once.
-            var cycleTwoPanels = new System.Collections.Generic.List<Renderer>();
-            foreach (Renderer r in cycleTwoRoot.GetComponentsInChildren<Renderer>())
-            {
-                if (r.transform.parent == null || !r.transform.parent.name.EndsWith("_Panels")) continue;
-                cycleTwoPanels.Add(r);
-            }
-            WallPanelDisplay cycleTwoDisplay = MakeWallPanelDisplay(
-                "WallPanelDisplay_Cycle2", cycleTwoPanels.ToArray(), testCard, staticNoise);
+            // Cycle 2's own display is built with the rest of cycle 2, in AssembleCycleTwo - see there
+            // for why everything that cycle IS now lives behind one call.
 
             // Four recessed downlights per room, plus Trilight ambient standing in for the bounce
             // URP is not computing. The scene's default Directional Light is deleted rather than
@@ -800,57 +862,20 @@ namespace IterationRoom.EditorTools
             // iterating there. That is the honest state of a cycle with no puzzles in it rather than a
             // gap: there is nothing to finish, so nothing finishes. Wiring a console is what will end
             // it, the same way cycle 1 ends.
-            GameObject cycleTwoGO = new GameObject("Cycle2");
-            Cycle cycleTwo = cycleTwoGO.AddComponent<Cycle>();
-            cycleTwo.bedSpawnPoint = cycleTwoBedSpawn;
-            cycleTwo.doors = cycleTwoDoors;
-            cycleTwo.drawers = cycleTwoRoot.GetComponentsInChildren<Drawer>(true);
-            // Its own array, numbered from ZERO - cycle 2's five pads are bits 0-4, where cycle 1's
-            // pad is also bit 0. Legal because every ghost is destroyed at the boundary, so no
-            // surviving timeline refers to cycle 1's bits, and the recorder is repointed at this
-            // array when the cycle starts. See Cycle.ghostInteractables.
-            cycleTwo.ghostInteractables = cycleTwoSignals;
-            cycleTwo.conditions = cycleTwoConditions;
+            (Cycle cycleTwo, WallPanelDisplay cycleTwoDisplay) = AssembleCycleTwo(
+                cycleTwoRoot, cycleTwoBedSpawn, cycleTwoDoors, cycleTwoConditions, cycleTwoSignals,
+                cycleTwoRooms, floorMat, propMat, testCard, staticNoise, shaker, hand, narration);
 
-            // ROOM0: the console the three shards go into, and the end of the cycle.
-            //
-            // The same `FinalRoomSequence` cycle 1 ends on, which is the point rather than a saving -
-            // a cycle ends the way a cycle ends, and only what goes INTO the console differs. Its
-            // `doorBehind` is the door out of room7, sealed as the break starts.
-            Transform ringRoom0 = cycleTwoRooms[7];
-            FinalRoomSequence cycleTwoFinal = BuildFinalRoom(ringRoom0, 0f, propMat, cycleTwoDoors[6],
-                                                             cycleTwoDisplay, shaker, hand,
-                                                             ShardAItemId, ShardBItemId, ShardCItemId);
-            cycleTwoFinal.narration = narration;
-            cycleTwo.finalRoom = cycleTwoFinal;
-
-            // A plinth retracts a metre under its own floor, and there is nothing below cycle 2 yet -
-            // but there will be, and a plinth with no housing is exactly the fault that put cycle 1's
-            // console through room2-1's ceiling. Built now rather than found again later.
-            BuildPlinthHousing(ringRoom0, "ConsoleHousing_Cycle2", Vector3.zero, 1.86f, 1.31f, 1.45f, floorMat);
-
-            // THE THREE SHARDS ARE NOT PLACED, as of 2026-08-15. They used to be dropped free on the
-            // floor of rooms 2, 4 and 6 so that cycle 2 could be finished end to end before any of its
-            // puzzles existed - which did its job, and stopped being worth its cost the moment those
-            // rooms started acquiring real fixtures: three metal objects lying about in a room the
-            // player is meant to be reading says the room has already paid out.
-            //
-            // **CYCLE 2 THEREFORE CANNOT BE COMPLETED RIGHT NOW**, and that is the honest state of it -
-            // the console has three empty recesses and nothing yet fills them. Each shard comes back as
-            // its room's payout, on that room's own condition, the way cycle 1's three do.
-            cycleTwo.worldRoot = cycleTwoRoot;
-
-            cycleTwo.wallPanels = cycleTwoDisplay;
-
-            // Everything down there stands on a floor one storey below zero, and every carryable has
-            // to be told so or it falls through it. Nothing is carryable in cycle 2 yet; the call is
-            // here so that stops being true safely.
-            SetFloorBase(cycleTwoRoot, -StoreyDrop);
 
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
             loop.loopDuration = 60f;
-            loop.cycles = new[] { cycleOne, cycleTwo };
+            // NOT ASSIGNED HERE ANY MORE. `cycles` is filled at runtime from `CycleSceneLoader`,
+            // because each cycle is a scene of its own and Unity drops a serialized reference that
+            // crosses one. Assigning it would look right in the Inspector and be null in the player.
+            CycleSceneLoader sceneLoader = loopGO.AddComponent<CycleSceneLoader>();
+            sceneLoader.cycleSceneNames = CycleSceneNames;
+            loop.sceneLoader = sceneLoader;
             loop.playerRecorder = recorder;
             loop.playerController = fpc;
             loop.playerHand = hand;
@@ -870,6 +895,28 @@ namespace IterationRoom.EditorTools
             // The room-side half of the gas. The wash on the canvas is what it feels like; the vapour
             // is what it looks like.
             if (loop.sleepingGas != null) loop.sleepingGas.emitters = cycleTwoGas;
+
+            // AND THE SAME WIRING AGAIN, AT RUNTIME. Everything above is correct and stays; this is
+            // the groundwork for splitting the cycles into scenes of their own, where every reference
+            // that crosses one comes back NULL and says nothing about it. See CycleBinding.
+            CycleBinding binding = loopGO.AddComponent<CycleBinding>();
+            loop.binding = binding;
+            binding.loop = loop;
+            binding.hand = hand;
+            binding.cameraShaker = shaker;
+            binding.narration = narration;
+            binding.player = fpc.transform;
+            binding.sleepingGas = loop.sleepingGas;
+            binding.hints = hints;
+            binding.endCycleControl = loop.endCycleControl;
+            binding.placer = placer;
+            binding.swingTool = player.GetComponent<BalloonTool>();
+            // One per cycle, in cycle order. Cycle 2's is null, and that null is what says it is the
+            // last cycle - see LoopManager, which derives "last" from having no successor.
+            binding.wayOuts = new[] { cycleOneExit, null };
+            // The one E fixture that belongs to no cycle: the calibration room runs before the first
+            // iteration, so its button cannot be gathered off a cycle root.
+            binding.coreHintTargets = new MonoBehaviour[] { startButton };
 
             // THE PROBES ARE BAKED HERE, LAST, AND THAT IS A FIX RATHER THAN A TIDY-UP.
             //
@@ -917,6 +964,21 @@ namespace IterationRoom.EditorTools
             SleepCycle(cycleTwoRoot);
 
             Directory.CreateDirectory("Assets/Scenes");
+
+            // SAVED BEFORE THE SPLIT, AND AGAIN AFTER IT, and the first save is not optional: a scene
+            // that has never been written to disk is "untitled", and Unity refuses to open a second
+            // scene additively alongside an untitled one. The split creates the cycle scenes exactly
+            // that way, so without this it fails outright.
+            EditorSceneManager.SaveScene(scene, ScenePath);
+
+            // THE SPLIT, AND IT HAPPENS LAST FOR A REASON. Everything above builds and bakes in ONE
+            // scene, exactly as it always did - a reflection probe renders the world around it, so it
+            // has to be baked while that world is still assembled. Only once the cubemaps are on disk
+            // does each cycle move out into a scene of its own.
+            SplitCyclesIntoScenes(new[] { cycleOne, cycleTwo }, new[] { wallDisplay, cycleTwoDisplay });
+
+            // And again, because the cycles have just left it. The first save wrote a scene that still
+            // contained them.
             EditorSceneManager.SaveScene(scene, ScenePath);
 
             // Grabbed while the room is still the open scene: this is the frame the title screen
@@ -935,11 +997,17 @@ namespace IterationRoom.EditorTools
             // list lives in ProjectSettings and nothing else here maintains it.
             //
             // MainMenu is index 0, so that is where a standalone player opens.
-            EditorBuildSettings.scenes = new[]
+            // And every cycle scene after them. A scene that is not in this list cannot be loaded by
+            // name at runtime at all - `SceneManager.LoadSceneAsync` simply returns null - so a cycle
+            // missing from here is a cycle that does not exist in a built player.
+            var buildScenes = new System.Collections.Generic.List<EditorBuildSettingsScene>
             {
                 new EditorBuildSettingsScene(MenuScenePath, true),
                 new EditorBuildSettingsScene(ScenePath, true),
             };
+            foreach (string name in CycleSceneNames)
+                buildScenes.Add(new EditorBuildSettingsScene(CycleScenePath(name), true));
+            EditorBuildSettings.scenes = buildScenes.ToArray();
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
@@ -2365,6 +2433,138 @@ namespace IterationRoom.EditorTools
         // `-nographics` cannot render, and a bake is a render: the whole pass is skipped there. That
         // leaves the previous .exr files in place, which is the same bargain CaptureMenuBackground
         // makes - stale reflection data is a far better outcome than a failed build.
+        // MOVES EACH CYCLE OUT INTO ITS OWN SCENE, and then proves nothing was left pointing across the
+        // gap. See CycleSceneLoader for why the cycles are split at all (build time, not frame time).
+        //
+        // The `Cycle` component's own GameObject becomes the PARENT of that cycle's world and its wall
+        // panels, so one move takes everything and the scene has exactly one root. That is also what
+        // `CycleSceneLoader` looks for on the way back in - a scene whose root carries a `Cycle`.
+        //
+        // WHAT THIS DELIBERATELY DOES NOT DO is repair the references it is about to break. Unity drops
+        // a serialized reference across a scene boundary silently, and the answer to that is not to
+        // hunt them here - it is `CycleBinding`, which re-establishes every one of them at runtime and
+        // was written and proved BEFORE this method existed. All this does is check the work: anything
+        // still crossing after the move is something CycleBinding does not yet know about, and the
+        // build says so rather than shipping a null nobody will meet until they play that room.
+        private static void SplitCyclesIntoScenes(Cycle[] cycles, WallPanelDisplay[] displays)
+        {
+            ExtractCalibrationRoom(cycles.Length > 0 ? cycles[0] : null);
+
+            for (int i = 0; i < cycles.Length; i++)
+            {
+                Cycle cycle = cycles[i];
+                if (cycle == null) continue;
+
+                if (cycle.worldRoot != null) cycle.worldRoot.SetParent(cycle.transform, true);
+                if (i < displays.Length && displays[i] != null)
+                    displays[i].transform.SetParent(cycle.transform, true);
+
+                string name = CycleSceneNames[i];
+                Scene cycleScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
+                EditorSceneManager.MoveGameObjectToScene(cycle.gameObject, cycleScene);
+                EditorSceneManager.SaveScene(cycleScene, CycleScenePath(name));
+                Debug.Log($"[SceneBuilder] Cycle scene '{name}' written to {CycleScenePath(name)}");
+            }
+
+            CrossSceneReferenceCheck.WriteReport();
+        }
+
+        // EVERYTHING CYCLE 2 IS, behind one call - the shell, its own wall display, the console at the
+        // end of the ring and the `Cycle` component that names all of it.
+        //
+        // Extracted from `Build` so there is a way to build this cycle WITHOUT building the rest of the
+        // game (see RebuildCycleTwo). That only became possible once the cycles were split into scenes
+        // of their own: `shaker`, `hand` and `narration` all live in the core scene, and until
+        // `CycleBinding` started re-establishing them at runtime they had to be present at build time.
+        // They are still passed when the full build calls this, because passing the real thing costs
+        // nothing - but NULL is now a legal answer, and that is the whole of why a cycle can be rebuilt
+        // on its own.
+        private static (Cycle cycle, WallPanelDisplay display) AssembleCycleTwo(
+            Transform cycleTwoRoot, Transform bedSpawn, Door[] doors, RoomCondition[] conditions,
+            GhostInteractable[] signals, Transform[] rooms,
+            Material floorMat, Material propMat, Texture2D testCard, Texture2D staticNoise,
+            CameraShaker shaker, PlayerHand hand, NarrationDirector narration)
+        {
+            // ONE DISPLAY PER CYCLE. The ERROR spreading from a console means *this bed's cycle is
+            // over*, so a panel in a cycle the player has not reached has no business failing - and
+            // the gather is by name, which would otherwise sweep up every storey at once.
+            var panels = new System.Collections.Generic.List<Renderer>();
+            foreach (Renderer r in cycleTwoRoot.GetComponentsInChildren<Renderer>())
+            {
+                if (r.transform.parent == null || !r.transform.parent.name.EndsWith("_Panels")) continue;
+                panels.Add(r);
+            }
+            WallPanelDisplay display = MakeWallPanelDisplay(
+                "WallPanelDisplay_Cycle2", panels.ToArray(), testCard, staticNoise);
+
+            GameObject cycleTwoGO = new GameObject("Cycle2");
+            Cycle cycleTwo = cycleTwoGO.AddComponent<Cycle>();
+            cycleTwo.bedSpawnPoint = bedSpawn;
+            cycleTwo.doors = doors;
+            cycleTwo.drawers = cycleTwoRoot.GetComponentsInChildren<Drawer>(true);
+            // Its own array, numbered from ZERO - where cycle 1's pad is also bit 0. Legal because
+            // every ghost is destroyed at the boundary, so no surviving timeline refers to cycle 1's
+            // bits, and the recorder is repointed at this array when the cycle starts.
+            cycleTwo.ghostInteractables = signals;
+            cycleTwo.conditions = conditions;
+
+            // ROOM0: the console the three shards go into, and the end of the cycle. The same
+            // `FinalRoomSequence` cycle 1 ends on - a cycle ends the way a cycle ends, and only what
+            // goes INTO the console differs.
+            Transform ringRoom0 = rooms[7];
+            FinalRoomSequence final = BuildFinalRoom(ringRoom0, 0f, propMat, doors[6],
+                                                     display, shaker, hand,
+                                                     ShardAItemId, ShardBItemId, ShardCItemId);
+            final.narration = narration;
+            cycleTwo.finalRoom = final;
+
+            // A plinth retracts a metre under its own floor. Nothing is below cycle 2 yet, but there
+            // will be, and a plinth with no housing is the fault that put cycle 1's console through
+            // room2-1's ceiling.
+            BuildPlinthHousing(ringRoom0, "ConsoleHousing_Cycle2", Vector3.zero, 1.86f, 1.31f, 1.45f, floorMat);
+
+            cycleTwo.worldRoot = cycleTwoRoot;
+            cycleTwo.wallPanels = display;
+
+            // Everything down there stands on a floor one storey below zero, and every carryable has to
+            // be told so or it falls through it.
+            SetFloorBase(cycleTwoRoot, -StoreyDrop);
+
+            return (cycleTwo, display);
+        }
+
+        // THE CALIBRATION ROOM BELONGS TO NO CYCLE, and the split is what made that structural rather
+        // than merely true. It is built inside cycle 1's shell because it is a room and that is where
+        // rooms are built - but it runs ONCE, before the first iteration, before there is a cycle to be
+        // in at all. Left where it was, it moves into `Cycle1.unity` and takes five references with it:
+        // `SensitivityCalibration` lives on the core's canvas and points at the readout, the walls and
+        // the display INSIDE it, and its start button points back the other way.
+        //
+        // None of those wants a runtime rebinding, because none of them was ever a cycle's business.
+        // Lifted into a root of its own, in the core scene, they all stay ordinary intra-scene
+        // references and the whole cluster disappears from the report.
+        //
+        // Found by NAME, and the prefix is `Calibration` rather than `CalibrationRoom` - which is not a
+        // detail, it is the bug the first attempt shipped. The shell is `CalibrationRoom`, but the
+        // readout the player actually looks at is a sibling called `CalibrationWall`, and matching the
+        // longer name moved the room while leaving the wall, its start button and the three wall groups
+        // behind in cycle 1. The report said so: `Cycle1/Room/CalibrationWall/StartButton`.
+        private static void ExtractCalibrationRoom(Cycle cycleOne)
+        {
+            if (cycleOne == null || cycleOne.worldRoot == null) return;
+
+            var move = new System.Collections.Generic.List<Transform>();
+            foreach (Transform child in cycleOne.worldRoot)
+                if (child.name.StartsWith("Calibration")) move.Add(child);
+
+            if (move.Count == 0) return;
+
+            GameObject holder = new GameObject("CalibrationRoom_Root");
+            foreach (Transform t in move) t.SetParent(holder.transform, true);
+            Debug.Log($"[SceneBuilder] Calibration room lifted out of cycle 1 ({move.Count} object(s)); "
+                    + "it runs before any cycle exists and stays in the core scene.");
+        }
+
         private static void SleepCycle(Transform root)
         {
             if (root == null) return;

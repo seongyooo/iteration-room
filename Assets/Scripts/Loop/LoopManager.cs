@@ -23,7 +23,16 @@ namespace IterationRoom
         // **"The last cycle" is derived from this array and must never be hardcoded.** The last one is
         // the one with no successor; that is what routes into `EndingSequence`. More cycles are
         // intended, so a literal cycle number anywhere in this file is a bug waiting for cycle 3.
-        public Cycle[] cycles;
+        // NOT SERIALIZED FROM THE SCENE ANY MORE, and it cannot be: each cycle lives in a scene of its
+        // own, and Unity drops a serialized reference that points into another one - without an error.
+        // Filled at the top of `RunLoop` from `sceneLoader`, which is also the only place that can wait
+        // for the scenes to arrive.
+        [System.NonSerialized] public Cycle[] cycles;
+
+        // Brings the cycle scenes in, and re-establishes everything the split would otherwise have
+        // broken. Both run once, before the first iteration - see the top of `RunLoop`.
+        public CycleSceneLoader sceneLoader;
+        public CycleBinding binding;
 
         public PlayerRecorder playerRecorder;
         public FirstPersonController playerController;
@@ -159,6 +168,21 @@ namespace IterationRoom
         // once the player has control, so every ghost's timeline covers the same window.
         private IEnumerator RunLoop()
         {
+            // THE CYCLES ARRIVE FIRST, AND NOTHING BELOW IS SAFE UNTIL THEY HAVE.
+            //
+            // Each cycle is its own scene now (see CycleSceneLoader for why), so `cycles` cannot be a
+            // serialized array any more - Unity drops a reference that crosses a scene, silently. The
+            // loader brings the scenes in and hands the Cycle components back; `CycleBinding` then
+            // re-establishes every OTHER reference the split would have broken. Both happen here,
+            // before the first line of the game, because this coroutine is the only place that can
+            // WAIT for them - an Awake cannot.
+            if (sceneLoader != null)
+            {
+                yield return sceneLoader.LoadAll();
+                cycles = sceneLoader.Cycles;
+            }
+            binding?.BindAll(cycles);
+
             // Before anything: look around the room and set the mouse sensitivity. Outside both
             // whiles, so it happens exactly once in the game, and before IterationNumber has been
             // incremented - the clock is stopped, IterationRunning is false, and every interactable is
@@ -525,6 +549,12 @@ namespace IterationRoom
             // seeing the bed you are about to wake in is the whole of why the opening is in the floor
             // rather than in a wall.
             if (HasNextCycle) cycles[cycleIndex + 1]?.SetAwake(true);
+
+            // AND THE GAS FOLLOWS THE PLAYER DOWN. It pours out of the room they are about to land in,
+            // so the emitters have to be that cycle's - they were wired once at build time to cycle
+            // 2's, which is right exactly once and gasses the wrong storey from cycle 3 on. Repointed
+            // before the hatch opens, alongside the wake, because both are about the room below.
+            if (HasNextCycle) binding?.PointGasAt(cycles[cycleIndex + 1]);
 
             CycleExit exit = Current != null && Current.finalRoom != null ? Current.finalRoom.wayOut : null;
             if (exit != null)
