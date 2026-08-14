@@ -23,6 +23,20 @@ namespace IterationRoom.EditorTools
         // ask for "Tool". Declared once so a rename cannot silently disarm one side of a gate.
         private const string ToolItemId = "Tool";
         private const string CycleTwoToolItemId = "Tool2";
+
+        // CYCLE 2'S ESCAPE OBJECTS: three shards of one broken ring.
+        //
+        // Not the cube, sphere and prism again. Those were three DIFFERENT shapes, and finding a
+        // shape for a shaped hole is the verb cycle 1 is made of; three pieces of the same broken
+        // thing say something else - that what the facility is missing is one object, and it is in
+        // pieces inside the core.
+        //
+        // Three ids rather than one shared one, because `ItemRegistry` maps an id to exactly ONE
+        // socket with the last writer winning - a shared id would leave two of the three recesses
+        // unreachable.
+        private const string ShardAItemId = "Shard2A";
+        private const string ShardBItemId = "Shard2B";
+        private const string ShardCItemId = "Shard2C";
         // Yellow keeps the id "Key" it has always had. It is a wire value shared by the key object and
         // its lock, and both come from here, so renaming it would be safe - but there is nothing to buy
         // and the yellow key, its door and its lock are the ones already play-tested.
@@ -395,7 +409,8 @@ namespace IterationRoom.EditorTools
             // Cycle 2, one storey down. Deliberately OUTSIDE `room` - see BuildCycleTwoShell for why
             // the panel gather below is the reason.
             (Transform cycleTwoRoot, Transform cycleTwoBedSpawn, ParticleSystem[] cycleTwoGas,
-             Door[] cycleTwoDoors, NumberLock cycleTwoLock, CountPad[] cycleTwoPads) =
+             Door[] cycleTwoDoors, NumberLock cycleTwoLock, CountPad[] cycleTwoPads,
+             Transform[] cycleTwoRooms) =
                 BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat);
 
             // Every wall panel, gathered by parent name rather than threaded back out through
@@ -803,6 +818,38 @@ namespace IterationRoom.EditorTools
             // array when the cycle starts. See Cycle.ghostInteractables.
             cycleTwo.ghostInteractables = cycleTwoPads;
             cycleTwo.numberLock = cycleTwoLock;
+
+            // ROOM0: the console the three shards go into, and the end of the cycle.
+            //
+            // The same `FinalRoomSequence` cycle 1 ends on, which is the point rather than a saving -
+            // a cycle ends the way a cycle ends, and only what goes INTO the console differs. Its
+            // `doorBehind` is the door out of room7, sealed as the break starts.
+            Transform ringRoom0 = cycleTwoRooms[7];
+            FinalRoomSequence cycleTwoFinal = BuildFinalRoom(ringRoom0, 0f, propMat, cycleTwoDoors[6],
+                                                             cycleTwoDisplay, shaker, hand,
+                                                             ShardAItemId, ShardBItemId, ShardCItemId);
+            cycleTwoFinal.narration = narration;
+            cycleTwo.finalRoom = cycleTwoFinal;
+
+            // A plinth retracts a metre under its own floor, and there is nothing below cycle 2 yet -
+            // but there will be, and a plinth with no housing is exactly the fault that put cycle 1's
+            // console through room2-1's ceiling. Built now rather than found again later.
+            BuildPlinthHousing(ringRoom0, "ConsoleHousing_Cycle2", Vector3.zero, 1.86f, 1.31f, 1.45f, floorMat);
+
+            // THE THREE SHARDS, on the floor of the three rooms that will later win them.
+            //
+            // Free for now, and deliberately so: this makes cycle 2 finishable end to end before any
+            // of its puzzles exist, so the ring, the console and the boundary out of it can all be
+            // walked and judged on their own. Each shard moves onto the core's payout as its room is
+            // built.
+            Mesh shardMesh = RingShardMesh(112f, 0.17f, 0.30f, 0.055f);
+            Material shardMat = MakePolishedMetalMaterial("RingShard", new Color(0.93f, 0.88f, 0.72f), 0f);
+            var shardIds = new[] { ShardAItemId, ShardBItemId, ShardCItemId };
+            // rooms 2, 4 and 6 - the three that see the core.
+            var shardRooms = new[] { cycleTwoRooms[1], cycleTwoRooms[3], cycleTwoRooms[5] };
+            for (int i = 0; i < shardIds.Length; i++)
+                BuildRingShard(shardRooms[i], $"Shard_{(char)('A' + i)}", shardIds[i],
+                               new Vector3(2.6f, 0f, 0f), i * 120f, shardMesh, shardMat);
             cycleTwo.worldRoot = cycleTwoRoot;
 
             cycleTwo.wallPanels = cycleTwoDisplay;
@@ -2831,8 +2878,14 @@ namespace IterationRoom.EditorTools
             return core.transform;
         }
 
+        // Returns `rooms` in ring order - room1 first, room0 last - because room0's console needs
+        // things that do not exist yet when the shell is built: this cycle's wall panels are gathered
+        // FROM the shell, and the shaker and the hand belong to the player, who is built later.
+        // Handing the transforms back and finishing room0 at the call site is what keeps that
+        // ordering honest rather than shuffling half of `Build` around it.
         private static (Transform root, Transform bedSpawn, ParticleSystem[] gas,
-                        Door[] doors, NumberLock numberLock, CountPad[] pads) BuildCycleTwoShell(
+                        Door[] doors, NumberLock numberLock, CountPad[] pads,
+                        Transform[] rooms) BuildCycleTwoShell(
             Material floorMat, Material grooveMat, Material panelMat, Material propMat)
         {
             GameObject root = new GameObject("Room_Cycle2");
@@ -2955,7 +3008,7 @@ namespace IterationRoom.EditorTools
 
             ParticleSystem[] gas = BuildGasEmitters(r1, "Room2_1_Gas", 0f);
 
-            return (root.transform, spawn, gas, doors, numberLock, pads);
+            return (root.transform, spawn, gas, doors, numberLock, pads, rooms);
         }
 
         // WHAT A RETRACTED PLINTH RETRACTS INTO.
@@ -7662,6 +7715,117 @@ namespace IterationRoom.EditorTools
         // NORMALISED TO A UNIT BOUNDING BOX like the prism it generalises, so a localScale of 0.30
         // still means 0.30 ACROSS for every one of the three. The barrel ring is the widest part, so
         // it is the ring the bounds are taken from.
+        // ONE SHARD, as a carryable. `BuildPin` is the template this follows - the simplest complete
+        // carryable in the project.
+        //
+        // The mesh is shared; only the yaw differs, and it is the yaw that says which third of the
+        // ring this is. Held, they all look alike, which is correct: what the player is collecting is
+        // three of a thing, not three different things.
+        private static CarryableItem BuildRingShard(Transform parent, string name, string itemId,
+                                                     Vector3 localPos, float yaw, Mesh mesh, Material mat)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+
+            // The mesh on a CHILD, carrying the yaw. The item's own transform stays axis-aligned so
+            // the hand pose and the reach trigger are read off something unrotated - the same
+            // separation `MakeChessPiece` makes for the mirrored pieces.
+            GameObject body = new GameObject("Body");
+            body.transform.SetParent(go.transform, false);
+            body.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+            body.AddComponent<MeshFilter>().sharedMesh = mesh;
+            body.AddComponent<MeshRenderer>().sharedMaterial = mat;
+
+            // The reach volume, on the item itself - CarryableItem takes GetComponent<Collider>() as
+            // its trigger, so this must be the only collider on this object.
+            BoxCollider reach = go.AddComponent<BoxCollider>();
+            reach.isTrigger = true;
+            reach.center = new Vector3(0f, 0.12f, 0f);
+            reach.size = new Vector3(0.9f, 0.5f, 0.9f);
+
+            CarryableItem item = go.AddComponent<CarryableItem>();
+            item.itemId = itemId;
+            item.displayName = "SHARD";
+            item.floorY = 0.03f;
+            item.handLocalPosition = HandPoseFor(0.45f);
+            item.handLocalEuler = new Vector3(12f, 0f, 0f);
+            item.audioSource = MakeSource(go.transform, "ShardAudio", spatialBlend: 1f, volume: 0.8f);
+            item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+            return item;
+        }
+
+        // A THIRD OF A RING: the shape all three of cycle 2's escape objects share.
+        //
+        // Generated rather than composed out of primitives, because the one thing this shape has to
+        // do is look BROKEN OFF - an arc with two flat radial faces where it parted from its
+        // neighbours. A box approximation gives a staircase on the inner and outer curves, which
+        // reads as a low-poly wedge rather than as a piece of something.
+        //
+        // Saved as an asset and served from cache on the next build, exactly as `BevelledPrismMesh`
+        // is: a Mesh created at edit time and assigned to a scene object is lost on reload unless it
+        // lives somewhere.
+        //
+        // All three shards are the SAME mesh, rotated. They are thirds of one ring, so they are
+        // identical by construction - and a puzzle that asked the player to tell them apart would be
+        // cycle 1's shape-matching again under a new name.
+        private static Mesh RingShardMesh(float sweepDegrees, float innerRadius, float outerRadius, float thickness)
+        {
+            string assetName = $"RingShard{Mathf.RoundToInt(sweepDegrees)}";
+            string path = GeneratedDir + "/" + assetName + ".mesh";
+            Mesh existing = AssetDatabase.LoadAssetAtPath<Mesh>(path);
+            if (existing != null) return existing;
+
+            const int segments = 24;
+            float half = thickness / 2f;
+            var verts = new System.Collections.Generic.List<Vector3>();
+            var tris = new System.Collections.Generic.List<int>();
+
+            // Four rings of vertices - inner and outer, top and bottom - walked together so every
+            // face of the solid can be stitched from the same index arithmetic.
+            for (int i = 0; i <= segments; i++)
+            {
+                float a = Mathf.Deg2Rad * (-sweepDegrees / 2f + sweepDegrees * i / segments);
+                float sin = Mathf.Sin(a), cos = Mathf.Cos(a);
+                verts.Add(new Vector3(sin * innerRadius, half, cos * innerRadius));
+                verts.Add(new Vector3(sin * outerRadius, half, cos * outerRadius));
+                verts.Add(new Vector3(sin * innerRadius, -half, cos * innerRadius));
+                verts.Add(new Vector3(sin * outerRadius, -half, cos * outerRadius));
+            }
+
+            void Quad(int a, int b, int c, int d)
+            {
+                tris.Add(a); tris.Add(b); tris.Add(c);
+                tris.Add(a); tris.Add(c); tris.Add(d);
+            }
+
+            for (int i = 0; i < segments; i++)
+            {
+                int p0 = i * 4, p1 = (i + 1) * 4;
+                Quad(p0 + 0, p0 + 1, p1 + 1, p1 + 0);   // top
+                Quad(p0 + 2, p1 + 2, p1 + 3, p0 + 3);   // bottom
+                Quad(p0 + 1, p0 + 3, p1 + 3, p1 + 1);   // outer curve
+                Quad(p0 + 0, p1 + 0, p1 + 2, p0 + 2);   // inner curve
+            }
+
+            // THE BROKEN ENDS. Flat radial faces, and the whole reason this is not a torus segment
+            // with open sides - they are what the eye reads as a fracture.
+            int last = segments * 4;
+            Quad(0, 2, 3, 1);
+            Quad(last + 1, last + 3, last + 2, last + 0);
+
+            Mesh mesh = new Mesh { name = assetName };
+            mesh.SetVertices(verts);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+
+            if (!Directory.Exists(GeneratedDir)) Directory.CreateDirectory(GeneratedDir);
+            AssetDatabase.CreateAsset(mesh, path);
+            AssetDatabase.SaveAssets();
+            return AssetDatabase.LoadAssetAtPath<Mesh>(path);
+        }
+
         private static Mesh BevelledPrismMesh(SlotShape shape, float chamfer)
         {
             // The chamfer is in the asset name, so a shape and its bevelled twin are two assets and
