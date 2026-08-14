@@ -231,6 +231,35 @@ namespace IterationRoom.EditorTools
         // pocket between them.
         private const float RoomPitch = RoomDepth + 2f * WallDepth + DoorPocketDepth;
 
+        // HOW FAR DOWN THE NEXT STOREY IS. A cycle's rooms sit one of these below the cycle before it.
+        //
+        // Sized so the two slabs MEET rather than leaving a gap or overlapping: the upper room's floor
+        // spans y -WallThickness..0, and at this drop the lower room's ceiling spans -2*WallThickness
+        // ..-WallThickness. The result is one 0.2m slab between the storeys, which is what a floor
+        // between two rooms should be - and the hole cut through it lines up in both, because it is
+        // the same Rect in each room's local XZ.
+        private const float StoreyDrop = RoomHeight + 2f * WallThickness;
+
+        // WHERE A CYCLE'S WAY OUT IS, in room-local Z. Behind the console from the player's approach,
+        // which is always from -Z: the console body ends at z = 0.575, so this clears it, and the north
+        // wall is at 5.25, so it clears that too.
+        private const float CycleExitZ = 2f;
+
+        // One wall grid cell across, and square. The grid gives the SIZE - a hole on the building's own
+        // module reads as a piece of the structure coming away rather than as a hatch fitted to a
+        // person - and squaring it is what makes it something to fall down rather than step through.
+        //
+        // The same Rect is handed to the room above's FLOOR and the room below's CEILING, in each one's
+        // local XZ. That is why they line up: not two numbers kept in agreement, one number used twice.
+        private static readonly Rect CycleExitHole = Rect.MinMaxRect(
+            -GridCellWidth / 2f, CycleExitZ - GridCellWidth / 2f,
+             GridCellWidth / 2f, CycleExitZ + GridCellWidth / 2f);
+
+        // Cycle 2 sits one storey down and runs BACK the way cycle 1 came. Its first room is directly
+        // beneath cycle 1's last, so the drop is short and vertical and the player can see the bed
+        // through the opening before committing to it; everything after it walks toward -Z.
+        private const float CycleTwoFirstRoomZ = 5f * RoomPitch;
+
         // The sensitivity room. Deliberately NOT a multiple of RoomPitch in the positive direction
         // - it is not part of the chain and must never be walked into, so it sits behind Room1 with
         // a room's worth of nothing between them.
@@ -301,6 +330,11 @@ namespace IterationRoom.EditorTools
             GameObject room = new GameObject("Room");
             BuildShell(room.transform, floorMat, grooveMat, panelMat);
 
+            // Cycle 2, one storey down. Deliberately OUTSIDE `room` - see BuildCycleTwoShell for why
+            // the panel gather below is the reason.
+            (Transform cycleTwoRoot, Transform cycleTwoBedSpawn) =
+                BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat);
+
             // Every wall panel, gathered by parent name rather than threaded back out through
             // BuildShell/BuildRoomShell/BuildPanelWall - the panels are the only children of a
             // "*_Panels" node, so this stays correct without four signature changes.
@@ -316,15 +350,25 @@ namespace IterationRoom.EditorTools
                 wallPanelRenderers.Add(r);
             }
 
-            GameObject displayGO = new GameObject("WallPanelDisplay");
-            WallPanelDisplay wallDisplay = displayGO.AddComponent<WallPanelDisplay>();
-            wallDisplay.panels = wallPanelRenderers.ToArray();
-            wallDisplay.offColor = WallPanelColor;
-            wallDisplay.onColor = Color.white;
             // What a panel shows once it fails. Generated rather than sourced, like every other
-            // texture in this build.
-            wallDisplay.testCard = MakeTestCardTexture("TvTestCard");
-            wallDisplay.staticNoise = MakeStaticTexture("TvStatic", 64);
+            // texture in this build, and shared by both cycles' displays.
+            Texture2D testCard = MakeTestCardTexture("TvTestCard");
+            Texture2D staticNoise = MakeStaticTexture("TvStatic", 64);
+
+            WallPanelDisplay wallDisplay = MakeWallPanelDisplay(
+                "WallPanelDisplay", wallPanelRenderers.ToArray(), testCard, staticNoise);
+
+            // ONE DISPLAY PER CYCLE. The ERROR spreading from a console means *this bed's cycle is
+            // over*, so a panel in a cycle the player has not reached has no business failing - and
+            // the gather is by name, which would otherwise sweep up every storey at once.
+            var cycleTwoPanels = new System.Collections.Generic.List<Renderer>();
+            foreach (Renderer r in cycleTwoRoot.GetComponentsInChildren<Renderer>())
+            {
+                if (r.transform.parent == null || !r.transform.parent.name.EndsWith("_Panels")) continue;
+                cycleTwoPanels.Add(r);
+            }
+            WallPanelDisplay cycleTwoDisplay = MakeWallPanelDisplay(
+                "WallPanelDisplay_Cycle2", cycleTwoPanels.ToArray(), testCard, staticNoise);
 
             // Four recessed downlights per room, plus Trilight ambient standing in for the bounce
             // URP is not computing. The scene's default Directional Light is deleted rather than
@@ -570,6 +614,12 @@ namespace IterationRoom.EditorTools
                                                         door3, wallDisplay, shaker, hand,
                                                         CubeKeyItemId, SphereKeyItemId, TriangleKeyItemId);
 
+            // THE WAY ON, in room1-0's floor behind that console. Wiring it is what makes cycle 1 not
+            // the last cycle - LoopManager reads "is there another entry in the array", and this is
+            // the door that entry is reached through.
+            CycleExit cycleOneExit = BuildCycleExit(room.transform, 5f * RoomPitch, floorMat, fpc.transform);
+            finalRoom.wayOut = cycleOneExit;
+
             // Appended after the fact because both buttons live in rooms built later than the hint
             // display. They are the two E fixtures OUTSIDE the loop - one before the first
             // iteration, one after the last - and they get the same grey disc as every other one,
@@ -646,10 +696,32 @@ namespace IterationRoom.EditorTools
             cycleOne.ghostInteractables = ghostInteractables;
             cycleOne.wallPanels = wallDisplay;
 
+            // CYCLE 2. A bed, a room and nothing else yet - which is exactly what the boundary needs
+            // to be exercised, and no more.
+            //
+            // Its `finalRoom` is null, so `Cycle.Complete` is false forever and the loop simply keeps
+            // iterating there. That is the honest state of a cycle with no puzzles in it rather than a
+            // gap: there is nothing to finish, so nothing finishes. Wiring a console is what will end
+            // it, the same way cycle 1 ends.
+            GameObject cycleTwoGO = new GameObject("Cycle2");
+            Cycle cycleTwo = cycleTwoGO.AddComponent<Cycle>();
+            cycleTwo.bedSpawnPoint = cycleTwoBedSpawn;
+            cycleTwo.doors = new Door[0];
+            cycleTwo.drawers = new Drawer[0];
+            // Its own array, numbered from zero. Legal because every ghost is destroyed at the
+            // boundary, so no surviving timeline refers to cycle 1's bits - see Cycle.ghostInteractables.
+            cycleTwo.ghostInteractables = new GhostInteractable[0];
+            cycleTwo.wallPanels = cycleTwoDisplay;
+
+            // Everything down there stands on a floor one storey below zero, and every carryable has
+            // to be told so or it falls through it. Nothing is carryable in cycle 2 yet; the call is
+            // here so that stops being true safely.
+            SetFloorBase(cycleTwoRoot, -StoreyDrop);
+
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
             loop.loopDuration = 60f;
-            loop.cycles = new[] { cycleOne };
+            loop.cycles = new[] { cycleOne, cycleTwo };
             loop.playerRecorder = recorder;
             loop.playerController = fpc;
             loop.playerHand = hand;
@@ -2229,6 +2301,10 @@ namespace IterationRoom.EditorTools
                 if (t.GetComponent<Balloon>() != null) return true;
                 if (t.GetComponent<Drawer>() != null) return true;
                 if (t.GetComponent<GhostReplayer>() != null) return true;
+                // The cover over a cycle's way out. Authored closed and slid aside at the boundary,
+                // so baked in it would leave a shut floor in every reflection of a room the player is
+                // standing in with it open.
+                if (t.GetComponent<CycleExit>() != null) return true;
                 if (t.CompareTag("Player")) return true;
                 t = t.parent;
             }
@@ -2503,6 +2579,104 @@ namespace IterationRoom.EditorTools
             return (instance, finalBounds);
         }
 
+        // CYCLE 2'S BUILDING, one storey below cycle 1's and running back the other way.
+        //
+        // THE Y OFFSET IS ON THE ROOT, and that is what made a second storey cheap. Every builder in
+        // this file places its output with `localPosition` under the parent it is handed, so a parent
+        // moved down carries all of them with it - `BuildRoomShell`, `BuildCeilingLights` and
+        // `BuildReflectionProbe` needed no Y parameter and no change at all. The alternative was
+        // threading a storey height through five signatures and every call site.
+        //
+        // A SIBLING OF "Room", not a child, and that is load-bearing rather than tidiness: the wall
+        // panel gather in `Build` walks everything under `Room` and takes anything parented to a
+        // "*_Panels" node. Built inside it, cycle 2's panels would silently join cycle 1's `ERROR`
+        // glitch - a cycle failing in a room the player has not reached yet. Outside it, the two sets
+        // are separate for free and each cycle gets its own display.
+        //
+        // Cycle 2 has ONE room and no puzzles yet. Its rooms are sealed on both walls for now; the
+        // switchback means the next one goes at 4 * RoomPitch and this room grows a SOUTH doorway when
+        // it does.
+        // One cycle's wall panels, as the thing that boots them, flares them and finally fails them.
+        private static WallPanelDisplay MakeWallPanelDisplay(string name, Renderer[] panels,
+                                                             Texture2D testCard, Texture2D staticNoise)
+        {
+            GameObject go = new GameObject(name);
+            WallPanelDisplay display = go.AddComponent<WallPanelDisplay>();
+            display.panels = panels;
+            display.offColor = WallPanelColor;
+            display.onColor = Color.white;
+            display.testCard = testCard;
+            display.staticNoise = staticNoise;
+            return display;
+        }
+
+        private static (Transform root, Transform bedSpawn) BuildCycleTwoShell(
+            Material floorMat, Material grooveMat, Material panelMat, Material propMat)
+        {
+            GameObject root = new GameObject("Room_Cycle2");
+            root.transform.position = new Vector3(0f, -StoreyDrop, 0f);
+
+            // The ceiling carries the SAME hole as room1-0's floor, so the opening runs clean through
+            // the 0.2m of slab between the storeys instead of into a void with a lid on it.
+            BuildRoomShell(root.transform, "Room2_1", CycleTwoFirstRoomZ, floorMat, grooveMat, panelMat,
+                Rect.zero, Rect.zero, ceilingHole: CycleExitHole);
+
+            Material fixtureMat = MakeEmissiveMaterial("CeilingFixtureCycle2", Color.white, 3.5f);
+            BuildCeilingLights(root.transform, "Room2_1", CycleTwoFirstRoomZ, fixtureMat, castShadows: false);
+            BuildReflectionProbe(root.transform, "Room2_1", CycleTwoFirstRoomZ);
+
+            // The bed, on a node carrying the room's Z. `BuildBed` places everything relative to its
+            // parent and was written when the only bed was in a room centred on zero - offsetting the
+            // parent is what lets it be reused verbatim rather than growing a coordinate argument.
+            GameObject bedRoot = new GameObject("Room2_1_Bed");
+            bedRoot.transform.SetParent(root.transform, false);
+            bedRoot.transform.localPosition = new Vector3(0f, 0f, CycleTwoFirstRoomZ);
+            (_, Transform spawn) = BuildBed(bedRoot.transform, propMat);
+
+            return (root.transform, spawn);
+        }
+
+        // The lid over that hole: a slab of floor that slides aside when the console is full.
+        //
+        // Slides sideways INTO the surrounding floor slab, which is solid, so it is out of sight the
+        // moment it is open - the same thing a door slab does inside its pocket, without needing a
+        // pocket built for it. Authored closed, so the room can be looked at in the editor as the
+        // player first meets it.
+        private static CycleExit BuildCycleExit(Transform parent, float roomCenterZ, Material floorMat, Transform player)
+        {
+            GameObject go = new GameObject("CycleExit");
+            go.transform.SetParent(parent, false);
+            // At the floor plane of the room it belongs to, which is what `throughDrop` is measured
+            // from - "the player has fallen well below the floor they were standing on".
+            go.transform.localPosition = new Vector3(0f, 0f, roomCenterZ + CycleExitZ);
+
+            // FILLS THE WHOLE INTER-STOREY SLAB, not just the floor. There are two slabs between the
+            // rooms - this floor spans y -WallThickness..0 and the ceiling below it spans
+            // -2*WallThickness..-WallThickness - and the hole goes through both, so a lid that only
+            // plugged the top one would leave a 0.1m void under it to see into.
+            //
+            // Its top sits `seam` BELOW the floor surface rather than flush with it, and that 10mm is
+            // doing two jobs. Flush, the cover's top face and the floor's top face are coplanar and
+            // z-fight along the whole square - and they still would once it slid aside, because it
+            // retracts into the floor slab rather than into a pocket. Recessed, it is inside solid
+            // floor the moment it moves, and while closed it reads as a hatch seam, which is a fair
+            // mark for "something is here" without saying what.
+            const float seam = 0.01f;
+            GameObject cover = Prim(PrimitiveType.Cube, "Cover", go.transform,
+                new Vector3(0f, -(2f * WallThickness + seam) / 2f, 0f),
+                new Vector3(GridCellWidth, 2f * WallThickness - seam, GridCellWidth), floorMat);
+
+            CycleExit exit = go.AddComponent<CycleExit>();
+            exit.cover = cover.transform;
+            // By its own width, so the opening is fully clear rather than merely mostly.
+            exit.openLocalOffset = new Vector3(GridCellWidth, 0f, 0f);
+            exit.player = player;
+            exit.audioSource = MakeSource(go.transform, "ExitAudio", spatialBlend: 1f, volume: 0.9f);
+            exit.openClip = LoadClip(SfxDir, "sfx_door_open");
+            exit.sealClip = LoadClip(SfxDir, "sfx_power_down");
+            return exit;
+        }
+
         private static void BuildShell(Transform parent, Material floorMat, Material grooveMat, Material panelMat)
         {
             // The doorway is cut out of the panelling as an exact rectangle, so panels frame the
@@ -2530,7 +2704,13 @@ namespace IterationRoom.EditorTools
             // Identical to the others in every way, and that is the point rather than a saving:
             // the room the player finally gets out into is the same white cell they have been in
             // for the whole run.
-            BuildRoomShell(parent, "Room4", 5f * RoomPitch, floorMat, grooveMat, panelMat, doorway, Rect.zero);
+            //
+            // EXCEPT FOR THE HOLE IN ITS FLOOR. `room1-0` is the hinge: it closes cycle 1 and opens
+            // onto cycle 2, and the way on is a grid cell of floor behind the console that slides
+            // aside once the console is full. Its north wall stays solid - there is still nothing past
+            // the end of the building, the way out is DOWN.
+            BuildRoomShell(parent, "Room4", 5f * RoomPitch, floorMat, grooveMat, panelMat, doorway, Rect.zero,
+                floorHole: CycleExitHole);
 
             // One pocket per join, all UNCAPPED: every one of them has a room through it, and a cap
             // would be a wall across the only way to the next. Room4 needs no pocket of its own - its
@@ -2658,7 +2838,10 @@ namespace IterationRoom.EditorTools
         // in wall-local coordinates and been indifferent to which axis the wall runs along, on the
         // reasoning that a wall with a doorway in an unusual side is cheap to keep able and expensive
         // to re-derive the day something needs it again.
-        private static void BuildRoomShell(Transform parent, string roomName, float zCenter, Material floorMat, Material grooveMat, Material panelMat, Rect southCutout, Rect northCutout, Rect westCutout = default, Rect eastCutout = default)
+        // floorHole / ceilingHole: a rectangle in ROOM-LOCAL XZ (x across the room, y of the Rect being
+        // Z relative to zCenter) to leave out of that slab. Rect.zero means none, which is every room
+        // but the two a cycle boundary passes through.
+        private static void BuildRoomShell(Transform parent, string roomName, float zCenter, Material floorMat, Material grooveMat, Material panelMat, Rect southCutout, Rect northCutout, Rect westCutout = default, Rect eastCutout = default, Rect floorHole = default, Rect ceilingHole = default)
         {
             GameObject room = new GameObject(roomName);
             room.transform.SetParent(parent, false);
@@ -2667,17 +2850,55 @@ namespace IterationRoom.EditorTools
             float minX = -RoomWidth / 2f, maxX = RoomWidth / 2f;
             float minZ = zCenter - RoomDepth / 2f, maxZ = zCenter + RoomDepth / 2f;
 
-            // Slabs run the full room pitch, not just the interior, so neighbouring rooms' floors
-            // meet exactly under the divider. Sized to the interior they'd leave an open gap in the
-            // doorway threshold and the player would drop through it.
-            Vector3 slabSize = new Vector3(RoomWidth + 2f * WallDepth, WallThickness, RoomPitch);
-            Prim(PrimitiveType.Cube, "Floor", t, new Vector3(0f, -WallThickness / 2f, zCenter), slabSize, floorMat);
-            Prim(PrimitiveType.Cube, "Ceiling", t, new Vector3(0f, RoomHeight + WallThickness / 2f, zCenter), slabSize, floorMat);
+            BuildSlab(t, "Floor", -WallThickness / 2f, zCenter, floorMat, floorHole);
+            BuildSlab(t, "Ceiling", RoomHeight + WallThickness / 2f, zCenter, floorMat, ceilingHole);
 
             BuildPanelWall(t, "Wall_South", new Vector3(0f, 0f, minZ), Vector3.right, Vector3.forward, RoomWidth, grooveMat, panelMat, southCutout);
             BuildPanelWall(t, "Wall_North", new Vector3(0f, 0f, maxZ), Vector3.right, Vector3.back, RoomWidth, grooveMat, panelMat, northCutout);
             BuildPanelWall(t, "Wall_West", new Vector3(minX, 0f, zCenter), Vector3.forward, Vector3.right, RoomDepth, grooveMat, panelMat, westCutout);
             BuildPanelWall(t, "Wall_East", new Vector3(maxX, 0f, zCenter), Vector3.forward, Vector3.left, RoomDepth, grooveMat, panelMat, eastCutout);
+        }
+
+        // A floor or a ceiling, with an optional hole in it.
+        //
+        // Slabs run the full room PITCH, not just the interior, so neighbouring rooms' floors meet
+        // exactly under the divider. Sized to the interior they would leave an open gap in the doorway
+        // threshold and the player would drop through it.
+        //
+        // THE HOLE REUSES `SubtractRect`, which is the whole reason a floor opening turned out to be
+        // cheap. That function is pure Rect arithmetic - it has no idea its inputs are usually
+        // along-a-wall and height - so handing it (x, z) instead cuts a floor exactly the way it cuts
+        // panelling, collision and backing. Without a hole this emits one cube named `Floor` or
+        // `Ceiling` exactly as before, which keeps every room that has no opening byte-identical.
+        private static void BuildSlab(Transform t, string name, float yCenter, float zCenter, Material mat, Rect holeLocalXZ)
+        {
+            float halfX = RoomWidth / 2f + WallDepth;
+            Rect slab = Rect.MinMaxRect(-halfX, zCenter - RoomPitch / 2f, halfX, zCenter + RoomPitch / 2f);
+
+            // The hole arrives in room-local Z; the slab is in the room's own frame, where Z is
+            // absolute. One offset reconciles them, and it is why the SAME Rect can be handed to two
+            // rooms one storey apart and line up.
+            Rect hole = holeLocalXZ.width > 0f && holeLocalXZ.height > 0f
+                ? Rect.MinMaxRect(holeLocalXZ.xMin, zCenter + holeLocalXZ.yMin,
+                                  holeLocalXZ.xMax, zCenter + holeLocalXZ.yMax)
+                : new Rect();
+
+            var parts = SubtractRect(slab, hole);
+
+            if (parts.Count == 1)
+            {
+                Prim(PrimitiveType.Cube, name, t, new Vector3(0f, yCenter, zCenter),
+                     new Vector3(slab.width, WallThickness, slab.height), mat);
+                return;
+            }
+
+            for (int i = 0; i < parts.Count; i++)
+            {
+                Rect part = parts[i];
+                Prim(PrimitiveType.Cube, $"{name}_{i + 1}", t,
+                     new Vector3(part.center.x, yCenter, part.center.y),
+                     new Vector3(part.width, WallThickness, part.height), mat);
+            }
         }
 
         // Builds one wall as a recessed backing slab plus a grid of raised panels, so the seams are

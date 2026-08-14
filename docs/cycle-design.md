@@ -292,21 +292,30 @@ price of not serialising ghosts.
 
 ## 6. The opening
 
-**One wall grid cell, bottom row, centre, in Room0's north wall.**
+**A HOLE IN THE FLOOR behind the console, one wall grid cell across** — 1.75 m square, using the wall
+grid's cell width as the size reference so it reads as a piece of the building rather than a hatch
+fitted to a person. It slides open the way a door does, and the player looks down through it at the
+next bed before dropping in.
 
-A cell is `1.75 × 1.3519492`; north and south walls are 5 columns by 4 rows. The cutout is
-`Rect.MinMaxRect(-0.875f, 0f, 0.875f, GridCellHeight)`.
+**Corrected 2026-08-14.** This section first recommended a cutout in the north WALL, on the grounds
+that `SubtractRect` already cuts backing, collision and panels with one Rect while the floor is a
+single slab with no cutout support. **That was implementation cost deciding a design question, which is
+the wrong way round** — looking *down* through the opening at the bed you are about to wake in is the
+whole image, and a wall opening cannot give it.
 
-- **A wall cutout, not a floor hatch.** `SubtractRect` already cuts backing, collision and panels
-  with one Rect. **The floor has no equivalent** — it is a single 9.0 × 0.1 × 10.85 collider cube, and
-  a hatch there means building cutout support that does not exist.
-- **It would be the first grid-aligned opening in the game.** Doorways are 1.3 × 2.5, deliberately
-  off-grid. An opening that lands exactly on the grid reads as *the building coming apart*, not as a
-  door — which is what the moment is.
-- Room0's north wall is currently solid with **no pocket cavity and nothing behind it**. The shaft is
-  new geometry and needs the equivalent of `BuildDoorPocketFill`'s `FarCap`, or it opens to the void.
-- **Open it with the `RewardPlinth` pattern**, not `Door`: derived state (`blend` toward `Wanted`), so
-  it needs no reset hook, and it is already excluded from the probe bake. Seal it with `Door.Seal()`.
+The cost turned out to be small anyway: `SubtractRect` is pure Rect arithmetic and works on any two
+axes, so the floor reuses it with (x, z) in place of (along-wall, height). One helper emits the slab as
+up to four pieces instead of one.
+
+- The hole sits at room-local **z = +2.0**, clear of the console (its body ends at z = 0.575) and well
+  clear of the north wall at 5.25. Behind the console from the player's approach, which is from −Z.
+- **Both slabs are cut**: `room1-0`'s floor and `room2-1`'s ceiling, since the lower room sits directly
+  beneath. One `Rect` per room, in room-local XZ.
+- **The cover slides sideways into the floor slab** and is invisible once retracted, which is what a
+  door slab does in its pocket. No pocket is needed here because the surrounding floor is solid.
+- **`CycleExit` drives it**, and "the player has gone through" is a drop test rather than a trigger
+  volume: there is no kill plane, no fall damage and no Y bound anywhere in the project, so having
+  fallen past the floor they were standing on is the plainest available statement of having left.
 
 ## 7. Scene strategy
 
