@@ -329,25 +329,66 @@ up to four pieces instead of one.
 
 ## 7. Scene strategy
 
-**One scene, second floor at −Y, switchbacking along −Z.**
+**One scene, each cycle a storey below the last, switchbacking along −Z.** Looking down through the
+opening and seeing the next bed requires both floors to exist at once, which is the whole point of the
+beat and the reason this is not already a scene per cycle.
 
-Looking down through the opening and seeing the next bed requires both floors to exist at once. A
-scene per cycle would dodge the singletons, the `ItemRegistry` collisions and
-the panel gather — and could not produce that image, which is the whole point of the beat.
+### 7a. Only one cycle is awake
 
-So the costs in §5b and §5c get paid.
+**Culling does not stop `Update`, and that is where the cost was.** About two hundred components in
+this scene poll every frame — fifty carryables, fifty `FallingItem`s, seventy balloons, the pads, the
+doors — and until 2026-08-14 they ran whether or not anybody was in their cycle, in both directions:
+cycle 2's pads were ticking through the whole of cycle 1.
 
-**When one scene stops working.** A scene holding every cycle eventually costs load time and memory,
-and **the intent is to keep adding cycles**, so this is a real future rather than a hypothetical one.
-On a desktop target the ceiling is still far away — it was much nearer when WebGL was the delivery
-platform — so it remains no reason to build scene streaming now.
+`Cycle.SetAwake` deactivates the whole subtree. That stops the polling, drops the renderers and
+lights, and unregisters the carryables under it through `CarryableItem.OnDisable` — the last of which
+is wanted rather than tolerated, since `ItemRegistry.ReturnAllToOrigin` has no business sweeping a
+cycle nobody can reach. `LoopManager` wakes the next cycle **before the hatch opens**, because the
+player has to be able to look down at the bed, and puts the old one away behind the eyelids.
 
-**The escape route is already in the fiction**, which is what makes deferring safe: a **mock** bed
-room visible through the shaft, with the real cycle loaded under the gas, since the gas and the
-eyelids are a perfect loading mask. §4b's checkpoint already means a boundary carries no state
-across. **Build it when a cycle's build time or memory actually hurts, not before** — and note the
-switch gets *easier* with each cycle rather than harder, because nothing about a boundary depends on
-both floors existing except looking through the shaft.
+**It must happen AFTER the probe bake, and the first attempt did not.** A probe renders the scene from
+its own position and a disabled renderer does not render, so `room2-1` and `room2-2` baked as empty
+rooms — their `.exr` files came out at half the size of every other room's, which is what a cubemap of
+nothing compresses to. Walls at 0.85 smoothness are almost entirely what they reflect.
+
+### 7b. What actually forces a scene split, and when
+
+**It will be needed. It is not needed for the reason it looked like.** Measured 2026-08-14 at two
+cycles: the scene is **6.2 MB / 236,000 lines**, and nine probe cubemaps are **21 MB on disk** — about
+14 MB of probes per six-room cycle.
+
+- **Runtime memory is not the pressure.** Compressed, thirty probes is on the order of 50 MB, which is
+  nothing on a desktop target. Runtime CPU was the real cost and §7a has taken it.
+- **The pressures are both TIME, and both land on the developer first.** Every rebuild re-bakes every
+  probe — six more per cycle — and the scene the Editor has to open and save grows with it. Player
+  load time follows the same curve, later.
+- **A cheaper step exists before splitting.** Cycles are one-way; the exit seals and nothing returns.
+  So a spent cycle can be **destroyed** rather than deactivated, with `UnloadUnusedAssets` behind it,
+  which frees the memory without touching scene structure. It does nothing for build time or load
+  time, which are the pressures that eventually decide this.
+
+**Watch the build, not the frame rate.** The trigger is a rebuild that has become intolerable or a
+scene the Editor is slow to open — not a dropped frame, which §7a has already answered.
+
+### 7c. The split is smaller than this document first claimed
+
+An earlier version of this section said every reference is wired directly by `SceneBuilder`, so a
+scene per cycle would mean finding everything at runtime — "a large refactor". **That was wrong, and
+worth correcting because it was an argument for deferring.**
+
+Almost every reference is **intra-cycle** — door to pad, slot to item, room to plinth — and all of it
+serialises perfectly well inside a per-cycle scene. What crosses a boundary is three things:
+`LoopManager.cycles`, `CycleExit.player`, and `SleepingGas.emitters`. Two more, `wallPanels` and
+`ghostInteractables`, are **already rebound at runtime** as a consequence of being per-cycle.
+
+**The `Cycle` component built for the boundary is already the seam a split would need**: one `Cycle`
+root per scene, found after load, everything else inside it. That makes this a moderate change rather
+than a structural one — and it gets *easier* with each cycle rather than harder, because nothing about
+a boundary depends on both floors existing except looking through the shaft.
+
+**And the escape route is in the fiction already**: a mock bed room visible through the shaft with the
+real cycle loaded under the gas. The gas and the eyelids are a perfect loading mask, and §4b's
+checkpoint means a boundary carries no state across.
 
 ## 8. Still open
 
