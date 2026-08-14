@@ -624,32 +624,48 @@ namespace IterationRoom.EditorTools
             // walking into a room is not what breaks a cycle. See FinalRoomSequence.
             finalRoom.narration = narration;
 
+            // CYCLE 1'S WORLD, gathered onto one object. Every field here used to sit directly on
+            // LoopManager, which was right while there was one bed and stops being right the moment
+            // there are two - `balloonField` cannot be *the* balloon field with two in the scene.
+            //
+            // **Cycle 1's `wayOut` is deliberately left null, and that is what makes it the last
+            // cycle.** LoopManager derives "last" from having no successor in the array rather than
+            // from a number, so adding cycle 2 is adding an entry and wiring an exit - nothing here
+            // needs a count.
+            GameObject cycleOneGO = new GameObject("Cycle1");
+            Cycle cycleOne = cycleOneGO.AddComponent<Cycle>();
+            cycleOne.bedSpawnPoint = bedSpawn;
+            // Every door on the one corridor. This array is what the cycle SHUTS at the top of an
+            // iteration, and a door that can be opened has to be one of them.
+            cycleOne.doors = new[] { door, doorRed, doorBlue, doorYellow, door3 };
+            cycleOne.drawers = new[] { drawer };
+            cycleOne.balloonField = balloonField;
+            cycleOne.chessBoard = chessBoard;
+            cycleOne.cubeRoom = cubeRoom;
+            cycleOne.finalRoom = finalRoom;
+            cycleOne.ghostInteractables = ghostInteractables;
+            cycleOne.wallPanels = wallDisplay;
+
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
             loop.loopDuration = 60f;
-            loop.bedSpawnPoint = bedSpawn;
+            loop.cycles = new[] { cycleOne };
             loop.playerRecorder = recorder;
             loop.playerController = fpc;
-            loop.ghostInteractables = ghostInteractables;
-            // Every door on the one corridor. This array is what the loop SHUTS at the top of an
-            // iteration, and a door that can be opened has to be one of them.
-            loop.doors = new[] { door, doorRed, doorBlue, doorYellow, door3 };
-            loop.drawers = new[] { drawer };
             loop.playerHand = hand;
-            loop.balloonField = balloonField;
-            loop.chessBoard = chessBoard;
-            loop.cubeRoom = cubeRoom;
             loop.ghostPrefab = ghostPrefab;
             loop.ghostParent = ghostParent.transform;
             loop.iterationLabel = label;
             loop.wakeUpSequence = wakeUp;
             loop.narration = narration;
             loop.ambience = ambience;
-            loop.wallPanels = wallDisplay;
             loop.cameraShaker = shaker;
-            loop.finalRoom = finalRoom;
             loop.endingSequence = ending;
             loop.calibration = calibration;
+            // Both live on the HUD canvas, found the same way the wall sign finds the control it
+            // teaches. Reset and driven at a cycle boundary respectively.
+            loop.endCycleControl = canvas.GetComponentInChildren<EndCycleControl>(true);
+            loop.sleepingGas = canvas.GetComponentInChildren<SleepingGas>(true);
 
             // THE PROBES ARE BAKED HERE, LAST, AND THAT IS A FIX RATHER THAN A TIDY-UP.
             //
@@ -5822,10 +5838,37 @@ namespace IterationRoom.EditorTools
             textRect.offsetMin = Vector2.zero;
             textRect.offsetMax = Vector2.zero;
 
+            // CYCLE N, above the iteration and inside the SAME CanvasGroup so the two fade as one
+            // card rather than as two announcements.
+            //
+            // Smaller than the iteration deliberately: the cycle is the frame and the iteration is
+            // the subject. Anchored to the group's top edge and pushed clear of it, so the stack
+            // stays centred on the screen as a whole.
+            GameObject cycleGO = new GameObject("CycleLabel");
+            cycleGO.transform.SetParent(groupGO.transform, false);
+            Text cycleText = cycleGO.AddComponent<Text>();
+            cycleText.font = UIFont();
+            cycleText.fontSize = 34;
+            cycleText.alignment = TextAnchor.MiddleCenter;
+            cycleText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            cycleText.verticalOverflow = VerticalWrapMode.Overflow;
+            cycleText.color = Color.red;
+            RectTransform cycleRect = cycleText.GetComponent<RectTransform>();
+            cycleRect.anchorMin = new Vector2(0f, 1f);
+            cycleRect.anchorMax = new Vector2(1f, 1f);
+            cycleRect.pivot = new Vector2(0.5f, 0.5f);
+            cycleRect.sizeDelta = new Vector2(0f, 60f);
+            cycleRect.anchoredPosition = new Vector2(0f, 42f);
+            // Off until there has been more than one bed - IterationLabel.Show enables it. Cycle 1
+            // says nothing, the way iteration 1 gets no reset announcement.
+            cycleText.enabled = false;
+
             IterationLabel label = groupGO.AddComponent<IterationLabel>();
             label.canvasGroup = group;
             label.label = text;
+            label.cycleLabel = cycleText;
 
+            BuildSleepingGas(canvasGO.transform);
             BuildCountdownTimer(canvasGO.transform);
             BuildEndCycleControl(canvasGO.transform);
             BuildCarriedItems(canvasGO.transform, hand);
@@ -7670,6 +7713,42 @@ namespace IterationRoom.EditorTools
 
         // The end-cycle control, immediately left of the countdown. Built last so it draws over the
         // eyelids rather than under them.
+        // THE GAS THAT ENDS A CYCLE. A full-screen wash and a valve, and nothing that warns.
+        //
+        // A screen wash rather than a particle system, and that is a considered choice rather than a
+        // shortcut: gas the player is inside is not gas they can look at. Volumetric fog in the room
+        // would be something happening over there, and the beat is that it is happening to them.
+        // Sitting on the HUD canvas also means it is drawn OVER the eyelids' parent, so the wash and
+        // the blink stack correctly.
+        //
+        // 2D audio for the same reason. The player has no idea where the vents are and is not meant
+        // to - a positioned hiss invites them to turn and look for it.
+        private static void BuildSleepingGas(Transform canvasParent)
+        {
+            GameObject go = new GameObject("SleepingGas");
+            go.transform.SetParent(canvasParent, false);
+
+            Image haze = go.AddComponent<Image>();
+            // Authored fully transparent. SleepingGas.Administer writes the alpha, and Clear puts it
+            // back - a haze left up would open the next cycle behind a white sheet.
+            haze.color = new Color(0.92f, 0.94f, 0.96f, 0f);
+            // The wash must never eat a click. Nothing under it is interactive at a boundary, but a
+            // full-screen Image defaults to raycast target and this is exactly the kind of invisible
+            // blocker that is impossible to find later.
+            haze.raycastTarget = false;
+
+            RectTransform rect = haze.GetComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+
+            SleepingGas gas = go.AddComponent<SleepingGas>();
+            gas.haze = haze;
+            gas.audioSource = MakeSource(go.transform, "GasAudio", spatialBlend: 0f, volume: 0.7f);
+            gas.hissClip = LoadClip(SfxDir, "sfx_gas_hiss");
+        }
+
         private static void BuildEndCycleControl(Transform canvasParent)
         {
             GameObject go = new GameObject("EndCycleControl");

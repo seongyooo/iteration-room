@@ -40,6 +40,12 @@ namespace IterationRoom
         // rewinds.
         public int UseCount { get; private set; }
 
+        // A CYCLE boundary does reset it, which is not a contradiction of the line above. An
+        // iteration does not rewind what the player has learned; a cycle starts a new count of
+        // everything - new bed, iteration 1 - and the wall signs read this to decide whether they
+        // still have something to say. A new cycle's signs should be able to speak again.
+        public void ResetUseCount() => UseCount = 0;
+
         public void OnPointerDown(PointerEventData eventData) => pointerHeld = true;
         public void OnPointerUp(PointerEventData eventData) => pointerHeld = false;
 

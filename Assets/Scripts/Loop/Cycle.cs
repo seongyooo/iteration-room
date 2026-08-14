@@ -1,0 +1,83 @@
+using UnityEngine;
+
+namespace IterationRoom
+{
+    // ONE CYCLE'S WORLD: the bed its iterations start from, the rooms they run through, and the
+    // console that ends it. `LoopManager` holds an array of these and walks it - see `docs/cycle-design.md`.
+    //
+    // WHY THIS EXISTS. Every field below used to sit directly on `LoopManager`, one per room type,
+    // wired once. That was exactly right while there was one bed and one corridor, and it stops being
+    // right the moment a second cycle exists: `balloonField` cannot be *the* balloon field when two
+    // of them are in the scene. The alternative was to swap `LoopManager`'s whole block of fields at
+    // the boundary, which is the same coupling with a mutation step added.
+    //
+    // A cycle is NOT a chapter. Inside one, nothing about the game changes: one bed, sixty seconds,
+    // ghosts accumulating forever. What a cycle bounds is the accumulation, not the rules.
+    public class Cycle : MonoBehaviour
+    {
+        // Where every iteration of this cycle begins. `WakeUpSequence` needs no counterpart - it
+        // poses the eye wherever the player already is, so it works at any bed unchanged.
+        public Transform bedSpawnPoint;
+
+        // World state the loop rewinds. Doors close right after the teleport, drawers after the item
+        // sweep; the two are separate calls below because that ordering is load-bearing.
+        public Door[] doors;
+        public Drawer[] drawers;
+
+        // This cycle's puzzle rooms. All optional: a cycle that has no balloon field simply leaves it
+        // null, which is how a cycle can be built before its puzzles are designed.
+        public BalloonField balloonField;
+        public ChessBoard chessBoard;
+        public CubeRoom cubeRoom;
+
+        // The room this cycle ENDS in - `room<cycle>-0`, the hinge. Filling its console is the only
+        // way out of a cycle, and `Completed` is what `LoopManager` watches for.
+        public FinalRoomSequence finalRoom;
+
+        // Everything a ghost can operate IN THIS CYCLE. An entry's index is its bit in
+        // `RecordedFrame.signals`, so this array is a wire format: append, never reorder.
+        //
+        // **The 32-bit cap is per cycle rather than global**, and that is a consequence of the
+        // boundary rather than a concession. Every ghost is destroyed when a cycle ends, so no
+        // surviving timeline refers to these bits and the next cycle may number its own from zero.
+        // What must never happen is mutating an array while ghosts born against it are still alive -
+        // a bit would change meaning under them, and `GhostReplayer`'s edge tracking would leave the
+        // old one set forever. `LoopManager` swaps the REFERENCE at a boundary, after the teardown.
+        public GhostInteractable[] ghostInteractables;
+
+        // This cycle's wall panels. Per cycle, because the `ERROR` test card spreading from the
+        // console means *this bed's cycle is over* - a panel in a cycle the player has not reached
+        // has no business failing, and the gather that builds these is by name, so it would
+        // otherwise sweep up every floor at once.
+        public WallPanelDisplay wallPanels;
+
+        // Shuts every door. Called immediately after the teleport, never before it: a player standing
+        // in a doorway has to be back at the bed already, or the slab closes through them.
+        public void CloseDoors()
+        {
+            if (doors == null) return;
+            foreach (Door d in doors) d?.Close();
+        }
+
+        // The room-specific half of an iteration reset. Runs AFTER `ItemRegistry.ReturnAllToOrigin`,
+        // and the order inside is the one CLAUDE.md §1.9 fixes:
+        //
+        // The sweep is what puts objects back; these are what forget who was home. Run the other way
+        // round, every piece the sweep returned would still be marked seated and the room would open
+        // on a puzzle it thought was already solved. Same argument for the balloon field, which hides
+        // what it owns - a key handed back after that point would be visible outside its balloon.
+        public void ResetRooms()
+        {
+            if (drawers != null)
+                foreach (Drawer dr in drawers) dr?.Close();
+
+            balloonField?.ResetField();
+            finalRoom?.ResetRoom();
+            chessBoard?.ResetBoard();
+            cubeRoom?.ResetRoom();
+        }
+
+        // All three objects are in this cycle's console. The one way out of a cycle.
+        public bool Complete => finalRoom != null && finalRoom.Completed;
+    }
+}

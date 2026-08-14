@@ -53,6 +53,15 @@ namespace IterationRoom
 
         public NarrationDirector narration;
 
+        // THE WAY ON, and only a cycle with another after it has one. A grid cell in the wall behind
+        // the console that opens once the console is full and drops the player into the next cycle's
+        // bed room. Null on the last cycle, which has nowhere to go and ends the game instead - so
+        // whether this is wired is itself the statement that a cycle is not the last one.
+        //
+        // Opened and sealed by `LoopManager` at the boundary rather than here: this room's job ends
+        // when its console is full, and what happens next is the loop's business.
+        public CycleExit wayOut;
+
         // Press to scrim. A floor rather than a pause: the door takes a second to seal and the
         // panels take `glitchOnset` to fail across the building, and at the 3.4s this was first
         // built with, all of it was still arriving when the screen went black. The room has to be
@@ -86,6 +95,19 @@ namespace IterationRoom
             Active = false;
         }
 
+        // A CYCLE BOUNDARY, not an iteration. Deliberately separate from `ResetRoom`, which runs at
+        // the top of every iteration and must NOT clear this: within a cycle, completion is final and
+        // `Update` early-returning on it is what stops the console coming back up under the ending.
+        //
+        // Across a boundary that is not the end of the game, it has to be cleared - otherwise this
+        // room is inert for the rest of the run, and a later cycle reusing the prefab could never be
+        // finished. Called from `LoopManager` behind the shut eyelids.
+        public void ForgetCompletion()
+        {
+            Completed = false;
+            ResetRoom();
+        }
+
         // The loop rewinding. The objects themselves are already back on their plinths by now
         // (`ItemRegistry.ReturnAllToOrigin`); this takes the console down and forgets what was in it.
         public void ResetRoom()
@@ -97,9 +119,16 @@ namespace IterationRoom
             foreach (FinalSlot slot in slots) if (slot != null) slot.Clear();
         }
 
-        // What happens once all three are in. Driven by LoopManager, after it has stopped the clock
-        // and let the collapse go - see RunEnding.
-        public IEnumerator RunBreak()
+        // THE DRESSING, WITH NO WAIT IN IT. Everything that happens the moment the console fills,
+        // and nothing that paces what follows.
+        //
+        // Split out of `RunBreak` because a cycle boundary wants all of this and none of the timing.
+        // `breakDuration` was never a beat in its own right - it bounded the window before
+        // `RunEnding` took control away at the scrim. A cycle that has another cycle after it never
+        // reaches that, so **the ten seconds stop gating anything and the break dissolves rather than
+        // being deleted**: the player simply stays in this room until they take the way out. See
+        // `docs/cycle-design.md` §3.
+        public void BreakOpen()
         {
             // The way back, first. Slides rather than snapping - Close() is the loop rewinding
             // behind a black screen, this is a door shutting with the player watching it.
@@ -110,7 +139,14 @@ namespace IterationRoom
             narration?.AnnounceCycleBroken();
 
             wallPanels?.BeginGlitch(console != null ? console.transform.position : transform.position);
+        }
 
+        // What happens once all three are in, PACED FOR THE END OF THE GAME. Driven by LoopManager,
+        // after it has stopped the clock and let the collapse go - see RunEnding. Only the last cycle
+        // comes through here; every other one uses `BreakOpen` and no timer at all.
+        public IEnumerator RunBreak()
+        {
+            BreakOpen();
             yield return Break();
 
             // Left broken. EndingSequence's scrim comes up over a room that is still failing, which

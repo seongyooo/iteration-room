@@ -8,6 +8,18 @@ namespace IterationRoom
     {
         public CanvasGroup canvasGroup;
         public Text label;
+
+        // CYCLE N, on its OWN LINE ABOVE the iteration rather than beside it. Two reasons, and the
+        // second is the one that decided it.
+        //
+        // It reads better - the cycle is which bed you are in and the iteration is which attempt, so
+        // stacking them says "here, again" rather than running one number into another. And a single
+        // line would have blown the width budget: every character is spaced out below, so
+        // "CYCLE 2 - ITERATION 1" is about forty cells, and a fixed-width HUD label that silently
+        // rewraps has bitten this project twice. Stacked, neither line is longer than the one this
+        // label already rendered.
+        public Text cycleLabel;
+
         public float holdDuration = 1.2f;
         public float fadeDuration = 0.5f;
 
@@ -21,16 +33,26 @@ namespace IterationRoom
         // as stencilled onto the room; "Iteration 12" reads as a subtitle.
         public bool spacedCaps = true;
 
-        public void ShowIteration(int number)
+        public void Show(int cycle, int iteration)
         {
-            if (label != null)
+            if (label != null) label.text = Style($"Iteration {iteration}");
+
+            // CYCLE 1 SAYS NOTHING, the same way iteration 1 gets no reset announcement: there is
+            // nothing to distinguish it from yet, and naming it would raise a question about cycles
+            // before the player has any reason to have one. The line appears the first time it is
+            // true that there has been more than one bed.
+            if (cycleLabel != null)
             {
-                string text = $"Iteration {number}";
-                label.text = spacedCaps ? Space(text.ToUpperInvariant()) : text;
+                bool show = cycle > 1;
+                cycleLabel.enabled = show;
+                if (show) cycleLabel.text = Style($"Cycle {cycle}");
             }
+
             StopAllCoroutines();
             StartCoroutine(FadeRoutine());
         }
+
+        private string Style(string text) => spacedCaps ? Space(text.ToUpperInvariant()) : text;
 
         private static string Space(string text) => string.Join(" ", text.ToCharArray());
 

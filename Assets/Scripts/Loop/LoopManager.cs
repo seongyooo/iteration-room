@@ -4,52 +4,48 @@ using UnityEngine;
 
 namespace IterationRoom
 {
-    // Drives the 60-second loop: shows the "Iteration N" label, resets the
-    // player to bed on timeout, and turns the just-finished recording into a
-    // new accumulating ghost.
+    // Drives the 60-second loop: shows the "Iteration N" label, resets the player to bed on timeout,
+    // and turns the just-finished recording into a new accumulating ghost.
+    //
+    // AND THE CYCLES THOSE ITERATIONS ARE GROUPED INTO. Filling a cycle's console does not end the
+    // game any more - it ends that cycle, and the player drops into the next one's bed room. Nothing
+    // inside a cycle changes because of this: one bed, sixty seconds, ghosts accumulating forever.
+    // See `docs/cycle-design.md`.
     public class LoopManager : MonoBehaviour
     {
         public static LoopManager Instance { get; private set; }
 
         public float loopDuration = 60f;
-        public Transform bedSpawnPoint;
+
+        // EVERY CYCLE, IN ORDER. One entry means the game behaves exactly as it did before cycles
+        // existed, which is the property this array was chosen for.
+        //
+        // **"The last cycle" is derived from this array and must never be hardcoded.** The last one is
+        // the one with no successor; that is what routes into `EndingSequence`. More cycles are
+        // intended, so a literal cycle number anywhere in this file is a bug waiting for cycle 3.
+        public Cycle[] cycles;
+
         public PlayerRecorder playerRecorder;
         public FirstPersonController playerController;
-        // Everything a ghost can operate. Order is the wire format: an entry's index here is its
-        // bit in RecordedFrame.signals, so this must be the same array PlayerRecorder samples.
-        // Reordering it invalidates every timeline recorded so far.
-        public GhostInteractable[] ghostInteractables;
-        // Every door in the run. World state the loop has to rewind, same as the first one always
-        // was - Room2's key door joins Room1's button door here.
-        public Door[] doors;
-        // The nightstand drawer, and whatever the player is carrying. Both are world state too:
-        // leave the tool in the player's hand across a reset and the trip to the drawer stops
-        // costing anything, which is most of what Room2's puzzle is made of.
-        public Drawer[] drawers;
         public PlayerHand playerHand;
-        public BalloonField balloonField;
-        public ChessBoard chessBoard;
-        public CubeRoom cubeRoom;
         public GhostReplayer ghostPrefab;
         public Transform ghostParent;
         public IterationLabel iterationLabel;
         public WakeUpSequence wakeUpSequence;
         public NarrationDirector narration;
         public RoomAmbience ambience;
-        public WallPanelDisplay wallPanels;
         public CameraShaker cameraShaker;
-
-        // Room4, which the loop now runs through like every other room. A run that reaches it with
-        // two of the three objects gets pulled back to the bed and does it again.
-        //
-        // The doorway trigger is NOT held here any more. It used to end the run, which was the loop's
-        // business; it arms the last room's console now, which is that room's - so it is wired to
-        // FinalRoomSequence and this class never asks about it.
-        public FinalRoomSequence finalRoom;
         public EndingSequence endingSequence;
 
         // The sensitivity step, run once before the first iteration. See SensitivityCalibration.
         public SensitivityCalibration calibration;
+
+        // Reset at a cycle boundary, so a new cycle's wall signs can teach the control again. See
+        // EndCycleControl.ResetUseCount for why that is not a contradiction of its no-reset rule.
+        public EndCycleControl endCycleControl;
+
+        // Puts the player out at a boundary. Fires with no warning at all - see SleepingGas.
+        public SleepingGas sleepingGas;
 
         // How long before the reset the room starts coming apart: the wall displays blow out and
         // the view begins to judder, both building to the moment the cycle takes you.
@@ -63,17 +59,28 @@ namespace IterationRoom
         public float ElapsedTime { get; private set; }
         public int IterationNumber { get; private set; }
 
-        // The clock's own running total, across every iteration this run has spent - what
+        // 1-based, and it does NOT reset. The iteration count starts again at every bed; this is what
+        // says which bed. Read by the HUD, which puts it on its own line above the iteration.
+        public int CycleNumber { get; private set; }
+        private int cycleIndex;
+
+        // The cycle currently being played, and whether anything follows it.
+        public Cycle Current =>
+            cycles != null && cycleIndex >= 0 && cycleIndex < cycles.Length ? cycles[cycleIndex] : null;
+        private bool HasNextCycle => cycles != null && cycleIndex + 1 < cycles.Length;
+
+        // The clock's own running total, across every iteration this CYCLE has spent - what
         // EndingSequence reports alongside the iteration count. `totalElapsedTime` accumulates each
-        // iteration's ElapsedTime the moment that iteration ends (see the top of RunLoop's while);
-        // the CURRENT iteration's own ElapsedTime is still live and not yet folded in, which is
-        // exactly right at the one moment this is read - RunEnding, while the escaping iteration is
-        // still the current one and has not gone through that accumulation step itself.
+        // iteration's ElapsedTime the moment that iteration ends (see the top of RunLoop's inner
+        // while); the CURRENT iteration's own ElapsedTime is still live and not yet folded in, which
+        // is exactly right at the one moment this is read - the ending, while the escaping iteration
+        // is still the current one and has not gone through that accumulation step itself.
         public float TotalElapsedTime => totalElapsedTime + ElapsedTime;
         private float totalElapsedTime;
 
         // True only while the clock is actually running - not during the wake-up, not during the
-        // eyelid close. The end-cycle control reads this so it can't be charged up out of turn.
+        // eyelid close, not during a cycle boundary. The end-cycle control reads this so it can't be
+        // charged up out of turn.
         public bool IterationRunning { get; private set; }
 
         // Set by PauseMenu. The loop itself needs no knowledge of it - Time.timeScale freezes the
@@ -83,18 +90,30 @@ namespace IterationRoom
 
         // "The game is accepting player input right now." Every Update that reads a key should
         // gate on this rather than on IterationRunning alone; the two only differ while paused.
-        public bool AcceptsInput => IterationRunning && !IsPaused && !RunOver;
+        public bool AcceptsInput => IterationRunning && !IsPaused && !RunOver && !CycleBreaking;
 
-        // The player got out and the ending is playing. Read by PauseMenu, which must not let
-        // Escape open an overlay over the last thing in the game - Resume would then hand back a
-        // frozen room with no loop left running to unfreeze it.
+        // The player got out of the LAST cycle and the ending is playing. Read by PauseMenu, which
+        // must not let Escape open an overlay over the last thing in the game - Resume would then hand
+        // back a frozen room with no loop left running to unfreeze it.
+        //
+        // **There is no way back from this, by design, and that is why a cycle boundary must not use
+        // it.** Once true, AcceptsInput is false forever and every interactable in the game is dead.
         public bool RunOver { get; private set; }
+
+        // A CYCLE ENDED AND ANOTHER FOLLOWS. Distinct from RunOver in the one way that matters: it is
+        // cleared again when the next cycle starts.
+        //
+        // The player keeps control - walking out through what they built is the whole of the beat -
+        // but no fixture answers a key, because there is nothing left to operate and the way out is
+        // the only thing that can happen next. That matches the rule that the last stretch before an
+        // escape asks for no new operations.
+        public bool CycleBreaking { get; private set; }
 
         public void SetPaused(bool paused) => IsPaused = paused;
 
         private bool endRequested;
 
-        // The player choosing to cut this cycle short. 60 seconds is a ceiling, not a quota: once
+        // The player choosing to cut this iteration short. 60 seconds is a ceiling, not a quota: once
         // you have done what you came to do, the rest is dead time, and spending it is the one
         // thing the loop never let you decide.
         //
@@ -130,11 +149,11 @@ namespace IterationRoom
         // once the player has control, so every ghost's timeline covers the same window.
         private IEnumerator RunLoop()
         {
-            // Before anything: look around the room and set the mouse sensitivity. Outside the
-            // while, so it happens exactly once, and before IterationNumber has been incremented -
-            // the clock is stopped, IterationRunning is false, and every interactable is therefore
-            // already inert. The player has full control meanwhile, which is the point; iteration 1
-            // teleports them back to the bed regardless.
+            // Before anything: look around the room and set the mouse sensitivity. Outside both
+            // whiles, so it happens exactly once in the game, and before IterationNumber has been
+            // incremented - the clock is stopped, IterationRunning is false, and every interactable is
+            // therefore already inert. The player has full control meanwhile, which is the point;
+            // iteration 1 teleports them back to the bed regardless.
             if (calibration != null)
             {
                 calibration.Begin();
@@ -142,191 +161,322 @@ namespace IterationRoom
                 calibration.End();
             }
 
+            // THE OUTER LOOP IS CYCLES. Exited only by the last one, which has no successor to cross
+            // to and goes to the ending instead.
             while (true)
             {
-                IterationNumber++;
-                // Folded in BEFORE the reset, so the iteration just finished counts toward the
-                // total exactly once. On the very first pass ElapsedTime is still its default zero,
-                // so this is a harmless no-op rather than a special case to guard.
-                totalElapsedTime += ElapsedTime;
-                ElapsedTime = 0f;
+                CycleNumber++;
 
-                if (playerController != null && bedSpawnPoint != null)
-                    playerController.Teleport(bedSpawnPoint.position, bedSpawnPoint.rotation);
+                // The recorder samples THIS cycle's interactables. Assigned here rather than wired
+                // once, because an entry's index is its bit in RecordedFrame.signals and each cycle
+                // numbers its own from zero - the boundary teardown is what makes that safe.
+                if (playerRecorder != null && Current != null)
+                    playerRecorder.interactables = Current.ghostInteractables;
 
-                // The doors are world state, so the loop has to rewind them too - and only after
-                // the teleport, so a player standing in a doorway is already back at the bed rather
-                // than inside the slab when it snaps shut.
-                if (doors != null)
-                    foreach (Door d in doors) d?.Close();
-
-                // Ghosts let go first, then the player, then the field hides what it owns. All three
-                // orderings matter and for the same reason: an item has to be back at its parked
-                // position BEFORE the thing that hides it runs, or it ends up visible on the floor
-                // of a room whose balloons have not been popped yet.
-                //
-                // The ghost pass is separate from ResetPlayback below rather than folded into it,
-                // because ResetPlayback runs after ResetField - by then the key is already hidden,
-                // and handing it back at that point would un-hide it.
-                foreach (var ghost in ghosts) ghost.ReleaseCarried();
-
-                playerHand?.ReturnAll();
-
-                // The catch-all, and it is not redundant with the two lines above. Those clear the
-                // holders' own bookkeeping; this puts every object back. A key a GHOST left in the
-                // lock belongs to neither list - it is not in the player's `taken` and the ghost let
-                // go of it the moment the socket accepted it - so before this it stayed in the
-                // keyhole with IsCarried true and no ghost could ever pick it up again.
-                ItemRegistry.ReturnAllToOrigin();
-
-                if (drawers != null)
-                    foreach (Drawer dr in drawers) dr?.Close();
-
-                balloonField?.ResetField();
-
-                // Room4 rewinds like anywhere else now: the console goes down, the recesses forget
-                // what was in them, and reaching the last doorway has to be done again. Before the
-                // clock ran through that room there was nothing here to reset, because getting there
-                // ended the run.
-                finalRoom?.ResetRoom();
-
-                // AFTER the sweep, like the balloon field and for the same reason. The sweep is what
-                // puts the pieces back - scattered ones on the floor, the rest on their squares - and
-                // this is what forgets who was home and puts the untouched ones back out of play. Run
-                // the other way round, every piece the sweep returned would still be marked seated and
-                // the room would open on a puzzle it thought was already solved.
-                chessBoard?.ResetBoard();
-                // Same position in the order and for the same reason: the sweep puts the cubes back
-                // on the floor, and this forgets who was home and takes the reward's request back.
-                cubeRoom?.ResetRoom();
-
-                // Hidden for the whole wake-up: resetting parks them all on the bed spawn, which is
-                // exactly where the player is about to open their eyes.
-                foreach (var ghost in ghosts)
+                // The inner loop is iterations, and it is the loop this game is about.
+                while (true)
                 {
-                    ghost.ResetPlayback();
-                    ghost.SetVisible(false);
-                }
+                    IterationNumber++;
+                    // Folded in BEFORE the reset, so the iteration just finished counts toward the
+                    // total exactly once. On the very first pass ElapsedTime is still its default
+                    // zero, so this is a harmless no-op rather than a special case to guard.
+                    totalElapsedTime += ElapsedTime;
+                    ElapsedTime = 0f;
 
-                // The announcer confirms the reset under the closed eyelids. Iteration 1 opens the
-                // run rather than resetting it, so it gets no line. (The pull and the shutdown that
-                // precede this are fired at the *end* of the previous iteration, below, which is
-                // why they need no such guard - there is always an iteration before them.)
-                if (IterationNumber > 1) narration?.AnnounceNewCycle();
+                    Transform bed = Current != null ? Current.bedSpawnPoint : null;
+                    if (playerController != null && bed != null)
+                        playerController.Teleport(bed.position, bed.rotation);
 
-                iterationLabel?.ShowIteration(IterationNumber);
+                    // The doors are world state, so the loop has to rewind them too - and only after
+                    // the teleport, so a player standing in a doorway is already back at the bed
+                    // rather than inside the slab when it snaps shut.
+                    Current?.CloseDoors();
 
-                if (wakeUpSequence != null)
-                    yield return wakeUpSequence.WakeUp(playerController);
+                    // Ghosts let go first, then the player, then the rooms hide what they own. All
+                    // three orderings matter and for the same reason: an item has to be back at its
+                    // parked position BEFORE the thing that hides it runs, or it ends up visible on
+                    // the floor of a room whose balloons have not been popped yet.
+                    //
+                    // The ghost pass is separate from ResetPlayback below rather than folded into it,
+                    // because ResetPlayback runs after the room resets - by then the key is already
+                    // hidden, and handing it back at that point would un-hide it.
+                    foreach (var ghost in ghosts) ghost.ReleaseCarried();
 
-                // Announced as the clock actually starts, which is also the moment control returns.
-                narration?.AnnounceIteration(IterationNumber);
+                    playerHand?.ReturnAll();
 
-                // Back in view exactly as the clock starts, which is also the frame they start
-                // moving - so they appear already walking away rather than blinking into being.
-                foreach (var ghost in ghosts)
-                    ghost.SetVisible(true);
+                    // The catch-all, and it is not redundant with the two lines above. Those clear the
+                    // holders' own bookkeeping; this puts every object back. A key a GHOST left in the
+                    // lock belongs to neither list - it is not in the player's `taken` and the ghost
+                    // let go of it the moment the socket accepted it - so before this it stayed in the
+                    // keyhole with IsCarried true and no ghost could ever pick it up again.
+                    ItemRegistry.ReturnAllToOrigin();
 
-                playerRecorder?.BeginRecording();
+                    // Drawers, the balloon field, the console and the two placement rooms, in the one
+                    // order that works. AFTER the sweep, always: the sweep is what puts objects back,
+                    // and this is what forgets who was home. See Cycle.ResetRooms.
+                    Current?.ResetRooms();
 
-                int lastCueSecond = int.MaxValue;
-                // Armed here, not at the top of the iteration: an input that lands during the
-                // wake-up would otherwise end the cycle the instant the clock started.
-                endRequested = false;
-                IterationRunning = true;
-
-                while (ElapsedTime < loopDuration && !endRequested && !RunComplete)
-                {
-                    ElapsedTime += Time.deltaTime;
-
+                    // Hidden for the whole wake-up: resetting parks them all on the bed spawn, which
+                    // is exactly where the player is about to open their eyes.
                     foreach (var ghost in ghosts)
-                        ghost.Tick(ElapsedTime);
-
-                    // Ceil, so a cue lands as the clock crosses its whole second rather than a
-                    // frame after it. Guarding on a falling second also means one cue per second
-                    // no matter the frame rate.
-                    int remaining = Mathf.CeilToInt(loopDuration - ElapsedTime);
-                    if (remaining < lastCueSecond)
                     {
-                        lastCueSecond = remaining;
-                        if (remaining == tenSecondCueAt) narration?.AnnounceTenSeconds();
-                        else if (remaining >= 1 && remaining <= 9) narration?.AnnounceCountdown(remaining);
+                        ghost.ResetPlayback();
+                        ghost.SetVisible(false);
                     }
 
-                    // Squared, so the collapse is barely there at first and then runs away with
-                    // itself - a linear ramp reads as a slider being dragged.
-                    float toEnd = loopDuration - ElapsedTime;
-                    float collapse = collapseLeadTime > 0f
-                        ? 1f - Mathf.Clamp01(toEnd / collapseLeadTime)
-                        : 0f;
-                    wallPanels?.SetFlare(collapse * collapse);
-                    cameraShaker?.SetIntensity(collapse);
+                    // The announcer confirms the reset under the closed eyelids. Iteration 1 opens a
+                    // cycle rather than resetting it, so it gets no line. (The pull and the shutdown
+                    // that precede this are fired at the *end* of the previous iteration, below, which
+                    // is why they need no such guard - there is always an iteration before them.)
+                    if (IterationNumber > 1) narration?.AnnounceNewCycle();
 
-                    yield return null;
+                    iterationLabel?.Show(CycleNumber, IterationNumber);
+
+                    if (wakeUpSequence != null)
+                        yield return wakeUpSequence.WakeUp(playerController);
+
+                    // Announced as the clock actually starts, which is also the moment control
+                    // returns.
+                    narration?.AnnounceIteration(IterationNumber);
+
+                    // Back in view exactly as the clock starts, which is also the frame they start
+                    // moving - so they appear already walking away rather than blinking into being.
+                    foreach (var ghost in ghosts)
+                        ghost.SetVisible(true);
+
+                    playerRecorder?.BeginRecording();
+
+                    int lastCueSecond = int.MaxValue;
+                    // Armed here, not at the top of the iteration: an input that lands during the
+                    // wake-up would otherwise end the cycle the instant the clock started.
+                    endRequested = false;
+                    IterationRunning = true;
+
+                    while (ElapsedTime < loopDuration && !endRequested && !CycleComplete)
+                    {
+                        ElapsedTime += Time.deltaTime;
+
+                        foreach (var ghost in ghosts)
+                            ghost.Tick(ElapsedTime);
+
+                        // Ceil, so a cue lands as the clock crosses its whole second rather than a
+                        // frame after it. Guarding on a falling second also means one cue per second
+                        // no matter the frame rate.
+                        int remaining = Mathf.CeilToInt(loopDuration - ElapsedTime);
+                        if (remaining < lastCueSecond)
+                        {
+                            lastCueSecond = remaining;
+                            if (remaining == tenSecondCueAt) narration?.AnnounceTenSeconds();
+                            else if (remaining >= 1 && remaining <= 9) narration?.AnnounceCountdown(remaining);
+                        }
+
+                        // Squared, so the collapse is barely there at first and then runs away with
+                        // itself - a linear ramp reads as a slider being dragged.
+                        float toEnd = loopDuration - ElapsedTime;
+                        float collapse = collapseLeadTime > 0f
+                            ? 1f - Mathf.Clamp01(toEnd / collapseLeadTime)
+                            : 0f;
+                        Panels?.SetFlare(collapse * collapse);
+                        cameraShaker?.SetIntensity(collapse);
+
+                        yield return null;
+                    }
+
+                    IterationRunning = false;
+
+                    // THE ONLY WAY OUT OF THE INNER WHILE, and it has to be taken HERE - before any
+                    // of what follows. Everything below this point is an iteration closing and
+                    // re-opening: the collapse held at full, the pull-in, the blink, the panels going
+                    // out, the recording becoming another ghost. None of it should happen to a player
+                    // who just filled the console, and both the ending and the boundary are largely
+                    // defined by their absence.
+                    if (CycleComplete) break;
+
+                    // Held at full through the blink shut - the room is still coming apart while the
+                    // lids fall, which is what makes the reset feel like it happens *to* the player.
+                    Panels?.SetFlare(1f);
+                    cameraShaker?.SetIntensity(1f);
+
+                    // The announcer acknowledges a voluntary end on the spot, because cutting the
+                    // clock short skips the countdown - otherwise ending early is silent, and the one
+                    // decision the player gets to make would land with no feedback at all.
+                    if (endRequested) narration?.AnnounceCycleTerminated();
+
+                    // Control and recording both stop before the eyelids start closing. Left running,
+                    // the player spent the ~1.6s blackout walking blind, and because ElapsedTime is
+                    // frozen at loopDuration by then, every one of those frames recorded at the same
+                    // timestamp - the ghost skipped the lot in a single jump on its final tick.
+                    if (playerController != null) playerController.ControlEnabled = false;
+
+                    RecordedTimeline timeline = playerRecorder != null ? playerRecorder.EndRecording() : null;
+
+                    // Fired here rather than at the top of the next iteration: this is the moment the
+                    // loop takes you, and it has to be heard while the lids are still falling and the
+                    // room is still flaring. Held until after the blackout it becomes an explanation
+                    // of something that already happened.
+                    ambience?.PlayPullIn();
+
+                    if (wakeUpSequence != null)
+                        yield return wakeUpSequence.CloseEyes();
+
+                    // Cleared only once the screen is fully black. Stopping the shake while the player
+                    // can still see would put a visible full stop on it.
+                    cameraShaker?.SetIntensity(0f);
+                    Panels?.SetFlare(0f);
+
+                    // And now the room goes out, with nothing to look at while it does.
+                    ambience?.PlayPowerDown();
+
+                    if (timeline != null && timeline.FrameCount > 0 && ghostPrefab != null)
+                    {
+                        GhostReplayer ghost = Instantiate(ghostPrefab, ghostParent);
+                        ghost.Init(timeline, Current != null ? Current.ghostInteractables : null);
+                        ghosts.Add(ghost);
+                    }
                 }
 
-                IterationRunning = false;
-
-                // The only way out of the while(true), and it has to be taken HERE - before any of
-                // what follows. Everything below this point is the cycle closing and re-opening:
-                // the collapse held at full, the pull-in, the blink, the panels going out, the
-                // recording becoming another ghost. None of it should happen to a player who just
-                // got out, and the ending is largely defined by their absence.
-                if (RunComplete)
+                // The cycle is finished. Either the game is over, or there is another bed.
+                if (!HasNextCycle)
                 {
                     yield return RunEnding();
                     yield break;
                 }
 
-                // Held at full through the blink shut - the room is still coming apart while the
-                // lids fall, which is what makes the reset feel like it happens *to* the player.
-                wallPanels?.SetFlare(1f);
-                cameraShaker?.SetIntensity(1f);
-
-                // The announcer acknowledges a voluntary end on the spot, because cutting the
-                // clock short skips the countdown - otherwise ending early is silent, and the one
-                // decision the player gets to make would land with no feedback at all.
-                if (endRequested) narration?.AnnounceCycleTerminated();
-
-                // Control and recording both stop before the eyelids start closing. Left running,
-                // the player spent the ~1.6s blackout walking blind, and because ElapsedTime is
-                // frozen at loopDuration by then, every one of those frames recorded at the same
-                // timestamp - the ghost skipped the lot in a single jump on its final tick.
-                if (playerController != null) playerController.ControlEnabled = false;
-
-                RecordedTimeline timeline = playerRecorder != null ? playerRecorder.EndRecording() : null;
-
-                // Fired here rather than at the top of the next iteration: this is the moment the
-                // loop takes you, and it has to be heard while the lids are still falling and the
-                // room is still flaring. Held until after the blackout it becomes an explanation of
-                // something that already happened.
-                ambience?.PlayPullIn();
-
-                if (wakeUpSequence != null)
-                    yield return wakeUpSequence.CloseEyes();
-
-                // Cleared only once the screen is fully black. Stopping the shake while the player
-                // can still see would put a visible full stop on it.
-                cameraShaker?.SetIntensity(0f);
-                wallPanels?.SetFlare(0f);
-
-                // And now the room goes out, with nothing to look at while it does.
-                ambience?.PlayPowerDown();
-
-                if (timeline != null && timeline.FrameCount > 0 && ghostPrefab != null)
-                {
-                    GhostReplayer ghost = Instantiate(ghostPrefab, ghostParent);
-                    ghost.Init(timeline, ghostInteractables);
-                    ghosts.Add(ghost);
-                }
+                yield return CrossToNextCycle();
             }
         }
 
-        // THE ONLY EXIT CONDITION IN THE GAME, and it used to be a doorway. Reaching Room4 ended a
-        // run; now it starts an errand there, and what ends the run is the console being filled.
-        private bool RunComplete => finalRoom != null && finalRoom.Completed;
+        // This cycle's console is full. The only way out of a cycle, and it used to be the only way
+        // out of the game - reaching Room4 once ended a run, then filling its console did.
+        private bool CycleComplete => Current != null && Current.Complete;
 
-        // The run is over. Note what this does NOT do, which is most of its design - see
+        // This cycle's wall panels. Per cycle, because the ERROR spreading from a console means *this
+        // bed's cycle is over*, and a panel in a cycle the player has not reached has no business
+        // failing.
+        private WallPanelDisplay Panels => Current != null ? Current.wallPanels : null;
+
+        // Shared by the ending and the boundary: the collapse lets go rather than peaking. Escaping
+        // inside collapseLeadTime means the room was already coming apart, so this is visible and it
+        // is the point - the thing that takes the player every sixty seconds tries, and stops.
+        private IEnumerator ReleaseCollapse()
+        {
+            const float releaseDuration = 1.1f;
+            float t = 0f;
+            float startFlare = Panels != null ? Panels.Flare : 0f;
+            while (t < releaseDuration)
+            {
+                t += Time.deltaTime;
+                float k = 1f - Mathf.Clamp01(t / releaseDuration);
+                Panels?.SetFlare(startFlare * k);
+                cameraShaker?.SetIntensity(k * k);
+                yield return null;
+            }
+            Panels?.SetFlare(0f);
+            cameraShaker?.SetIntensity(0f);
+        }
+
+        // A CYCLE ENDED AND ANOTHER FOLLOWS. Everything the ending does up to the point where the two
+        // part company: the facility breaks, but nothing is paced, nothing is taken away, and the room
+        // stays the player's until they choose to leave it.
+        private IEnumerator CrossToNextCycle()
+        {
+            CycleBreaking = true;
+
+            // CONTROL IS NOT TAKEN. Walking out through what you built is the whole of this beat, and
+            // there is no timer on it - the way out is the only thing that can happen next, so nothing
+            // has to push the player toward it.
+
+            // Stopped and discarded. The iteration that got out does not become a ghost: this cycle's
+            // ghosts are all about to be destroyed anyway, and the next cycle starts from nothing.
+            playerRecorder?.EndRecording();
+
+            yield return ReleaseCollapse();
+
+            // And the room tone goes with it. It has been under every second of every iteration, so
+            // its absence is the quietest and clearest signal that this one is not turning over.
+            ambience?.FadeOutTone(3.5f);
+
+            // The way back seals, the facility says what has happened, and every panel in this cycle
+            // fails. No ten-second break: see FinalRoomSequence.BreakOpen.
+            Current?.finalRoom?.BreakOpen();
+
+            // The way on opens, and the player takes it in their own time. Both halves are the way
+            // out's own business - it knows when it has been used.
+            CycleExit exit = Current != null && Current.finalRoom != null ? Current.finalRoom.wayOut : null;
+            if (exit != null)
+            {
+                exit.Open();
+                while (!exit.PlayerThrough) yield return null;
+                exit.Seal();
+            }
+
+            // AND THEN, WITH NO WARNING. Not announced, not telegraphed: the player is not in a bed
+            // and has not asked for anything. Control goes here rather than at the eyelids, because
+            // being taken is the point.
+            if (playerController != null) playerController.ControlEnabled = false;
+            if (sleepingGas != null) yield return sleepingGas.Administer();
+
+            ambience?.PlayPullIn();
+
+            if (wakeUpSequence != null)
+                yield return wakeUpSequence.CloseEyes();
+
+            cameraShaker?.SetIntensity(0f);
+            Panels?.SetFlare(0f);
+            ambience?.PlayPowerDown();
+
+            // EVERYTHING BEHIND THE SHUT LIDS FROM HERE.
+            EndCycleState();
+
+            cycleIndex++;
+            CycleBreaking = false;
+        }
+
+        // The boundary itself. Nothing here is visible, and the order is the whole of it.
+        private void EndCycleState()
+        {
+            // GHOSTS GO FIRST, in the same slot the per-iteration ReleaseCarried occupies and for the
+            // same reason. OnDestroy releases what a ghost was carrying, and releasing runs
+            // ReturnToOrigin, which ends in SetVisible(true) - so a ghost destroyed AFTER the room
+            // resets would put a key back on screen outside the balloon that is supposed to be hiding
+            // it. Destroyed before anything else, that cannot happen.
+            //
+            // Not inside the foreach: Destroy defers OnDestroy to the end of the frame, so the release
+            // is asked for explicitly here rather than waited on.
+            foreach (var ghost in ghosts)
+            {
+                if (ghost == null) continue;
+                ghost.ReleaseCarried();
+                Destroy(ghost.gameObject);
+            }
+            ghosts.Clear();
+
+            // The timelines went with them. They live nowhere else - there is no list of recordings
+            // anywhere in the project, only the ghost objects holding their own - so clearing the
+            // list above is the whole of forgetting this cycle.
+
+            playerHand?.ReturnAll();
+            ItemRegistry.ReturnAllToOrigin();
+
+            // The cycle that just ended goes back to how it was found, so nothing is left standing
+            // open behind the player: the console down, the recesses empty, and completion itself
+            // forgotten - within a cycle that flag is final, across a boundary it cannot be.
+            Current?.CloseDoors();
+            Current?.ResetRooms();
+            Current?.finalRoom?.ForgetCompletion();
+
+            // The wash goes, behind the shut lids. Left up, the next cycle would open on a white
+            // sheet - and the eyelids being closed is exactly why this is invisible.
+            sleepingGas?.Clear();
+
+            // A new bed is a new count of everything.
+            IterationNumber = 0;
+            totalElapsedTime = 0f;
+            ElapsedTime = 0f;
+            endCycleControl?.ResetUseCount();
+        }
+
+        // The last cycle. Note what this does NOT do, which is most of its design - see
         // EndingSequence for the reasoning behind each omission.
         private IEnumerator RunEnding()
         {
@@ -341,22 +491,7 @@ namespace IterationRoom
             // the loop.
             playerRecorder?.EndRecording();
 
-            // The collapse lets go rather than peaking. Escaping inside collapseLeadTime means the
-            // room was already coming apart, so this is visible and it is the point: the thing that
-            // takes the player every sixty seconds tries, and stops.
-            const float releaseDuration = 1.1f;
-            float t = 0f;
-            float startFlare = wallPanels != null ? wallPanels.Flare : 0f;
-            while (t < releaseDuration)
-            {
-                t += Time.deltaTime;
-                float k = 1f - Mathf.Clamp01(t / releaseDuration);
-                wallPanels?.SetFlare(startFlare * k);
-                cameraShaker?.SetIntensity(k * k);
-                yield return null;
-            }
-            wallPanels?.SetFlare(0f);
-            cameraShaker?.SetIntensity(0f);
+            yield return ReleaseCollapse();
 
             // And the room tone goes with it. It has been under every second of every iteration,
             // so its absence is the quietest and clearest signal that this one is not turning over.
@@ -366,9 +501,12 @@ namespace IterationRoom
             // the building fails. Started here rather than by the room itself, because the collapse
             // above has to have let go first - the loop trying to take the player and stopping is
             // what the last object landing means.
-            if (finalRoom != null)
+            //
+            // The PACED version, unlike a cycle boundary's: the ten seconds are what the scrim comes
+            // up over, and only the last cycle has a scrim.
+            if (Current != null && Current.finalRoom != null)
             {
-                yield return finalRoom.RunBreak();
+                yield return Current.finalRoom.RunBreak();
             }
             else
             {

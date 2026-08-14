@@ -576,6 +576,57 @@ def item_drop(seed=7701):
     return fade_edges(normalize(out, 0.62))
 
 
+def gas_hiss(seed=8803):
+    """Sleeping gas released into a sealed room. The one sound in the game that arrives with no
+    warning, so what it has to do is be UNDERSTOOD before it is located.
+
+    A valve, not a spray can. The onset is the whole of the recognition: 8ms of attack and a bandpass
+    swept DOWN from 5.2k to 2.4k, which is a nozzle opening under pressure and then the pressure
+    equalising. Swept up instead it reads as something charging - the opposite of the meaning, and
+    exactly the mistake `pull_in` warns about in the other direction.
+
+    Broadband noise on its own is a shower. What makes this read as gas under pressure is that the
+    hiss sits ON something: a low bed at 180 Hz for the volume of air actually moving, at only 22%,
+    which is under conscious notice and is doing all the work of making the room feel small.
+
+    2.8 seconds, and it does NOT decay to nothing - it settles to about a third and stays there.
+    Gas that stops is gas somebody turned off; this is a room filling, and the clip has to still be
+    going while the haze closes over. `SleepingGas` runs 0.35s of onset then 2.6s of fill, so the
+    tail is sized to outlast the whole of it rather than to end tidily."""
+    rng = random.Random(seed)
+    length = 2.8
+    n = int(length * SR)
+
+    # The nozzle. Swept down, and wide (q=1.6) because a narrow band on noise whistles rather than
+    # hisses - a kettle instead of a valve.
+    jet = sweep_bandpass(noise(length, rng), 5200.0, 2400.0, q=1.6)
+
+    # Air, not tone. Kept quiet enough to be felt rather than heard.
+    bed = lowpass(noise(length, rng), 180.0, q=0.7)
+
+    # Fast in, then held. Built by hand rather than with env_ar, because neither an attack/release
+    # pair nor a decay can express "arrive, then persist at a level" - and persisting is the point.
+    env = [0.0] * n
+    attack = int(0.008 * SR)
+    settle = int(0.55 * SR)
+    for i in range(n):
+        if i < attack:
+            env[i] = i / attack
+        elif i < settle:
+            # Down off the initial crack to the sustained flow.
+            k = (i - attack) / float(settle - attack)
+            env[i] = 1.0 - 0.62 * k
+        else:
+            # Very slowly giving up, so the end of the clip is not a cliff.
+            k = (i - settle) / float(max(1, n - settle))
+            env[i] = 0.38 * (1.0 - 0.28 * k)
+
+    out = mix(scale(apply_env(jet, env), 1.0),
+              scale(apply_env(bed, env), 0.22))
+
+    return fade_edges(normalize(out, 0.55), seconds=0.012)
+
+
 def main():
     print("Writing SFX to", os.path.normpath(OUT))
     # Three footfalls, deliberately uneven: no two real steps weigh the same, and the variation is
@@ -596,6 +647,7 @@ def main():
     write("sfx_drawer_open", drawer_open())
     write("sfx_item_pickup", item_pickup())
     write("sfx_item_drop", item_drop())
+    write("sfx_gas_hiss", gas_hiss())
     print("done")
 
 
