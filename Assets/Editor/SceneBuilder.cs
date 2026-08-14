@@ -849,7 +849,9 @@ namespace IterationRoom.EditorTools
             var shardRooms = new[] { cycleTwoRooms[1], cycleTwoRooms[3], cycleTwoRooms[5] };
             for (int i = 0; i < shardIds.Length; i++)
                 BuildRingShard(shardRooms[i], $"Shard_{(char)('A' + i)}", shardIds[i],
-                               new Vector3(2.6f, 0f, 0f), i * 120f, shardMesh, shardMat);
+                               // Off the centre line, so it is neither in a doorway nor under the
+                               // east lever - see BuildChorus for the same constraint.
+                               new Vector3(1.5f, 0f, 1.8f), i * 120f, shardMesh, shardMat);
             cycleTwo.worldRoot = cycleTwoRoot;
 
             cycleTwo.wallPanels = cycleTwoDisplay;
@@ -7733,13 +7735,19 @@ namespace IterationRoom.EditorTools
         // it is the ring the bounds are taken from.
         // ROOM2'S PUZZLE: three levers that come back up on their own.
         //
-        // SPREAD ACROSS THREE WALLS, as far apart as the room allows, and that spacing IS the
-        // difficulty. The levers hold for four seconds, and the walk between two of them is most of
-        // that - so a single person can just about catch two and can never catch three. Bring them
-        // closer and one past self is enough; push them further and even two cannot overlap.
+        // SPREAD AS FAR APART AS THE ROOM ALLOWS, and that spacing IS the difficulty. The levers hold
+        // for four seconds and the walk between two of them is most of that, so one person can just
+        // about catch two and can never catch three. Bring them closer and one past self is enough;
+        // push them further and even two cannot overlap.
         //
-        // Not on the core wall. That one has the window, and a lever in front of it would stand
-        // between the player and the thing the room is about.
+        // **CLEAR OF BOTH DOORWAYS.** This room has a door in the middle of its north wall and
+        // another in the middle of its south wall, and the first version put a lever squarely in each
+        // - a solid housing standing in the only way through. So the two wall-mounted ones sit well
+        // off centre, on opposite sides, which also buys the longest span in the room: corner to
+        // corner across the diagonal.
+        //
+        // And clear of the window. The west wall is what this room is about; a lever in front of it
+        // would stand between the player and the core.
         private static (Chorus chorus, ChorusLever[] levers) BuildChorus(Transform roomRoot, Material propMat)
         {
             GameObject root = new GameObject("Chorus");
@@ -7752,12 +7760,14 @@ namespace IterationRoom.EditorTools
             Material lampMat = MakeEmissiveMaterial("ChorusLamp", new Color(0.42f, 0.45f, 0.52f), 0f);
 
             float halfX = RoomWidth / 2f, halfZ = RoomDepth / 2f;
-            // East wall, and the two ends of the room. The west wall is the window.
+            // The doorways are 1.3 wide and centred, so 2.6 off centre clears them with room to walk
+            // between. The third goes on the east wall, the only one with neither a door nor a window.
+            const float clearOfDoor = 2.6f;
             var spots = new (Vector3 at, float yaw)[]
             {
+                (new Vector3(clearOfDoor, 0f, halfZ - 0.45f), 180f),
+                (new Vector3(-clearOfDoor, 0f, -halfZ + 0.45f), 0f),
                 (new Vector3(halfX - 0.45f, 0f, 0f), 90f),
-                (new Vector3(0f, 0f, halfZ - 0.45f), 180f),
-                (new Vector3(0f, 0f, -halfZ + 0.45f), 0f),
             };
 
             var levers = new ChorusLever[spots.Length];
