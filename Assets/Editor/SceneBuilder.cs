@@ -38,6 +38,9 @@ namespace IterationRoom.EditorTools
         // several people each holding one, and `ItemRegistry` resolves an id to a free instance.
         private const string AxeItemId = "Axe2";
 
+        // Room5's buckets. A supply, like the axes and the pins.
+        private const string BucketItemId = "Bucket2";
+
         private const string ShardAItemId = "Shard2A";
         private const string ShardBItemId = "Shard2B";
         private const string ShardCItemId = "Shard2C";
@@ -410,12 +413,17 @@ namespace IterationRoom.EditorTools
             GameObject room = new GameObject("Room");
             BuildShell(room.transform, floorMat, grooveMat, panelMat);
 
+            // MADE HERE rather than beside the loop it belongs to, because cycle 2's haul room counts
+            // the ghosts standing beside its load and is built moments from now. Nothing else about
+            // it changes - `LoopManager` still parents every ghost to it.
+            GameObject ghostParent = new GameObject("Ghosts");
+
             // Cycle 2, one storey down. Deliberately OUTSIDE `room` - see BuildCycleTwoShell for why
             // the panel gather below is the reason.
             (Transform cycleTwoRoot, Transform cycleTwoBedSpawn, ParticleSystem[] cycleTwoGas,
              Door[] cycleTwoDoors, RoomCondition[] cycleTwoConditions,
              GhostInteractable[] cycleTwoSignals, Transform[] cycleTwoRooms) =
-                BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat);
+                BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat, ghostParent.transform);
 
             // Every wall panel, gathered by parent name rather than threaded back out through
             // BuildShell/BuildRoomShell/BuildPanelWall - the panels are the only children of a
@@ -626,7 +634,8 @@ namespace IterationRoom.EditorTools
             (GameObject player, FirstPersonController fpc, PlayerRecorder recorder, CameraShaker shaker, PlayerHand hand) = BuildPlayer(calibrationSpawn, ghostInteractables);
 
             GhostReplayer ghostPrefab = BuildGhostPrefab();
-            GameObject ghostParent = new GameObject("Ghosts");
+            // Already built, above - cycle 2's haul room needs it, and that is built with the shell.
+            // (kept here as a comment so the old creation site is not re-added)
 
             (IterationLabel label, WakeUpSequence wakeUp, Transform canvas) = BuildUI(hand);
             wakeUp.wallPanels = wallDisplay;
@@ -2849,6 +2858,7 @@ namespace IterationRoom.EditorTools
         // Deliberately plain at this stage. What the core DOES - clamps releasing, an axle turning,
         // shards pushed out through hatches - belongs with the puzzles that drive it, and a casing
         // that already moved would be machinery with nothing operating it.
+        // Returns the AXLE, not the casing - the axle is the only part anything else drives.
         private static Transform BuildCore(Transform parent, Vector3 centre, float span, Material propMat)
         {
             GameObject core = new GameObject("Core");
@@ -2866,6 +2876,12 @@ namespace IterationRoom.EditorTools
             // Something to look at through the glass: a lit column standing in the casing's mouth on
             // each of the four window faces. Emissive rather than lit, so it reads through glass in a
             // room whose own lights are behind the viewer.
+            // THE AXLE, which is what room4's ratchet turns. The rotors hang off it rather than off
+            // the casing, so eight notches of cranking is eight visible eighths of a turn seen
+            // through four different windows - the core reacting rather than a number going up.
+            GameObject axle = new GameObject("CoreAxle");
+            axle.transform.SetParent(core.transform, false);
+
             Material glow = MakeEmissiveMaterial("CoreGlow", new Color(0.45f, 0.75f, 1f), 2.6f);
             float face = span / 2f;
             var faces = new[]
@@ -2876,12 +2892,12 @@ namespace IterationRoom.EditorTools
             for (int i = 0; i < faces.Length; i++)
             {
                 Vector3 inward = -faces[i].normalized * 0.28f;
-                Prim(PrimitiveType.Cylinder, $"CoreRotor_{i}", core.transform,
+                Prim(PrimitiveType.Cylinder, $"CoreRotor_{i}", axle.transform,
                     faces[i] + inward + Vector3.up * (GridCellHeight * 2f),
                     new Vector3(0.55f, GridCellHeight * 0.9f, 0.55f), glow, removeCollider: true);
             }
 
-            return core.transform;
+            return axle.transform;
         }
 
         // Returns `rooms` in ring order - room1 first, room0 last - because room0's console needs
@@ -2892,7 +2908,8 @@ namespace IterationRoom.EditorTools
         private static (Transform root, Transform bedSpawn, ParticleSystem[] gas,
                         Door[] doors, RoomCondition[] conditions, GhostInteractable[] signals,
                         Transform[] rooms) BuildCycleTwoShell(
-            Material floorMat, Material grooveMat, Material panelMat, Material propMat)
+            Material floorMat, Material grooveMat, Material panelMat, Material propMat,
+            Transform ghostParent)
         {
             GameObject root = new GameObject("Room_Cycle2");
             root.transform.position = new Vector3(0f, -StoreyDrop, 0f);
@@ -2952,7 +2969,7 @@ namespace IterationRoom.EditorTools
             Vector3 coreCentre = new Vector3(
                 (0f - RoomWidth / 2f + legThreeX + RoomWidth / 2f) / 2f, 0f,
                 (legTwoZ + RoomWidth / 2f + legTwoZ + CornerPitch + RoomPitch - RoomWidth / 2f) / 2f);
-            BuildCore(root.transform, coreCentre, coreSpan, propMat);
+            Transform coreAxle = BuildCore(root.transform, coreCentre, coreSpan, propMat);
 
             // THE DOORS, each built under the room it leaves FROM and set in that room's exit wall.
             // Straight joins use the south wall (yaw 180 from the builder's default north); the three
@@ -3016,6 +3033,52 @@ namespace IterationRoom.EditorTools
             doors[2].condition = tree;
             doors[2].openUntilPuzzled = false;
 
+            // ROOM4: the ratchet, turning the core's own axle. Its door leads to room5.
+            (Ratchet ratchet, RatchetPawl pawl, RatchetCrank crank) =
+                BuildRatchetRoom(rooms[3], propMat, coreAxle);
+            doors[3].condition = ratchet;
+            doors[3].openUntilPuzzled = false;
+
+            // ROOM5: the cistern. Its door is the corner one into room6.
+            (Cistern cistern, CarryableItem[] buckets) = BuildCisternRoom(rooms[4], propMat);
+            doors[4].condition = cistern;
+            doors[4].openUntilPuzzled = false;
+
+            // ROOM6: the sequence. Its door leads to room7.
+            (SequenceLock chain, SequenceNode[] chainNodes) = BuildSequenceRoom(rooms[5], propMat);
+            doors[5].condition = chain;
+            doors[5].openUntilPuzzled = false;
+
+            // ROOM7: the haul. Its door is the corner one into room0, the last of the ring.
+            (Haul haul, HeavyItem load) = BuildHaulRoom(rooms[6], propMat, ghostParent);
+            doors[6].condition = haul;
+            doors[6].openUntilPuzzled = false;
+
+            // EVERY DOORWAY WALKED, now that all eight rooms are furnished. Each check sweeps from
+            // just inside one opening to just inside the next, at head height, with the player's own
+            // width - so anything a fixture puts in the way is a build error rather than a surprise.
+            // The last couple of metres up to each opening, from inside the room. Short on purpose:
+            // see AssertWalkable for why this is not a path across the room.
+            float outZ = RoomDepth / 2f - 0.7f, outX = RoomWidth / 2f - 0.7f;
+            Vector3 nIn = new Vector3(0f, 0f, outZ - 2.2f), nOut = new Vector3(0f, 0f, outZ);
+            Vector3 sIn = new Vector3(0f, 0f, -outZ + 2.2f), sOut = new Vector3(0f, 0f, -outZ);
+            Vector3 wIn = new Vector3(-outX + 2.2f, 0f, 0f), wOut = new Vector3(-outX, 0f, 0f);
+
+            AssertWalkable(rooms[0], "room2-1 south door", sIn, sOut);
+            AssertWalkable(rooms[1], "room2-2 north door", nIn, nOut);
+            AssertWalkable(rooms[1], "room2-2 south door", sIn, sOut);
+            AssertWalkable(rooms[2], "room2-3 north door", nIn, nOut);
+            AssertWalkable(rooms[2], "room2-3 west door", wIn, wOut);
+            AssertWalkable(rooms[3], "room2-4 north door", nIn, nOut);
+            AssertWalkable(rooms[3], "room2-4 south door", sIn, sOut);
+            AssertWalkable(rooms[4], "room2-5 north door", nIn, nOut);
+            AssertWalkable(rooms[4], "room2-5 west door", wIn, wOut);
+            AssertWalkable(rooms[5], "room2-6 north door", nIn, nOut);
+            AssertWalkable(rooms[5], "room2-6 south door", sIn, sOut);
+            AssertWalkable(rooms[6], "room2-7 north door", nIn, nOut);
+            AssertWalkable(rooms[6], "room2-7 west door", wIn, wOut);
+            AssertWalkable(rooms[7], "room2-0 north door", nIn, nOut);
+
             // NO PUZZLES BEHIND THESE YET, so they stand open and the ring can be walked. Each flag
             // comes off as its room is built - see Door.openUntilPuzzled.
             //
@@ -3034,9 +3097,12 @@ namespace IterationRoom.EditorTools
             signals.AddRange(pads);
             signals.AddRange(chorusLevers);
             signals.AddRange(chopStations);
+            signals.Add(pawl);
+            signals.Add(crank);
+            signals.AddRange(chainNodes);
 
             return (root.transform, spawn, gas, doors,
-                    new RoomCondition[] { numberLock, chorus, tree },
+                    new RoomCondition[] { numberLock, chorus, tree, ratchet, cistern, chain, haul },
                     signals.ToArray(), rooms);
         }
 
@@ -7744,6 +7810,306 @@ namespace IterationRoom.EditorTools
         // NORMALISED TO A UNIT BOUNDING BOX like the prism it generalises, so a localScale of 0.30
         // still means 0.30 ACROSS for every one of the three. The barrel ring is the widest part, so
         // it is the ring the bounds are taken from.
+        // ROOM4: THE RATCHET. The room's two halves are deliberately far apart - the pawl against the
+        // east wall, the crank at the window - so holding one and turning the other cannot be done by
+        // walking quickly. It is the first room that asks two people to do DIFFERENT things at once.
+        private static (Ratchet ratchet, RatchetPawl pawl, RatchetCrank crank)
+            BuildRatchetRoom(Transform roomRoot, Material propMat, Transform coreAxle)
+        {
+            GameObject root = new GameObject("RatchetRoom");
+            root.transform.SetParent(roomRoot, false);
+
+            Material frameMat = MakeColorMaterial("RatchetFrame", new Color(0.22f, 0.23f, 0.27f));
+            SetSmoothness(frameMat, 0.6f);
+            Material wheelMat = MakePolishedMetalMaterial("RatchetWheel", new Color(0.80f, 0.82f, 0.86f), 0f);
+            Material lampMat = MakeEmissiveMaterial("RatchetLamp", new Color(0.45f, 0.47f, 0.52f), 0f);
+
+            // THE CRANK, at the window wall but off to one side of it - the window itself has to stay
+            // clear, since watching the axle turn is what the room's feedback is.
+            GameObject crankGO = new GameObject("RatchetCrank");
+            crankGO.transform.SetParent(root.transform, false);
+            crankGO.transform.localPosition = new Vector3(-RoomWidth / 2f + 0.75f, 0f, -3.4f);
+
+            Prim(PrimitiveType.Cube, "Pedestal", crankGO.transform, new Vector3(0f, 0.55f, 0f),
+                 new Vector3(0.7f, 1.1f, 0.7f), frameMat);
+            GameObject wheel = new GameObject("Wheel");
+            wheel.transform.SetParent(crankGO.transform, false);
+            wheel.transform.localPosition = new Vector3(0f, 1.22f, 0f);
+            Prim(PrimitiveType.Cylinder, "Rim", wheel.transform, Vector3.zero,
+                 new Vector3(0.78f, 0.05f, 0.78f), wheelMat, removeCollider: true);
+            Prim(PrimitiveType.Cube, "Handle", wheel.transform, new Vector3(0.3f, 0.09f, 0f),
+                 new Vector3(0.1f, 0.18f, 0.1f), wheelMat, removeCollider: true);
+
+            RatchetCrank crank = crankGO.AddComponent<RatchetCrank>();
+            crank.wheel = wheel.transform;
+            crank.hintAnchor = wheel.transform;
+            crank.audioSource = MakeSource(crankGO.transform, "CrankAudio", spatialBlend: 1f, volume: 0.85f);
+            crank.turnClip = LoadClip(SfxDir, "sfx_drawer_open");
+            crank.refusedClip = LoadClip(SfxDir, "sfx_floor_button_release");
+
+            // THE PAWL, hard against the far wall. Far enough that one person cannot hold it and
+            // reach the crank, which is the entire rule made out of distance.
+            GameObject pawlGO = new GameObject("RatchetPawl");
+            pawlGO.transform.SetParent(root.transform, false);
+            pawlGO.transform.localPosition = new Vector3(RoomWidth / 2f - 0.7f, 0f, 3.4f);
+
+            Prim(PrimitiveType.Cube, "Column", pawlGO.transform, new Vector3(0f, 0.7f, 0f),
+                 new Vector3(0.42f, 1.4f, 0.34f), frameMat);
+            GameObject pawlArm = new GameObject("Arm");
+            pawlArm.transform.SetParent(pawlGO.transform, false);
+            pawlArm.transform.localPosition = new Vector3(0f, 1.25f, -0.14f);
+            Prim(PrimitiveType.Cube, "Lever", pawlArm.transform, new Vector3(0f, 0f, -0.24f),
+                 new Vector3(0.1f, 0.1f, 0.5f), wheelMat, removeCollider: true);
+            GameObject pawlLamp = Prim(PrimitiveType.Cube, "Lamp", pawlGO.transform,
+                new Vector3(0f, 1.52f, 0f), new Vector3(0.28f, 0.08f, 0.2f), lampMat, removeCollider: true);
+
+            RatchetPawl pawl = pawlGO.AddComponent<RatchetPawl>();
+            pawl.arm = pawlArm.transform;
+            pawl.lampRenderer = pawlLamp.GetComponent<Renderer>();
+
+            Ratchet ratchet = root.AddComponent<Ratchet>();
+            ratchet.pawl = pawl;
+            ratchet.crank = crank;
+            ratchet.notchesNeeded = 8;
+            // The core's own axle. This is what the window is for: the count is a thing turning
+            // inside the machine rather than a number on a wall.
+            ratchet.axle = coreAxle;
+            crank.ratchet = ratchet;
+            return (ratchet, pawl, crank);
+        }
+
+        // ROOM5: THE CISTERN. A valve, a tank, and buckets - and eight seconds of nothing under the
+        // valve, which is the only thing in this game that makes standing still worth a past self.
+        private static (Cistern cistern, CarryableItem[] buckets)
+            BuildCisternRoom(Transform roomRoot, Material propMat)
+        {
+            GameObject root = new GameObject("CisternRoom");
+            root.transform.SetParent(roomRoot, false);
+
+            Material tankMat = MakeColorMaterial("CisternTank", new Color(0.24f, 0.26f, 0.30f));
+            SetSmoothness(tankMat, 0.55f);
+            Material waterMat = MakeTranslucentMaterial("CisternWater", new Color(0.35f, 0.62f, 0.85f, 0.72f), 0.9f);
+
+            // The tank, against the east wall - away from the north entry and the west exit.
+            GameObject tankGO = new GameObject("Tank");
+            tankGO.transform.SetParent(root.transform, false);
+            tankGO.transform.localPosition = new Vector3(RoomWidth / 2f - 1.1f, 0f, 1.2f);
+            Prim(PrimitiveType.Cube, "Shell", tankGO.transform, new Vector3(0f, 0.8f, 0f),
+                 new Vector3(1.7f, 1.6f, 1.7f), tankMat);
+            GameObject level = new GameObject("Level");
+            level.transform.SetParent(tankGO.transform, false);
+            level.transform.localPosition = new Vector3(0f, 0.1f, 0f);
+            Prim(PrimitiveType.Cube, "Water", level.transform, new Vector3(0f, 0.5f, 0f),
+                 new Vector3(1.5f, 1f, 1.5f), waterMat, removeCollider: true);
+            level.transform.localScale = new Vector3(1f, 0.0001f, 1f);
+
+            // Where a full bucket gets taken. No collider - see CisternPour for why this is polled
+            // rather than triggered, and generous because the player walks up with something in
+            // their hands and should not have to aim.
+            GameObject pourZone = new GameObject("PourZone");
+            pourZone.transform.SetParent(tankGO.transform, false);
+            pourZone.transform.localPosition = new Vector3(0f, 0.9f, 0f);
+
+            // The valve, across the room from the tank - so a full bucket is a walk, not a turn.
+            GameObject valveGO = new GameObject("Valve");
+            valveGO.transform.SetParent(root.transform, false);
+            valveGO.transform.localPosition = new Vector3(-RoomWidth / 2f + 1.1f, 0f, -1.2f);
+            Prim(PrimitiveType.Cube, "Body", valveGO.transform, new Vector3(0f, 1.5f, 0f),
+                 new Vector3(0.5f, 0.5f, 0.5f), tankMat);
+            GameObject spout = new GameObject("Spout");
+            spout.transform.SetParent(valveGO.transform, false);
+            spout.transform.localPosition = new Vector3(0f, 1.2f, 0f);
+            GameObject flow = Prim(PrimitiveType.Cylinder, "Flow", spout.transform,
+                new Vector3(0f, -0.5f, 0f), new Vector3(0.09f, 0.5f, 0.09f), waterMat,
+                removeCollider: true);
+
+            Valve valve = valveGO.AddComponent<Valve>();
+            valve.spout = spout.transform;
+            valve.flowRenderer = flow.GetComponent<Renderer>();
+            flow.GetComponent<Renderer>().enabled = false;
+
+            // THREE BUCKETS. Two would let one person fill and carry alternately with no reason to
+            // involve a past self; three is enough that leaving one filling is obviously the point.
+            var buckets = new CarryableItem[3];
+            for (int i = 0; i < buckets.Length; i++)
+                buckets[i] = BuildBucket(root.transform, $"Bucket_{i}",
+                    new Vector3(-2.4f + i * 1.2f, 0f, -3.6f), tankMat, waterMat);
+
+            Cistern cistern = root.AddComponent<Cistern>();
+            cistern.valve = valve;
+            cistern.loadsNeeded = 6;
+            cistern.level = level.transform;
+            cistern.fullHeight = 1.4f;
+            cistern.audioSource = MakeSource(tankGO.transform, "TankAudio", spatialBlend: 1f, volume: 0.9f);
+            cistern.pourClip = LoadClip(SfxDir, "sfx_item_drop");
+
+            CisternPour pourComp = pourZone.AddComponent<CisternPour>();
+            pourComp.cistern = cistern;
+            return (cistern, buckets);
+        }
+
+        private static CarryableItem BuildBucket(Transform parent, string name, Vector3 localPos,
+                                                 Material shellMat, Material waterMat)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+
+            GameObject body = new GameObject("Body");
+            body.transform.SetParent(go.transform, false);
+            Prim(PrimitiveType.Cylinder, "Pail", body.transform, new Vector3(0f, 0.16f, 0f),
+                 new Vector3(0.34f, 0.16f, 0.34f), shellMat, removeCollider: true);
+
+            GameObject water = new GameObject("Water");
+            water.transform.SetParent(body.transform, false);
+            water.transform.localPosition = new Vector3(0f, 0.05f, 0f);
+            Prim(PrimitiveType.Cylinder, "Fill", water.transform, new Vector3(0f, 0.5f, 0f),
+                 new Vector3(0.30f, 1f, 0.30f), waterMat, removeCollider: true);
+            water.transform.localScale = new Vector3(1f, 0.0001f, 1f);
+
+            BoxCollider reach = go.AddComponent<BoxCollider>();
+            reach.isTrigger = true;
+            reach.center = new Vector3(0f, 0.2f, 0f);
+            reach.size = new Vector3(0.8f, 0.6f, 0.8f);
+
+            CarryableItem item = go.AddComponent<CarryableItem>();
+            item.itemId = BucketItemId;
+            item.displayName = "BUCKET";
+            item.floorY = 0.02f;
+            item.handLocalPosition = HandPoseFor(0.5f);
+            item.audioSource = MakeSource(go.transform, "BucketAudio", spatialBlend: 1f, volume: 0.8f);
+            item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+
+            Bucket bucket = go.AddComponent<Bucket>();
+            bucket.water = water.transform;
+            return item;
+        }
+
+        // ROOM6: THE SEQUENCE. Three plates far enough apart that no two are reachable inside the
+        // window, so the order has to be shared out across past selves.
+        private static (SequenceLock chain, SequenceNode[] nodes)
+            BuildSequenceRoom(Transform roomRoot, Material propMat)
+        {
+            GameObject root = new GameObject("SequenceRoom");
+            root.transform.SetParent(roomRoot, false);
+
+            Material plateMat = MakeEmissiveMaterial("SequencePlate", new Color(0.42f, 0.44f, 0.5f), 0f);
+            Material rimMat = MakeColorMaterial("SequenceRim", new Color(0.20f, 0.21f, 0.25f));
+            SetSmoothness(rimMat, 0.6f);
+
+            // Clear of both doorways (x = 0 band) and of the window (the west wall).
+            var spots = new[]
+            {
+                new Vector3(2.9f, 0f, 3.5f),
+                new Vector3(2.9f, 0f, -3.5f),
+                new Vector3(-1.4f, 0f, 0f),
+            };
+
+            var nodes = new SequenceNode[spots.Length];
+            for (int i = 0; i < spots.Length; i++)
+            {
+                GameObject go = new GameObject($"SequenceNode_{i}");
+                go.transform.SetParent(root.transform, false);
+                go.transform.localPosition = spots[i];
+
+                Prim(PrimitiveType.Cylinder, "Rim", go.transform, new Vector3(0f, 0.03f, 0f),
+                     new Vector3(1.3f, 0.03f, 1.3f), rimMat, removeCollider: true);
+                GameObject face = Prim(PrimitiveType.Cylinder, "Face", go.transform,
+                    new Vector3(0f, 0.05f, 0f), new Vector3(1.05f, 0.02f, 1.05f), plateMat,
+                    removeCollider: true);
+
+                SequenceNode node = go.AddComponent<SequenceNode>();
+                node.faceRenderer = face.GetComponent<Renderer>();
+                node.audioSource = MakeSource(go.transform, "NodeAudio", spatialBlend: 1f, volume: 0.85f);
+                node.goodClip = LoadClip(SfxDir, "sfx_floor_button_press");
+                node.badClip = LoadClip(SfxDir, "sfx_floor_button_release");
+                nodes[i] = node;
+            }
+
+            SequenceLock chain = root.AddComponent<SequenceLock>();
+            chain.nodes = nodes;
+            chain.windowSeconds = 3f;
+            foreach (SequenceNode n in nodes) n.chain = chain;
+            return (chain, nodes);
+        }
+
+        // ROOM7: THE HAUL. One block that will not move for one person.
+        private static (Haul haul, HeavyItem load) BuildHaulRoom(Transform roomRoot, Material propMat,
+                                                                 Transform ghostParent)
+        {
+            GameObject root = new GameObject("HaulRoom");
+            root.transform.SetParent(roomRoot, false);
+
+            Material loadMat = MakeColorMaterial("HaulLoad", new Color(0.30f, 0.31f, 0.34f));
+            SetSmoothness(loadMat, 0.45f);
+            Material socketMat = MakeEmissiveMaterial("HaulSocket", new Color(0.35f, 0.55f, 0.85f), 0.9f);
+
+            // Starts near the entry and has to reach the far corner - a long push, which is what
+            // makes two people worth finding rather than a formality.
+            GameObject load = Prim(PrimitiveType.Cube, "Load", root.transform,
+                new Vector3(2.2f, 0.6f, 3.2f), new Vector3(1.2f, 1.2f, 1.2f), loadMat);
+
+            GameObject socket = Prim(PrimitiveType.Cylinder, "Socket", root.transform,
+                new Vector3(-2.6f, 0.02f, -3.4f), new Vector3(1.8f, 0.02f, 1.8f), socketMat,
+                removeCollider: true);
+
+            HeavyItem heavy = load.AddComponent<HeavyItem>();
+            heavy.socket = socket.transform;
+            heavy.ghostParent = ghostParent;
+            heavy.audioSource = MakeSource(load.transform, "HaulAudio", spatialBlend: 1f, volume: 0.7f);
+            heavy.dragClip = LoadClip(SfxDir, "sfx_drawer_open");
+
+            Haul haul = root.AddComponent<Haul>();
+            haul.load = heavy;
+            return (haul, heavy);
+        }
+
+        // CAN THE PLAYER ACTUALLY WALK THROUGH HERE? Asked as a build error rather than left for
+        // somebody to find by walking.
+        //
+        // It has been got wrong twice already - three chorus levers went squarely in front of both of
+        // room2's doors, and a hatch lid was left out of a ceiling - and both times the only thing
+        // that caught it was a play-through. That is the most expensive test there is for the
+        // cheapest possible mistake, when every position involved is known exactly, here.
+        //
+        // **A SWEPT SPHERE RATHER THAN BOUNDS ARITHMETIC**, and the first attempt is why. Comparing
+        // AABBs against a doorway band flagged the floor, the ceiling, all four walls and the door
+        // slab itself - twenty false errors, which is worse than no check at all because it teaches
+        // everyone to ignore the output. Walking a sphere the size of the player through the gap
+        // asks the only question that matters and cannot be fooled by a large bounding box.
+        //
+        // **IT CHECKS THE DOORWAY, NOT THE ROOM.** The second attempt swept right across each room
+        // and flagged the bed - which is furniture in the middle of a room, walked around rather than
+        // through. This is not a pathfinder and should not pretend to be one; what it is for is the
+        // approach to an opening, which is where the mistakes it exists to catch actually happen.
+        private static void AssertWalkable(Transform roomRoot, string label, Vector3 localFrom, Vector3 localTo)
+        {
+            // Colliders built this frame are not in the physics scene until it is told about them.
+            Physics.SyncTransforms();
+
+            const float radius = 0.34f;      // the controller's 0.3, plus a little
+            Vector3 from = roomRoot.TransformPoint(localFrom + Vector3.up * 0.95f);
+            Vector3 to = roomRoot.TransformPoint(localTo + Vector3.up * 0.95f);
+
+            int steps = Mathf.CeilToInt(Vector3.Distance(from, to) / (radius * 0.8f));
+            for (int i = 0; i <= steps; i++)
+            {
+                Vector3 at = Vector3.Lerp(from, to, i / (float)steps);
+                Collider[] hits = Physics.OverlapSphere(at, radius, ~0, QueryTriggerInteraction.Ignore);
+                foreach (Collider hit in hits)
+                {
+                    // Things that are MEANT to be in the way, and open. A door slab is the doorway;
+                    // the tree is room3's entire puzzle standing across its exit until it is felled.
+                    if (hit.GetComponentInParent<Door>() != null) continue;
+                    if (hit.GetComponentInParent<CycleExit>() != null) continue;
+                    if (hit.GetComponentInParent<Tree>() != null) continue;
+                    Debug.LogError($"[SceneBuilder] {label}: '{hit.name}' blocks the way through "
+                                 + $"(swept at {at}).");
+                    return;
+                }
+            }
+        }
+
         // ROOM3: THE TREE. `Iteration - Future Ideas.md` §3, and the room the whole design has been
         // promising - the one whose payoff is five past selves swinging at once while the living
         // player walks between them.
