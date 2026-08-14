@@ -48,11 +48,24 @@ never experiences a puzzle box.
 > image is two past selves holding pads, and that only lands because they were both earned in one
 > run."*
 
-**Applies, and is the real cost.** But this structure has an answer the rejected one did not: the
-moment `CYCLE BROKEN` fires is **the only moment in the game when every ghost the player earned is
-working at once**. If the opening appears behind the console and the player walks *through* that to
-reach it, the ghosts are **spent, not deleted** — which is exactly the climax walk-through
-`Future Ideas` §1 and §14 have been asking for since the beginning, finally with a reason to exist.
+**Applies, and is the real cost — and the consolation is not where it first looked.** The first
+version of this argument said `CYCLE BROKEN` is the moment every earned ghost is working at once, so
+walking out through them spends rather than deletes them. **That is false in this code, and the
+correction matters.** A ghost whose recording runs out calls `SetVisible(false)` and leaves
+(`GhostReplayer.cs:213-228`), and `EndCycleControl` truncates recordings — the average iteration is
+**29 seconds**, so a large share of past selves have already retired long before the run is finished.
+Completion is also structurally *later* than the last ghost delivery, since two of the three objects
+arrive by ghost. By the time the console is full, most of them are gone. The code says so itself:
+*"Short timelines make this ordinary rather than exotic."*
+
+**The moment they are all working is the FINAL LAP, and it already exists.** Carrying the last object
+to the console, past past selves running the errands they were given, *is* the climax
+`Future Ideas` §1 and §14 asked for — and it needs nothing built. What follows completion is properly
+a **stillness**: the facility broken, the panels gone to `ERROR`, the player walking out alone through
+what they made. The ghosts are spent by the lap, not by the walk.
+
+If a deliberate curtain call is ever wanted — every ghost replayed from t=0 at once while the player
+crosses the room — that is a **staging feature in its own right**, not a prerequisite for any of this.
 
 **And one open problem closes for free.** `TODO.md` §1 — the ghost reset trigger, spec §4.6, called
 "the last real gap" — has never had a trigger anybody liked. `decisions.md` predicted that chapters
@@ -65,14 +78,18 @@ somewhere to stop being the film's rooms — the divergence `docs/asset-licences
 1. **Third object goes in.** `FinalSlot.Accept` → `FinalRoomSequence.Completed`. Unchanged.
 2. **The clock stops.** Already free: `ElapsedTime += Time.deltaTime` lives only inside the inner
    `while` (`LoopManager.cs:238-240`), so leaving the loop freezes it where it stands.
-3. **The break, 10 seconds.** `RunBreak()` — the door behind seals, "Containment failure. Cycle
-   broken.", the panels glitch outward from the console, the shake ramps
-   (`FinalRoomSequence.cs:102-136`). Unchanged.
+3. **NO BREAK, and no timer of any kind.** `RunBreak()`'s dressing still fires — the door behind
+   seals, "Containment failure. Cycle broken.", the panels glitch outward from the console, the shake
+   ramps once (`FinalRoomSequence.cs:102-136`). But the 10-second `breakDuration` **stops gating
+   anything**, and this costs no deletion: it only ever bounded the window before `RunEnding` took
+   control away at `LoopManager.cs:383`, and a non-final cycle never routes into `RunEnding` at all.
+   **The break dissolves as a consequence rather than being removed.**
 4. **The opening appears** behind the console: one wall grid cell, bottom row, in Room0's north wall.
-   *New.* The player can already walk during this — `ControlEnabled = false` is not set until the
-   scrim (`LoopManager.cs:383`).
-5. **The climax walk.** Past selves still working their remaining timeline. **Nothing forces the
-   player.** There is no timer and no failure state; they may stand and watch as long as they like.
+   *New.*
+5. **The player stays as long as they like.** Clock frozen, ghosts still, door behind sealed, `ERROR`
+   spreading across the panels. **No timer, no prompt and no failure state.** The room is theirs until
+   they step into the opening — which is the only thing that can happen next, so nothing has to push
+   them toward it.
 6. **The drop.** Down a shaft into the bed room below. There is no kill plane, no fall damage and no
    Y bounds anywhere in the project, and `CharacterController` handles it as-is.
 7. **The opening seals** above them — `Door.Seal()` reused (`Door.cs:149-169`, on
@@ -84,20 +101,65 @@ somewhere to stop being the film's rooms — the divergence `docs/asset-licences
 10. **The boundary**, entirely behind the shut lids. See §5c.
 11. **Waking.** `WakeUpSequence.WakeUp()` **works at a new bed for free** — it has no bed reference
     and poses the eye wherever the player already is.
-12. **`CYCLE 2 — ITERATION 1`.**
+12. **The HUD reads `CYCLE 2` on its own line, `ITERATION 1` beneath it.**
 
 ## 4. Settled
 
 | | |
 |---|---|
 | **The clock** | **Stops** at `CYCLE BROKEN`. No time limit on reaching the opening, no failure state. |
+| **The break** | **There is none.** No 10-second window, no timer, no prompt. The player stays in Room0 indefinitely. |
 | **The gas** | Fires **without any warning** once the player is in the room below. |
 | **The HUD** | `CYCLE 2 — ITERATION 1`. The count resets; the cycle number is shown beside it. |
 | **The space** | **A floor below, running back the other way.** Cycle 2 switchbacks under cycle 1 along −Z. |
+| **`EndCycleControl.UseCount`** | **Resets** at a boundary, like every other count. |
+| **Saving** | **The boundary is an automatic checkpoint.** See §4b. |
+| **Naming** | `room<cycle>-<n>`, the hinge room being `-0`. Document vocabulary. See §4a. |
 
 **Why the count resets rather than continuing.** It follows from the fiction rather than from taste:
 the `ERROR` panels mean *the cycle anchored to that bed is over*, iterations are counted against a
 bed, and ghosts are recordings anchored to one. A new bed genuinely starts a new count.
+
+### 4a. Room naming
+
+Cycles make bare `Room1` ambiguous, so the vocabulary becomes **`room<cycle>-<n>`**, and the room a
+cycle **ends** in is always **`-0`** — it is the hinge, belonging to the cycle it closes and opening
+onto the next.
+
+| Today's code name | Document name |
+|---|---|
+| `Room1` | `room1-1` |
+| `Room2` | `room1-2` |
+| `Room2West` | `room1-3` |
+| `Room2East` | `room1-4` |
+| `Room3` | `room1-5` |
+| `Room4` | **`room1-0`** |
+
+**`Room2West` and `Room2East` are already misnomers** — they were named when the layout was a hub and
+they genuinely sat west and east of Room2. Since 2026-08-13 the building is one line and they are
+simply the third and fourth rooms, so sequential numbering describes the game and the old names
+describe a layout that no longer exists.
+
+**This is document vocabulary. Code names do not change** — probe cubemaps are named off the
+GameObject (`SceneBuilder.cs:2147-2148`), so renaming `Room4` renames the tracked
+`Room4_Reflection.exr`, and that churn buys nothing today. **Cycle 2's rooms are new objects, so they
+take the scheme natively in code** (`Room2_1`, `Room2_0`, …) at no cost. Cycle 1's code rename stays
+available as its own commit if the split ever becomes annoying.
+
+### 4b. Saving
+
+**Players will not finish in one sitting**, so leaving and returning has to resume somewhere. The
+**cycle boundary is that point, automatically** — no menu, no prompt, no save slots.
+
+**It is also the only cheap place to put one.** A ghost is ~3,600 `RecordedFrame`s per 60-second
+recording and the timelines live nowhere but on the ghost objects themselves (§5c), so saving
+mid-cycle means serialising every accumulated timeline. **A boundary is the one moment in the whole
+game with no ghost state at all** — the accumulation has just been discarded and the next has not
+begun. What has to be written is tiny: which cycle, and nothing else.
+
+**The cost, stated plainly:** quitting at iteration 9 of a cycle and coming back starts that cycle
+again from iteration 1. At roughly five minutes a cycle that is an acceptable loss, and it is the
+price of not serialising ghosts.
 
 ## 5. What the code forces
 
@@ -124,7 +186,9 @@ bed, and ghosts are recordings anchored to one. A new bed genuinely starts a new
    `Update` early-returns on it. → Cleared at the boundary.
 
 4. **`EndingSequence.Play` always ends in `SceneManager.LoadScene(menuScene)`**
-   (`EndingSequence.cs:79`). → Reached only on the last cycle.
+   (`EndingSequence.cs:79`). → Reached only on the last cycle — and **"last" must be derived, never
+   hardcoded**: cycles are a list, and the last one is the one with no successor defined. More cycles
+   are intended (§8), so a literal `2` anywhere here is a bug waiting for cycle 3.
 
 5. **`CarryableItem.floorY` is an ABSOLUTE WORLD Y.** Default `0.06f` (`CarryableItem.cs:54`),
    compared straight against `transform.position.y` (`FallingItem.cs:104`), and every assignment is a
@@ -134,8 +198,10 @@ bed, and ghosts are recordings anchored to one. A new bed genuinely starts a new
    fall at all.
 
 6. **`Door.sealing` is never cleared** (`Door.cs:76, 152`) and `Update` returns immediately while it
-   is set. A sealed opening is frozen forever. → Clear it at the boundary, or give the shaft cover its
-   own component rather than reusing `Door`.
+   is set. **Less pressing than it looks**: the door `RunBreak` seals is on the floor being abandoned,
+   and the player is meant to stay in Room0 anyway. It only bites if the shaft cover reuses `Door` and
+   something later wants it open again. → Give the cover its own component, and the problem does not
+   arise.
 
 ### 5b. Two floors in one scene
 
@@ -246,35 +312,42 @@ the panel gather — and could not produce that image, which is the whole point 
 
 So the costs in §5b and §5c get paid.
 
-**When one scene stops working.** Eventually a scene holding every cycle costs load time and memory.
-**On a desktop target that ceiling is far away** — this was a much nearer problem when WebGL was the
-delivery platform, and it is not a reason to build scene streaming now. If it ever binds, the escape
-route is already in the fiction: a **mock** bed room visible through the shaft with the real cycle
-loaded under the gas, since the gas and the eyelids are a perfect loading mask. **Not for cycle 2, and
-probably not for cycle 3.**
+**When one scene stops working.** A scene holding every cycle eventually costs load time and memory,
+and **the intent is to keep adding cycles**, so this is a real future rather than a hypothetical one.
+On a desktop target the ceiling is still far away — it was much nearer when WebGL was the delivery
+platform — so it remains no reason to build scene streaming now.
+
+**The escape route is already in the fiction**, which is what makes deferring safe: a **mock** bed
+room visible through the shaft, with the real cycle loaded under the gas, since the gas and the
+eyelids are a perfect loading mask. §4b's checkpoint already means a boundary carries no state
+across. **Build it when a cycle's build time or memory actually hurts, not before** — and note the
+switch gets *easier* with each cycle rather than harder, because nothing about a boundary depends on
+both floors existing except looking through the shaft.
 
 ## 8. Still open
 
-1. **Do ghosts keep moving during the break?** Today they stop: `ghost.Tick(ElapsedTime)` is inside
-   the inner `while` (`LoopManager.cs:242-243`). Letting them run means they work out whatever is left
-   of their timeline and fall still one by one, which is the better image and is what §2's argument
-   about spending rather than deleting them depends on. **Recommended.**
-   *The trap*: `Tick` takes `ElapsedTime` as its argument and that value is frozen. Ticking on
-   requires a **break-only time source** — reviving `ElapsedTime` itself would restart the HUD clock,
-   which writes unconditionally every frame (`CountdownTimer.cs:11-19`) and would contradict "the
-   clock stops".
-2. **Does "room0" become a code name?** Probe `.exr` files are named off the GameObject, so
-   `Room4_Reflection.exr` follows — a tracked asset. **Recommended: keep `room0` as document
-   vocabulary and make the rename its own commit, if at all.**
-3. **HUD width.** `IterationLabel` spaces every character, so `CYCLE 2 — ITERATION 1` is ~41
-   characters after spacing. CLAUDE.md §3 requires checking `0.6 × fontSize × length`, and it has
-   bitten twice. **Recommended: two lines.**
-4. **Does `EndCycleControl.UseCount` reset at a boundary?**
-5. **What is the last cycle's real ending?** If cycle 2 is cleared and there is no cycle 3, something
-   must decide that and route to `EndingSequence`.
-6. **Saving.** Two cycles is ~10 minutes and there is no save. A boundary is the natural checkpoint.
-   Not a blocker; recorded as a consequence — and it becomes a requirement, not a nicety, once this is
-   a Steam release.
+**One item, and it is deferred on purpose.**
+
+1. **Where does the last cycle end?** Undecided — the intent as of 2026-08-14 is to add cycle 3 and
+   keep going, so there is no terminal cycle to design against yet. **The constraint that follows is
+   firm even though the answer is not: never hardcode a last cycle.** Cycles are a list; "this is the
+   last one" means "no next one is defined", and that is what routes into `EndingSequence`
+   (§5a-4). Written that way, cycle 3 costs nothing to add and the question can stay open
+   indefinitely.
+
+**Closed, and recorded because they nearly cost work:**
+
+- *"Do ghosts keep moving after completion?"* — answered by removing the break and by §2's
+  correction. They stay still, most have already retired, and **no break-only time source is needed**.
+  Ticking them on would have required one, since `Tick` takes the now-frozen `ElapsedTime` and
+  reviving that would restart the HUD clock (`CountdownTimer.cs:11-19` writes unconditionally every
+  frame).
+- *HUD width* — `CYCLE N` goes on **its own line above** `ITERATION N`, which also settles the
+  fixed-width check CLAUDE.md §3 demands: neither line is longer than what `IterationLabel` already
+  renders, so the `0.6 × fontSize × length` budget that has bitten twice is untouched.
+- *`EndCycleControl.UseCount`* — resets (§4).
+- *Naming* — `room<cycle>-<n>`, document vocabulary only (§4a).
+- *Saving* — the boundary is an automatic checkpoint (§4b).
 
 ## 9. What this does not answer
 
