@@ -5,8 +5,12 @@ CYCLE.** Finishing the game stops ending it. The three escape objects still go i
 facility still says `CYCLE BROKEN` — and then an opening appears behind the console, and through it,
 below, is another bed.
 
-Design settled 2026-08-14. **Nothing here is implemented.** This document is the argument and the
-constraints; `TODO.md` holds the work.
+Design settled 2026-08-14, and **the boundary is built** — the loop runs over cycles, ghosts are torn
+down at the seam, the floor opens, the gas fires, and `room2-1` exists one storey down with a bed in
+it. **What does not exist is a puzzle in cycle 2**, so its `finalRoom` is null and nothing can finish
+it yet. Verified in code only; nobody has played it.
+
+This document is the argument and the constraints; `TODO.md` holds the work.
 
 **Target platform is Steam.** The WebGL build is a prototype delivery vehicle and is not a design
 constraint — where a decision below would have gone differently for a browser, it says so.
