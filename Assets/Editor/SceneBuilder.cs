@@ -309,26 +309,19 @@ namespace IterationRoom.EditorTools
         private const string CalibrationRoomName = "CalibrationRoom";
         private const float CalibrationRoomZ = -2f * RoomPitch;
 
-        // SKIPS THE REFLECTION PROBE BAKE, and that is nearly the whole of the build.
+        // THERE IS ONE BUILD, and the probe bake is part of it.
         //
-        // Fifteen probes, each rendering the scene six times at 512, is 35 MB of cubemap and the
-        // overwhelming majority of a rebuild - the geometry itself is fast. During a session spent
-        // moving a wall or retuning a pad, none of that work is being looked at.
+        // A "fast, no probes" menu item lived here until 2026-08-15 and was REMOVED as a trap rather
+        // than as a saving. It left the existing `.exr` files in place, so a fast-built scene comes up
+        // looking lit and reflective while reflecting the building as it was at some earlier build -
+        // and this project's walls are 0.85 smoothness and its escape objects are metallic 0.9, which
+        // is to say almost entirely what they reflect. A stale reflection does not announce itself;
+        // it just makes every judgement about how the room LOOKS quietly untrustworthy, which is the
+        // one thing a build is for.
         //
-        // Existing `.exr` files are left in place, so the scene still comes up lit and reflective; it
-        // simply reflects the building as it was at the last full build. **Use the full build before
-        // judging anything reflective**, and always before a commit that moves geometry - the same
-        // bargain `-nographics` already makes (see BakeReflectionProbes).
-        [MenuItem("Iteration Room/Build Whitebox Scene (fast, no probes)")]
-        public static void BuildFast()
-        {
-            skipProbeBake = true;
-            try { Build(); }
-            finally { skipProbeBake = false; }
-        }
-
-        private static bool skipProbeBake;
-
+        // The bake is genuinely most of the build's time - fifteen probes, six faces each. If that
+        // becomes intolerable the answer is the per-cycle scene split (`docs/cycle-design.md` §7b),
+        // which cuts what has to be baked, rather than a switch that bakes nothing and says nothing.
         [MenuItem("Iteration Room/Build Whitebox Scene")]
         public static void Build()
         {
@@ -727,6 +720,13 @@ namespace IterationRoom.EditorTools
             // And the console's three recesses, which are E fixtures like any other now that the
             // clock runs through the room they are in.
             hintTargets.AddRange(finalRoom.slots);
+            // CYCLE 2'S OWN E FIXTURES. Gathered off the cycle root rather than threaded back out of
+            // `BuildCycleTwoShell`, so every switch a later room adds joins this list by existing -
+            // the prompt is the only thing that tells a player a fixture is a fixture at all, and a
+            // new one silently missing from here is exactly the fault that shipped in the last build.
+            // Inactive included: the cycle starts asleep.
+            hintTargets.AddRange(cycleTwoRoot.GetComponentsInChildren<LightSwitch>(true));
+            hintTargets.AddRange(cycleTwoRoot.GetComponentsInChildren<WaterTap>(true));
             hints.interactTargets = hintTargets.ToArray();
             hints.calibration = calibration;
             // "The player got through the last door", which arms Room4's console. Wired after the
@@ -829,21 +829,15 @@ namespace IterationRoom.EditorTools
             // console through room2-1's ceiling. Built now rather than found again later.
             BuildPlinthHousing(ringRoom0, "ConsoleHousing_Cycle2", Vector3.zero, 1.86f, 1.31f, 1.45f, floorMat);
 
-            // THE THREE SHARDS, on the floor of the three rooms that will later win them.
+            // THE THREE SHARDS ARE NOT PLACED, as of 2026-08-15. They used to be dropped free on the
+            // floor of rooms 2, 4 and 6 so that cycle 2 could be finished end to end before any of its
+            // puzzles existed - which did its job, and stopped being worth its cost the moment those
+            // rooms started acquiring real fixtures: three metal objects lying about in a room the
+            // player is meant to be reading says the room has already paid out.
             //
-            // Free for now, and deliberately so: this makes cycle 2 finishable end to end before any
-            // of its puzzles exist, so the ring, the console and the boundary out of it can all be
-            // walked and judged on their own. Each shard moves onto the core's payout as its room is
-            // built.
-            Mesh shardMesh = RingShardMesh(112f, 0.17f, 0.30f, 0.055f);
-            Material shardMat = MakePolishedMetalMaterial("RingShard", new Color(0.93f, 0.88f, 0.72f), 0f);
-            var shardIds = new[] { ShardAItemId, ShardBItemId, ShardCItemId };
-            // rooms 2, 4 and 6 - the three that see the core.
-            var shardRooms = new[] { cycleTwoRooms[1], cycleTwoRooms[3], cycleTwoRooms[5] };
-            for (int i = 0; i < shardIds.Length; i++)
-                BuildRingShard(shardRooms[i], $"Shard_{(char)('A' + i)}", shardIds[i],
-                               // Off the centre line, so it is neither in a doorway nor under the
-                               new Vector3(1.5f, 0f, 1.8f), i * 120f, shardMesh, shardMat);
+            // **CYCLE 2 THEREFORE CANNOT BE COMPLETED RIGHT NOW**, and that is the honest state of it -
+            // the console has three empty recesses and nothing yet fills them. Each shard comes back as
+            // its room's payout, on that room's own condition, the way cycle 1's three do.
             cycleTwo.worldRoot = cycleTwoRoot;
 
             cycleTwo.wallPanels = cycleTwoDisplay;
@@ -2380,13 +2374,6 @@ namespace IterationRoom.EditorTools
 
         private static void BakeReflectionProbes()
         {
-            if (skipProbeBake)
-            {
-                Debug.Log("[SceneBuilder] Reflection probes NOT baked (fast build); existing cubemaps left in place. "
-                        + "Run the full build before judging anything reflective.");
-                return;
-            }
-
             if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
             {
                 Debug.Log("[SceneBuilder] Reflection probes NOT baked (-nographics); existing cubemaps left in place.");
@@ -2754,6 +2741,135 @@ namespace IterationRoom.EditorTools
             return (instance, finalBounds);
         }
 
+        // A WALL-MOUNTED SWITCH, wired to one ceiling fixture. `localPosition` is the point on the
+        // wall it mounts flush against; `yaw` turns it to face into the room - 90 for a west wall
+        // (faces +X), -90 for an east wall (faces -X), matching `old_light_switch.glb`'s own front
+        // facing +Z at identity rotation.
+        //
+        // 0.18 and the offset below are both measured off the model rather than guessed: at import
+        // scale 1 its mesh bounds are centred at local (3.00, 0.00, -0.07), well clear of the
+        // prefab's own pivot, so a naive placement would hang the plate 3m sideways of where this
+        // method was told to put it. Centring it is the same reasoning `PlaceModel` uses to floor a
+        // model from its measured bounds, just against a wall instead of a floor.
+        private static LightSwitch BuildLightSwitch(Transform parent, string name, Vector3 localPosition,
+                                                     float yaw, Light light, Renderer panel,
+                                                     Material litFixtureMat, Material darkFixtureMat)
+        {
+            const float scale = 0.18f;
+
+            GameObject holder = new GameObject(name);
+            holder.transform.SetParent(parent, false);
+            holder.transform.localPosition = localPosition;
+            holder.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+
+            // STOOD UPRIGHT. The model is authored LANDSCAPE - its mesh spans 2.10 across against
+            // 1.10 tall - and a wall plate that wide reads as a double socket rather than a light
+            // switch. A quarter roll about the facing axis makes it portrait, which is what every
+            // switch in a corridor looks like.
+            Quaternion roll = Quaternion.Euler(0f, 0f, 90f);
+
+            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>($"{FurnitureDir}/old_light_switch.glb");
+            GameObject mesh = (GameObject)PrefabUtility.InstantiatePrefab(source, holder.transform);
+            mesh.name = "Visual";
+            mesh.transform.localRotation = roll;
+            mesh.transform.localScale = Vector3.one * scale;
+            // The centring offset is ROLLED WITH IT. It is a vector in the mesh's own frame, so
+            // applying it unrotated after a roll pushes the plate off along the wrong wall axis.
+            mesh.transform.localPosition = roll * (new Vector3(-3.00f, 0f, 0.07f) * scale);
+
+            BoxCollider trigger = holder.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            trigger.size = new Vector3(0.6f, 0.6f, 0.5f);
+
+            LightSwitch lightSwitch = holder.AddComponent<LightSwitch>();
+            lightSwitch.switchVisual = mesh.transform;
+            lightSwitch.controlledLight = light;
+            lightSwitch.controlledPanel = panel;
+            lightSwitch.litMaterial = litFixtureMat;
+            lightSwitch.darkMaterial = darkFixtureMat;
+
+            return lightSwitch;
+        }
+
+        // ROOM2-2'S WALL TAP: press E to turn it and a stream shows against the west wall. First
+        // pass proving the visual and the toggle - not yet a GhostInteractable, so a ghost cannot
+        // turn this one on for a past self the way it can a light switch.
+        //
+        // `a_water_tap.glb` bundles a wall panel and a puddle in the SAME import as the tap - Plane.001
+        // and Sphere.001 are stripped by name, since this room supplies its own wall and the puddle
+        // is a flat blue splat baked into the tap's own base mesh rather than a separate object.
+        // Sinking the fixture 0.15m below the floor hides that splat under the floor slab, which
+        // reads cleaner than trying to mask it with an overlay.
+        private static void BuildWaterTap(Transform parent)
+        {
+            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>($"{FurnitureDir}/a_water_tap.glb");
+            GameObject tap = (GameObject)PrefabUtility.InstantiatePrefab(source, parent);
+            tap.name = "WaterTap";
+            tap.transform.localPosition = new Vector3(-3.968f, 2.138f, 0f);
+            tap.transform.localRotation = Quaternion.Euler(270f, 0f, 0f);
+            tap.transform.localScale = Vector3.one * 0.42f;
+
+            // UNPACKED FIRST, and this is the whole reason the tap was invisible in the first build.
+            // `DestroyImmediate` REFUSES to delete a child of a live prefab instance, so both strays
+            // survived - and `Plane.001` is a 34 x 20 wall panel, which stood in front of the fixture
+            // and hid it completely. `BuildChessSet` unpacks for the same reason.
+            PrefabUtility.UnpackPrefabInstance(tap, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
+
+            Transform group = tap.transform.Find("Collada visual scene group");
+            if (group != null)
+            {
+                Transform wall = group.Find("Plane.001");
+                Transform water = group.Find("Sphere.001");
+                if (wall != null) Object.DestroyImmediate(wall.gameObject);
+                if (water != null) Object.DestroyImmediate(water.gameObject);
+            }
+
+            Material streamMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/WaterStream.mat");
+
+            // ONE ROOT FOR THE WHOLE FLOW, which is what the tap switches. The fall and the spill are
+            // one event and have to start together - the puddle resets itself in `OnEnable`, so
+            // turning the tap off and on again starts the spread from nothing rather than resuming
+            // wherever it left off.
+            GameObject flow = new GameObject("WaterFlow");
+            flow.transform.SetParent(parent, false);
+
+            // THE FALL: floor to spout, dead straight. A cylinder is 2 units tall, so the Y scale is
+            // the half-height and the centre sits at half the drop.
+            const float spoutY = 2.05f;
+            GameObject stream = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            stream.name = "Stream";
+            stream.transform.SetParent(flow.transform, false);
+            stream.transform.localPosition = new Vector3(-4.35f, spoutY / 2f, 0.15f);
+            stream.transform.localScale = new Vector3(0.05f, spoutY / 2f, 0.05f);
+            Object.DestroyImmediate(stream.GetComponent<Collider>());
+            stream.GetComponent<Renderer>().sharedMaterial = streamMat;
+            stream.AddComponent<FlowingWaterVisual>();
+
+            // THE SPILL: where it lands, spreading for as long as the tap runs. Sat a millimetre off
+            // the floor rather than on it, since two coplanar surfaces fight over the same depth.
+            GameObject puddle = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            puddle.name = "Spill";
+            puddle.transform.SetParent(flow.transform, false);
+            puddle.transform.localPosition = new Vector3(-4.35f, 0.012f, 0.15f);
+            Object.DestroyImmediate(puddle.GetComponent<Collider>());
+            puddle.GetComponent<Renderer>().sharedMaterial = streamMat;
+            puddle.AddComponent<FlowingWaterVisual>().scrollSpeed = new Vector2(0.18f, -0.3f);
+            puddle.AddComponent<SpreadingPuddle>();
+
+            flow.SetActive(false);
+
+            GameObject interact = new GameObject("WaterTapInteract");
+            interact.transform.SetParent(parent, false);
+            interact.transform.localPosition = new Vector3(-4.1f, 1.2078f, 0f);
+            BoxCollider trigger = interact.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            trigger.size = new Vector3(1.4f, 2.6f, 1.4f);
+
+            WaterTap waterTap = interact.AddComponent<WaterTap>();
+            waterTap.tapVisual = tap.transform;
+            waterTap.waterStream = flow;
+        }
+
         // CYCLE 2'S BUILDING, one storey below cycle 1's and running back the other way.
         //
         // THE Y OFFSET IS ON THE ROOT, and that is what made a second storey cheap. Every builder in
@@ -2960,11 +3076,53 @@ namespace IterationRoom.EditorTools
                                 wallHalfExtent: RoomWidth / 2f, crossHalfWidth: RoomDepth / 2f, yaw: 270f);
 
             Material fixtureMat = MakeEmissiveMaterial("CeilingFixtureCycle2", Color.white, 3.5f);
+            Light[] room1Lights = null;
+            Renderer[] room1Panels = null;
             for (int i = 0; i < rooms.Length; i++)
             {
-                BuildCeilingLights(rooms[i], names[i], 0f, fixtureMat, castShadows: false);
+                (Light[] lights, Renderer[] panels) =
+                    BuildCeilingLights(rooms[i], names[i], 0f, fixtureMat, castShadows: false);
+                if (i == 0) { room1Lights = lights; room1Panels = panels; }
                 BuildReflectionProbe(rooms[i], names[i], 0f);
             }
+
+            // ROOM2-1'S PUZZLE: four switches scattered on its sealed walls, each wired to one of
+            // the four ceiling fixtures just built. All four dark at rest - see AllLightsOn for why
+            // this reads as latched without the condition itself remembering anything, and
+            // LightSwitch for why a flip is an event a ghost replays once rather than a level.
+            // Dark through a SHARED material rather than `renderer.material`, which instantiates a
+            // copy per panel at build time and leaves four orphans in the scene file - Unity says so
+            // in a warning. The lit material is the one every other room's fixtures already wear, so
+            // a switch coming on simply hands the panel back to it.
+            Material fixtureOffMat = MakeEmissiveMaterial("CeilingFixtureCycle2Off", Color.white, 0f);
+            foreach (Light l in room1Lights) l.enabled = false;
+            foreach (Renderer p in room1Panels) p.sharedMaterial = fixtureOffMat;
+
+            const float switchHeight = 1.2f;
+            const float switchInset = RoomWidth / 2f;
+            var lightSwitches = new LightSwitch[4];
+            lightSwitches[0] = BuildLightSwitch(r1, "LightSwitch2_1_A",
+                new Vector3(-switchInset, switchHeight, -1.8f), 90f, room1Lights[0], room1Panels[0],
+                fixtureMat, fixtureOffMat);
+            lightSwitches[1] = BuildLightSwitch(r1, "LightSwitch2_1_B",
+                new Vector3(-switchInset, switchHeight, 1.8f), 90f, room1Lights[1], room1Panels[1],
+                fixtureMat, fixtureOffMat);
+            lightSwitches[2] = BuildLightSwitch(r1, "LightSwitch2_1_C",
+                new Vector3(switchInset, switchHeight, -1.8f), -90f, room1Lights[2], room1Panels[2],
+                fixtureMat, fixtureOffMat);
+            lightSwitches[3] = BuildLightSwitch(r1, "LightSwitch2_1_D",
+                new Vector3(switchInset, switchHeight, 1.8f), -90f, room1Lights[3], room1Panels[3],
+                fixtureMat, fixtureOffMat);
+
+            GameObject allLightsGO = new GameObject("AllLightsOn2_1");
+            allLightsGO.transform.SetParent(r1, false);
+            AllLightsOn allLightsOn = allLightsGO.AddComponent<AllLightsOn>();
+            allLightsOn.switches = lightSwitches;
+            // Door2_1 is doors[0] - the south door r1 built above, the only way out of this room.
+            doors[0].condition = allLightsOn;
+
+            // ROOM2-2'S TAP. Not gated on anything yet - see BuildWaterTap.
+            BuildWaterTap(r2);
 
             // The bed, on room1's own root. `BuildBed` goes through `PlaceModel`, which corrects a
             // WORLD-space delta - so it still has to be told the storey and the room's world Z, and it
@@ -3004,12 +3162,12 @@ namespace IterationRoom.EditorTools
 
             ParticleSystem[] gas = BuildGasEmitters(r1, "Room2_1_Gas", 0f);
 
-            // NOTHING TO RECORD YET. Cycle 2 has no fixture a ghost can operate, so its signal array
-            // is empty and its condition list with it - the honest state of a set of rooms whose
-            // puzzles have not been designed. Both are wire formats once they exist (an entry's index
-            // IS its bit in RecordedFrame.signals), so they get appended to, never reordered.
+            // Room2-1's four switches are cycle 2's first fixtures a ghost can operate, so its
+            // signal array is no longer empty - they land at bits 0-3. Both are wire formats once
+            // they exist (an entry's index IS its bit in RecordedFrame.signals), so append only,
+            // never reorder, as the rest of cycle 2's rooms grow their own puzzles.
             return (root.transform, spawn, gas, doors,
-                    new RoomCondition[0], new GhostInteractable[0], rooms);
+                    new RoomCondition[] { allLightsOn }, lightSwitches, rooms);
         }
 
         // WHAT A RETRACTED PLINTH RETRACTS INTO.
