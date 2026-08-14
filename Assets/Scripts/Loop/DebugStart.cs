@@ -11,10 +11,15 @@ namespace IterationRoom
     // it is set in `MainMenu` and read in `IterationRoom` - and statics reset when play stops, which
     // is exactly the lifetime wanted. Nothing serialises it and nothing persists it.
     //
-    // **This shortcut arranges the world, it does not fake the boundary.** It walks the console up,
-    // seats the three objects through the same `FinalSlot` path a ghost's delivery uses, and then
-    // lets `LoopManager` notice on its own that the cycle is complete. Everything after that is the
-    // real code path, which is the only reason the shortcut is worth having.
+    // **This shortcut arranges the world, it does not fake the boundary.** It stands the player in the
+    // last room, walks the console up, and puts the three escape objects on the floor in front of it.
+    // Everything from there is what a player does - pick one up, put it in, three times - and the
+    // completion, the hatch, the drop and the gas are all the real code path. That is the only reason
+    // the shortcut is worth having.
+    //
+    // The objects were SEATED here at first, which completed the cycle on the same frame and fired
+    // the boundary before the room had been looked at. On the floor instead, the insertion itself is
+    // part of what gets tested.
     public static class DebugStart
     {
         // Set by the title screen's test button, consumed by LoopManager on the first iteration.

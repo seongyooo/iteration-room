@@ -267,11 +267,12 @@ namespace IterationRoom
 
                     // AFTER the clock is live, because everything it drives gates on AcceptsInput -
                     // a console asked to rise while the iteration is not running does nothing.
-                    if (DebugStart.AtCycleBoundary)
-                    {
-                        DebugStart.AtCycleBoundary = false;
-                        yield return JumpToBoundary();
-                    }
+                    //
+                    // EVERY ITERATION until the boundary is crossed, not just the first. The three
+                    // objects are swept home and hidden when a clock runs out, so a shortcut that
+                    // fired once would leave a tester who fumbled the sixty seconds stranded at the
+                    // bed with nothing to carry and no way back to the state they asked for.
+                    if (DebugStart.AtCycleBoundary) yield return JumpToBoundary();
 
                     while (ElapsedTime < loopDuration && !endRequested && !CycleComplete)
                     {
@@ -381,13 +382,12 @@ namespace IterationRoom
             FinalRoomSequence room = Current != null ? Current.finalRoom : null;
             if (room == null || room.console == null) yield break;
 
+            Vector3 console = room.console.transform.position;
+
             // Standing where the doorway leaves you, facing the console. The room is entered from -Z,
             // so this is a short walk back from where the player would actually be.
             if (playerController != null)
-            {
-                Vector3 at = room.console.transform.position;
-                playerController.Teleport(new Vector3(at.x, 0.05f, at.z - 2.6f), Quaternion.identity);
-            }
+                playerController.Teleport(new Vector3(console.x, 0.05f, console.z - 2.6f), Quaternion.identity);
 
             // The console rises on arrival, and arrival is a doorway the player never came through.
             room.arrival?.ForceArrived();
@@ -396,15 +396,43 @@ namespace IterationRoom
             // on the plinth being all the way up. So this waits rather than assuming.
             while (!room.console.Raised) yield return null;
 
+            // THE THREE OBJECTS GO ON THE FLOOR, NOT INTO THE SLOTS. They were seated here at first,
+            // which completed the cycle on the same frame - so the boundary fired before the room had
+            // been looked at, and the one thing the shortcut exists to watch was already over.
+            //
+            // On the floor, the tester does what a player does: picks each one up and puts it in. That
+            // exercises the whole chain - the reach, the prompt, `FinalSlot.Accept`, the completion
+            // test, the hatch - instead of only what comes after it.
+            //
+            // ONE SHOT PER ITERATION. These live on plinths in three other rooms; letting the clock run
+            // out sweeps them home and hides them again. Press the button again rather than waiting.
+            RewardPlinth[] plinths = UnityEngine.Object.FindObjectsByType<RewardPlinth>(FindObjectsSortMode.None);
+
+            float[] offsets = { -0.7f, 0f, 0.7f };
+            int placed = 0;
+
             foreach (FinalSlot slot in room.slots)
             {
                 if (slot == null || !slot.Declared) continue;
 
-                // The same lookup a ghost's delivery uses, and the same Accept path, so a slot that
-                // would refuse a real object refuses this too.
+                // The same lookup a ghost's delivery uses, so an object this could not find is one a
+                // real delivery could not have found either.
                 CarryableItem item = ItemRegistry.FindFreeForGhost(slot.AcceptedItemId)
                                      ?? ItemRegistry.FindHeldByGhost(slot.AcceptedItemId);
-                if (item != null) slot.AcceptFromGhost(item);
+                if (item == null) continue;
+
+                // ITS PLINTH HAS TO LET GO OF IT FIRST. A `RewardPlinth` that is not raised calls
+                // Hide() on what it carries EVERY frame, so revealing one of these anywhere else is
+                // undone before it can be seen. Cutting the reference is the whole of what is needed:
+                // the plinth keeps working, it simply no longer owns this object.
+                foreach (RewardPlinth plinth in plinths)
+                    if (plinth != null && plinth.key == item) plinth.key = null;
+
+                float x = console.x + offsets[Mathf.Min(placed, offsets.Length - 1)];
+                // Between the player and the console, at the object's own resting height - not
+                // dropped, so `FallingItem` leaves it exactly here.
+                item.RevealAt(new Vector3(x, item.RestingY, console.z - 1.7f));
+                placed++;
             }
         }
 
@@ -443,6 +471,11 @@ namespace IterationRoom
         private IEnumerator CrossToNextCycle()
         {
             CycleBreaking = true;
+
+            // The shortcut has done its job. Cleared here rather than after its first firing, so it
+            // survives a mistimed iteration - and cleared here rather than never, so the cycle on the
+            // other side is played as it actually is.
+            DebugStart.AtCycleBoundary = false;
 
             // CONTROL IS NOT TAKEN. Walking out through what you built is the whole of this beat, and
             // there is no timer on it - the way out is the only thing that can happen next, so nothing
