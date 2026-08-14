@@ -149,6 +149,27 @@ namespace IterationRoom
         // Returning null is a real answer, not a failure: the supply is finite, so a fifth ghost
         // reaching for a third pin gets nothing and its errand simply does not happen. That is the
         // same honest outcome as a ghost finding the key already taken.
+        // ANY INSTANCE OF THIS ID, whatever state it is in - hidden, carried, seated, on the floor.
+        //
+        // Deliberately NOT an availability test, which is what makes it wrong for gameplay and right
+        // for setting a world up. Every other lookup here asks "can this be taken right now"; a
+        // reward object waiting on a sunk plinth answers no, because `IsFreeForGhost` requires
+        // `visible` and a plinth hides what it carries until it has risen. That is correct for a
+        // ghost reaching through a floor and useless for arranging a scene.
+        //
+        // Used by LoopManager's boundary test jump and nothing else. If a second caller ever appears,
+        // check it is not really asking one of the availability questions below.
+        public static CarryableItem FindAny(string itemId)
+        {
+            if (string.IsNullOrEmpty(itemId)) return null;
+            if (!items.TryGetValue(itemId, out List<CarryableItem> pool)) return null;
+
+            for (int i = 0; i < pool.Count; i++)
+                if (pool[i] != null) return pool[i];
+
+            return null;
+        }
+
         public static CarryableItem FindFreeForGhost(string itemId)
         {
             if (string.IsNullOrEmpty(itemId)) return null;

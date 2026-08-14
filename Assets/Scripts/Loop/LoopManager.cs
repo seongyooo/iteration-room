@@ -415,11 +415,16 @@ namespace IterationRoom
             {
                 if (slot == null || !slot.Declared) continue;
 
-                // The same lookup a ghost's delivery uses, so an object this could not find is one a
-                // real delivery could not have found either.
-                CarryableItem item = ItemRegistry.FindFreeForGhost(slot.AcceptedItemId)
-                                     ?? ItemRegistry.FindHeldByGhost(slot.AcceptedItemId);
-                if (item == null) continue;
+                // `FindAny`, NOT `FindFreeForGhost`. The availability lookups all require `visible`,
+                // and these three are sitting HIDDEN on sunk plinths in three other rooms - which is
+                // exactly the state this jump exists to skip past. Asking "can it be taken right now"
+                // gets a truthful no, and the room came up empty.
+                CarryableItem item = ItemRegistry.FindAny(slot.AcceptedItemId);
+                if (item == null)
+                {
+                    Debug.LogWarning($"[LoopManager] Test jump found no item for '{slot.AcceptedItemId}'.");
+                    continue;
+                }
 
                 // ITS PLINTH HAS TO LET GO OF IT FIRST. A `RewardPlinth` that is not raised calls
                 // Hide() on what it carries EVERY frame, so revealing one of these anywhere else is
