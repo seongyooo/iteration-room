@@ -186,6 +186,12 @@ namespace IterationRoom
                 if (playerRecorder != null && Current != null)
                     playerRecorder.interactables = Current.ghostInteractables;
 
+                // AND THE WAKE-UP'S PANELS, or a new cycle wakes in an unlit room. The panels boot in
+                // WakeUpSequence, which held ONE reference wired at build time - so cycle 2's walls
+                // were never powered up and stayed at their off colour, which is nearly black.
+                if (wakeUpSequence != null && Current != null)
+                    wakeUpSequence.wallPanels = Current.wallPanels;
+
                 // The inner loop is iterations, and it is the loop this game is about.
                 while (true)
                 {
@@ -517,15 +523,22 @@ namespace IterationRoom
             }
 
             // AND THEN, WITH NO WARNING. Not announced, not telegraphed: the player is not in a bed
-            // and has not asked for anything. Control goes here rather than at the eyelids, because
-            // being taken is the point.
-            if (playerController != null) playerController.ControlEnabled = false;
+            // and has not asked for anything.
+            //
+            // CONTROL IS NOT TAKEN HERE. It goes in Collapse, below, so the first seconds of the gas
+            // are spent with the player's legs still working - long enough to look up and find the
+            // slots it is pouring out of. Taking control the moment it starts would make it a
+            // cutscene beginning rather than something happening to them.
             if (sleepingGas != null) yield return sleepingGas.Administer();
 
             ambience?.PlayPullIn();
 
+            // Down first, then the eyes. Not the loop's blink: that one is instant and involuntary,
+            // and this has to read as losing rather than as being switched off.
             if (wakeUpSequence != null)
-                yield return wakeUpSequence.CloseEyes();
+                yield return wakeUpSequence.Collapse(playerController);
+            else if (playerController != null)
+                playerController.ControlEnabled = false;
 
             cameraShaker?.SetIntensity(0f);
             Panels?.SetFlare(0f);

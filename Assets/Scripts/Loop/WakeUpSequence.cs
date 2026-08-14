@@ -46,6 +46,31 @@ namespace IterationRoom
         public float lyingEyeHeight = 0.5f;
         public float lyingPitch = -80f;
 
+        // GOING DOWN UNDER THE GAS, which is the opposite of the blink and deliberately so.
+        //
+        // The loop taking you is instant and involuntary - lids, and you are gone. Gas is neither.
+        // The body goes first and the eyes follow it, so what the player watches is the FLOOR coming
+        // up, and only then the lids. Cutting straight to the blink would say the facility switched
+        // them off; this says they lost.
+        public float collapseDuration = 2.3f;
+        public float collapsedEyeHeight = 0.26f;
+        // Positive pitch looks DOWN. The head drops toward the floor on the way over, which is what a
+        // body losing its legs does - it does not lie down neatly on its back.
+        public float collapsedPitch = 62f;
+        // Sideways as well, so it is a crumple rather than a lift going down.
+        public float collapseRoll = 26f;
+
+        // The same shape as blinkShutKeys and slower everywhere, with the flutter widened. Under gas
+        // the lids do not snap - they sag, come back less each time, and stop.
+        public Vector2[] gasShutKeys =
+        {
+            new Vector2(0.55f, 0.55f),
+            new Vector2(0.28f, 0.30f),
+            new Vector2(0.78f, 0.60f),
+            new Vector2(0.50f, 0.34f),
+            new Vector2(1.00f, 0.95f),
+        };
+
         public WallPanelDisplay wallPanels;
 
         public AudioSource bodySource;
@@ -64,6 +89,49 @@ namespace IterationRoom
         public IEnumerator CloseEyes()
         {
             yield return Blink(blinkShutKeys);
+            yield return new WaitForSeconds(heldShutDuration);
+        }
+
+        // FALL FIRST, THEN THE EYES. Called at a cycle boundary once the gas is in the air.
+        //
+        // Control is taken HERE rather than when the gas starts, so the player has the first seconds
+        // of it with their legs still working - long enough to look up and see where it is coming
+        // from. Losing control is the gas working, and it should be felt as that rather than as the
+        // moment a cutscene began.
+        //
+        // The FALL runs on unscaled time, because it happens while no iteration is running and must
+        // not be at the mercy of a time scale the pause menu owns. The lids after it go through the
+        // ordinary `Blink`, which is scaled - the same path every other blink in the game takes, and
+        // there is no reason for this one to behave differently once the player is already down.
+        public IEnumerator Collapse(FirstPersonController player)
+        {
+            if (player != null) player.ControlEnabled = false;
+
+            float fromHeight = player != null ? player.standingEyeHeight : 1.6f;
+            float t = 0f;
+
+            while (t < collapseDuration)
+            {
+                t += Time.unscaledDeltaTime;
+                float u = Mathf.Clamp01(t / collapseDuration);
+
+                // EASED IN, not smoothed. A knee gives slowly and then not at all, so the first
+                // third of this barely moves and the last third is most of the drop - which is the
+                // difference between falling and being lowered.
+                float drop = u * u * u;
+                // The roll leads the drop a little, so the body tips before it goes.
+                float lean = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(u * 1.35f));
+
+                player?.SetEyePose(Mathf.Lerp(fromHeight, collapsedEyeHeight, drop),
+                                   Mathf.Lerp(0f, collapsedPitch, drop),
+                                   Mathf.Lerp(0f, collapseRoll, lean));
+                yield return null;
+            }
+
+            player?.SetEyePose(collapsedEyeHeight, collapsedPitch, collapseRoll);
+
+            // And only now the lids, at their own pace.
+            yield return Blink(gasShutKeys);
             yield return new WaitForSeconds(heldShutDuration);
         }
 

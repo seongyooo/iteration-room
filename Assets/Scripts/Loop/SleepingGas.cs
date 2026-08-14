@@ -33,6 +33,17 @@ namespace IterationRoom
         public float fillDuration = 2.6f;
         public float fillOpacity = 0.92f;
 
+        // THE ROOM-SIDE HALF, and the reason it exists: a wash with no source is a screen effect, and
+        // the player has to be able to see where this came from. The slots light along the top of
+        // every wall and the plumes pour down out of them.
+        public Renderer[] vents;
+        public Color ventLit = new Color(0.86f, 0.92f, 1f);
+        public float ventEmission = 2.2f;
+
+        // Pivoted at the slot, so scaling Y grows them downward. Driven 0..1 alongside the wash.
+        public Transform[] plumes;
+        public float plumeAlpha = 0.34f;
+
         public AudioSource audioSource;
         public AudioClip hissClip;
 
@@ -40,40 +51,92 @@ namespace IterationRoom
         {
             if (audioSource != null && hissClip != null) audioSource.PlayOneShot(hissClip);
 
-            yield return Wash(0f, onsetOpacity, onsetDuration);
-            yield return Wash(onsetOpacity, fillOpacity, fillDuration);
+            yield return Wash(0f, onsetOpacity, onsetDuration, 0f, 0.25f);
+            yield return Wash(onsetOpacity, fillOpacity, fillDuration, 0.25f, 1f);
         }
 
-        // Cleared by whoever wakes the player, so the next cycle does not open behind a white sheet.
+        // Cleared by whoever wakes the player, so the next cycle does not open behind a white sheet -
+        // and so the room it opens in is not still full of the gas that put them there.
         public void Clear()
         {
-            if (haze == null) return;
-            Color c = hazeColour;
-            c.a = 0f;
-            haze.color = c;
-        }
-
-        private IEnumerator Wash(float from, float to, float duration)
-        {
-            if (haze == null)
+            if (haze != null)
             {
-                yield return new WaitForSecondsRealtime(duration);
-                yield break;
+                Color c = hazeColour;
+                c.a = 0f;
+                haze.color = c;
             }
 
+            SetRoom(0f);
+        }
+
+        // The slots and the plumes, driven together on one 0..1.
+        private void SetRoom(float t)
+        {
+            if (vents != null)
+            {
+                Color glow = ventLit * (ventEmission * t);
+                foreach (Renderer vent in vents)
+                {
+                    if (vent == null) continue;
+                    // A property block rather than a material write: these share one material, and
+                    // setting it would light every slot in the building at once.
+                    var block = new MaterialPropertyBlock();
+                    vent.GetPropertyBlock(block);
+                    block.SetColor(EmissionId, glow);
+                    block.SetColor(BaseColorId, Color.Lerp(Color.black, ventLit, t));
+                    vent.SetPropertyBlock(block);
+                }
+            }
+
+            if (plumes == null) return;
+            foreach (Transform plume in plumes)
+            {
+                if (plume == null) continue;
+                // Grows out of its slot rather than out of its own middle - the pivot is at the top.
+                plume.localScale = new Vector3(1f, t, 1f);
+
+                Renderer r = plume.GetComponentInChildren<Renderer>();
+                if (r == null) continue;
+                var block = new MaterialPropertyBlock();
+                r.GetPropertyBlock(block);
+                Color c = plumeColour;
+                c.a = plumeAlpha * t;
+                block.SetColor(BaseColorId, c);
+                r.SetPropertyBlock(block);
+            }
+        }
+
+        private static readonly int EmissionId = Shader.PropertyToID("_EmissionColor");
+        private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
+        private static readonly Color plumeColour = new Color(0.93f, 0.95f, 0.97f, 1f);
+
+        // roomFrom/roomTo run the slots and plumes on their own curve, because the room fills FASTER
+        // than the player goes under - the gas is visible in the air well before it has done anything.
+        private IEnumerator Wash(float from, float to, float duration, float roomFrom, float roomTo)
+        {
             float t = 0f;
             while (t < duration)
             {
                 t += Time.unscaledDeltaTime;
-                Color c = hazeColour;
-                c.a = Mathf.Lerp(from, to, Mathf.Clamp01(t / duration));
-                haze.color = c;
+                float u = Mathf.Clamp01(t / duration);
+
+                if (haze != null)
+                {
+                    Color c = hazeColour;
+                    c.a = Mathf.Lerp(from, to, u);
+                    haze.color = c;
+                }
+                SetRoom(Mathf.Lerp(roomFrom, roomTo, u));
                 yield return null;
             }
 
-            Color end = hazeColour;
-            end.a = to;
-            haze.color = end;
+            if (haze != null)
+            {
+                Color end = hazeColour;
+                end.a = to;
+                haze.color = end;
+            }
+            SetRoom(roomTo);
         }
     }
 }

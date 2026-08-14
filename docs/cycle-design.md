@@ -315,6 +315,12 @@ up to four pieces instead of one.
   clear of the north wall at 5.25. Behind the console from the player's approach, which is from −Z.
 - **Both slabs are cut**: `room1-0`'s floor and `room2-1`'s ceiling, since the lower room sits directly
   beneath. One `Rect` per room, in room-local XZ.
+- **There is a 1.6 m SERVICE VOID between the two storeys, and it is not decoration.** Every
+  `RewardPlinth` retracts about a metre below its own floor, which was invisible until there was a room
+  under it and then hung out of that room's ceiling. Housing the console did not help — the housing hung
+  into the room too. Machinery needs somewhere to be that is in neither room, which is what a real
+  building would give it. `BuildExitShaft` joins the two holes across the void, so the drop reads as
+  going down a shaft rather than falling out of a roof space.
 - **The cover slides sideways into the floor slab** and is invisible once retracted, which is what a
   door slab does in its pocket. No pocket is needed here because the surrounding floor is solid.
 - **`CycleExit` drives it**, and "the player has gone through" is a drop test rather than a trigger
