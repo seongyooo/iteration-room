@@ -17,8 +17,11 @@ namespace IterationRoom
         public Renderer redHalf;
         public Renderer greenHalf;
 
-        // All of them must be held - the same rule the door itself uses, via FloorButton.AllActive,
-        // so the two cannot drift apart.
+        // Kept only for a lamp with no door wired to it. When there IS a door, its own `HeldOpen`
+        // answers instead - the lamp is the readout for exactly the condition the door uses, and a
+        // lamp saying "go" on a rule the door does not use is worse than no lamp. That mattered the
+        // moment a door could be held by something other than pads: room2-1's is held by a number
+        // lock, and a lamp still asking about pads would have sat red through a solved room.
         public FloorButton[] requiredFloorButtons;
         // Room2's door is a key door with no pad behind it, so the lamp reads the lock instead.
         // Exactly one of these two is wired per door; both being null just leaves the lamp red.
@@ -49,8 +52,8 @@ namespace IterationRoom
 
         private void Update()
         {
-            bool nowGreen = (door != null && door.IsOpen)
-                         || FloorButton.AllActive(requiredFloorButtons)
+            bool nowGreen = (door != null && (door.IsOpen || door.HeldOpen))
+                         || (door == null && FloorButton.AllActive(requiredFloorButtons))
                          || (keyLock != null && keyLock.CanOpen);
 
             if (applied && nowGreen == green) return;

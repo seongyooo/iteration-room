@@ -25,6 +25,21 @@ namespace IterationRoom
     // person cannot do both jobs at once.
     public class Door : MonoBehaviour
     {
+        // WHAT HOLDS THIS DOOR OPEN, and a door has exactly one of them.
+        //
+        // Pads are the original: hold them all down at once. A number lock is room2-1's: every pad
+        // reading the digit scrawled in front of it. Both are TRACKED rather than latched - the door
+        // follows its condition and shuts again when the condition lapses - which is what makes
+        // either of them a thing past selves can satisfy on the player's behalf.
+        //
+        // Kept as one property rather than two tests at the call site so that the door, its
+        // indicator lamp and anything else reading it can never disagree about what "open" means -
+        // the same reason `FloorButton.AllActive` lives in one place.
+        public NumberLock numberLock;
+
+        public bool HeldOpen =>
+            numberLock != null ? numberLock.Solved : FloorButton.AllActive(requiredFloorButtons);
+
         public Transform doorPanel;
         public Vector3 openLocalOffset = new Vector3(0f, 2.2f, 0f);
         public float openDuration = 1.0f;
@@ -96,7 +111,7 @@ namespace IterationRoom
 
             if (!latched)
             {
-                if (FloorButton.AllActive(requiredFloorButtons)) target = 1f;
+                if (HeldOpen) target = 1f;
                 // Refuses to shut on the player. A CharacterController is not pushed by a moving
                 // transform, so a slab closing through one leaves the player inside it, to be
                 // squeezed out sideways on the next frame.

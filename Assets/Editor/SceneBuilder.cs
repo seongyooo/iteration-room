@@ -275,6 +275,14 @@ namespace IterationRoom.EditorTools
         private const float CycleTwoFirstRoomZ = 5f * RoomPitch;
         private const float CycleTwoSecondRoomZ = 4f * RoomPitch;
 
+        // ROOM2-1'S COMBINATION, left to right along the south wall as the player faces it from the
+        // door. One digit per grid cell, one pad in front of each.
+        //
+        // Five, because five is what a room's worth of iterations looks like: a past self can do one
+        // pad and leave, so the room is about that many trips. Raising or lowering this is the length
+        // dial for this room, the way the chess room's twelve is for that one.
+        private static readonly int[] CycleTwoCombination = { 3, 1, 4, 1, 5 };
+
         // The sensitivity room. Deliberately NOT a multiple of RoomPitch in the positive direction
         // - it is not part of the chain and must never be walked into, so it sits behind Room1 with
         // a room's worth of nothing between them.
@@ -348,7 +356,7 @@ namespace IterationRoom.EditorTools
             // Cycle 2, one storey down. Deliberately OUTSIDE `room` - see BuildCycleTwoShell for why
             // the panel gather below is the reason.
             (Transform cycleTwoRoot, Transform cycleTwoBedSpawn, ParticleSystem[] cycleTwoGas,
-             Door cycleTwoDoor, FloorButton cycleTwoPad) =
+             Door cycleTwoDoor, NumberLock cycleTwoLock, CountPad[] cycleTwoPads) =
                 BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat);
 
             // Every wall panel, gathered by parent name rather than threaded back out through
@@ -734,11 +742,12 @@ namespace IterationRoom.EditorTools
             cycleTwo.bedSpawnPoint = cycleTwoBedSpawn;
             cycleTwo.doors = new[] { cycleTwoDoor };
             cycleTwo.drawers = cycleTwoRoot.GetComponentsInChildren<Drawer>(true);
-            // Its own array, numbered from ZERO - cycle 2's pad is bit 0, where cycle 1's is also bit
-            // 0. Legal because every ghost is destroyed at the boundary, so no surviving timeline
-            // refers to cycle 1's bits, and the recorder is repointed at this array when the cycle
-            // starts. See Cycle.ghostInteractables.
-            cycleTwo.ghostInteractables = new GhostInteractable[] { cycleTwoPad };
+            // Its own array, numbered from ZERO - cycle 2's five pads are bits 0-4, where cycle 1's
+            // pad is also bit 0. Legal because every ghost is destroyed at the boundary, so no
+            // surviving timeline refers to cycle 1's bits, and the recorder is repointed at this
+            // array when the cycle starts. See Cycle.ghostInteractables.
+            cycleTwo.ghostInteractables = cycleTwoPads;
+            cycleTwo.numberLock = cycleTwoLock;
             cycleTwo.wallPanels = cycleTwoDisplay;
 
             // Everything down there stands on a floor one storey below zero, and every carryable has
@@ -2645,7 +2654,7 @@ namespace IterationRoom.EditorTools
         }
 
         private static (Transform root, Transform bedSpawn, ParticleSystem[] gas,
-                        Door door, FloorButton pad) BuildCycleTwoShell(
+                        Door door, NumberLock numberLock, CountPad[] pads) BuildCycleTwoShell(
             Material floorMat, Material grooveMat, Material panelMat, Material propMat)
         {
             GameObject root = new GameObject("Room_Cycle2");
@@ -2700,26 +2709,25 @@ namespace IterationRoom.EditorTools
             furniture.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
             BuildNightstand(furniture.transform, CycleTwoToolItemId);
 
-            // The pad and the door it holds, arranged exactly as room1-1's are: the pad out on the
-            // open floor past the foot of the bed, the door in the far wall - so standing on one and
-            // being at the other is the thing a single player cannot do. It is the first thing this
-            // game teaches, and a new cycle should teach it again in its own room rather than assume
-            // it carried over.
-            //
-            // Under the turned wrapper with the furniture, so the pad mirrors with the bed instead of
-            // ending up on the wrong side of a room that has been turned round.
-            FloorButton pad = BuildFloorButton(furniture.transform, propMat, "FloorButton_Cycle2",
-                new Vector3(2.8f, 0.03f, -1.75f));
+            // THE NUMBER LOCK. Five digits scrawled along the south wall and five pads in front of
+            // them - see BuildNumberLock. It replaces the single hold-pad this room was built with:
+            // that taught the same lesson room1-1 already teaches, and a second cycle should be a
+            // second idea rather than the first one again.
+            (NumberLock numberLock, CountPad[] pads) =
+                BuildNumberLock(root.transform, CycleTwoFirstRoomZ, propMat);
 
             // At the SECOND room's centre, which puts the slab in the pocket on ITS north side -
             // between the two rooms. Same call shape as cycle 1's, one room along.
             Door door = BuildPadDoor(root.transform, "Door_Cycle2", CycleTwoSecondRoomZ,
-                                     new[] { pad }, propMat);
+                                     new FloorButton[0], propMat);
+            // Held by the lock instead of by pads. `Door.HeldOpen` prefers this when it is set, and
+            // the indicator lamp reads the door rather than re-deriving the rule.
+            door.numberLock = numberLock;
 
             // What puts the player out at the end of the drop into this room.
             ParticleSystem[] gas = BuildGasEmitters(root.transform, "Room2_1_Gas", CycleTwoFirstRoomZ);
 
-            return (root.transform, spawn, gas, door, pad);
+            return (root.transform, spawn, gas, door, numberLock, pads);
         }
 
         // WHAT A RETRACTED PLINTH RETRACTS INTO.
@@ -2763,6 +2771,180 @@ namespace IterationRoom.EditorTools
             Prim(PrimitiveType.Cube, "Side_North", well.transform,
                 new Vector3(0f, -depth / 2f, halfZ + WallThickness / 2f),
                 new Vector3(footprintX, depth, WallThickness), mat);
+        }
+
+        // DIGITS, DRAWN AS STROKES RATHER THAN AS A BITMAP.
+        //
+        // There is already a 5x7 bitmap in this file, for the word ERROR on a failing panel - and it
+        // is right there, because a test card is a machine drawing itself. It is wrong here twice
+        // over: the wall digits are meant to look like somebody scrawled them, and a blocky glyph
+        // blown up to fill a 1.75m panel is a QR code.
+        //
+        // So each digit is a set of polylines in a 0..1 box, stamped with a round brush. That gives
+        // two things a bitmap cannot: a `wobble` that displaces every point by a seeded amount, which
+        // is what makes the wall read as handwriting; and a thickness that can be tuned per use, so
+        // the same paths serve a metre of graffiti and a 20cm readout on a pad.
+        private static Vector2[][] DigitStrokes(int digit)
+        {
+            switch (digit)
+            {
+                case 0: return new[] { Ring(0.5f, 0.5f, 0.26f, 0.42f, 14) };
+                case 1: return new[]
+                {
+                    new[] { new Vector2(0.34f, 0.74f), new Vector2(0.52f, 0.94f) },
+                    new[] { new Vector2(0.52f, 0.94f), new Vector2(0.50f, 0.07f) },
+                };
+                case 2: return new[]
+                {
+                    new[]
+                    {
+                        new Vector2(0.22f, 0.76f), new Vector2(0.33f, 0.93f), new Vector2(0.58f, 0.94f),
+                        new Vector2(0.74f, 0.80f), new Vector2(0.66f, 0.60f), new Vector2(0.24f, 0.10f),
+                        new Vector2(0.80f, 0.09f),
+                    },
+                };
+                case 3: return new[]
+                {
+                    new[]
+                    {
+                        new Vector2(0.23f, 0.86f), new Vector2(0.44f, 0.95f), new Vector2(0.70f, 0.86f),
+                        new Vector2(0.66f, 0.66f), new Vector2(0.44f, 0.56f),
+                    },
+                    new[]
+                    {
+                        new Vector2(0.44f, 0.56f), new Vector2(0.72f, 0.46f), new Vector2(0.74f, 0.22f),
+                        new Vector2(0.52f, 0.07f), new Vector2(0.24f, 0.15f),
+                    },
+                };
+                case 4: return new[]
+                {
+                    new[] { new Vector2(0.66f, 0.94f), new Vector2(0.19f, 0.33f) },
+                    new[] { new Vector2(0.19f, 0.33f), new Vector2(0.84f, 0.33f) },
+                    new[] { new Vector2(0.66f, 0.94f), new Vector2(0.66f, 0.07f) },
+                };
+                case 5: return new[]
+                {
+                    new[] { new Vector2(0.74f, 0.93f), new Vector2(0.29f, 0.92f) },
+                    new[] { new Vector2(0.29f, 0.92f), new Vector2(0.26f, 0.55f) },
+                    new[]
+                    {
+                        new Vector2(0.26f, 0.55f), new Vector2(0.56f, 0.60f), new Vector2(0.76f, 0.42f),
+                        new Vector2(0.66f, 0.14f), new Vector2(0.30f, 0.10f),
+                    },
+                };
+                case 6: return new[]
+                {
+                    new[]
+                    {
+                        new Vector2(0.70f, 0.90f), new Vector2(0.40f, 0.74f), new Vector2(0.25f, 0.40f),
+                        new Vector2(0.34f, 0.12f), new Vector2(0.62f, 0.08f), new Vector2(0.76f, 0.30f),
+                        new Vector2(0.62f, 0.50f), new Vector2(0.30f, 0.44f),
+                    },
+                };
+                case 7: return new[]
+                {
+                    new[] { new Vector2(0.20f, 0.92f), new Vector2(0.80f, 0.92f) },
+                    new[] { new Vector2(0.80f, 0.92f), new Vector2(0.40f, 0.07f) },
+                };
+                case 8: return new[]
+                {
+                    Ring(0.5f, 0.71f, 0.21f, 0.21f, 11),
+                    Ring(0.5f, 0.28f, 0.25f, 0.24f, 11),
+                };
+                case 9: return new[]
+                {
+                    new[]
+                    {
+                        new Vector2(0.72f, 0.52f), new Vector2(0.42f, 0.60f), new Vector2(0.26f, 0.78f),
+                        new Vector2(0.40f, 0.94f), new Vector2(0.68f, 0.90f), new Vector2(0.74f, 0.62f),
+                        new Vector2(0.58f, 0.20f), new Vector2(0.30f, 0.08f),
+                    },
+                };
+                default: return new Vector2[0][];
+            }
+        }
+
+        // A closed loop, for the digits that are mostly one.
+        private static Vector2[] Ring(float cx, float cy, float rx, float ry, int steps)
+        {
+            var pts = new Vector2[steps + 1];
+            for (int i = 0; i <= steps; i++)
+            {
+                float a = i / (float)steps * Mathf.PI * 2f;
+                pts[i] = new Vector2(cx + Mathf.Sin(a) * rx, cy + Mathf.Cos(a) * ry);
+            }
+            return pts;
+        }
+
+        // wobble: how far each point wanders, as a fraction of the box. Zero draws the path as
+        // authored, which is what a machine readout wants; 0.03 is a hand that is not being careful.
+        private static Texture2D MakeDigitTexture(string name, int digit, int size,
+                                                  float thickness, float wobble, Color ink, int seed)
+        {
+            Color[] px = new Color[size * size];
+            // Transparent, not white: these are decals over a wall panel and a pad face, so the
+            // background has to not exist rather than be a colour that happens to match today.
+            for (int i = 0; i < px.Length; i++) px[i] = new Color(ink.r, ink.g, ink.b, 0f);
+
+            var rng = new System.Random(seed);
+            float radius = thickness * size * 0.5f;
+
+            foreach (Vector2[] stroke in DigitStrokes(digit))
+            {
+                if (stroke.Length < 2) continue;
+
+                // Displaced once per POINT rather than per sample, so the line wanders instead of
+                // going furry - a per-sample jitter reads as noise, not as a hand.
+                var pts = new Vector2[stroke.Length];
+                for (int i = 0; i < stroke.Length; i++)
+                {
+                    float jx = ((float)rng.NextDouble() * 2f - 1f) * wobble;
+                    float jy = ((float)rng.NextDouble() * 2f - 1f) * wobble;
+                    pts[i] = new Vector2(stroke[i].x + jx, stroke[i].y + jy);
+                }
+
+                for (int i = 0; i < pts.Length - 1; i++)
+                {
+                    Vector2 a = pts[i] * size;
+                    Vector2 b = pts[i + 1] * size;
+                    // Dense enough that consecutive dabs overlap even at the thinnest setting.
+                    int steps = Mathf.Max(2, Mathf.CeilToInt(Vector2.Distance(a, b) / Mathf.Max(1f, radius * 0.4f)));
+                    for (int stepIndex = 0; stepIndex <= steps; stepIndex++)
+                    {
+                        Vector2 at = Vector2.Lerp(a, b, stepIndex / (float)steps);
+                        // Thinning toward the end of each stroke, the way a stroke lifts off.
+                        float taper = 1f - 0.25f * (i + stepIndex / (float)steps) / Mathf.Max(1, pts.Length - 1);
+                        Dab(px, size, at, radius * taper, ink);
+                    }
+                }
+            }
+
+            return WriteTexture(name, size, size, px, TextureWrapMode.Clamp, FilterMode.Bilinear);
+        }
+
+        // One round mark. Soft at the rim by one pixel, which is all the antialiasing a stroke this
+        // thick needs and enough that the edge does not stair-step across a 1.75m panel.
+        private static void Dab(Color[] px, int size, Vector2 at, float radius, Color ink)
+        {
+            int minX = Mathf.Max(0, Mathf.FloorToInt(at.x - radius - 1f));
+            int maxX = Mathf.Min(size - 1, Mathf.CeilToInt(at.x + radius + 1f));
+            int minY = Mathf.Max(0, Mathf.FloorToInt(at.y - radius - 1f));
+            int maxY = Mathf.Min(size - 1, Mathf.CeilToInt(at.y + radius + 1f));
+
+            for (int y = minY; y <= maxY; y++)
+            {
+                for (int x = minX; x <= maxX; x++)
+                {
+                    float d = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), at);
+                    float a = Mathf.Clamp01(radius - d);
+                    if (a <= 0f) continue;
+
+                    int i = y * size + x;
+                    // Kept, never averaged: overlapping dabs must not lighten each other, or every
+                    // crossing in the stroke would show as a bright knot.
+                    px[i].a = Mathf.Max(px[i].a, a);
+                }
+            }
         }
 
         // A SOFT ROUND BLOB, which is the whole of what a vapour particle needs to be. Generated
@@ -2934,6 +3116,46 @@ namespace IterationRoom.EditorTools
             psr.receiveShadows = false;
         }
 
+        // A FLAT DECAL: an unlit, alpha-blended quad for something drawn ON a surface - the digits
+        // scrawled on the wall and the readouts lying on the pads.
+        //
+        // Unlit rather than Lit, and that is the point rather than a saving. Ink on a wall has no
+        // shading of its own; a Lit decal picks up the ceiling fixtures and reads as a sticker with a
+        // sheen. It also sidesteps the trap that produced a black band along the wall head, where a
+        // Lit transparent material kept its specular at zero alpha.
+        //
+        // Deliberately NOT the particle material next door, which is the same idea for a different
+        // renderer: URP's particle shaders expect vertex streams a MeshRenderer does not supply.
+        private static Material MakeDecalMaterial(string name, Texture2D map, Color tint)
+        {
+            string path = $"{MaterialsDir}/{name}.mat";
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = shader;
+            mat.SetTexture("_BaseMap", map);
+            mat.mainTexture = map;
+            mat.SetColor("_BaseColor", tint);
+            mat.color = tint;
+
+            mat.SetFloat("_Surface", 1f);
+            mat.SetFloat("_Blend", 0f);
+            mat.SetFloat("_ZWrite", 0f);
+            mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
         // Unlit and alpha-blended, NOT premultiplied. The translucent Lit material this replaces
         // preserved specular at zero alpha, which is exactly how an invisible box ended up as a
         // visible band along the wall head - see BuildGasEmitters. Unlit has no specular to preserve.
@@ -2965,6 +3187,135 @@ namespace IterationRoom.EditorTools
 
             EditorUtility.SetDirty(mat);
             return mat;
+        }
+
+        // ROOM2-1'S PUZZLE: five digits scrawled on the south wall, and five counting pads standing
+        // one grid cell out from it, one in front of each.
+        //
+        // WHY THE WALL AND NOT A SIGN. The digits go on the panel grid itself, in the second row up -
+        // reachable height, where somebody standing in this room would have written them. The grid is
+        // what makes "one digit per cell, in order" legible without a single line of instruction: the
+        // wall is already divided into five columns and the answer is one per column.
+        //
+        // WHY ONE CELL OUT. A pad hard against the wall would be read as part of the wall; a cell's
+        // gap makes the pairing an arrangement in the room rather than a label. It is also far enough
+        // that the digit above is still in view while standing on the pad, which matters because the
+        // player will be counting.
+        private static (NumberLock, CountPad[]) BuildNumberLock(Transform parent, float roomCenterZ, Material propMat)
+        {
+            GameObject root = new GameObject("NumberLock");
+            root.transform.SetParent(parent, false);
+            root.transform.localPosition = new Vector3(0f, 0f, roomCenterZ);
+
+            // The south wall's inner face, and one grid cell in from it.
+            float wallZ = -RoomDepth / 2f;
+            float padZ = wallZ + GridCellWidth;
+
+            // Ten readouts and five pieces of graffiti. The pad digits are drawn clean and thin - a
+            // machine showing a number - and the wall ones thick and wobbling, drawn by a hand.
+            var readouts = new Texture2D[10];
+            for (int d = 0; d < 10; d++)
+                readouts[d] = MakeDigitTexture($"Digit_{d}", d, 128, 0.10f, 0f,
+                                               Color.white, 4700 + d);
+
+            // One material for all five readouts; CountPad swaps the texture through a property
+            // block, so the pads share it without sharing a digit.
+            Material digitMat = MakeDecalMaterial("PadDigit", readouts[0], Color.white);
+
+            var pads = new CountPad[CycleTwoCombination.Length];
+
+            for (int i = 0; i < CycleTwoCombination.Length; i++)
+            {
+                int digit = CycleTwoCombination[i];
+                // Centre of the i-th grid column. Five columns across a wall of RoomWidth.
+                float x = (i - (CycleTwoCombination.Length - 1) / 2f) * GridCellWidth;
+
+                // THE GRAFFITI. A decal quad standing proud of the panel rather than a texture on the
+                // panel's own material: the panels share one material and are driven by property
+                // blocks for the boot and the ERROR glitch, so painting one of them would fight that.
+                //
+                // Each digit gets its own seed, so the two 1s in 3-1-4-1-5 are not the same 1 - which
+                // is the whole difference between handwriting and a font.
+                Texture2D scrawl = MakeDigitTexture($"Scrawl_{i}_{digit}", digit, 256, 0.055f, 0.028f,
+                                                    Color.white, 9100 + i * 31);
+                // Near-black ink, slightly transparent, so it reads as marked ON the panel rather
+                // than as a black shape floating in front of it.
+                Material scrawlMat = MakeDecalMaterial($"WallInk_{i}", scrawl,
+                                                       new Color(0.13f, 0.13f, 0.15f, 0.92f));
+
+                GameObject mark = Prim(PrimitiveType.Quad, $"Scrawl_{i}", root.transform,
+                    // Second row up, centred in its cell. Proud of the panel face by a hair so it
+                    // cannot z-fight with it.
+                    new Vector3(x, GridCellHeight * 1.5f, wallZ + 0.032f),
+                    new Vector3(GridCellWidth * 0.62f, GridCellHeight * 0.72f, 1f),
+                    scrawlMat, removeCollider: true);
+                // Facing into the room. A quad's front is -Z of its own transform.
+                mark.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+
+                pads[i] = BuildCountPad(root.transform, $"CountPad_{i}", new Vector3(x, 0f, padZ),
+                                        digit, propMat, digitMat, readouts);
+            }
+
+            NumberLock numberLock = root.AddComponent<NumberLock>();
+            numberLock.pads = pads;
+            return (numberLock, pads);
+        }
+
+        // One counting pad. Chunkier than room1-1's plain disc, because this one has to be READ as
+        // well as stood on: a ring, a recessed face that changes colour when it matches, and the
+        // digit it currently holds lying on that face.
+        private static CountPad BuildCountPad(Transform parent, string name, Vector3 localPos,
+                                              int target, Material propMat, Material digitMat,
+                                              Texture2D[] readouts)
+        {
+            GameObject root = new GameObject(name);
+            root.transform.SetParent(parent, false);
+            root.transform.localPosition = localPos;
+
+            // Everything that moves hangs off this, so the pad can sink without the logical volume -
+            // which is the root - moving with it.
+            GameObject plunger = new GameObject("Plunger");
+            plunger.transform.SetParent(root.transform, false);
+
+            const float padRadius = 0.42f;
+            const float ringHeight = 0.055f;
+
+            Material ringMat = MakeColorMaterial("CountPadRing", new Color(0.20f, 0.21f, 0.24f));
+            SetSmoothness(ringMat, 0.62f);
+
+            Prim(PrimitiveType.Cylinder, "Ring", plunger.transform,
+                new Vector3(0f, ringHeight / 2f, 0f),
+                new Vector3(padRadius * 2f, ringHeight / 2f, padRadius * 2f), ringMat,
+                removeCollider: true);
+
+            // The face, set INTO the ring. Emissive and driven by CountPad, so a matched pad reads
+            // from across the room without having to walk over and look at the number.
+            Material faceMat = MakeEmissiveMaterial("CountPadFace", new Color(0.55f, 0.60f, 0.68f), 1.6f);
+            GameObject face = Prim(PrimitiveType.Cylinder, "Face", plunger.transform,
+                new Vector3(0f, ringHeight * 0.86f, 0f),
+                new Vector3(padRadius * 1.55f, ringHeight * 0.22f, padRadius * 1.55f), faceMat,
+                removeCollider: true);
+
+            // The readout, lying flat on the face and turned to be read from the door side - which is
+            // where the player comes in and where the wall it answers to is behind them.
+            GameObject digit = Prim(PrimitiveType.Quad, "Digit", plunger.transform,
+                new Vector3(0f, ringHeight * 1.02f, 0f),
+                new Vector3(padRadius * 1.15f, padRadius * 1.15f, 1f), digitMat,
+                removeCollider: true);
+            digit.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+            CountPad pad = root.AddComponent<CountPad>();
+            pad.target = target;
+            // Derived from the visible disc, so the hit area and the thing you can see cannot drift
+            // apart - the mistake FloorButton documents having made.
+            pad.activationRadius = padRadius + 0.05f;
+            pad.faceRenderer = face.GetComponent<Renderer>();
+            pad.digitRenderer = digit.GetComponent<Renderer>();
+            pad.digitTextures = readouts;
+            pad.plunger = plunger.transform;
+            pad.audioSource = MakeSource(root.transform, "PadAudio", spatialBlend: 1f, volume: 0.85f);
+            pad.stepClip = LoadClip(SfxDir, "sfx_floor_button_press");
+            return pad;
         }
 
         // WHAT THE PLAYER FALLS THROUGH between the two storeys: a square tube joining the hole in
