@@ -48,10 +48,29 @@ namespace IterationRoom
         // Optional gate. The tool sits inside the drawer, so it cannot be taken through a shut one.
         public Drawer requiresOpenDrawer;
 
-        // Resting height once this is put down. The floor of every room is y=0, so the number is
-        // the object's own half-thickness, not a room measurement - which is why it lives here and
-        // not in whatever code happens to drop it.
+        // Resting height once this is put down, **measured from the floor this object stands on**.
+        // The number is the object's own half-thickness, not a room measurement - which is why it
+        // lives here and not in whatever code happens to drop it.
         public float floorY = 0.06f;
+
+        // WHICH FLOOR THAT IS. Zero for everything on the ground storey, which is why every value in
+        // SceneBuilder could be written as a bare half-height for as long as the building had one
+        // level.
+        //
+        // Cycles put a second storey under the first, and `floorY` alone cannot survive that: it was
+        // compared straight against `transform.position.y`, so an object on a lower floor would fall
+        // straight through it to the height of the floor above, and one carried up would refuse to
+        // fall at all. Splitting the two is what makes "half a cube above my own floor" and "which
+        // floor" separately true, instead of one number that silently means both.
+        //
+        // Set by `SceneBuilder.SetFloorBase` for a whole subtree at once rather than per item - a
+        // storey is a property of where a thing is, and asking each builder to remember it is asking
+        // for exactly one of them to forget.
+        public float floorBaseY;
+
+        // Where this comes to rest, in world space. Every height comparison uses this; `floorY` on
+        // its own is only ever an offset.
+        public float RestingY => floorBaseY + floorY;
 
         // HOW THIS LIES WHEN IT IS PUT DOWN, as a roll in degrees. Zero - almost everything - means
         // "however it was built", which is right for anything that stands up on its own: a cube, a
@@ -325,11 +344,11 @@ namespace IterationRoom
         // WHERE IT WAS LET GO OF, and then it falls the rest of the way. The height used to be
         // forced to floorY here - the argument's XZ and nothing else - because a carryable has no
         // Rigidbody and an object released at a ghost's wrist would otherwise hang in mid-air a
-        // metre up. `FallingItem` answers that properly now: one axis, real gravity, to floorY, and
+        // metre up. `FallingItem` answers that properly now: one axis, real gravity, to RestingY, and
         // deterministic in a way physics cannot be here. So this keeps the height it is given and
         // lets the fall be seen.
         //
-        // Clamped at floorY rather than trusted, because the callers are not all above the floor: a
+        // Clamped at RestingY rather than trusted, because the callers are not all above the floor: a
         // ghost's timeline ending passes the item's own position, which is fine, and the player's
         // own put-down passes a point ahead of them, which could be below the object's resting
         // height on a floor recess.
@@ -341,7 +360,7 @@ namespace IterationRoom
 
             transform.SetParent(originParent, true);
             transform.position = new Vector3(worldPosition.x,
-                                             Mathf.Max(worldPosition.y, floorY),
+                                             Mathf.Max(worldPosition.y, RestingY),
                                              worldPosition.z);
             // Whichever way it was already facing, so a dropped thing points where the player was
             // looking - it fell out of their hand, it did not turn itself to north on the way down.

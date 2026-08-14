@@ -130,7 +130,7 @@ namespace IterationRoom
             // The balloon names its own key, so this needs no idea how many there are.
             if (balloon.heldKey != null)
             {
-                balloon.heldKey.RevealAt(new Vector3(at.x, balloon.heldKey.floorY, at.z));
+                balloon.heldKey.RevealAt(new Vector3(at.x, balloon.heldKey.RestingY, at.z));
 
                 // LYING FLAT, not standing on its blade. RevealAt only ever moves an item - rotation
                 // is whatever it already had, which for a key is KeyRestRotation, the bow-up pose

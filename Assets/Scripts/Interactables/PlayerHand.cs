@@ -238,6 +238,11 @@ namespace IterationRoom
             Vector3 from = eye.transform.position;
             for (float d = allowed; d > hardMinDrop; d -= 0.12f)
             {
+                // `floorY` HERE, NOT `RestingY`, and the difference matters once there is a second
+                // storey. This builds a point relative to the PLAYER, who is standing on the same
+                // floor they are dropping onto - so what is wanted is the object's height above that
+                // floor, which is exactly what `floorY` is. `RestingY` is a world height and would
+                // add the storey in twice.
                 Vector3 spot = transform.position + transform.forward * d + Vector3.up * item.floorY;
                 if (!Occluded(from, spot, item)) return d;
             }

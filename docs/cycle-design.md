@@ -190,12 +190,18 @@ price of not serialising ghosts.
    hardcoded**: cycles are a list, and the last one is the one with no successor defined. More cycles
    are intended (§8), so a literal `2` anywhere here is a bug waiting for cycle 3.
 
-5. **`CarryableItem.floorY` is an ABSOLUTE WORLD Y.** Default `0.06f` (`CarryableItem.cs:54`),
-   compared straight against `transform.position.y` (`FallingItem.cs:104`), and every assignment is a
-   half-height measured from y = 0: `keySize/2f`, `0f`, `cubeSize/2f` (`SceneBuilder.cs:3305, 3444,
-   4011`). **This is the single largest cost of a second storey.** Anything carryable down there must
-   have `floorY` set against that floor, or it falls through it — and anything carried *up* refuses to
-   fall at all.
+5. ~~**`CarryableItem.floorY` is an ABSOLUTE WORLD Y.**~~ **DONE.** It was: compared straight against
+   `transform.position.y`, with every assignment a half-height measured from y = 0, so an object on a
+   lower storey fell through its floor to the height of the one above. Split in two — `floorY` is now
+   explicitly the object's own half-thickness **above its own floor**, `floorBaseY` says which floor
+   that is, and `RestingY` is the sum every height comparison reads. The ground storey needs no
+   change, because `floorBaseY` defaults to zero.
+   - **`SceneBuilder.SetFloorBase(root, y)` sets it for a whole subtree**, deliberately not per
+     builder: a storey is a property of where a thing was placed, and asking each builder to remember
+     it is asking for one of them to forget, silently.
+   - **One read site keeps `floorY` and must**: `PlayerHand.VisibleAhead` builds a point relative to
+     the *player*, who is standing on the floor being dropped onto, so `RestingY` there would add the
+     storey in twice.
 
 6. **`Door.sealing` is never cleared** (`Door.cs:76, 152`) and `Update` returns immediately while it
    is set. **Less pressing than it looks**: the door `RunBreak` seals is on the floor being abandoned,
@@ -307,7 +313,7 @@ A cell is `1.75 × 1.3519492`; north and south walls are 5 columns by 4 rows. Th
 **One scene, second floor at −Y, switchbacking along −Z.**
 
 Looking down through the opening and seeing the next bed requires both floors to exist at once. A
-scene per cycle would dodge the absolute `floorY`, the singletons, the `ItemRegistry` collisions and
+scene per cycle would dodge the singletons, the `ItemRegistry` collisions and
 the panel gather — and could not produce that image, which is the whole point of the beat.
 
 So the costs in §5b and §5c get paid.

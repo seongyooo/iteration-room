@@ -4095,6 +4095,30 @@ namespace IterationRoom.EditorTools
             return fall;
         }
 
+        // TELLS EVERY CARRYABLE UNDER `root` WHICH STOREY IT IS ON. One call per cycle subtree,
+        // rather than a line in every builder that makes a carryable.
+        //
+        // `CarryableItem.floorY` is the object's own half-thickness above ITS OWN floor, and that
+        // number is genuinely the object's business. Which floor is not - it is a property of where
+        // the thing was placed, so it is set here, in one sweep, at the point the storey is already
+        // known. Asking each builder to remember to add it is asking for exactly one of them to
+        // forget, and the failure mode is silent: the object falls through the floor to the height of
+        // the storey above and hangs there.
+        //
+        // The ground storey needs no call at all - `floorBaseY` defaults to zero, which is why every
+        // value in this file could be written as a bare half-height for as long as there was one
+        // level, and why none of them had to change when there stopped being.
+        private static int SetFloorBase(Transform root, float floorY)
+        {
+            if (root == null) return 0;
+
+            CarryableItem[] items = root.GetComponentsInChildren<CarryableItem>(includeInactive: true);
+            foreach (CarryableItem item in items) item.floorBaseY = floorY;
+
+            Debug.Log($"[SceneBuilder] Floor base {floorY:0.###} set on {items.Length} carryables under {root.name}");
+            return items.Length;
+        }
+
         private static int AddFallingToEveryCarryable()
         {
             int added = 0;

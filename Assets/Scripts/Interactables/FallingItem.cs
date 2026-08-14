@@ -47,7 +47,8 @@ namespace IterationRoom
         // The height this was BUILT at, captured rather than configured - the same number
         // SceneBuilder already had to work out to place it, and reading it back is one fewer value
         // to keep in step. Only meaningful when there is a support; a floor-standing object's
-        // resting height is its own floorY.
+        // resting height is its own RestingY. `stackedY` is a world height and needs no floor base of
+        // its own - it was captured from where the object was actually built.
         private float stackedY;
         private float speed;
 
@@ -77,7 +78,7 @@ namespace IterationRoom
             spinFrom = fromWorldRotation;
             spinTo = transform.rotation;
             glideTop = p.y;
-            glideBottom = item != null ? item.floorY : 0f;
+            glideBottom = item != null ? item.RestingY : 0f;
             gliding = glideTop > glideBottom + 0.01f;
 
             if (gliding) transform.rotation = spinFrom;
@@ -91,7 +92,7 @@ namespace IterationRoom
             // fall competing with them would fight the hand anchor for the transform.
             if (item == null || item.IsCarried) { speed = 0f; gliding = false; return; }
 
-            // NOTHING FALLS OFF ITS OWN SHELF. Being above floorY is not the same fact as having
+            // NOTHING FALLS OFF ITS OWN SHELF. Being above RestingY is not the same fact as having
             // been let go of, and treating them as one is exactly what dropped the pin out of its
             // drawer the moment the scene loaded - along with the escape objects off their plinths.
             // A support is the other reason to fall, and it is the one a stacked cube has: it was
@@ -101,7 +102,7 @@ namespace IterationRoom
             // ONLY EVER DOWN. A support put back underneath does not lift this off the floor again -
             // that would be an object climbing, and the only thing entitled to rebuild a tower is
             // the loop's own rewind, which sets the position outright.
-            float target = Supported ? stackedY : item.floorY;
+            float target = Supported ? stackedY : item.RestingY;
             Vector3 p = transform.position;
             if (p.y <= target + 0.001f) { Settle(); speed = 0f; return; }
 
