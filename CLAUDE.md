@@ -22,6 +22,10 @@ blue sphere. **Room3** pays out a yellow triangle on the same condition that ope
 three are `CarryableItem`s and Room4's console has a shaped recess for each — see
 `docs/puzzle-design.md`.
 
+**Rooms are called `room<cycle>-<n>` in design discussion** — `Room1` is `room1-1`, `Room4` is
+`room1-0`, and a cycle always ends in its `-0`. **The code names above are unchanged and are what
+you grep for**; the mapping is in `docs/cycle-design.md` §4a.
+
 **LAYOUT CHANGED 2026-08-13, from a hub (three coloured doors off Room2's own walls) to the linear
 corridor above** — play-tested as tedious, backtracking to Room2 between the two side rooms rather
 than making progress. Verified in code only (SceneBuilder compiles, the scene builds with no errors,
@@ -430,7 +434,7 @@ and only the second answers whether something is understandable or enjoyable.
 | `docs/build-and-stack.md` | Engine/pipeline detail, both rebuild paths |
 | `docs/ghost-possession-design.md` | Ghost custody: the full argument |
 | `docs/puzzle-design.md` | Room-by-room design, and the three puzzle shapes |
-| `docs/cycle-design.md` | The cycle paradigm: how new puzzles get added from here (designed, not built) |
+| `docs/cycle-design.md` | The cycle paradigm and the `room<cycle>-<n>` naming (designed, not built) |
 | `docs/ghosts.md` | Ghost appearance, the afterimage shader, animation scrubbing |
 | `docs/loop-and-ui.md` | Loop, wake-up, ending, sensitivity, pause, menu, HUD |
 | `docs/room-geometry.md` | Shells, the wall grid, doors |
