@@ -46,10 +46,15 @@ namespace IterationRoom
         // Index is the digit. Swapped through a property block, so all ten pads share one material.
         public Texture2D[] digitTextures;
 
-        // Sinks a few millimetres while somebody is on it. Small, because a pad that visibly travels
-        // reads as a lever rather than as something you tread on.
+        // Sinks a few millimetres while somebody is on it, and springs back. Small travel, because a
+        // pad that visibly moves a long way reads as a lever rather than as something you tread on.
+        //
+        // DOWN FAST, UP SLOWER, which is the whole of what makes it read as sprung rather than as a
+        // value being animated. A pad that returns as fast as it went is a slider.
         public Transform plunger;
-        public float plungerDrop = 0.012f;
+        public float plungerDrop = 0.014f;
+        public float pressSeconds = 0.055f;
+        public float releaseSeconds = 0.20f;
 
         public AudioSource audioSource;
         public AudioClip stepClip;
@@ -68,11 +73,28 @@ namespace IterationRoom
         private bool playerOn;
         private readonly HashSet<GhostReplayer> ghostsOn = new HashSet<GhostReplayer>();
 
+        // 0 up, 1 fully down. Driven every frame rather than set on the change, so the travel is a
+        // motion instead of a jump.
+        private float plungerBlend;
+
+        private bool Occupied => playerOn || ghostsOn.Count > 0;
+
         private static readonly int BaseMapId = Shader.PropertyToID("_BaseMap");
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
         private static readonly int EmissionId = Shader.PropertyToID("_EmissionColor");
 
         private void Start() => UpdateVisual();
+
+        private void Update()
+        {
+            if (plunger == null) return;
+
+            float want = Occupied ? 1f : 0f;
+            float seconds = Mathf.Max(0.01f, want > plungerBlend ? pressSeconds : releaseSeconds);
+            plungerBlend = Mathf.MoveTowards(plungerBlend, want, Time.deltaTime / seconds);
+            // Eased, so it neither starts nor stops dead. Same curve the plinth and the hatch use.
+            plunger.localPosition = new Vector3(0f, -plungerDrop * Mathf.SmoothStep(0f, 1f, plungerBlend), 0f);
+        }
 
         // Polled rather than driven by trigger callbacks, for the reason FloorButton documents: the
         // loop teleports the player by disabling the controller inside one frame, so an exit callback
@@ -106,6 +128,11 @@ namespace IterationRoom
             Count = 0;
             playerOn = false;
             ghostsOn.Clear();
+            // Snapped rather than left to travel: this happens behind the closed eyelids, and a rack
+            // of pads springing back up on the first frame of a new iteration is the machinery of the
+            // loop showing through.
+            plungerBlend = 0f;
+            if (plunger != null) plunger.localPosition = Vector3.zero;
             UpdateVisual();
         }
 
@@ -136,11 +163,6 @@ namespace IterationRoom
 
         private void UpdateVisual()
         {
-            bool occupied = playerOn || ghostsOn.Count > 0;
-
-            if (plunger != null)
-                plunger.localPosition = new Vector3(0f, occupied ? -plungerDrop : 0f, 0f);
-
             if (faceRenderer != null)
             {
                 Color c = Met ? metColour : unmetColour;

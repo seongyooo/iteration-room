@@ -508,6 +508,11 @@ namespace IterationRoom
 
             // The way on opens, and the player takes it in their own time. Both halves are the way
             // out's own business - it knows when it has been used.
+            // THE NEXT CYCLE WAKES BEFORE THE HATCH DOES. It has to be there to be looked down at -
+            // seeing the bed you are about to wake in is the whole of why the opening is in the floor
+            // rather than in a wall.
+            if (HasNextCycle) cycles[cycleIndex + 1]?.SetAwake(true);
+
             CycleExit exit = Current != null && Current.finalRoom != null ? Current.finalRoom.wayOut : null;
             if (exit != null)
             {
@@ -596,6 +601,12 @@ namespace IterationRoom
             // The wash goes, behind the shut lids. Left up, the next cycle would open on a white
             // sheet - and the eyelids being closed is exactly why this is invisible.
             sleepingGas?.Clear();
+
+            // AND THE CYCLE JUST LEFT GOES TO SLEEP, behind the shut eyelids and after everything
+            // above has finished with it - the ghost teardown, the item sweep and the room resets all
+            // need it awake. Its carryables unregister on the way out, which is what keeps the next
+            // cycle's sweep to the next cycle's objects.
+            Current?.SetAwake(false);
 
             // A new bed is a new count of everything.
             IterationNumber = 0;

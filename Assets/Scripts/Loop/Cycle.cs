@@ -15,6 +15,22 @@ namespace IterationRoom
     // ghosts accumulating forever. What a cycle bounds is the accumulation, not the rules.
     public class Cycle : MonoBehaviour
     {
+        // EVERYTHING THIS CYCLE IS, as one transform to switch off.
+        //
+        // Only one cycle is awake at a time. Culling keeps an unseen cycle off the screen for free,
+        // but it does not stop `Update` - and this scene runs about two hundred polling components,
+        // most of them carryables and balloons, which tick whether or not anybody is in their cycle.
+        //
+        // Deactivating also unregisters the carryables under it, through `CarryableItem.OnDisable`.
+        // That is the behaviour wanted rather than a side effect: `ItemRegistry.ReturnAllToOrigin`
+        // should not be sweeping a cycle nobody can reach.
+        public Transform worldRoot;
+
+        public void SetAwake(bool awake)
+        {
+            if (worldRoot != null) worldRoot.gameObject.SetActive(awake);
+        }
+
         // Where every iteration of this cycle begins. `WakeUpSequence` needs no counterpart - it
         // poses the eye wherever the player already is, so it works at any bed unchanged.
         public Transform bedSpawnPoint;

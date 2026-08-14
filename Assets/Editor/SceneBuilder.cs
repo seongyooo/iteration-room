@@ -729,6 +729,7 @@ namespace IterationRoom.EditorTools
             cycleOne.finalRoom = finalRoom;
             cycleOne.ghostInteractables = ghostInteractables;
             cycleOne.wallPanels = wallDisplay;
+            cycleOne.worldRoot = room.transform;
 
             // CYCLE 2. A bed, a room and nothing else yet - which is exactly what the boundary needs
             // to be exercised, and no more.
@@ -748,6 +749,8 @@ namespace IterationRoom.EditorTools
             // array when the cycle starts. See Cycle.ghostInteractables.
             cycleTwo.ghostInteractables = cycleTwoPads;
             cycleTwo.numberLock = cycleTwoLock;
+            cycleTwo.worldRoot = cycleTwoRoot;
+
             cycleTwo.wallPanels = cycleTwoDisplay;
 
             // Everything down there stands on a floor one storey below zero, and every carryable has
@@ -803,6 +806,26 @@ namespace IterationRoom.EditorTools
             AddFallingToEveryCarryable();
 
             BakeReflectionProbes();
+
+            // ASLEEP UNTIL ITS TURN - and AFTER the bake, which is the whole reason this is here
+            // rather than beside the rest of cycle 2's wiring.
+            //
+            // A probe renders the scene from its own position, and a disabled renderer does not
+            // render. Deactivated first, room2-1 and room2-2 baked an empty room: their .exr files
+            // came out half the size of every other room's, which is what a cubemap of nothing
+            // compresses to. Walls at 0.85 smoothness are almost entirely what they reflect, so that
+            // would have shipped as two rooms lit by a void.
+            //
+            // WHY DEACTIVATE AT ALL. Frustum culling already keeps an unseen cycle off the screen for
+            // nothing, but it does NOT stop scripts: about two hundred components in this scene poll
+            // every frame - fifty carryables, fifty falls, seventy balloons, the pads, the doors - and
+            // they run whether or not anybody is in their cycle. This stops all of it, drops the
+            // renderers and lights, and unregisters the carryables through their own OnDisable, which
+            // is exactly right: a cycle nobody can reach should not be in ItemRegistry's sweep.
+            //
+            // LoopManager wakes the next one before the hatch opens - the player has to be able to
+            // look down through it and see the bed - and puts the old one away behind the eyelids.
+            SleepCycle(cycleTwoRoot);
 
             Directory.CreateDirectory("Assets/Scenes");
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -2253,6 +2276,13 @@ namespace IterationRoom.EditorTools
         // `-nographics` cannot render, and a bake is a render: the whole pass is skipped there. That
         // leaves the previous .exr files in place, which is the same bargain CaptureMenuBackground
         // makes - stale reflection data is a far better outcome than a failed build.
+        private static void SleepCycle(Transform root)
+        {
+            if (root == null) return;
+            root.gameObject.SetActive(false);
+            Debug.Log($"[SceneBuilder] {root.name} starts asleep; LoopManager wakes it at the boundary.");
+        }
+
         private static void BakeReflectionProbes()
         {
             if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
@@ -3207,9 +3237,15 @@ namespace IterationRoom.EditorTools
             root.transform.SetParent(parent, false);
             root.transform.localPosition = new Vector3(0f, 0f, roomCenterZ);
 
-            // The south wall's inner face, and one grid cell in from it.
-            float wallZ = -RoomDepth / 2f;
-            float padZ = wallZ + GridCellWidth;
+            // THE WALL OPPOSITE THE DOOR, and one grid cell out from it.
+            //
+            // The doorway is cut in this room's -Z wall, so the numbers go on +Z: the player comes in
+            // by dropping through the ceiling, turns to find the way out, and the combination is on
+            // the wall behind them rather than on the one they are walking toward. Reading it and
+            // leaving are two different directions, which is what stops the room being solved facing
+            // one way without ever looking round.
+            float wallZ = RoomDepth / 2f;
+            float padZ = wallZ - GridCellWidth;
 
             // Ten readouts and five pieces of graffiti. The pad digits are drawn clean and thin - a
             // machine showing a number - and the wall ones thick and wobbling, drawn by a hand.
@@ -3246,11 +3282,12 @@ namespace IterationRoom.EditorTools
                 GameObject mark = Prim(PrimitiveType.Quad, $"Scrawl_{i}", root.transform,
                     // Second row up, centred in its cell. Proud of the panel face by a hair so it
                     // cannot z-fight with it.
-                    new Vector3(x, GridCellHeight * 1.5f, wallZ + 0.032f),
+                    new Vector3(x, GridCellHeight * 1.5f, wallZ - 0.032f),
                     new Vector3(GridCellWidth * 0.62f, GridCellHeight * 0.72f, 1f),
                     scrawlMat, removeCollider: true);
                 // Facing into the room. A quad's front is -Z of its own transform.
-                mark.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+                // A Unity quad faces -Z, which is already into the room from the +Z wall.
+                mark.transform.localRotation = Quaternion.identity;
 
                 pads[i] = BuildCountPad(root.transform, $"CountPad_{i}", new Vector3(x, 0f, padZ),
                                         digit, propMat, digitMat, readouts);
@@ -3280,6 +3317,15 @@ namespace IterationRoom.EditorTools
             const float padRadius = 0.42f;
             const float ringHeight = 0.055f;
 
+            // WRITTEN AS ABSOLUTE HEIGHTS, not as fractions of the ring. The first version used
+            // multipliers and buried the readout inside the face - a Unity cylinder is TWO units
+            // tall, so a y-scale of 0.22 * ringHeight is a slab 0.024 high, and the digit sitting at
+            // 1.02 * ringHeight was three millimetres UNDER its top. Nothing rendered, and nothing
+            // about the numbers looked wrong on paper.
+            const float faceTop = ringHeight - 0.006f;   // the face, recessed into the ring
+            const float faceThickness = 0.012f;
+            const float digitLift = 0.0015f;             // the readout, clear of the face
+
             Material ringMat = MakeColorMaterial("CountPadRing", new Color(0.20f, 0.21f, 0.24f));
             SetSmoothness(ringMat, 0.62f);
 
@@ -3292,15 +3338,15 @@ namespace IterationRoom.EditorTools
             // from across the room without having to walk over and look at the number.
             Material faceMat = MakeEmissiveMaterial("CountPadFace", new Color(0.55f, 0.60f, 0.68f), 1.6f);
             GameObject face = Prim(PrimitiveType.Cylinder, "Face", plunger.transform,
-                new Vector3(0f, ringHeight * 0.86f, 0f),
-                new Vector3(padRadius * 1.55f, ringHeight * 0.22f, padRadius * 1.55f), faceMat,
+                new Vector3(0f, faceTop - faceThickness / 2f, 0f),
+                new Vector3(padRadius * 1.55f, faceThickness / 2f, padRadius * 1.55f), faceMat,
                 removeCollider: true);
 
-            // The readout, lying flat on the face and turned to be read from the door side - which is
-            // where the player comes in and where the wall it answers to is behind them.
+            // The readout, lying flat and clear of the face it sits on. Rotated +90 about X, which
+            // turns a quad's -Z normal to face straight up.
             GameObject digit = Prim(PrimitiveType.Quad, "Digit", plunger.transform,
-                new Vector3(0f, ringHeight * 1.02f, 0f),
-                new Vector3(padRadius * 1.15f, padRadius * 1.15f, 1f), digitMat,
+                new Vector3(0f, faceTop + digitLift, 0f),
+                new Vector3(padRadius * 1.2f, padRadius * 1.2f, 1f), digitMat,
                 removeCollider: true);
             digit.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
 
