@@ -3079,6 +3079,16 @@ namespace IterationRoom.EditorTools
             AssertWalkable(rooms[6], "room2-7 west door", wIn, wOut);
             AssertWalkable(rooms[7], "room2-0 north door", nIn, nOut);
 
+            // AND THAT EVERY TOOL A ROOM NEEDS CAN BE REACHED FROM ITS DOOR. Room3's axes were
+            // behind the tree they exist to fell - a dead room that no amount of play could argue
+            // its way out of - and the walkability sweeps above could not see it, because the
+            // doorways themselves were perfectly clear.
+            //
+            // The general rule: anything a puzzle CONSUMES has to be on the entry side of whatever
+            // that puzzle removes. Swept from just inside the entry to each item in turn.
+            AssertToolsReachable(rooms[2], "room2-3 axes", nIn);
+            AssertToolsReachable(rooms[4], "room2-5 buckets", nIn);
+
             // NO PUZZLES BEHIND THESE YET, so they stand open and the ring can be walked. Each flag
             // comes off as its room is built - see Door.openUntilPuzzled.
             //
@@ -7810,6 +7820,16 @@ namespace IterationRoom.EditorTools
         // NORMALISED TO A UNIT BOUNDING BOX like the prism it generalises, so a localScale of 0.30
         // still means 0.30 ACROSS for every one of the three. The barrel ring is the widest part, so
         // it is the ring the bounds are taken from.
+        // Every carryable in the room, walked to from the entry. Uses the same swept sphere as
+        // AssertWalkable and forgives the same deliberate barriers - what it is looking for is a tool
+        // stranded on the wrong side of the thing it is meant to remove.
+        private static void AssertToolsReachable(Transform roomRoot, string label, Vector3 localEntry)
+        {
+            foreach (CarryableItem item in roomRoot.GetComponentsInChildren<CarryableItem>(true))
+                AssertWalkable(roomRoot, $"{label} ('{item.name}')",
+                               localEntry, roomRoot.InverseTransformPoint(item.transform.position));
+        }
+
         // ROOM4: THE RATCHET. The room's two halves are deliberately far apart - the pawl against the
         // east wall, the crank at the window - so holding one and turning the other cannot be done by
         // walking quickly. It is the first room that asks two people to do DIFFERENT things at once.
@@ -8181,15 +8201,27 @@ namespace IterationRoom.EditorTools
                 stations[i] = station;
             }
 
-            // SIX AXES FOR FIVE STATIONS, on a rack against the south wall - which this room has to
-            // itself, having no doorway in it. One spare, because a supply that exactly matches the
+            // SIX AXES FOR FIVE STATIONS, one spare because a supply that exactly matches the
             // requirement makes a single axe left in the wrong place unrecoverable.
+            //
+            // **ON THE SAME SIDE OF THE TREE AS THE PLAYER**, and the first version was not. They went
+            // against the south wall, which is the only wall in this room with no doorway and looked
+            // like the tidy place for a rack - except the tree stands at z = 0 and the player comes in
+            // from the north, so the axes were behind the barrier. Chopping the tree needed an axe and
+            // reaching an axe needed the tree chopped: a dead room, and one no amount of play would
+            // have talked its way out of.
+            //
+            // A whole class of mistake rather than a slip: anything a room's puzzle CONSUMES has to be
+            // on the entry side of whatever that puzzle removes.
+            //
+            // Against the north wall, split either side of the doorway so the way in stays clear.
             Material headMat = MakePolishedMetalMaterial("AxeHead", new Color(0.86f, 0.87f, 0.90f), 0f);
             Material haftMat = MakeColorMaterial("AxeHaft", new Color(0.42f, 0.28f, 0.16f));
             var axes = new CarryableItem[6];
+            float[] axeX = { -3.6f, -2.7f, -1.8f, 1.8f, 2.7f, 3.6f };
             for (int i = 0; i < axes.Length; i++)
                 axes[i] = BuildAxe(root.transform, $"Axe_{i}",
-                    new Vector3((i - 2.5f) * 0.85f, 0f, -RoomDepth / 2f + 0.7f), headMat, haftMat);
+                    new Vector3(axeX[i], 0f, RoomDepth / 2f - 0.75f), headMat, haftMat);
 
             Tree tree = root.AddComponent<Tree>();
             tree.stations = stations;
