@@ -34,13 +34,6 @@ namespace IterationRoom.EditorTools
         // Three ids rather than one shared one, because `ItemRegistry` maps an id to exactly ONE
         // socket with the last writer winning - a shared id would leave two of the three recesses
         // unreachable.
-        // Room3's axes. A SUPPLY sharing one id, exactly as the pins are: what the room needs is
-        // several people each holding one, and `ItemRegistry` resolves an id to a free instance.
-        private const string AxeItemId = "Axe2";
-
-        // Room5's buckets. A supply, like the axes and the pins.
-        private const string BucketItemId = "Bucket2";
-
         private const string ShardAItemId = "Shard2A";
         private const string ShardBItemId = "Shard2B";
         private const string ShardCItemId = "Shard2C";
@@ -309,19 +302,6 @@ namespace IterationRoom.EditorTools
         // other join has.
         private const float CornerPitch = RoomWidth / 2f + RoomDepth / 2f + 2f * WallDepth + DoorPocketDepth;
 
-        // THE WINDOW ONTO THE CORE: three grid cells wide, two tall, starting one cell up. Sized off
-        // the grid rather than picked, so it reads as part of the wall's own module - the same
-        // argument the floor opening in `room1-0` is sized by.
-        private static readonly Rect CoreWindow = Rect.MinMaxRect(
-            -1.5f * GridCellWidth, GridCellHeight, 1.5f * GridCellWidth, 3f * GridCellHeight);
-
-        // ROOM2-1'S COMBINATION, left to right along the south wall as the player faces it from the
-        // door. One digit per grid cell, one pad in front of each.
-        //
-        // Five, because five is what a room's worth of iterations looks like: a past self can do one
-        // pad and leave, so the room is about that many trips. Raising or lowering this is the length
-        // dial for this room, the way the chess room's twelve is for that one.
-        private static readonly int[] CycleTwoCombination = { 3, 1, 4, 1, 5 };
 
         // The sensitivity room. Deliberately NOT a multiple of RoomPitch in the positive direction
         // - it is not part of the chain and must never be walked into, so it sits behind Room1 with
@@ -863,7 +843,6 @@ namespace IterationRoom.EditorTools
             for (int i = 0; i < shardIds.Length; i++)
                 BuildRingShard(shardRooms[i], $"Shard_{(char)('A' + i)}", shardIds[i],
                                // Off the centre line, so it is neither in a doorway nor under the
-                               // east lever - see BuildChorus for the same constraint.
                                new Vector3(1.5f, 0f, 1.8f), i * 120f, shardMesh, shardMat);
             cycleTwo.worldRoot = cycleTwoRoot;
 
@@ -2834,20 +2813,6 @@ namespace IterationRoom.EditorTools
             return holder.transform;
         }
 
-        // The pane in a core window. Not a door and not a wall - a sheet of glass filling a hole that
-        // is never opened, so it is the one piece of this building the player can see through and
-        // never pass.
-        private static void BuildCoreWindow(Transform roomRoot, Material glassMat)
-        {
-            float w = CoreWindow.width, h = CoreWindow.height;
-            GameObject pane = Prim(PrimitiveType.Cube, "CoreWindow", roomRoot,
-                new Vector3(-RoomWidth / 2f, CoreWindow.yMin + h / 2f, CoreWindow.center.x),
-                new Vector3(0.05f, h, w), glassMat);
-            // Kept solid on purpose. The window is a hole in the wall's collision as well as its
-            // panelling - `SubtractRect` cuts both - so without this the player walks into the core.
-            pane.name = "CoreWindow";
-        }
-
         // THE MACHINE THE RING IS BUILT AROUND.
         //
         // A sealed casing the player never enters, seen only through four windows. Inset from the
@@ -2932,44 +2897,40 @@ namespace IterationRoom.EditorTools
             Transform r1 = BuildRingRoom(root.transform, "Room2_1", 0f, ringZ, 0f,
                 floorMat, grooveMat, panelMat, doorway, Rect.zero, Rect.zero, CycleExitHole);
             Transform r2 = BuildRingRoom(root.transform, "Room2_2", 0f, ringZ - RoomPitch, 0f,
-                floorMat, grooveMat, panelMat, doorway, doorway, CoreWindow);
+                floorMat, grooveMat, panelMat, doorway, doorway, Rect.zero);
             Transform r3 = BuildRingRoom(root.transform, "Room2_3", 0f, ringZ - 2f * RoomPitch, 0f,
                 floorMat, grooveMat, panelMat, Rect.zero, doorway, doorway);
 
             float legTwoZ = ringZ - 2f * RoomPitch;
             Transform r4 = BuildRingRoom(root.transform, "Room2_4", -CornerPitch, legTwoZ, 90f,
-                floorMat, grooveMat, panelMat, doorway, doorway, CoreWindow);
+                floorMat, grooveMat, panelMat, doorway, doorway, Rect.zero);
             Transform r5 = BuildRingRoom(root.transform, "Room2_5", -CornerPitch - RoomPitch, legTwoZ, 90f,
                 floorMat, grooveMat, panelMat, Rect.zero, doorway, doorway);
 
             float legThreeX = -CornerPitch - RoomPitch;
             Transform r6 = BuildRingRoom(root.transform, "Room2_6", legThreeX, legTwoZ + CornerPitch, 180f,
-                floorMat, grooveMat, panelMat, doorway, doorway, CoreWindow);
+                floorMat, grooveMat, panelMat, doorway, doorway, Rect.zero);
             Transform r7 = BuildRingRoom(root.transform, "Room2_7", legThreeX, legTwoZ + CornerPitch + RoomPitch, 180f,
                 floorMat, grooveMat, panelMat, Rect.zero, doorway, doorway);
 
             Transform r0 = BuildRingRoom(root.transform, "Room2_0", legThreeX + CornerPitch,
                 legTwoZ + CornerPitch + RoomPitch, 270f,
-                floorMat, grooveMat, panelMat, Rect.zero, doorway, CoreWindow);
+                floorMat, grooveMat, panelMat, Rect.zero, doorway, Rect.zero);
 
             var rooms = new[] { r1, r2, r3, r4, r5, r6, r7, r0 };
             var names = new[] { "Room2_1", "Room2_2", "Room2_3", "Room2_4",
                                 "Room2_5", "Room2_6", "Room2_7", "Room2_0" };
 
-            // The four windows, and the machine behind them. The casing is inset so it is not
-            // coplanar with the walls it is seen through - see BuildCore.
-            Material glassMat = MakeTranslucentMaterial("CoreGlass", new Color(0.72f, 0.82f, 0.88f, 0.16f), 0.94f);
-            BuildCoreWindow(r2, glassMat);
-            BuildCoreWindow(r4, glassMat);
-            BuildCoreWindow(r6, glassMat);
-            BuildCoreWindow(r0, glassMat);
-
+            // THE WINDOWS ARE GONE, with the puzzles that looked through them. They were built as
+            // translucent panes at 0.94 smoothness, and in a lit white room that reads as a MIRROR
+            // rather than as a window - which is what play reported. The casing stays: the ring is
+            // still wrapped around something, and cutting a window back in is one Rect.
             const float coreInset = 0.15f;
             float coreSpan = RoomPitch + CornerPitch - RoomWidth - 2f * coreInset;
             Vector3 coreCentre = new Vector3(
                 (0f - RoomWidth / 2f + legThreeX + RoomWidth / 2f) / 2f, 0f,
                 (legTwoZ + RoomWidth / 2f + legTwoZ + CornerPitch + RoomPitch - RoomWidth / 2f) / 2f);
-            Transform coreAxle = BuildCore(root.transform, coreCentre, coreSpan, propMat);
+            BuildCore(root.transform, coreCentre, coreSpan, propMat);
 
             // THE DOORS, each built under the room it leaves FROM and set in that room's exit wall.
             // Straight joins use the south wall (yaw 180 from the builder's default north); the three
@@ -3019,44 +2980,6 @@ namespace IterationRoom.EditorTools
             furniture.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
             BuildNightstand(furniture.transform, CycleTwoToolItemId);
 
-            (NumberLock numberLock, CountPad[] pads) = BuildNumberLock(r1, 0f, propMat);
-            doors[0].condition = numberLock;
-
-            // ROOM2: the chorus. Its door is the one out of room2, into room3.
-            (Chorus chorus, ChorusLever[] chorusLevers) = BuildChorus(rooms[1], propMat);
-            doors[1].condition = chorus;
-            doors[1].openUntilPuzzled = false;
-
-            // ROOM3: the tree. Its door is the corner one out of room3, into room4.
-            (Tree tree, ChopStation[] chopStations, CarryableItem[] axes) =
-                BuildTreeRoom(rooms[2], propMat);
-            doors[2].condition = tree;
-            doors[2].openUntilPuzzled = false;
-
-            // ROOM4: the ratchet, turning the core's own axle. Its door leads to room5.
-            (Ratchet ratchet, RatchetPawl pawl, RatchetCrank crank) =
-                BuildRatchetRoom(rooms[3], propMat, coreAxle);
-            doors[3].condition = ratchet;
-            doors[3].openUntilPuzzled = false;
-
-            // ROOM5: the cistern. Its door is the corner one into room6.
-            (Cistern cistern, CarryableItem[] buckets) = BuildCisternRoom(rooms[4], propMat);
-            doors[4].condition = cistern;
-            doors[4].openUntilPuzzled = false;
-
-            // ROOM6: the sequence. Its door leads to room7.
-            (SequenceLock chain, SequenceNode[] chainNodes) = BuildSequenceRoom(rooms[5], propMat);
-            doors[5].condition = chain;
-            doors[5].openUntilPuzzled = false;
-
-            // ROOM7: the haul. Its door is the corner one into room0, the last of the ring.
-            (Haul haul, HeavyItem load) = BuildHaulRoom(rooms[6], propMat, ghostParent);
-            doors[6].condition = haul;
-            doors[6].openUntilPuzzled = false;
-
-            // EVERY DOORWAY WALKED, now that all eight rooms are furnished. Each check sweeps from
-            // just inside one opening to just inside the next, at head height, with the player's own
-            // width - so anything a fixture puts in the way is a build error rather than a surprise.
             // The last couple of metres up to each opening, from inside the room. Short on purpose:
             // see AssertWalkable for why this is not a path across the room.
             float outZ = RoomDepth / 2f - 0.7f, outX = RoomWidth / 2f - 0.7f;
@@ -3079,41 +3002,14 @@ namespace IterationRoom.EditorTools
             AssertWalkable(rooms[6], "room2-7 west door", wIn, wOut);
             AssertWalkable(rooms[7], "room2-0 north door", nIn, nOut);
 
-            // AND THAT EVERY TOOL A ROOM NEEDS CAN BE REACHED FROM ITS DOOR. Room3's axes were
-            // behind the tree they exist to fell - a dead room that no amount of play could argue
-            // its way out of - and the walkability sweeps above could not see it, because the
-            // doorways themselves were perfectly clear.
-            //
-            // The general rule: anything a puzzle CONSUMES has to be on the entry side of whatever
-            // that puzzle removes. Swept from just inside the entry to each item in turn.
-            AssertToolsReachable(rooms[2], "room2-3 axes", nIn);
-            AssertToolsReachable(rooms[4], "room2-5 buckets", nIn);
-
-            // NO PUZZLES BEHIND THESE YET, so they stand open and the ring can be walked. Each flag
-            // comes off as its room is built - see Door.openUntilPuzzled.
-            //
-            // Room1's is included even though its number lock works, because the ring cannot be
-            // walked without it. Turning the lock back on is deleting one line.
-            // Set on every door first and cleared again by each room as its puzzle lands, so the
-            // flag is impossible to forget: a room that gets built takes its own door off the list.
-            foreach (Door d in doors) d.openUntilPuzzled = true;
-
             ParticleSystem[] gas = BuildGasEmitters(r1, "Room2_1_Gas", 0f);
 
-            // EVERY SIGNAL IN THIS CYCLE, IN ONE ARRAY, and its order is the wire format - an
-            // entry's index is its bit in RecordedFrame.signals. Append as rooms are built, never
-            // reorder: a bit that changes meaning is a past self holding the wrong thing.
-            var signals = new System.Collections.Generic.List<GhostInteractable>();
-            signals.AddRange(pads);
-            signals.AddRange(chorusLevers);
-            signals.AddRange(chopStations);
-            signals.Add(pawl);
-            signals.Add(crank);
-            signals.AddRange(chainNodes);
-
+            // NOTHING TO RECORD YET. Cycle 2 has no fixture a ghost can operate, so its signal array
+            // is empty and its condition list with it - the honest state of a set of rooms whose
+            // puzzles have not been designed. Both are wire formats once they exist (an entry's index
+            // IS its bit in RecordedFrame.signals), so they get appended to, never reordered.
             return (root.transform, spawn, gas, doors,
-                    new RoomCondition[] { numberLock, chorus, tree, ratchet, cistern, chain, haul },
-                    signals.ToArray(), rooms);
+                    new RoomCondition[0], new GhostInteractable[0], rooms);
         }
 
         // WHAT A RETRACTED PLINTH RETRACTS INTO.
@@ -3157,180 +3053,6 @@ namespace IterationRoom.EditorTools
             Prim(PrimitiveType.Cube, "Side_North", well.transform,
                 new Vector3(0f, -depth / 2f, halfZ + WallThickness / 2f),
                 new Vector3(footprintX, depth, WallThickness), mat);
-        }
-
-        // DIGITS, DRAWN AS STROKES RATHER THAN AS A BITMAP.
-        //
-        // There is already a 5x7 bitmap in this file, for the word ERROR on a failing panel - and it
-        // is right there, because a test card is a machine drawing itself. It is wrong here twice
-        // over: the wall digits are meant to look like somebody scrawled them, and a blocky glyph
-        // blown up to fill a 1.75m panel is a QR code.
-        //
-        // So each digit is a set of polylines in a 0..1 box, stamped with a round brush. That gives
-        // two things a bitmap cannot: a `wobble` that displaces every point by a seeded amount, which
-        // is what makes the wall read as handwriting; and a thickness that can be tuned per use, so
-        // the same paths serve a metre of graffiti and a 20cm readout on a pad.
-        private static Vector2[][] DigitStrokes(int digit)
-        {
-            switch (digit)
-            {
-                case 0: return new[] { Ring(0.5f, 0.5f, 0.26f, 0.42f, 14) };
-                case 1: return new[]
-                {
-                    new[] { new Vector2(0.34f, 0.74f), new Vector2(0.52f, 0.94f) },
-                    new[] { new Vector2(0.52f, 0.94f), new Vector2(0.50f, 0.07f) },
-                };
-                case 2: return new[]
-                {
-                    new[]
-                    {
-                        new Vector2(0.22f, 0.76f), new Vector2(0.33f, 0.93f), new Vector2(0.58f, 0.94f),
-                        new Vector2(0.74f, 0.80f), new Vector2(0.66f, 0.60f), new Vector2(0.24f, 0.10f),
-                        new Vector2(0.80f, 0.09f),
-                    },
-                };
-                case 3: return new[]
-                {
-                    new[]
-                    {
-                        new Vector2(0.23f, 0.86f), new Vector2(0.44f, 0.95f), new Vector2(0.70f, 0.86f),
-                        new Vector2(0.66f, 0.66f), new Vector2(0.44f, 0.56f),
-                    },
-                    new[]
-                    {
-                        new Vector2(0.44f, 0.56f), new Vector2(0.72f, 0.46f), new Vector2(0.74f, 0.22f),
-                        new Vector2(0.52f, 0.07f), new Vector2(0.24f, 0.15f),
-                    },
-                };
-                case 4: return new[]
-                {
-                    new[] { new Vector2(0.66f, 0.94f), new Vector2(0.19f, 0.33f) },
-                    new[] { new Vector2(0.19f, 0.33f), new Vector2(0.84f, 0.33f) },
-                    new[] { new Vector2(0.66f, 0.94f), new Vector2(0.66f, 0.07f) },
-                };
-                case 5: return new[]
-                {
-                    new[] { new Vector2(0.74f, 0.93f), new Vector2(0.29f, 0.92f) },
-                    new[] { new Vector2(0.29f, 0.92f), new Vector2(0.26f, 0.55f) },
-                    new[]
-                    {
-                        new Vector2(0.26f, 0.55f), new Vector2(0.56f, 0.60f), new Vector2(0.76f, 0.42f),
-                        new Vector2(0.66f, 0.14f), new Vector2(0.30f, 0.10f),
-                    },
-                };
-                case 6: return new[]
-                {
-                    new[]
-                    {
-                        new Vector2(0.70f, 0.90f), new Vector2(0.40f, 0.74f), new Vector2(0.25f, 0.40f),
-                        new Vector2(0.34f, 0.12f), new Vector2(0.62f, 0.08f), new Vector2(0.76f, 0.30f),
-                        new Vector2(0.62f, 0.50f), new Vector2(0.30f, 0.44f),
-                    },
-                };
-                case 7: return new[]
-                {
-                    new[] { new Vector2(0.20f, 0.92f), new Vector2(0.80f, 0.92f) },
-                    new[] { new Vector2(0.80f, 0.92f), new Vector2(0.40f, 0.07f) },
-                };
-                case 8: return new[]
-                {
-                    Ring(0.5f, 0.71f, 0.21f, 0.21f, 11),
-                    Ring(0.5f, 0.28f, 0.25f, 0.24f, 11),
-                };
-                case 9: return new[]
-                {
-                    new[]
-                    {
-                        new Vector2(0.72f, 0.52f), new Vector2(0.42f, 0.60f), new Vector2(0.26f, 0.78f),
-                        new Vector2(0.40f, 0.94f), new Vector2(0.68f, 0.90f), new Vector2(0.74f, 0.62f),
-                        new Vector2(0.58f, 0.20f), new Vector2(0.30f, 0.08f),
-                    },
-                };
-                default: return new Vector2[0][];
-            }
-        }
-
-        // A closed loop, for the digits that are mostly one.
-        private static Vector2[] Ring(float cx, float cy, float rx, float ry, int steps)
-        {
-            var pts = new Vector2[steps + 1];
-            for (int i = 0; i <= steps; i++)
-            {
-                float a = i / (float)steps * Mathf.PI * 2f;
-                pts[i] = new Vector2(cx + Mathf.Sin(a) * rx, cy + Mathf.Cos(a) * ry);
-            }
-            return pts;
-        }
-
-        // wobble: how far each point wanders, as a fraction of the box. Zero draws the path as
-        // authored, which is what a machine readout wants; 0.03 is a hand that is not being careful.
-        private static Texture2D MakeDigitTexture(string name, int digit, int size,
-                                                  float thickness, float wobble, Color ink, int seed)
-        {
-            Color[] px = new Color[size * size];
-            // Transparent, not white: these are decals over a wall panel and a pad face, so the
-            // background has to not exist rather than be a colour that happens to match today.
-            for (int i = 0; i < px.Length; i++) px[i] = new Color(ink.r, ink.g, ink.b, 0f);
-
-            var rng = new System.Random(seed);
-            float radius = thickness * size * 0.5f;
-
-            foreach (Vector2[] stroke in DigitStrokes(digit))
-            {
-                if (stroke.Length < 2) continue;
-
-                // Displaced once per POINT rather than per sample, so the line wanders instead of
-                // going furry - a per-sample jitter reads as noise, not as a hand.
-                var pts = new Vector2[stroke.Length];
-                for (int i = 0; i < stroke.Length; i++)
-                {
-                    float jx = ((float)rng.NextDouble() * 2f - 1f) * wobble;
-                    float jy = ((float)rng.NextDouble() * 2f - 1f) * wobble;
-                    pts[i] = new Vector2(stroke[i].x + jx, stroke[i].y + jy);
-                }
-
-                for (int i = 0; i < pts.Length - 1; i++)
-                {
-                    Vector2 a = pts[i] * size;
-                    Vector2 b = pts[i + 1] * size;
-                    // Dense enough that consecutive dabs overlap even at the thinnest setting.
-                    int steps = Mathf.Max(2, Mathf.CeilToInt(Vector2.Distance(a, b) / Mathf.Max(1f, radius * 0.4f)));
-                    for (int stepIndex = 0; stepIndex <= steps; stepIndex++)
-                    {
-                        Vector2 at = Vector2.Lerp(a, b, stepIndex / (float)steps);
-                        // Thinning toward the end of each stroke, the way a stroke lifts off.
-                        float taper = 1f - 0.25f * (i + stepIndex / (float)steps) / Mathf.Max(1, pts.Length - 1);
-                        Dab(px, size, at, radius * taper, ink);
-                    }
-                }
-            }
-
-            return WriteTexture(name, size, size, px, TextureWrapMode.Clamp, FilterMode.Bilinear);
-        }
-
-        // One round mark. Soft at the rim by one pixel, which is all the antialiasing a stroke this
-        // thick needs and enough that the edge does not stair-step across a 1.75m panel.
-        private static void Dab(Color[] px, int size, Vector2 at, float radius, Color ink)
-        {
-            int minX = Mathf.Max(0, Mathf.FloorToInt(at.x - radius - 1f));
-            int maxX = Mathf.Min(size - 1, Mathf.CeilToInt(at.x + radius + 1f));
-            int minY = Mathf.Max(0, Mathf.FloorToInt(at.y - radius - 1f));
-            int maxY = Mathf.Min(size - 1, Mathf.CeilToInt(at.y + radius + 1f));
-
-            for (int y = minY; y <= maxY; y++)
-            {
-                for (int x = minX; x <= maxX; x++)
-                {
-                    float d = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), at);
-                    float a = Mathf.Clamp01(radius - d);
-                    if (a <= 0f) continue;
-
-                    int i = y * size + x;
-                    // Kept, never averaged: overlapping dabs must not lighten each other, or every
-                    // crossing in the stroke would show as a bright knot.
-                    px[i].a = Mathf.Max(px[i].a, a);
-                }
-            }
         }
 
         // A SOFT ROUND BLOB, which is the whole of what a vapour particle needs to be. Generated
@@ -3587,156 +3309,6 @@ namespace IterationRoom.EditorTools
         // gap makes the pairing an arrangement in the room rather than a label. It is also far enough
         // that the digit above is still in view while standing on the pad, which matters because the
         // player will be counting.
-        private static (NumberLock, CountPad[]) BuildNumberLock(Transform parent, float roomCenterZ, Material propMat)
-        {
-            GameObject root = new GameObject("NumberLock");
-            root.transform.SetParent(parent, false);
-            root.transform.localPosition = new Vector3(0f, 0f, roomCenterZ);
-
-            // THE WALL OPPOSITE THE DOOR, and one grid cell out from it.
-            //
-            // The doorway is cut in this room's -Z wall, so the numbers go on +Z: the player comes in
-            // by dropping through the ceiling, turns to find the way out, and the combination is on
-            // the wall behind them rather than on the one they are walking toward. Reading it and
-            // leaving are two different directions, which is what stops the room being solved facing
-            // one way without ever looking round.
-            float wallZ = RoomDepth / 2f;
-            float padZ = wallZ - GridCellWidth;
-
-            // Ten readouts and five pieces of graffiti. The pad digits are drawn clean and thin - a
-            // machine showing a number - and the wall ones thick and wobbling, drawn by a hand.
-            // RED, not white. They were white on a pale emissive face, which is very nearly
-            // invisible - play reported the pads as having no numbers at all. Red is also what every
-            // other readout in this game uses (the iteration label, the clock, the ending card),
-            // because the walls are near-white and white text has nowhere to sit.
-            //
-            // The ink's RGB is what the texture is filled with; only the alpha is drawn. So this one
-            // colour is the whole of the change.
-            var readouts = new Texture2D[10];
-            for (int d = 0; d < 10; d++)
-                readouts[d] = MakeDigitTexture($"Digit_{d}", d, 128, 0.11f, 0f,
-                                               new Color(0.92f, 0.10f, 0.08f), 4700 + d);
-
-            // One material for all five readouts; CountPad swaps the texture through a property
-            // block, so the pads share it without sharing a digit.
-            Material digitMat = MakeDecalMaterial("PadDigit", readouts[0], Color.white);
-
-            var pads = new CountPad[CycleTwoCombination.Length];
-
-            for (int i = 0; i < CycleTwoCombination.Length; i++)
-            {
-                int digit = CycleTwoCombination[i];
-                // Centre of the i-th grid column. Five columns across a wall of RoomWidth.
-                float x = (i - (CycleTwoCombination.Length - 1) / 2f) * GridCellWidth;
-
-                // THE GRAFFITI. A decal quad standing proud of the panel rather than a texture on the
-                // panel's own material: the panels share one material and are driven by property
-                // blocks for the boot and the ERROR glitch, so painting one of them would fight that.
-                //
-                // Each digit gets its own seed, so the two 1s in 3-1-4-1-5 are not the same 1 - which
-                // is the whole difference between handwriting and a font.
-                Texture2D scrawl = MakeDigitTexture($"Scrawl_{i}_{digit}", digit, 256, 0.055f, 0.028f,
-                                                    Color.white, 9100 + i * 31);
-                // Near-black ink, slightly transparent, so it reads as marked ON the panel rather
-                // than as a black shape floating in front of it.
-                Material scrawlMat = MakeDecalMaterial($"WallInk_{i}", scrawl,
-                                                       new Color(0.13f, 0.13f, 0.15f, 0.92f));
-
-                GameObject mark = Prim(PrimitiveType.Quad, $"Scrawl_{i}", root.transform,
-                    // Second row up, centred in its cell. Proud of the panel face by a hair so it
-                    // cannot z-fight with it.
-                    new Vector3(x, GridCellHeight * 1.5f, wallZ - 0.032f),
-                    new Vector3(GridCellWidth * 0.62f, GridCellHeight * 0.72f, 1f),
-                    scrawlMat, removeCollider: true);
-                // Facing into the room. A quad's front is -Z of its own transform.
-                // A Unity quad faces -Z, which is already into the room from the +Z wall.
-                mark.transform.localRotation = Quaternion.identity;
-
-                pads[i] = BuildCountPad(root.transform, $"CountPad_{i}", new Vector3(x, 0f, padZ),
-                                        digit, propMat, digitMat, readouts);
-            }
-
-            NumberLock numberLock = root.AddComponent<NumberLock>();
-            numberLock.pads = pads;
-            return (numberLock, pads);
-        }
-
-        // One counting pad. Chunkier than room1-1's plain disc, because this one has to be READ as
-        // well as stood on: a ring, a recessed face that changes colour when it matches, and the
-        // digit it currently holds lying on that face.
-        private static CountPad BuildCountPad(Transform parent, string name, Vector3 localPos,
-                                              int target, Material propMat, Material digitMat,
-                                              Texture2D[] readouts)
-        {
-            GameObject root = new GameObject(name);
-            root.transform.SetParent(parent, false);
-            root.transform.localPosition = localPos;
-
-            // Everything that moves hangs off this, so the pad can sink without the logical volume -
-            // which is the root - moving with it.
-            GameObject plunger = new GameObject("Plunger");
-            plunger.transform.SetParent(root.transform, false);
-
-            const float padRadius = 0.42f;
-
-            // STACKED, NOT NESTED, and that is the second attempt at this.
-            //
-            // The first built a "ring" that was actually a SOLID cylinder 55mm tall and then set the
-            // face and the readout INTO it at 43mm and 50mm - both entirely inside solid geometry, so
-            // the pad rendered as a plain dark disc with no number and no state. Nothing about the
-            // numbers looked wrong; the parts were simply underneath.
-            //
-            // Every height here is absolute and every part sits ABOVE the one under it. Note a Unity
-            // cylinder is TWO units tall, so its y-scale is a HALF-height - which is what made the
-            // first version's arithmetic come out shallow.
-            // 100mm, up from 50mm. At half this the press was invisible at a walking glance, and
-            // for a fixture whose whole job is to be pressed a countable number of times that is the
-            // wrong thing to be subtle about. It is still low enough to walk onto rather than step up
-            // onto - the controller's step offset clears it.
-            const float ringTop = 0.10f;
-            const float faceThickness = 0.014f;
-            const float faceTop = ringTop + 0.010f;      // proud of the ring, not sunk into it
-            const float digitLift = 0.0015f;
-
-            Material ringMat = MakeColorMaterial("CountPadRing", new Color(0.20f, 0.21f, 0.24f));
-            SetSmoothness(ringMat, 0.62f);
-
-            Prim(PrimitiveType.Cylinder, "Ring", plunger.transform,
-                new Vector3(0f, ringTop / 2f, 0f),
-                new Vector3(padRadius * 2f, ringTop / 2f, padRadius * 2f), ringMat,
-                removeCollider: true);
-
-            // Standing proud of the ring and overlapping it, so there is no seam to see between them.
-            // Emissive and driven by CountPad, so a matched pad reads from across the room without
-            // having to walk over and look at the number.
-            Material faceMat = MakeEmissiveMaterial("CountPadFace", new Color(0.55f, 0.60f, 0.68f), 1.6f);
-            GameObject face = Prim(PrimitiveType.Cylinder, "Face", plunger.transform,
-                new Vector3(0f, faceTop - faceThickness / 2f, 0f),
-                new Vector3(padRadius * 1.55f, faceThickness / 2f, padRadius * 1.55f), faceMat,
-                removeCollider: true);
-
-            // The readout, lying flat and clear of everything. Rotated +90 about X, which turns a
-            // quad's -Z normal to face straight up.
-            GameObject digit = Prim(PrimitiveType.Quad, "Digit", plunger.transform,
-                new Vector3(0f, faceTop + digitLift, 0f),
-                new Vector3(padRadius * 1.2f, padRadius * 1.2f, 1f), digitMat,
-                removeCollider: true);
-            digit.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-
-            CountPad pad = root.AddComponent<CountPad>();
-            pad.target = target;
-            // Derived from the visible disc, so the hit area and the thing you can see cannot drift
-            // apart - the mistake FloorButton documents having made.
-            pad.activationRadius = padRadius + 0.05f;
-            pad.faceRenderer = face.GetComponent<Renderer>();
-            pad.digitRenderer = digit.GetComponent<Renderer>();
-            pad.digitTextures = readouts;
-            pad.plunger = plunger.transform;
-            pad.audioSource = MakeSource(root.transform, "PadAudio", spatialBlend: 1f, volume: 0.85f);
-            pad.stepClip = LoadClip(SfxDir, "sfx_floor_button_press");
-            return pad;
-        }
-
         // WHAT THE PLAYER FALLS THROUGH between the two storeys: a square tube joining the hole in
         // one cycle's floor to the hole in the next one's ceiling, across the service void.
         //
@@ -7820,270 +7392,6 @@ namespace IterationRoom.EditorTools
         // NORMALISED TO A UNIT BOUNDING BOX like the prism it generalises, so a localScale of 0.30
         // still means 0.30 ACROSS for every one of the three. The barrel ring is the widest part, so
         // it is the ring the bounds are taken from.
-        // Every carryable in the room, walked to from the entry. Uses the same swept sphere as
-        // AssertWalkable and forgives the same deliberate barriers - what it is looking for is a tool
-        // stranded on the wrong side of the thing it is meant to remove.
-        private static void AssertToolsReachable(Transform roomRoot, string label, Vector3 localEntry)
-        {
-            foreach (CarryableItem item in roomRoot.GetComponentsInChildren<CarryableItem>(true))
-                AssertWalkable(roomRoot, $"{label} ('{item.name}')",
-                               localEntry, roomRoot.InverseTransformPoint(item.transform.position));
-        }
-
-        // ROOM4: THE RATCHET. The room's two halves are deliberately far apart - the pawl against the
-        // east wall, the crank at the window - so holding one and turning the other cannot be done by
-        // walking quickly. It is the first room that asks two people to do DIFFERENT things at once.
-        private static (Ratchet ratchet, RatchetPawl pawl, RatchetCrank crank)
-            BuildRatchetRoom(Transform roomRoot, Material propMat, Transform coreAxle)
-        {
-            GameObject root = new GameObject("RatchetRoom");
-            root.transform.SetParent(roomRoot, false);
-
-            Material frameMat = MakeColorMaterial("RatchetFrame", new Color(0.22f, 0.23f, 0.27f));
-            SetSmoothness(frameMat, 0.6f);
-            Material wheelMat = MakePolishedMetalMaterial("RatchetWheel", new Color(0.80f, 0.82f, 0.86f), 0f);
-            Material lampMat = MakeEmissiveMaterial("RatchetLamp", new Color(0.45f, 0.47f, 0.52f), 0f);
-
-            // THE CRANK, at the window wall but off to one side of it - the window itself has to stay
-            // clear, since watching the axle turn is what the room's feedback is.
-            GameObject crankGO = new GameObject("RatchetCrank");
-            crankGO.transform.SetParent(root.transform, false);
-            crankGO.transform.localPosition = new Vector3(-RoomWidth / 2f + 0.75f, 0f, -3.4f);
-
-            Prim(PrimitiveType.Cube, "Pedestal", crankGO.transform, new Vector3(0f, 0.55f, 0f),
-                 new Vector3(0.7f, 1.1f, 0.7f), frameMat);
-            GameObject wheel = new GameObject("Wheel");
-            wheel.transform.SetParent(crankGO.transform, false);
-            wheel.transform.localPosition = new Vector3(0f, 1.22f, 0f);
-            Prim(PrimitiveType.Cylinder, "Rim", wheel.transform, Vector3.zero,
-                 new Vector3(0.78f, 0.05f, 0.78f), wheelMat, removeCollider: true);
-            Prim(PrimitiveType.Cube, "Handle", wheel.transform, new Vector3(0.3f, 0.09f, 0f),
-                 new Vector3(0.1f, 0.18f, 0.1f), wheelMat, removeCollider: true);
-
-            RatchetCrank crank = crankGO.AddComponent<RatchetCrank>();
-            crank.wheel = wheel.transform;
-            crank.hintAnchor = wheel.transform;
-            crank.audioSource = MakeSource(crankGO.transform, "CrankAudio", spatialBlend: 1f, volume: 0.85f);
-            crank.turnClip = LoadClip(SfxDir, "sfx_drawer_open");
-            crank.refusedClip = LoadClip(SfxDir, "sfx_floor_button_release");
-
-            // THE PAWL, hard against the far wall. Far enough that one person cannot hold it and
-            // reach the crank, which is the entire rule made out of distance.
-            GameObject pawlGO = new GameObject("RatchetPawl");
-            pawlGO.transform.SetParent(root.transform, false);
-            pawlGO.transform.localPosition = new Vector3(RoomWidth / 2f - 0.7f, 0f, 3.4f);
-
-            Prim(PrimitiveType.Cube, "Column", pawlGO.transform, new Vector3(0f, 0.7f, 0f),
-                 new Vector3(0.42f, 1.4f, 0.34f), frameMat);
-            GameObject pawlArm = new GameObject("Arm");
-            pawlArm.transform.SetParent(pawlGO.transform, false);
-            pawlArm.transform.localPosition = new Vector3(0f, 1.25f, -0.14f);
-            Prim(PrimitiveType.Cube, "Lever", pawlArm.transform, new Vector3(0f, 0f, -0.24f),
-                 new Vector3(0.1f, 0.1f, 0.5f), wheelMat, removeCollider: true);
-            GameObject pawlLamp = Prim(PrimitiveType.Cube, "Lamp", pawlGO.transform,
-                new Vector3(0f, 1.52f, 0f), new Vector3(0.28f, 0.08f, 0.2f), lampMat, removeCollider: true);
-
-            RatchetPawl pawl = pawlGO.AddComponent<RatchetPawl>();
-            pawl.arm = pawlArm.transform;
-            pawl.lampRenderer = pawlLamp.GetComponent<Renderer>();
-
-            Ratchet ratchet = root.AddComponent<Ratchet>();
-            ratchet.pawl = pawl;
-            ratchet.crank = crank;
-            ratchet.notchesNeeded = 8;
-            // The core's own axle. This is what the window is for: the count is a thing turning
-            // inside the machine rather than a number on a wall.
-            ratchet.axle = coreAxle;
-            crank.ratchet = ratchet;
-            return (ratchet, pawl, crank);
-        }
-
-        // ROOM5: THE CISTERN. A valve, a tank, and buckets - and eight seconds of nothing under the
-        // valve, which is the only thing in this game that makes standing still worth a past self.
-        private static (Cistern cistern, CarryableItem[] buckets)
-            BuildCisternRoom(Transform roomRoot, Material propMat)
-        {
-            GameObject root = new GameObject("CisternRoom");
-            root.transform.SetParent(roomRoot, false);
-
-            Material tankMat = MakeColorMaterial("CisternTank", new Color(0.24f, 0.26f, 0.30f));
-            SetSmoothness(tankMat, 0.55f);
-            Material waterMat = MakeTranslucentMaterial("CisternWater", new Color(0.35f, 0.62f, 0.85f, 0.72f), 0.9f);
-
-            // The tank, against the east wall - away from the north entry and the west exit.
-            GameObject tankGO = new GameObject("Tank");
-            tankGO.transform.SetParent(root.transform, false);
-            tankGO.transform.localPosition = new Vector3(RoomWidth / 2f - 1.1f, 0f, 1.2f);
-            Prim(PrimitiveType.Cube, "Shell", tankGO.transform, new Vector3(0f, 0.8f, 0f),
-                 new Vector3(1.7f, 1.6f, 1.7f), tankMat);
-            GameObject level = new GameObject("Level");
-            level.transform.SetParent(tankGO.transform, false);
-            level.transform.localPosition = new Vector3(0f, 0.1f, 0f);
-            Prim(PrimitiveType.Cube, "Water", level.transform, new Vector3(0f, 0.5f, 0f),
-                 new Vector3(1.5f, 1f, 1.5f), waterMat, removeCollider: true);
-            level.transform.localScale = new Vector3(1f, 0.0001f, 1f);
-
-            // Where a full bucket gets taken. No collider - see CisternPour for why this is polled
-            // rather than triggered, and generous because the player walks up with something in
-            // their hands and should not have to aim.
-            GameObject pourZone = new GameObject("PourZone");
-            pourZone.transform.SetParent(tankGO.transform, false);
-            pourZone.transform.localPosition = new Vector3(0f, 0.9f, 0f);
-
-            // The valve, across the room from the tank - so a full bucket is a walk, not a turn.
-            GameObject valveGO = new GameObject("Valve");
-            valveGO.transform.SetParent(root.transform, false);
-            valveGO.transform.localPosition = new Vector3(-RoomWidth / 2f + 1.1f, 0f, -1.2f);
-            Prim(PrimitiveType.Cube, "Body", valveGO.transform, new Vector3(0f, 1.5f, 0f),
-                 new Vector3(0.5f, 0.5f, 0.5f), tankMat);
-            GameObject spout = new GameObject("Spout");
-            spout.transform.SetParent(valveGO.transform, false);
-            spout.transform.localPosition = new Vector3(0f, 1.2f, 0f);
-            GameObject flow = Prim(PrimitiveType.Cylinder, "Flow", spout.transform,
-                new Vector3(0f, -0.5f, 0f), new Vector3(0.09f, 0.5f, 0.09f), waterMat,
-                removeCollider: true);
-
-            Valve valve = valveGO.AddComponent<Valve>();
-            valve.spout = spout.transform;
-            valve.flowRenderer = flow.GetComponent<Renderer>();
-            flow.GetComponent<Renderer>().enabled = false;
-
-            // THREE BUCKETS. Two would let one person fill and carry alternately with no reason to
-            // involve a past self; three is enough that leaving one filling is obviously the point.
-            var buckets = new CarryableItem[3];
-            for (int i = 0; i < buckets.Length; i++)
-                buckets[i] = BuildBucket(root.transform, $"Bucket_{i}",
-                    new Vector3(-2.4f + i * 1.2f, 0f, -3.6f), tankMat, waterMat);
-
-            Cistern cistern = root.AddComponent<Cistern>();
-            cistern.valve = valve;
-            cistern.loadsNeeded = 6;
-            cistern.level = level.transform;
-            cistern.fullHeight = 1.4f;
-            cistern.audioSource = MakeSource(tankGO.transform, "TankAudio", spatialBlend: 1f, volume: 0.9f);
-            cistern.pourClip = LoadClip(SfxDir, "sfx_item_drop");
-
-            CisternPour pourComp = pourZone.AddComponent<CisternPour>();
-            pourComp.cistern = cistern;
-            return (cistern, buckets);
-        }
-
-        private static CarryableItem BuildBucket(Transform parent, string name, Vector3 localPos,
-                                                 Material shellMat, Material waterMat)
-        {
-            GameObject go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            go.transform.localPosition = localPos;
-
-            GameObject body = new GameObject("Body");
-            body.transform.SetParent(go.transform, false);
-            Prim(PrimitiveType.Cylinder, "Pail", body.transform, new Vector3(0f, 0.16f, 0f),
-                 new Vector3(0.34f, 0.16f, 0.34f), shellMat, removeCollider: true);
-
-            GameObject water = new GameObject("Water");
-            water.transform.SetParent(body.transform, false);
-            water.transform.localPosition = new Vector3(0f, 0.05f, 0f);
-            Prim(PrimitiveType.Cylinder, "Fill", water.transform, new Vector3(0f, 0.5f, 0f),
-                 new Vector3(0.30f, 1f, 0.30f), waterMat, removeCollider: true);
-            water.transform.localScale = new Vector3(1f, 0.0001f, 1f);
-
-            BoxCollider reach = go.AddComponent<BoxCollider>();
-            reach.isTrigger = true;
-            reach.center = new Vector3(0f, 0.2f, 0f);
-            reach.size = new Vector3(0.8f, 0.6f, 0.8f);
-
-            CarryableItem item = go.AddComponent<CarryableItem>();
-            item.itemId = BucketItemId;
-            item.displayName = "BUCKET";
-            item.floorY = 0.02f;
-            item.handLocalPosition = HandPoseFor(0.5f);
-            item.audioSource = MakeSource(go.transform, "BucketAudio", spatialBlend: 1f, volume: 0.8f);
-            item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
-
-            Bucket bucket = go.AddComponent<Bucket>();
-            bucket.water = water.transform;
-            return item;
-        }
-
-        // ROOM6: THE SEQUENCE. Three plates far enough apart that no two are reachable inside the
-        // window, so the order has to be shared out across past selves.
-        private static (SequenceLock chain, SequenceNode[] nodes)
-            BuildSequenceRoom(Transform roomRoot, Material propMat)
-        {
-            GameObject root = new GameObject("SequenceRoom");
-            root.transform.SetParent(roomRoot, false);
-
-            Material plateMat = MakeEmissiveMaterial("SequencePlate", new Color(0.42f, 0.44f, 0.5f), 0f);
-            Material rimMat = MakeColorMaterial("SequenceRim", new Color(0.20f, 0.21f, 0.25f));
-            SetSmoothness(rimMat, 0.6f);
-
-            // Clear of both doorways (x = 0 band) and of the window (the west wall).
-            var spots = new[]
-            {
-                new Vector3(2.9f, 0f, 3.5f),
-                new Vector3(2.9f, 0f, -3.5f),
-                new Vector3(-1.4f, 0f, 0f),
-            };
-
-            var nodes = new SequenceNode[spots.Length];
-            for (int i = 0; i < spots.Length; i++)
-            {
-                GameObject go = new GameObject($"SequenceNode_{i}");
-                go.transform.SetParent(root.transform, false);
-                go.transform.localPosition = spots[i];
-
-                Prim(PrimitiveType.Cylinder, "Rim", go.transform, new Vector3(0f, 0.03f, 0f),
-                     new Vector3(1.3f, 0.03f, 1.3f), rimMat, removeCollider: true);
-                GameObject face = Prim(PrimitiveType.Cylinder, "Face", go.transform,
-                    new Vector3(0f, 0.05f, 0f), new Vector3(1.05f, 0.02f, 1.05f), plateMat,
-                    removeCollider: true);
-
-                SequenceNode node = go.AddComponent<SequenceNode>();
-                node.faceRenderer = face.GetComponent<Renderer>();
-                node.audioSource = MakeSource(go.transform, "NodeAudio", spatialBlend: 1f, volume: 0.85f);
-                node.goodClip = LoadClip(SfxDir, "sfx_floor_button_press");
-                node.badClip = LoadClip(SfxDir, "sfx_floor_button_release");
-                nodes[i] = node;
-            }
-
-            SequenceLock chain = root.AddComponent<SequenceLock>();
-            chain.nodes = nodes;
-            chain.windowSeconds = 3f;
-            foreach (SequenceNode n in nodes) n.chain = chain;
-            return (chain, nodes);
-        }
-
-        // ROOM7: THE HAUL. One block that will not move for one person.
-        private static (Haul haul, HeavyItem load) BuildHaulRoom(Transform roomRoot, Material propMat,
-                                                                 Transform ghostParent)
-        {
-            GameObject root = new GameObject("HaulRoom");
-            root.transform.SetParent(roomRoot, false);
-
-            Material loadMat = MakeColorMaterial("HaulLoad", new Color(0.30f, 0.31f, 0.34f));
-            SetSmoothness(loadMat, 0.45f);
-            Material socketMat = MakeEmissiveMaterial("HaulSocket", new Color(0.35f, 0.55f, 0.85f), 0.9f);
-
-            // Starts near the entry and has to reach the far corner - a long push, which is what
-            // makes two people worth finding rather than a formality.
-            GameObject load = Prim(PrimitiveType.Cube, "Load", root.transform,
-                new Vector3(2.2f, 0.6f, 3.2f), new Vector3(1.2f, 1.2f, 1.2f), loadMat);
-
-            GameObject socket = Prim(PrimitiveType.Cylinder, "Socket", root.transform,
-                new Vector3(-2.6f, 0.02f, -3.4f), new Vector3(1.8f, 0.02f, 1.8f), socketMat,
-                removeCollider: true);
-
-            HeavyItem heavy = load.AddComponent<HeavyItem>();
-            heavy.socket = socket.transform;
-            heavy.ghostParent = ghostParent;
-            heavy.audioSource = MakeSource(load.transform, "HaulAudio", spatialBlend: 1f, volume: 0.7f);
-            heavy.dragClip = LoadClip(SfxDir, "sfx_drawer_open");
-
-            Haul haul = root.AddComponent<Haul>();
-            haul.load = heavy;
-            return (haul, heavy);
-        }
-
         // CAN THE PLAYER ACTUALLY WALK THROUGH HERE? Asked as a build error rather than left for
         // somebody to find by walking.
         //
@@ -8128,228 +7436,6 @@ namespace IterationRoom.EditorTools
                     return;
                 }
             }
-        }
-
-        // ROOM3: THE TREE. `Iteration - Future Ideas.md` §3, and the room the whole design has been
-        // promising - the one whose payoff is five past selves swinging at once while the living
-        // player walks between them.
-        //
-        // WHICH WAY IT FALLS IS FORCED. This is a corner room: the player comes in through the NORTH
-        // wall and leaves through the WEST. A tree that fell north would block the way in on every
-        // later iteration, and one that fell west would block the way out - so east is the only
-        // direction left, and the trunk is sized to land inside the room rather than through its wall.
-        //
-        // THE TRUNK IS NOT WHAT BLOCKS THE ROOM - the buttresses either side of it are. A trunk alone
-        // leaves a gap at each wall wide enough to walk round, and the puzzle would be optional.
-        private static (Tree tree, ChopStation[] stations, CarryableItem[] axes)
-            BuildTreeRoom(Transform roomRoot, Material propMat)
-        {
-            GameObject root = new GameObject("TreeRoom");
-            root.transform.SetParent(roomRoot, false);
-
-            Material barkMat = MakeColorMaterial("TreeBark", new Color(0.20f, 0.14f, 0.10f));
-            SetSmoothness(barkMat, 0.18f);
-            Material markMat = MakeEmissiveMaterial("ChopMark", new Color(0.45f, 0.47f, 0.52f), 0f);
-
-            const float trunkRadius = 1.05f;
-            // Short enough that lying east it stops inside the room: 1.05 of trunk plus 3.1 of length
-            // against a wall 4.375 out.
-            const float trunkHeight = 3.1f;
-            const float wallHeight = 2.3f;
-
-            // Hinged at the base on the EAST side of the trunk, so the whole thing tips about the
-            // point it would actually break at.
-            GameObject hinge = new GameObject("TreeHinge");
-            hinge.transform.SetParent(root.transform, false);
-            hinge.transform.localPosition = new Vector3(trunkRadius, 0f, 0f);
-
-            Prim(PrimitiveType.Cylinder, "Trunk", hinge.transform,
-                 new Vector3(-trunkRadius, trunkHeight / 2f, 0f),
-                 new Vector3(trunkRadius * 2f, trunkHeight / 2f, trunkRadius * 2f), barkMat);
-
-            // The buttresses: what actually seals the room, from the trunk to each side wall. They
-            // tip with the trunk, which is what "the tree came down" has to look like - the way is
-            // clear because the whole thing moved, not because a barrier was switched off.
-            float halfX = RoomWidth / 2f;
-            float span = halfX - trunkRadius + WallDepth;
-            Prim(PrimitiveType.Cube, "Buttress_West", hinge.transform,
-                 new Vector3(-trunkRadius - trunkRadius - span / 2f, wallHeight / 2f, 0f),
-                 new Vector3(span, wallHeight, 1.1f), barkMat);
-            Prim(PrimitiveType.Cube, "Buttress_East", hinge.transform,
-                 new Vector3(-trunkRadius + trunkRadius + span / 2f, wallHeight / 2f, 0f),
-                 new Vector3(span, wallHeight, 1.1f), barkMat);
-
-            // FIVE PLACES TO STAND, on the north side - the side the player arrives from, and the
-            // side the tree does not fall onto. Spread across the room's width so five bodies fit
-            // without standing in each other.
-            var stations = new ChopStation[5];
-            for (int i = 0; i < stations.Length; i++)
-            {
-                float x = (i - 2) * 1.7f;
-                GameObject go = new GameObject($"ChopStation_{i}");
-                go.transform.SetParent(root.transform, false);
-                go.transform.localPosition = new Vector3(x, 0f, 1.9f);
-
-                GameObject mark = Prim(PrimitiveType.Cylinder, "Mark", go.transform,
-                    new Vector3(0f, 0.015f, 0f), new Vector3(1.1f, 0.015f, 1.1f), markMat,
-                    removeCollider: true);
-
-                ChopStation station = go.AddComponent<ChopStation>();
-                station.axeItemId = AxeItemId;
-                station.activationRadius = 0.6f;
-                station.markRenderer = mark.GetComponent<Renderer>();
-                stations[i] = station;
-            }
-
-            // SIX AXES FOR FIVE STATIONS, one spare because a supply that exactly matches the
-            // requirement makes a single axe left in the wrong place unrecoverable.
-            //
-            // **ON THE SAME SIDE OF THE TREE AS THE PLAYER**, and the first version was not. They went
-            // against the south wall, which is the only wall in this room with no doorway and looked
-            // like the tidy place for a rack - except the tree stands at z = 0 and the player comes in
-            // from the north, so the axes were behind the barrier. Chopping the tree needed an axe and
-            // reaching an axe needed the tree chopped: a dead room, and one no amount of play would
-            // have talked its way out of.
-            //
-            // A whole class of mistake rather than a slip: anything a room's puzzle CONSUMES has to be
-            // on the entry side of whatever that puzzle removes.
-            //
-            // Against the north wall, split either side of the doorway so the way in stays clear.
-            Material headMat = MakePolishedMetalMaterial("AxeHead", new Color(0.86f, 0.87f, 0.90f), 0f);
-            Material haftMat = MakeColorMaterial("AxeHaft", new Color(0.42f, 0.28f, 0.16f));
-            var axes = new CarryableItem[6];
-            float[] axeX = { -3.6f, -2.7f, -1.8f, 1.8f, 2.7f, 3.6f };
-            for (int i = 0; i < axes.Length; i++)
-                axes[i] = BuildAxe(root.transform, $"Axe_{i}",
-                    new Vector3(axeX[i], 0f, RoomDepth / 2f - 0.75f), headMat, haftMat);
-
-            Tree tree = root.AddComponent<Tree>();
-            tree.stations = stations;
-            tree.choppersNeeded = 5;
-            tree.hinge = hinge.transform;
-            tree.audioSource = MakeSource(root.transform, "TreeAudio", spatialBlend: 1f, volume: 1f);
-            tree.fallClip = LoadClip(SfxDir, "sfx_power_down");
-            return (tree, stations, axes);
-        }
-
-        // One axe. `BuildPin` is the template - the simplest complete carryable in the project - and
-        // this is the same thing at a different size with a head on it.
-        private static CarryableItem BuildAxe(Transform parent, string name, Vector3 localPos,
-                                              Material headMat, Material haftMat)
-        {
-            GameObject go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            go.transform.localPosition = localPos;
-
-            GameObject body = new GameObject("Body");
-            body.transform.SetParent(go.transform, false);
-            Prim(PrimitiveType.Cylinder, "Haft", body.transform, new Vector3(0f, 0.42f, 0f),
-                 new Vector3(0.07f, 0.42f, 0.07f), haftMat, removeCollider: true);
-            Prim(PrimitiveType.Cube, "Head", body.transform, new Vector3(0f, 0.80f, 0.06f),
-                 new Vector3(0.09f, 0.20f, 0.26f), headMat, removeCollider: true);
-
-            BoxCollider reach = go.AddComponent<BoxCollider>();
-            reach.isTrigger = true;
-            reach.center = new Vector3(0f, 0.5f, 0f);
-            reach.size = new Vector3(0.7f, 1.1f, 0.7f);
-
-            CarryableItem item = go.AddComponent<CarryableItem>();
-            item.itemId = AxeItemId;
-            item.displayName = "AXE";
-            item.floorY = 0.04f;
-            // Laid down rather than standing, so an axe on the floor reads as dropped rather than
-            // as planted.
-            item.restRoll = 90f;
-            item.handLocalPosition = HandPoseFor(0.9f);
-            item.handLocalEuler = new Vector3(-18f, 0f, 8f);
-            item.audioSource = MakeSource(go.transform, "AxeAudio", spatialBlend: 1f, volume: 0.8f);
-            item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
-            return item;
-        }
-
-        // ROOM2'S PUZZLE: three levers that come back up on their own.
-        //
-        // SPREAD AS FAR APART AS THE ROOM ALLOWS, and that spacing IS the difficulty. The levers hold
-        // for four seconds and the walk between two of them is most of that, so one person can just
-        // about catch two and can never catch three. Bring them closer and one past self is enough;
-        // push them further and even two cannot overlap.
-        //
-        // **CLEAR OF BOTH DOORWAYS.** This room has a door in the middle of its north wall and
-        // another in the middle of its south wall, and the first version put a lever squarely in each
-        // - a solid housing standing in the only way through. So the two wall-mounted ones sit well
-        // off centre, on opposite sides, which also buys the longest span in the room: corner to
-        // corner across the diagonal.
-        //
-        // And clear of the window. The west wall is what this room is about; a lever in front of it
-        // would stand between the player and the core.
-        private static (Chorus chorus, ChorusLever[] levers) BuildChorus(Transform roomRoot, Material propMat)
-        {
-            GameObject root = new GameObject("Chorus");
-            root.transform.SetParent(roomRoot, false);
-
-            Material postMat = MakeColorMaterial("ChorusPost", new Color(0.22f, 0.23f, 0.27f));
-            SetSmoothness(postMat, 0.55f);
-            Material armMat = MakeColorMaterial("ChorusArm", new Color(0.78f, 0.79f, 0.82f));
-            SetSmoothness(armMat, 0.7f);
-            Material lampMat = MakeEmissiveMaterial("ChorusLamp", new Color(0.42f, 0.45f, 0.52f), 0f);
-
-            float halfX = RoomWidth / 2f, halfZ = RoomDepth / 2f;
-            // The doorways are 1.3 wide and centred, so 2.6 off centre clears them with room to walk
-            // between. The third goes on the east wall, the only one with neither a door nor a window.
-            const float clearOfDoor = 2.6f;
-            var spots = new (Vector3 at, float yaw)[]
-            {
-                (new Vector3(clearOfDoor, 0f, halfZ - 0.45f), 180f),
-                (new Vector3(-clearOfDoor, 0f, -halfZ + 0.45f), 0f),
-                (new Vector3(halfX - 0.45f, 0f, 0f), 90f),
-            };
-
-            var levers = new ChorusLever[spots.Length];
-            for (int i = 0; i < spots.Length; i++)
-            {
-                GameObject go = new GameObject($"ChorusLever_{i}");
-                go.transform.SetParent(root.transform, false);
-                go.transform.localPosition = spots[i].at;
-                go.transform.localRotation = Quaternion.Euler(0f, spots[i].yaw, 0f);
-
-                Prim(PrimitiveType.Cube, "Housing", go.transform, new Vector3(0f, 0.75f, 0f),
-                     new Vector3(0.46f, 1.5f, 0.26f), postMat);
-
-                // The arm hangs off a pivot at the top of the housing, so it swings about a point
-                // rather than about its own middle.
-                GameObject pivot = new GameObject("Pivot");
-                pivot.transform.SetParent(go.transform, false);
-                pivot.transform.localPosition = new Vector3(0f, 1.32f, -0.13f);
-
-                Prim(PrimitiveType.Cube, "Arm", pivot.transform, new Vector3(0f, 0f, -0.22f),
-                     new Vector3(0.09f, 0.09f, 0.46f), armMat, removeCollider: true);
-                Prim(PrimitiveType.Sphere, "Grip", pivot.transform, new Vector3(0f, 0f, -0.44f),
-                     new Vector3(0.15f, 0.15f, 0.15f), armMat, removeCollider: true);
-
-                // The state light, high on the housing so it is readable from the far end of the
-                // room - which is where the player will be standing when they need to know.
-                GameObject lamp = Prim(PrimitiveType.Cube, "Lamp", go.transform,
-                    new Vector3(0f, 1.62f, 0f), new Vector3(0.3f, 0.09f, 0.16f), lampMat,
-                    removeCollider: true);
-
-                ChorusLever lever = go.AddComponent<ChorusLever>();
-                lever.arm = pivot.transform;
-                lever.lampRenderer = lamp.GetComponent<Renderer>();
-                lever.hintAnchor = pivot.transform;
-                // TWO SECONDS. The room's three separations are 4.4s, 3.2s and 2.0s of walking, so at
-                // four seconds one person could hold two of the three together and only the long
-                // diagonal was out of reach. At two, every pair but the shortest is beyond one person
-                // - and that shortest one is a dead heat rather than a walk.
-                lever.holdSeconds = 2f;
-                lever.audioSource = MakeSource(go.transform, "LeverAudio", spatialBlend: 1f, volume: 0.85f);
-                lever.pullClip = LoadClip(SfxDir, "sfx_drawer_open");
-                lever.releaseClip = LoadClip(SfxDir, "sfx_floor_button_release");
-                levers[i] = lever;
-            }
-
-            Chorus chorus = root.AddComponent<Chorus>();
-            chorus.levers = levers;
-            return (chorus, levers);
         }
 
         // ONE SHARD, as a carryable. `BuildPin` is the template this follows - the simplest complete
