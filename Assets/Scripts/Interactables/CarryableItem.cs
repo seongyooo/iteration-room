@@ -83,6 +83,18 @@ namespace IterationRoom
         // hand went on standing up, because that path restored the built rotation instead.
         public float restRoll = 0f;
 
+        // ...AND WHETHER "HOWEVER IT WAS BUILT" IS A POSE IT COULD REST IN AT ALL.
+        //
+        // `restRoll` 0 restores the built rotation, which is right for everything that stands up on
+        // its own and wrong for anything BUILT LYING DOWN. Two of room2-2's four buckets are knocked
+        // over on purpose - a room somebody left in a hurry - and putting one down stood it back in
+        // its own built pose: on its side, and floating, because the lift that pose needs is part of
+        // its origin POSITION and a drop does not restore that.
+        //
+        // Distinct from `restRoll` rather than folded into it: this says "stand on your base", where
+        // restRoll says "lie over by this much". The key wants the second, a bucket the first.
+        public bool restsUpright = false;
+
         public Vector3 handLocalPosition = new Vector3(0.28f, -0.24f, 0.42f);
         public Vector3 handLocalEuler = new Vector3(12f, -8f, 18f);
 
@@ -242,7 +254,7 @@ namespace IterationRoom
             // IsFullyOpen, not IsOpen, so the same E press cannot both open the drawer and empty it.
             if (HeldByGhost == null && requiresOpenDrawer != null && !requiresOpenDrawer.IsFullyOpen) return;
 
-            if (!Input.GetKeyDown(KeyCode.E)) return;
+            if (!GameInput.InteractPressed) return;
 
             // This press has already been spent on something else. Nearest-wins arbitration below
             // decides WHICH item, but it cannot decide HOW MANY: it is recomputed per item as each
@@ -352,6 +364,34 @@ namespace IterationRoom
         // ghost's timeline ending passes the item's own position, which is fine, and the player's
         // own put-down passes a point ahead of them, which could be below the object's resting
         // height on a floor recess.
+        // STOOD ON SOMETHING AND STILL TAKEABLE, which is a state this class did not have until the
+        // buckets needed it.
+        //
+        // Every socket before them was final: a key goes into a lock and stays there, an escape object
+        // goes into the console and stays there, so `PlayerHand.Surrender` never had to give an item
+        // back its trigger or its solidity - it hands the object over and the receiver keeps it. A
+        // bucket standing under a tap is the opposite: it is put down in order to be picked up again a
+        // few seconds later, and without this it came to rest with its trigger still switched off from
+        // being in the hand and could never be reached again.
+        //
+        // Deliberately NOT `DropAt`: this does not re-parent, does not floor the object and does not
+        // lay it over. The stand has already decided where it sits.
+        // `Released` STAYS FALSE, and that is the whole difference between this and a drop. `Released`
+        // means "let go of in mid-air", and `FallingItem` - which the build puts on every carryable -
+        // reads it as permission to pull the object down to its own resting height. A bucket stood on
+        // a stand is being placed, not released: left as a drop it sank three centimetres through the
+        // tray it had just been put on, every time.
+        public void StandOnPerch()
+        {
+            HeldByGhost = null;
+            IsCarried = false;
+            Released = false;
+            transform.localScale = originLocalScale;
+            SetVisible(true);
+            if (trigger != null) trigger.enabled = true;
+            SetBlocking(true);
+        }
+
         public void DropAt(Vector3 worldPosition)
         {
             HeldByGhost = null;
@@ -380,8 +420,29 @@ namespace IterationRoom
         // rather than a thing that changes under the player.
         public void LieDown(float yaw)
         {
-            if (Mathf.Abs(restRoll) < 0.01f) { transform.localRotation = originLocalRotation; return; }
+            if (!restsUpright && Mathf.Abs(restRoll) < 0.01f)
+            {
+                transform.localRotation = originLocalRotation;
+                return;
+            }
             transform.rotation = Quaternion.Euler(0f, yaw, restRoll);
+        }
+
+        // HOW WIDE THIS ACTUALLY IS, in metres, however it is posed and scaled right now.
+        //
+        // `handLocalScale` was standing in for this and is not the same thing: it is a local SCALE,
+        // which equals a width only for an object built from a unit-sized mesh. Measured off the
+        // renderers instead, so an imported model at whatever scale its author left it answers the
+        // same question correctly. Widest horizontal extent, because what the callers want to know is
+        // whether it fits through the gap in front of the player.
+        public float WorldHalfWidth()
+        {
+            Renderer[] rs = GetComponentsInChildren<Renderer>();
+            if (rs.Length == 0) return Mathf.Abs(handLocalScale.x) * 0.5f;
+
+            Bounds b = rs[0].bounds;
+            foreach (Renderer r in rs) b.Encapsulate(r.bounds);
+            return Mathf.Max(b.size.x, b.size.z) * 0.5f;
         }
 
         // Carried but not shown - the key goes straight in a pocket.

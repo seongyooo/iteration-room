@@ -109,6 +109,13 @@ namespace IterationRoom
             // THE OTHER DIRECTION: a control on the player, pointed at a board in this cycle. Only
             // assigned when this cycle actually has one, or cycle 2 would clear cycle 1's.
             if (placer != null && cycle.chessBoard != null) placer.board = cycle.chessBoard;
+
+            // The tree's left-click disc, the same direction and the same guard: assigned only when
+            // this cycle actually has a tree, or cycle 1 would clear cycle 2's. Found by type rather
+            // than carried on `Cycle`, because one room having one of something is not yet a reason
+            // for every cycle to hold a field for it.
+            TreeTrunk tree = cycle.worldRoot.GetComponentInChildren<TreeTrunk>(true);
+            if (hints != null && tree != null) hints.treeTrunk = tree;
         }
 
         // THE WAY OUT OF EACH CYCLE. `CycleExit` sits on the join between two storeys rather than

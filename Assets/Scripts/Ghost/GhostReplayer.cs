@@ -53,6 +53,26 @@ namespace IterationRoom
         // presentational: without it a balloon bursts near a ghost that is just standing there.
         public float popSwingDuration = 0.9f;
 
+        // HOW FAR A PAST SELF CAN REACH, and it exists because a take replayed by identity alone is
+        // a TELEPORT.
+        //
+        // "Identity, never position" (CLAUDE.md §1.4) is about WHICH object a recorded take meant -
+        // balloon 17, that pin, this escape object - and it is right. What it does not say is that
+        // the object comes to the ghost from wherever it now is. Play found the consequence in the
+        // worst possible place: the player fetches an escape object, carries it somewhere and puts it
+        // down, and then an earlier ghost's recorded take fires and the object jumps across the room
+        // into that ghost's hand.
+        //
+        // So the CONDITION THAT ENABLED THE TAKE is re-evaluated here too (§1.3), and it has two
+        // halves, not one: the object had to be available, and it had to be WITHIN ARM'S REACH. The
+        // second half was never checked. This is not position replacing identity - the recording still
+        // names the object - it is the reach test the living player's own trigger volume applied.
+        //
+        // Generous, because it is a sanity gate rather than a simulation of a grab: an object still
+        // standing where it was built is a metre or so from the ghost that walks up to it, and every
+        // errand that works today keeps working. What it refuses is the take across a room.
+        public float takeReach = 2f;
+
         // A TOOL-SHAPED ACTION NEEDS THE TOOL, for a past self exactly as for the living player.
         // This is the general rule the room now runs on, not a special case for balloons: an
         // interaction performed WITH an object is gated on that object being in the hand, and
@@ -114,12 +134,19 @@ namespace IterationRoom
         // rather than trusting the recorded signal: a past self that had an axe when the recording was
         // made may not have one now, since the living player can take it straight out of its hands.
         // That is the §1.3 re-evaluation, and it can only be done from outside.
-        public bool HoldingEquipped(string itemId)
+        public bool HoldingEquipped(string itemId) => EquippedItem(itemId) != null;
+
+        // THE OBJECT ITSELF, for a fixture that has to ask it something. `HoldingEquipped` answers
+        // "is the tool in this hand", which is all a balloon pop needs; room2-2's tank needs to know
+        // how much water is in the bucket, and only the object can say. Verified against the item for
+        // the reason above: `equippedId` is a cache and the living player can empty a past self's
+        // hands without asking.
+        public CarryableItem EquippedItem(string itemId)
         {
-            if (string.IsNullOrEmpty(itemId) || equippedId != itemId) return false;
+            if (string.IsNullOrEmpty(itemId) || equippedId != itemId) return null;
             for (int i = 0; i < held.Count; i++)
-                if (held[i] != null && held[i].itemId == itemId && held[i].HeldByGhost == this) return true;
-            return false;
+                if (held[i] != null && held[i].itemId == itemId && held[i].HeldByGhost == this) return held[i];
+            return null;
         }
 
         private void Awake()
@@ -198,6 +225,12 @@ namespace IterationRoom
 
         public void Tick(float elapsedLoopTime)
         {
+            // THE SWING IS THE ONE THING HERE THAT RUNS EVERY FRAME. `LayOutCarried` is otherwise
+            // called only when custody changes - a take, a drop, a surrender - which is right for a
+            // pose that does not move, and useless for one that does. Guarded on actually swinging,
+            // so a ghost that never picks up an axe pays one float comparison a frame.
+            if (swingStarted >= 0f) LayOutCarried();
+
             if (timeline == null || timeline.Count == 0) return;
 
             // Drained before the end-of-timeline check below, not after: a tick can jump past
@@ -302,7 +335,10 @@ namespace IterationRoom
 
                 if (e.kind == CarryKind.Take) TryTake(e.itemId, e.instanceName);
                 else if (e.kind == CarryKind.Drop) TryDrop(e.itemId);
-                else TrySurrender(e.itemId);
+                // A surrender carries a name too, and it means the other end: WHICH socket this was
+                // given to, for an id that has more than one (the bucket stands). Null for every
+                // recording made before there was a choice, which reads back as "the one socket".
+                else TrySurrender(e.itemId, e.instanceName);
             }
         }
 
@@ -371,6 +407,48 @@ namespace IterationRoom
         // list this class must keep exactly right.
         //
         // CENTRED, so a ghost carrying one thing wears it on the midline instead of off to one side.
+        // A PAST SELF SWINGING, which is the image this whole room is for.
+        //
+        // The living player's swing lives on `PlayerHand` because the hand owns where a held object
+        // sits; a ghost's equivalent owner is this, because `LayOutCarried` is what poses what a
+        // ghost carries. Same split, same reason.
+        //
+        // It is DRESSING, not state. The chop itself is already reproduced through the interactable's
+        // own bit (CLAUDE.md §1.5) and re-gated on this ghost's hands at replay - this only says what
+        // the arm looks like while that happens, and nothing reads it back.
+        public float swingDuration = 0.78f;
+        public float swingOut = 0.92f;
+        public float swingRoll = 96f;
+
+        private float swingStarted = -1f;
+
+        public void Swing() => swingStarted = Time.time;
+
+        // The offset a mid-swing hand is at, in the carry anchor's own space. Zero when not swinging,
+        // so the ordinary pose is untouched and a ghost that never swings costs one comparison.
+        private void SwingPose(out Vector3 offset, out Quaternion turn)
+        {
+            offset = Vector3.zero;
+            turn = Quaternion.identity;
+            if (swingStarted < 0f) return;
+
+            float t = (Time.time - swingStarted) / Mathf.Max(0.01f, swingDuration);
+            if (t >= 1f) { swingStarted = -1f; return; }
+
+            // The same shape as the player's - see PlayerHand.ApplySwing - at the size a figure seen
+            // from outside needs, which is larger: a first-person swing sells itself on the near
+            // edge of the frame, and a ghost's has to read across a room.
+            const float draw = 0.58f;
+            float wind = t < draw
+                ? Mathf.SmoothStep(0f, 1f, t / draw)
+                : 1f - Mathf.SmoothStep(0f, 1f, (t - draw) / (1f - draw));
+            float k = t < draw ? 0f : Mathf.Clamp01((t - draw) / (1f - draw));
+            float strike = Mathf.Sin(k * Mathf.PI) * (0.35f + 0.65f * k);
+
+            offset = new Vector3(swingOut * wind - swingOut * 1.9f * strike, 0f, 0f);
+            turn = Quaternion.Euler(0f, 0f, swingRoll * wind - swingRoll * 1.9f * strike);
+        }
+
         private void LayOutCarried()
         {
             int stowed = 0;
@@ -388,7 +466,12 @@ namespace IterationRoom
 
                 if (item.itemId == equippedId)
                 {
-                    item.AttachToGhost(this, hand, Vector3.zero);
+                    // Only the EQUIPPED item swings - the thing in the working hand. Anything on the
+                    // belt stays where it is, which is what a belt is for.
+                    SwingPose(out Vector3 swingOffset, out Quaternion swingTurn);
+                    item.AttachToGhost(this, hand, swingOffset);
+                    if (swingTurn != Quaternion.identity)
+                        item.transform.localRotation = swingTurn * item.transform.localRotation;
                     continue;
                 }
 
@@ -466,6 +549,14 @@ namespace IterationRoom
             // practice this passes; it is here so that stops being a coincidence.
             if (item.requiresOpenDrawer != null && !item.requiresOpenDrawer.IsFullyOpen) return;
 
+            // ...AND IT HAS TO BE WHERE THIS GHOST IS. Without this the object is dragged to the
+            // ghost from anywhere in the building - see takeReach. A ghost that cannot reach what it
+            // once took simply does not take it, which is the same outcome it already gets when the
+            // named object is in the player's hands.
+            if (takeReach > 0f
+             && (item.transform.position - transform.position).sqrMagnitude > takeReach * takeReach)
+                return;
+
             // Taking it out of another past self's hands rather than out of the world - true when
             // the named object (above) turned out to be ghost-held, or fallback 2 found one; never
             // true off fallback 1, since FindFreeForGhost never returns something IsCarried. The
@@ -482,7 +573,7 @@ namespace IterationRoom
             ApplyEquip(itemId);
         }
 
-        private void TrySurrender(string itemId)
+        private void TrySurrender(string itemId, string targetName)
         {
             CarryableItem item = null;
             for (int i = 0; i < held.Count; i++)
@@ -498,9 +589,13 @@ namespace IterationRoom
             // than the living player can.
             if (!HoldingEquipped(itemId)) return;
 
-            IItemSocket socket = ItemRegistry.FindSocket(itemId);
+            // THE SOCKET THIS SURRENDER ACTUALLY MEANT, by the name the recording carries - not
+            // "whichever socket takes this id", which is the same mistake replaying a take by id
+            // alone made once a supply existed. A past self put its bucket on THAT stand.
+            IItemSocket socket = ItemRegistry.FindSocket(itemId, targetName);
             // A socket that refuses (Room2's lock is already open, because another ghost got there
-            // first) leaves the item in this ghost's hands. That is the case DropCarried covers.
+            // first; the stand already has a bucket on it) leaves the item in this ghost's hands.
+            // That is the case DropCarried covers.
             if (socket == null || !socket.AcceptFromGhost(item)) return;
 
             held.Remove(item);

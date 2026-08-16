@@ -82,7 +82,7 @@ namespace IterationRoom
 
         protected virtual void Update()
         {
-            if (WantsInteractHint && Input.GetKeyDown(KeyCode.E) && !PlayerLookup.InteractTaken)
+            if (WantsInteractHint && GameInput.InteractPressed && !PlayerLookup.InteractTaken)
             {
                 // Checked as well as claimed - see PlayerLookup.InteractTaken.
                 PlayerLookup.ClaimInteract();

@@ -52,7 +52,17 @@ namespace IterationRoom
         // down - going down is Overcome, below, and the collapse it runs under.
         public IEnumerator Fill()
         {
-            if (audioSource != null && hissClip != null) audioSource.PlayOneShot(hissClip);
+            // HELD UNTIL THE PLAYER IS OUT, not fired once. `PlayOneShot` ran the hiss for its own
+            // length and then stopped, so the room filled and the body went down in silence - the
+            // vapour was still visibly pouring in from four walls with nothing coming out of them.
+            // The gas is a continuous event and the sound has to last as long as the event does, so
+            // it loops here and is stopped by `Clear`, which is the moment the player wakes up.
+            if (audioSource != null && hissClip != null)
+            {
+                audioSource.clip = hissClip;
+                audioSource.loop = true;
+                audioSource.Play();
+            }
 
             if (emitters != null)
                 foreach (ParticleSystem ps in emitters)
@@ -74,6 +84,15 @@ namespace IterationRoom
         {
             StopAllCoroutines();
             SetHaze(0f);
+
+            // The hiss goes with the vapour. It loops now (see Fill), so this is the only thing that
+            // ends it - and it has to, or the player wakes into the next cycle with the gas that put
+            // them out still running.
+            if (audioSource != null && audioSource.loop)
+            {
+                audioSource.Stop();
+                audioSource.loop = false;
+            }
 
             if (emitters == null) return;
             foreach (ParticleSystem ps in emitters)

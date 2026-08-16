@@ -238,3 +238,67 @@ Worth naming, because the game currently only uses one of them and the other two
 - ~~"A chessboard cannot be ghost-assisted at all, since placing a piece is carrying one."~~ It can be, and it now is — Room2West. What did **not** survive is the advice that came with it: "make the hard part the *arrangement* and the execution cheap once known" would have built a memory test. The board tells you the arrangement and charges you the errand.
 
 The constraint that replaces it is narrower and mechanical rather than conceptual: **there is one of each object, so two ghosts cannot both use one.** That is what keeps the pin out of ghost custody, and it is the thing to check before making any new puzzle depend on a carried tool — one axe means one chopper per iteration.
+
+
+---
+
+## The tree hall (cycle 2) - built 2026-08-16
+
+`room2-3`, `room2-4` and `room2-5` are **one room**: 10.5m across, 30.45m along, 17.57m to the
+ceiling, with a 10.5m pit cut wall to wall across the middle. A 13.4m tree stands on the near ledge;
+felling it drops it across the pit as the only bridge, and the door out hangs on it having fallen.
+
+**The verb is accumulated work, and it is the first room in the game that one pair of hands cannot
+finish.** Forty swings fell the tree and a lone player cannot land forty inside sixty seconds. Five
+axes lie on the near ledge, so iteration N has up to N past selves swinging at once and the tree goes
+over on whichever iteration first musters enough of them - and on every iteration after, because the
+ghosts always redo it. This is `docs/decisions.md`'s *"accumulated work is RE-PERFORMED, never
+stored"* in its first actual room: **nothing about the notch survives an iteration.**
+
+**Left click, not E.** Swinging is "do the thing this object is for", which is what `UsePressed`
+means for the balloon tool and the chess placer. It also frees E to keep meaning *put the axe down*
+while standing at the tree, which E-to-chop made impossible without walking away.
+
+**Why the ring turned round.** Cycle 2 used to switchback back along -Z, directly under cycle 1's
+corridor, which capped how tall any of its rooms could be - a 17.5m ceiling drives up through the
+floor of the room above. Rotating the whole cycle 180 degrees **about the bed** leaves the bed under
+the exit shaft where it must be and swings everything else past the end of cycle 1. Nothing is above
+cycle 2 now except its own first room, so this is a constraint lifted for every cycle-2 room still to
+be designed, not just for this one.
+
+**The pit is fatal.** Falling in ends the iteration and the player wakes in bed - death and an
+iteration ending are the same event, and the loop already had the machinery. A past self that fell in
+simply stops there: its recording ends, and `GhostReplayer` releases what it was carrying, so an axe
+taken into the pit comes back to the room.
+
+**What the notch is.** Eight cut trunk meshes, built by `SceneBuilder` and switched by chop count, so
+wood is genuinely missing rather than a dark shape being laid over the bark. The first version drew
+the wedge on and play read it as a vertical groove stuck to the tree. See `docs/gotchas.md` for the
+two things that had to fail first.
+
+**Open**: whether forty is right, whether five is right, and whether five ghosts at once is
+affordable. None of it has been played - see `TODO.md`.
+
+
+### Crossing the felled tree - what "hard to cross" turned out to be (2026-08-16)
+
+Play reported that getting across the felled tree was awkward. The measurement behind it: **the clear
+trunk between the cut and the first fork is 2.4m, and the pit is 10.5m.** The other 8m of the span is
+canopy. The tree can therefore never be a clean log bridge across a hole this wide - no scaling fixes
+it, because the tree is already sized to the hall's width, and growing it grows the crown faster than
+the trunk.
+
+So the crossing is over the canopy, and it was built as a scramble: every mesh solid, leaves included,
+over a drop that is now fatal. Three changes, in the order they matter:
+
+- **Leaves are not solid.** You push through foliage; you do not stand on it. Trunk and branches still
+  take weight, so nothing you can lean on passes through you. It also takes an 18,500-vertex mesh
+  collider out of the scene.
+- **The deck is wide** - 3.3m rather than 1.5m. The alternative to a wide walkway over a fatal pit is
+  dying to a sidestep, and its top is level with the log's so it reads as the log.
+- **A ramp at each lip.** The deck's top is 0.6m up and the player's step is not; without them the
+  crossing opened with a jump onto a narrow surface over a drop, which was the least forgiving moment
+  in the room and the least deliberate.
+
+**Still unmeasured**: whether that is enough. If it is not, the honest next lever is the pit's width -
+it is 10.5m because room2-4 was 10.5m, not because anything about the tree wanted it.

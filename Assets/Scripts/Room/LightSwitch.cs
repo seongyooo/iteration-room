@@ -24,12 +24,23 @@ namespace IterationRoom
         public Material litMaterial;
         public Material darkMaterial;
 
-        // SMALL ON PURPOSE. `old_light_switch.glb` merges its plate and its lever into ONE mesh, so
-        // there is no lever to turn on its own - whatever angle goes here tips the whole wall plate
-        // with it, and at 25 the plate visibly came off the wall. A few degrees reads as the switch
-        // taking the press; the light coming on is the real feedback.
-        public float flipAngle = 6f;
+        // `switchVisual` is the LEVER'S PIVOT, not the plate - the switch is built rather than
+        // imported precisely so those are two objects (see SceneBuilder.BuildLightSwitch). A real
+        // angle is affordable again now that the plate stays put: this used to be held at 6 degrees,
+        // which was the most a whole-plate tilt could get away with and read as nothing at all.
+        public float flipAngle = 30f;
         public float flipDuration = 0.12f;
+
+        // Where the E disc hangs. Its own object rather than the lever, which sits at the plate's
+        // face and drew the prompt low - under the fixture it was labelling.
+        public Transform hintAnchor;
+
+        // The click. A switch that moves in silence is the clearest possible statement that nothing
+        // happened - and in a room where the point is that a light came on somewhere behind you, the
+        // sound is what tells you a past self did it.
+        public AudioSource audioSource;
+        public AudioClip onClip;
+        public AudioClip offClip;
 
         // Stretched over a handful of frames, like Drawer's openPulseDuration - a ghost advances by
         // elapsed time and can skip a one-frame pulse entirely.
@@ -47,8 +58,15 @@ namespace IterationRoom
 
         // Once it is on there is nothing left for E to do here - see Drawer.WantsInteractHint for
         // the same shape.
-        public bool WantsInteractHint => playerInRange && !IsOn && PlayerLookup.InView(HintAnchor);
-        public Transform HintAnchor => switchVisual != null ? switchVisual : transform;
+        // ...and nothing nearer wants the press - the rule the taps needed (see
+        // PlayerLookup.TakeableIsNearer). No takeable lives under a switch today; it is here because
+        // a dropped object can come to rest anywhere, and "the disc is on the thing the press acts
+        // on" should not depend on which fixtures happen to have been thought about.
+        public bool WantsInteractHint =>
+            playerInRange && !IsOn && PlayerLookup.InView(HintAnchor)
+            && !PlayerLookup.TakeableIsNearer(HintAnchor);
+        public Transform HintAnchor =>
+            hintAnchor != null ? hintAnchor : (switchVisual != null ? switchVisual : transform);
 
         // Routed straight to TurnOn rather than through the player's own path when a ghost calls it -
         // see Drawer.SetGhostSignal for why a replayed flip must not be re-recorded as the player's.
@@ -85,10 +103,13 @@ namespace IterationRoom
 
         private void Update()
         {
-            if (!playerInRange || IsOn) return;
+            // ON SCREEN, NOT MERELY IN REACH, and gated on the same property the prompt is - see
+            // WaterTap.Update, which had the same fault. Proximity alone let a switch behind you
+            // answer a press.
+            if (!WantsInteractHint) return;
             if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
 
-            if (!Input.GetKeyDown(KeyCode.E)) return;
+            if (!GameInput.InteractPressed) return;
             if (PlayerLookup.InteractTaken) return;
 
             PlayerLookup.ClaimInteract();
@@ -108,6 +129,7 @@ namespace IterationRoom
             StopAllCoroutines();
             StartCoroutine(Flip(onRotation));
             ApplyState();
+            Click(onClip);
         }
 
         // The loop rewinding, at the top of an iteration - called from AllLightsOn.ResetCondition
@@ -128,6 +150,17 @@ namespace IterationRoom
 
             Material wanted = IsOn ? litMaterial : darkMaterial;
             if (controlledPanel != null && wanted != null) controlledPanel.sharedMaterial = wanted;
+        }
+
+        // Deliberately NOT played by TurnOff: that is the loop rewinding behind closed eyelids, and
+        // four switches clicking themselves off in the dark would be the machinery showing through -
+        // the same reason Door.Close() is silent and Door.Seal() is not.
+        private void Click(AudioClip clip)
+        {
+            if (audioSource == null || clip == null) return;
+            // Scattered a little, so four switches in one room are not audibly the same recording.
+            audioSource.pitch = Random.Range(0.94f, 1.07f);
+            audioSource.PlayOneShot(clip);
         }
 
         private System.Collections.IEnumerator Flip(Quaternion target)

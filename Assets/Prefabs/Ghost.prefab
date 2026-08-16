@@ -86,12 +86,16 @@ MonoBehaviour:
   walkThreshold: 0.25
   idleCycleSeconds: 4.17
   popSwingDuration: 0.9
+  takeReach: 2
   requirePopTool: 1
   popToolItemId: Tool
   carryAnchor: {fileID: 1225757076591321216}
   stowAnchor: {fileID: 2580492841752892497}
   stowLocalOrigin: {x: 0, y: 0, z: 0.09}
   stowStep: {x: 0.13, y: 0, z: 0}
+  swingDuration: 0.78
+  swingOut: 0.92
+  swingRoll: 96
 --- !u!1 &6505273315868727715
 GameObject:
   m_ObjectHideFlags: 0

@@ -109,18 +109,45 @@ namespace IterationRoom
                 if (b != null) b.Release();
         }
 
+        // HOW LOUD A PAST SELF'S POP IS, and how often one is allowed to be heard at all.
+        //
+        // Every pop a ghost ever recorded fires again every iteration - that is the design, and it is
+        // what makes the field shrink without the player doing it twice. What nobody costed is what it
+        // SOUNDS like by iteration ten: three pin-holding ghosts with a dozen pops each is a burst
+        // every second or two, for the whole minute, while the player is somewhere else entirely
+        // doing something unrelated. Play reported it as "balloons keep popping and I am not popping
+        // anything", which is exactly right and exactly what the code was told to do.
+        //
+        // The BURST is untouched - the balloon still goes, the key still drops, nothing about the
+        // puzzle changes. Only the announcement is turned down: a replayed pop is background, and no
+        // more than one is heard per interval, so a flurry reads as a flurry instead of a machine gun.
+        // Set to 0 to make past selves' pops silent entirely.
+        public float ghostPopVolume = 0.3f;
+        public float ghostPopInterval = 0.45f;
+
+        private float nextGhostPopSound;
+
+        // A GHOST'S pop, by identity. The living player's goes through Pop below at full volume.
         public void PopById(int id)
         {
             if (balloons == null || id < 0 || id >= balloons.Length) return;
-            Pop(balloons[id]);
+
+            float volume = 0f;
+            if (ghostPopVolume > 0f && Time.time >= nextGhostPopSound)
+            {
+                volume = ghostPopVolume;
+                nextGhostPopSound = Time.time + ghostPopInterval;
+            }
+
+            Pop(balloons[id], volume);
         }
 
-        public void Pop(Balloon balloon)
+        public void Pop(Balloon balloon, float volumeScale = 1f)
         {
             if (balloon == null || balloon.IsPopped) return;
 
             Vector3 at = balloon.transform.position;
-            balloon.Pop();
+            balloon.Pop(volumeScale);
 
             // Whatever key this balloon held drops to the floor under the burst. Revealed by whoever
             // popped it, ghost or player - a ghost finding one for you is the entire point of spending

@@ -63,7 +63,7 @@ namespace IterationRoom
             // recorded pop honest - it can only exist if the pin was in the hand that made it.
             if (!hand.Holding(requiredItemId)) return;
 
-            if (Input.GetMouseButtonDown(0)) Swing();
+            if (GameInput.UsePressed) Swing();
             AnimateHeld();
         }
 

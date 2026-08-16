@@ -41,6 +41,11 @@ namespace IterationRoom
         public Transform ghostParent;
         public IterationLabel iterationLabel;
         public WakeUpSequence wakeUpSequence;
+
+        // THE LOADING SCREEN, over the shut eyelids. See SceneBuilder for what it is; this holds it
+        // only long enough to answer "is the game ready", which is a question only this coroutine
+        // can answer.
+        public CanvasGroup loadingBackdrop;
         public NarrationDirector narration;
         public RoomAmbience ambience;
         public CameraShaker cameraShaker;
@@ -176,6 +181,14 @@ namespace IterationRoom
             // re-establishes every OTHER reference the split would have broken. Both happen here,
             // before the first line of the game, because this coroutine is the only place that can
             // WAIT for them - an Awake cannot.
+            // EYES SHUT BEFORE ANYTHING ELSE. See WakeUpSequence.ShutInstantly: everything below this
+            // takes at least a frame and some of it takes many, and until the awake pass runs the
+            // camera is pointed at whatever the scenes were saved with from wherever the player
+            // prefab was built. Shutting first makes the loading window black rather than a glimpse
+            // of a room nobody is in.
+            wakeUpSequence?.ShutInstantly();
+            if (loadingBackdrop != null) loadingBackdrop.alpha = 1f;
+
             if (sceneLoader != null)
             {
                 yield return sceneLoader.LoadAll();
@@ -195,17 +208,57 @@ namespace IterationRoom
             // entry - so cycle 3 starts from 2 and the HUD reads what it would have read.
             if (DebugStart.StartCycle > 1 && cycles != null)
             {
-                int index = Mathf.Clamp(DebugStart.StartCycle - 1, 0, cycles.Length - 1);
-                for (int i = 0; i < cycles.Length; i++) cycles[i]?.SetAwake(i == index);
-                cycleIndex = index;
-                CycleNumber = index;
+                cycleIndex = Mathf.Clamp(DebugStart.StartCycle - 1, 0, cycles.Length - 1);
+                CycleNumber = cycleIndex;
+            }
+
+            // EXACTLY ONE CYCLE IS AWAKE, AND IT IS DECIDED HERE - not by what each scene happened to
+            // be saved with. Every cycle root now ships asleep (see SceneBuilder.SleepCycle), so this
+            // is the only thing that ever turns one on at startup, and there is no window in which a
+            // cycle nobody is in has been loaded and is still rendering.
+            if (cycles != null)
+                for (int i = 0; i < cycles.Length; i++) cycles[i]?.SetAwake(i == cycleIndex);
+
+            // THE WORLD IS READY. The backdrop goes and the eyelids are what is left underneath -
+            // shut, and opened by whichever comes next: the calibration step, or iteration 1's own
+            // wake-up. Faded rather than cut, so the hand-off from picture to black is not a blink.
+            if (loadingBackdrop != null)
+            {
+                for (float e = 0f; e < 0.45f; e += Time.unscaledDeltaTime)
+                {
+                    loadingBackdrop.alpha = 1f - Mathf.Clamp01(e / 0.45f);
+                    yield return null;
+                }
+                loadingBackdrop.alpha = 0f;
+                loadingBackdrop.gameObject.SetActive(false);
             }
 
             // Skipped on either shortcut. Setting the sensitivity is the one thing that genuinely
             // has to happen before the first iteration, and it is also the one thing nobody wants to
             // do again on the twentieth run at a boundary.
-            if (calibration != null && !DebugStart.AtCycleBoundary && DebugStart.StartCycle < 0)
+            //
+            // **AND SKIPPED ON A TOUCH DEVICE, where it is not merely unwanted but IMPASSABLE.**
+            // Every input this step needs is a mouse: the number is driven by the scroll wheel,
+            // `Confirm` refuses unless the pointer is captured, and the button out of the room is an
+            // E press. A phone has none of the three, so a player who pressed PLAY stood in the
+            // calibration room forever - the first screen of the game, and a dead end.
+            //
+            // Nothing is lost by skipping it. The step exists because Unity's WebGL build hands the
+            // engine the browser's raw pointer-lock delta, which no two browsers agree on (see
+            // GameSettings) - a MOUSE problem that touch does not have, since a drag is measured in
+            // screen heights and means the same thing everywhere. The sensitivity is still adjustable
+            // afterwards, on the title screen's SETTINGS page.
+            //
+            // Simply not entering it is the whole of the skip: the page is authored at alpha 0 and
+            // `Begin` is what raises it, which is why the two DebugStart shortcuts above have always
+            // been able to do the same thing.
+            if (calibration != null && !GameInput.TouchDevice
+                && !DebugStart.AtCycleBoundary && DebugStart.StartCycle < 0)
             {
+                // The one thing before iteration 1 that the player is meant to SEE, so the lids come
+                // up for it. Everything else between here and the first wake-up stays black, and
+                // `WakeUp` shuts them again on its own way in.
+                wakeUpSequence?.OpenInstantly();
                 calibration.Begin();
                 while (!calibration.Confirmed) yield return null;
                 calibration.End();

@@ -627,6 +627,139 @@ def gas_hiss(seed=8803):
     return fade_edges(normalize(out, 0.55), seconds=0.012)
 
 
+def water_run():
+    """A tap running, as a SEAMLESS LOOP - the one sound in this set that has to survive repeating.
+
+    Falling water is broadband noise with no pitch in it at all, so the whole character is in the
+    filtering: a bandpass around 1.6 kHz for the hiss of the stream breaking up, a second lower band
+    for the body of it hitting the floor, and a slow wander on top so the ear does not lock onto a
+    fixed timbre and start hearing the loop point.
+
+    `seamless` crossfades the tail into the head, which works here precisely because there is no
+    transient to smear - the same property that makes noise hard to shape makes it trivial to loop.
+    """
+    rng = random.Random(9301)
+    n = int(3.0 * SR)
+    raw = noise(3.0, rng)
+
+    # The stream itself: high, thin, continuous.
+    jet = bandpass(raw, 1600.0, q=0.7)
+    # And the impact - lower, and what makes it read as water LANDING rather than as air escaping.
+    splashy = bandpass(noise(3.0, random.Random(9302)), 480.0, q=1.1)
+
+    # A slow wander, so the texture moves. Two incommensurate rates, so the pattern does not repeat
+    # inside the clip and give the loop a period of its own.
+    out = [0.0] * n
+    for i in range(n):
+        t = i / float(SR)
+        wobble = 1.0 + 0.16 * math.sin(2.0 * math.pi * 0.37 * t) + 0.09 * math.sin(2.0 * math.pi * 1.13 * t)
+        out[i] = (jet[i] * 0.75 + splashy[i] * 0.55) * wobble
+
+    return seamless(normalize(out, 0.42), fade_seconds=0.25)
+
+
+def water_splash(seed, weight=1.0):
+    """A foot going into standing water. Short, wet, and gone.
+
+    The shape is a footstep's - a sharp entry and a quick decay - with the spectrum moved: where a
+    step on a hard floor has a knock in it, this has none at all. What replaces it is a fast upward
+    sweep, which is the sound of a cavity closing behind the foot, and a scatter of droplets after.
+    """
+    rng = random.Random(seed)
+
+    # The displacement: a burst swept upward as the water closes back over.
+    body = sweep_bandpass(noise(0.16, rng), 320.0, 1500.0, q=1.6)
+    body = apply_env(body, env_decay(len(body), tau=0.045, attack=0.001))
+
+    # Droplets, thrown clear and landing late. Individually pitched, unlike the burst.
+    out = scale(body, 0.9 * weight)
+    for _ in range(7):
+        start = rng.uniform(0.03, 0.20)
+        drop = sine(0.05, rng.uniform(900.0, 2600.0), amp=rng.uniform(0.05, 0.16))
+        drop = apply_env(drop, env_decay(len(drop), tau=0.012, attack=0.0008))
+        out = at(out, drop, start)
+
+    return fade_edges(normalize(out, 0.55 * weight))
+
+
+def tap_turn(seed, opening=True):
+    """A valve being turned - the handle, not the water.
+
+    Three things happen in a quarter turn of a stiff tap and all three have to be in here or it
+    reads as a click: the STICTION as the seal lets go, a SQUEAK while the spindle travels, and a
+    soft stop at the end. The squeak is the character, and it is a pitched tone rather than filtered
+    noise because that is what metal on metal does - a narrow band with harmonics, not a hiss.
+
+    Opening and closing are the same motion in opposite directions, so the squeak sweeps up to open
+    and down to close. That is cheaper than two clips and it is also what actually happens.
+    """
+    rng = random.Random(seed)
+
+    # Stiction: a short scrape as it breaks free.
+    grab = bandpass(noise(0.05, rng), 2200.0, q=1.4)
+    grab = apply_env(grab, env_decay(len(grab), tau=0.012, attack=0.001))
+
+    # The squeak. Two slightly detuned partials so it beats rather than sitting still, and swept
+    # across the turn.
+    n = int(0.26 * SR)
+    squeak = [0.0] * n
+    f0, f1 = (620.0, 940.0) if opening else (940.0, 620.0)
+    phase1 = phase2 = 0.0
+    for i in range(n):
+        k = i / float(n)
+        f = f0 + (f1 - f0) * k
+        phase1 += 2.0 * math.pi * f / SR
+        phase2 += 2.0 * math.pi * (f * 1.008) / SR
+        # Thin and slightly buzzy - a pure sine reads as a whistle, not as metal.
+        squeak[i] = (math.sin(phase1) + 0.55 * math.sin(phase2) + 0.22 * math.sin(phase1 * 2.0)) / 1.8
+
+    # Up into the turn and away at the end, so it does not start or stop abruptly.
+    squeak = apply_env(squeak, env_ar(n, attack=0.03, release=0.09))
+    squeak = scale(squeak, 0.34)
+
+    # And the seat, arriving.
+    stop = lowpass(noise(0.06, rng), 900.0)
+    stop = apply_env(stop, env_decay(len(stop), tau=0.018, attack=0.001))
+
+    out = scale(grab, 0.5)
+    out = at(out, squeak, 0.03)
+    out = at(out, scale(stop, 0.42), 0.27)
+
+    return fade_edges(normalize(out, 0.5))
+
+
+def switch_click(seed, closing=True):
+    """A toggle switch. Two sharp events, not one - which is the whole character of the sound.
+
+    A light switch does not click, it clicks TWICE: the lever passing over centre, and the contact
+    landing a few milliseconds later. Rendered as one impulse it reads as a mouse button; rendered
+    as two it is unmistakably a switch on a wall. The gap is short enough that the ear takes them as
+    one gesture rather than two sounds.
+
+    Small and bright: this is a plastic rocker in a metal plate, so there is no low end in it at all
+    and the whole thing is over inside a tenth of a second.
+    """
+    rng = random.Random(seed)
+
+    def tick(level, freq, tau):
+        # A click is broadband noise shaped hard, with a pitched ring on top for the plastic body.
+        n = int(0.05 * SR)
+        body = bandpass(noise(0.05, rng), freq, q=1.1)
+        body = apply_env(body, env_decay(n, tau=tau, attack=0.0004))
+        ring = sine(0.05, freq * 2.4, amp=0.35)
+        ring = apply_env(ring, env_decay(n, tau=tau * 0.6, attack=0.0004))
+        return scale(mix(body, ring), level)
+
+    # Over centre, then the contact. Closing lands harder than opening - the spring is doing the work
+    # on the way in and being fought on the way out.
+    first = tick(1.0 if closing else 0.8, 3100.0, 0.006)
+    second = tick(0.62 if closing else 0.5, 2300.0, 0.010)
+
+    out = first
+    out = at(out, second, 0.022 if closing else 0.030)
+    return fade_edges(normalize(out, 0.5))
+
+
 def main():
     print("Writing SFX to", os.path.normpath(OUT))
     # Three footfalls, deliberately uneven: no two real steps weigh the same, and the variation is
@@ -648,6 +781,16 @@ def main():
     write("sfx_item_pickup", item_pickup())
     write("sfx_item_drop", item_drop())
     write("sfx_gas_hiss", gas_hiss())
+    # Cycle 2's water. The run is a loop; the splashes are three, uneven, for the same
+    # reason the footsteps are - two identical splashes read as a sample, not as a puddle.
+    write("sfx_water_run", water_run())
+    write("sfx_switch_on", switch_click(7301, closing=True))
+    write("sfx_switch_off", switch_click(7302, closing=False))
+    write("sfx_tap_open", tap_turn(7201, opening=True))
+    write("sfx_tap_close", tap_turn(7202, opening=False))
+    write("sfx_water_splash_1", water_splash(7101, weight=1.00))
+    write("sfx_water_splash_2", water_splash(7102, weight=0.84))
+    write("sfx_water_splash_3", water_splash(7103, weight=1.12))
     print("done")
 
 

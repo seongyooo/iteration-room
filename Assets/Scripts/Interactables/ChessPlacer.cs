@@ -96,7 +96,7 @@ namespace IterationRoom
             board.MarkSquare(home);
 
             if (!running || home < 0 || board.boardCollider == null) return;
-            if (!Input.GetMouseButtonDown(0)) return;
+            if (!GameInput.UsePressed) return;
 
             CarryableItem held = hand.Held;
 

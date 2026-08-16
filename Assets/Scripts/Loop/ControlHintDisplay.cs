@@ -46,6 +46,15 @@ namespace IterationRoom
         // of its own, and cannot fight it for it: the pin and a chess piece are both items, PlayerHand
         // has exactly one out at a time, so at most one of the two ever wants the prompt.
         public ChessPlacer placer;
+        // And the bucket's. Both live on the player, so both are core-scene references that survive
+        // the per-cycle scene split.
+        public BucketPlacer bucketPlacer;
+
+        // The tree, which asks for the same disc as the balloon tool and for the same reason: a
+        // left click is a SWING here too. It is a `TreeTrunk` rather than an interface because it is
+        // the only fixture of its kind - if a second accumulation puzzle wants this, that is the
+        // moment to give the three of them a shared one rather than now.
+        public TreeTrunk treeTrunk;
 
         // The rect the screen positions are resolved against: a full-screen child of the canvas,
         // which is also both hints' parent, so a local point in it is an anchoredPosition.
@@ -145,6 +154,16 @@ namespace IterationRoom
             // learned, it is answering "which one is this piece's" - and the placer stops asking for
             // it once the button has clearly been learned.
             if (placer != null && placer.WantsPlaceHint) return placer.PlaceAnchor;
+
+            // And the bucket's stand or the tank it is being carried to - the same disc for the same
+            // reason: the prompt goes on the thing the click acts on, and only one of these can want
+            // it at a time because the hand holds one object.
+            if (bucketPlacer != null && bucketPlacer.WantsPlaceHint) return bucketPlacer.PlaceAnchor;
+
+            // The tree BEFORE the balloon tool, because the two can want the disc at the same
+            // moment - a past self can be holding a pin in the same room - and the tree is the one
+            // the player is standing at.
+            if (treeTrunk != null && treeTrunk.WantsSwingHint) return treeTrunk.HintAnchor;
 
             if (swingTool == null || !swingTool.WantsSwingHint) return null;
 

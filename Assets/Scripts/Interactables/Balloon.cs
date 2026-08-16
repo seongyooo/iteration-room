@@ -98,13 +98,18 @@ namespace IterationRoom
             SetInPlay(true);
         }
 
-        public void Pop()
+        // `volumeScale` is how loud THIS burst is, and it is the caller's business rather than the
+        // balloon's: the player's own pop is the full-strength event, a past self's replayed one is
+        // background. Zero bursts it in silence. See BalloonField.PopById for why that distinction
+        // has to exist at all.
+        public void Pop(float volumeScale = 1f)
         {
             if (IsPopped) return;
             IsPopped = true;
             SetInPlay(false);
 
-            if (audioSource != null && popClip != null) audioSource.PlayOneShot(popClip);
+            if (audioSource != null && popClip != null && volumeScale > 0.01f)
+                audioSource.PlayOneShot(popClip, volumeScale);
         }
     }
 }

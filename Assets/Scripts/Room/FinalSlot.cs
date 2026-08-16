@@ -158,7 +158,7 @@ namespace IterationRoom
             else ApplyRim(idleColor, idleEmission);
 
             if (!WantsInteractHint) return;
-            if (!Input.GetKeyDown(KeyCode.E)) return;
+            if (!GameInput.InteractPressed) return;
             // Checked as well as claimed - see PlayerLookup.InteractTaken.
             if (PlayerLookup.InteractTaken) return;
 

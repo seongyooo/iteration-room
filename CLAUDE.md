@@ -166,6 +166,20 @@ two pins out where the original iteration only ever had one taken. `GhostReplaye
 named object first (unless the living player holds it) and falls back to "any free one, or any
 ghost-held one for a socketed item" only when it cannot.
 
+**AN ID CAN NAME SEVERAL SOCKETS TOO, and a `Surrender` records WHICH ONE** (2026-08-15, for
+room2-2's two bucket stands). `ItemRegistry` holds a **list** of sockets per id, registered by
+GameObject name, and `CarryEvent.instanceName` carries the target of a surrender exactly as it
+carries the object of a take. Anything placing an item must ask `FindSocket(itemId, targetName)`; the
+one-argument form means "is there anywhere at all", which is the *eligibility* question and not the
+placement one. A named socket that is occupied refuses and the ghost keeps carrying — the same
+honest outcome a take of an unavailable object gets.
+
+**A HAND-OVER THAT KEEPS NOTHING IS NOT A SURRENDER.** Pouring a bucket into the tank leaves the
+bucket in the hand, so no custody changes and no `CarryEvent` describes it — a past self walked to
+the tank with a full bucket and stood there. It is recorded as a **signal** instead (`PourPoint`,
+§1.5), re-evaluated at the far end against the condition that enabled it. Any future "use the thing
+you are holding *on* that fixture" belongs in the same shape.
+
 ### 1.5 Signals are levels; events are instants
 
 `RecordedFrame.signals` is continuous state. `PopEvent` / `CarryEvent` are moments with an identity.
@@ -225,6 +239,10 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `ChessReward` | Room2West's payoff: the lights, the board opening, the plinth. Not the rule |
 | `CubeRoom` | Room2East: which cube belongs in which recess, and whether they are all home |
 | `SymbolSlot` | One recess's range, E press and light; every *which* question is `CubeRoom`'s |
+| `WaterTank` | room2-2: how full the tank is, and the mark it has to reach. Not how it got there |
+| `Bucket` | One pail: how full it is, and the pour that empties it — the tilt and the stream too |
+| `BucketStand` | The spot under a tap that catches the water, and the socket a ghost places into |
+| `PourPoint` | Where a pour is RECORDED. A signal, because pouring hands nothing over |
 | `RewardPlinth` | A plinth that rises carrying an escape object, on its room's own condition |
 | `FinalRoomSequence` | Room4: the console, the three-object exit condition, and the break |
 

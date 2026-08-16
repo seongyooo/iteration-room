@@ -58,6 +58,16 @@ namespace IterationRoom.EditorTools
             // as an out-of-memory abort on someone else's machine.
             PlayerSettings.WebGL.memoryGrowthMode = WebGLMemoryGrowthMode.Geometric;
 
+            // THE PROJECT'S OWN TEMPLATE, which is Unity's Default with ONE line uncommented:
+            // `config.devicePixelRatio = 1`. A phone reports a ratio of 2 or 3, and honouring it
+            // renders four to nine times the pixels - so the same build that is comfortable on a
+            // desktop is a slideshow on the device it was built for, for reasons that have nothing
+            // to do with the scene.
+            //
+            // Set here rather than left in ProjectSettings so it cannot be lost to an Editor
+            // round-trip, the same reasoning as the compression settings above.
+            PlayerSettings.WebGL.template = "PROJECT:IterationMobile";
+
             // NOTE: EditorUserBuildSettings.overrideMaxTextureSize was tried here and DOES NOT
             // WORK for this project's problem. Textures were 97.3% of the first WebGL build
             // (612.8 MB against 11.0 MB of mesh - the 306k-triangle bed was never the issue), and

@@ -48,8 +48,36 @@ namespace IterationRoom
     {
         private static readonly Dictionary<string, List<CarryableItem>> items =
             new Dictionary<string, List<CarryableItem>>();
-        private static readonly Dictionary<string, IItemSocket> sockets =
-            new Dictionary<string, IItemSocket>();
+
+        // AN ID CAN NAME SEVERAL SOCKETS, for the same reason it can name several objects.
+        //
+        // One socket per id was right for as long as every socket was FINAL and unique - one keyhole
+        // per key, one square per chess piece, one recess per cube. The bucket is neither: four of
+        // them share the id "Bucket" and there are two stands that will take one, so "the socket for
+        // Bucket" is not a question with an answer.
+        //
+        // Which one a ghost should use is decided the way every other replayed identity is decided
+        // (CLAUDE.md §1.4): the surrender RECORDS the name of the thing it was given to, and replay
+        // asks for that name back. Nearest-to-the-ghost would be the position-based answer, and it
+        // would put a past self's bucket on whichever stand happened to be closest to where it now
+        // stands rather than on the one it actually used.
+        private static readonly Dictionary<string, List<SocketEntry>> sockets =
+            new Dictionary<string, List<SocketEntry>>();
+
+        // A socket and the name a recording can ask for it by. The name is the socket's own
+        // GameObject name, fixed at build time - the same identity `CarryEvent.instanceName` already
+        // uses for which physical object a take meant.
+        private readonly struct SocketEntry
+        {
+            public readonly IItemSocket socket;
+            public readonly string name;
+
+            public SocketEntry(IItemSocket socket, string name)
+            {
+                this.socket = socket;
+                this.name = name;
+            }
+        }
 
         public static void Register(CarryableItem item)
         {
@@ -81,17 +109,34 @@ namespace IterationRoom
             if (pool.Count == 0) items.Remove(item.itemId);
         }
 
-        public static void RegisterSocket(IItemSocket socket)
+        // `socketName` is optional and only matters where an id has more than one socket. Everything
+        // built before the buckets leaves it null and is looked up as "the one socket for this id",
+        // exactly as before.
+        public static void RegisterSocket(IItemSocket socket, string socketName = null)
         {
             if (socket == null || string.IsNullOrEmpty(socket.AcceptedItemId)) return;
-            sockets[socket.AcceptedItemId] = socket;
+
+            if (!sockets.TryGetValue(socket.AcceptedItemId, out List<SocketEntry> pool))
+            {
+                pool = new List<SocketEntry>();
+                sockets[socket.AcceptedItemId] = pool;
+            }
+
+            for (int i = 0; i < pool.Count; i++)
+                if (pool[i].socket == socket) { pool[i] = new SocketEntry(socket, socketName); return; }
+
+            pool.Add(new SocketEntry(socket, socketName));
         }
 
         public static void UnregisterSocket(IItemSocket socket)
         {
             if (socket == null || string.IsNullOrEmpty(socket.AcceptedItemId)) return;
-            if (sockets.TryGetValue(socket.AcceptedItemId, out IItemSocket existing) && existing == socket)
-                sockets.Remove(socket.AcceptedItemId);
+            if (!sockets.TryGetValue(socket.AcceptedItemId, out List<SocketEntry> pool)) return;
+
+            for (int i = pool.Count - 1; i >= 0; i--)
+                if (pool[i].socket == socket) pool.RemoveAt(i);
+
+            if (pool.Count == 0) sockets.Remove(socket.AcceptedItemId);
         }
 
         // Every carryable back where SceneBuilder left it, whoever was holding it.
@@ -245,11 +290,29 @@ namespace IterationRoom
             return best;
         }
 
-        public static IItemSocket FindSocket(string itemId)
+        // "Is there anywhere at all this id can be given up?" - the eligibility question
+        // `GhostReplayer.TryTake` asks before allowing a hand-over, which does not care which one.
+        public static IItemSocket FindSocket(string itemId) => FindSocket(itemId, null);
+
+        // THE SOCKET A RECORDED SURRENDER ACTUALLY MEANT.
+        //
+        // No name recorded means the id has one socket and always did - every carryable but the
+        // bucket - so the first is the only one. A name that matches nothing when there are several
+        // is a real answer rather than a failure: the errand does not happen this iteration, which is
+        // the same outcome `TryTake` gives when the named object is not available.
+        public static IItemSocket FindSocket(string itemId, string socketName)
         {
             if (string.IsNullOrEmpty(itemId)) return null;
-            sockets.TryGetValue(itemId, out IItemSocket socket);
-            return socket;
+            if (!sockets.TryGetValue(itemId, out List<SocketEntry> pool) || pool.Count == 0) return null;
+
+            if (string.IsNullOrEmpty(socketName)) return pool[0].socket;
+
+            for (int i = 0; i < pool.Count; i++)
+                if (pool[i].name == socketName) return pool[i].socket;
+
+            // One socket and a name that does not match it: the name came from somewhere else
+            // entirely, and refusing on that basis would break a key for no gain.
+            return pool.Count == 1 ? pool[0].socket : null;
         }
     }
 }

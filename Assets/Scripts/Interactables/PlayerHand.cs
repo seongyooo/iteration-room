@@ -96,6 +96,115 @@ namespace IterationRoom
         // when you are not" true without anyone having to know about anyone else.
         public bool InteractedThisFrame => interactFrame == Time.frameCount;
         public void MarkInteract() => interactFrame = Time.frameCount;
+
+        // A SWING OF WHATEVER IS IN THE HAND, asked for by the thing being swung AT.
+        //
+        // It lives here rather than on `TreeTrunk` because the hand is what owns where a held object
+        // sits (`CarryableItem.AttachTo` poses it against `handLocalPosition`), and an animation that
+        // fought the hand for that transform would jitter. The tree says "a swing happened"; how a
+        // held thing moves is the hand's business, and any future tool-shaped verb gets it free.
+        //
+        // Nothing about this is recorded. A swing is already an EVENT on the interactable's own bit
+        // (CLAUDE.md §1.5) and a ghost reproduces the CHOP, not the animation - so this is dressing
+        // on the living player's view and must never become a second source of truth.
+        // A SIDE SWING, not an overhead one. An axe against a standing trunk is swung ACROSS - the
+        // blade comes in horizontally at the notch - and the first version chopped downward like a
+        // maul splitting a round on a block, which is a different job and read as one.
+        //
+        // `swingOut` is how far the hand travels across the body, `swingRoll` the wrist turn that
+        // brings the blade round to lead, and `swingYaw` the shoulder. Lift is small and negative on
+        // the strike: the arc dips as it comes through rather than rising.
+        // DRAWN RIGHT BACK, THEN ALL THE WAY ACROSS. The first version was too small to read as a
+        // swing at all - the axe twitched. What makes a swing legible is the WIND-UP: the arm goes
+        // somewhere the resting pose never is, holds for an instant, and then travels a long way.
+        //
+        // The numbers are large on purpose. `swingOut` takes the axe most of a metre out to the
+        // right and behind, and the strike carries it nearly twice that back across the body, so the
+        // blade crosses the whole view rather than nodding in the middle of it.
+        // ONE CLICK IS ONE BLOW: the axe goes back and UP over the shoulder, then comes DOWN and
+        // ACROSS into the trunk. It is a diagonal, not a horizontal sweep - a flat swing at a
+        // standing tree reads as swatting, because nothing about it is falling.
+        //
+        // `swingLift` is what carries that: strongly positive on the wind-up, and driven well BELOW
+        // the resting pose on the strike, so the blade ends lower than it started.
+        // BIGGER AND SLOWER, third attempt. The two before it were too small and too quick to read
+        // as anything: at 0.5s the whole move is over before the eye finds it, and at 0.6m of travel
+        // the axe never leaves the corner of the screen it rests in.
+        //
+        // What sells a swing is DISTANCE, and most of that distance is sideways. The axe is drawn a
+        // metre and a quarter out to the right and up over the shoulder, hangs there for an instant,
+        // then crosses more than two metres down and left through the trunk. A slower chop is fine -
+        // `chopsToFell` pays for it - and a legible one is not optional.
+        // SIDEWAYS, not downward. The diagonal chop was the previous answer to "it should come down
+        // into the trunk" and it is not what a tree gets: you swing LEVEL at a standing trunk,
+        // because the cut is a horizontal wedge and the blade has to arrive along it.
+        //
+        // So the lift is small - just enough that the draw goes somewhere the rest pose is not - and
+        // the whole move is the two metres of lateral travel. It still winds up and still lands.
+        public float swingDuration = 0.78f;
+        public float swingOut = 1.32f;
+        public float swingBack = 0.58f;
+        public float swingLift = 0.20f;
+        public float swingRoll = 104f;
+        public float swingYaw = 104f;
+
+        private float swingStarted = -1f;
+
+        public void Swing()
+        {
+            if (Held == null) return;
+            swingStarted = Time.time;
+        }
+
+        // WRITTEN ABSOLUTELY, NEVER ACCUMULATED, and that distinction is the whole of getting this
+        // right. `CarryableItem.AttachTo` sets the held pose ONCE at pickup - nothing re-poses it per
+        // frame - so an offset added to `localPosition` compounds every frame and the axe leaves the
+        // screen inside a second. The rest pose is re-derived from the item's own `handLocalPosition`
+        // each frame and the swing is written on top of it, which also means letting go mid-swing
+        // needs no cleanup: the next AttachTo writes the rest pose anyway.
+        private void ApplySwing()
+        {
+            if (swingStarted < 0f) return;
+
+            CarryableItem held = Held;
+            if (held == null) { swingStarted = -1f; return; }
+
+            float t = (Time.time - swingStarted) / Mathf.Max(0.01f, swingDuration);
+            Transform tr = held.transform;
+
+            if (t >= 1f)
+            {
+                swingStarted = -1f;
+                tr.localPosition = held.handLocalPosition;
+                tr.localRotation = Quaternion.Euler(held.handLocalEuler);
+                return;
+            }
+
+            // Out to the right and back, then across and through. The return is slower than the
+            // strike, which is what makes it read as a blow landing rather than as a wobble.
+            // THE WIND-UP TAKES HALF THE MOVE. Drawing back slowly and striking fast is the whole
+            // difference between an axe swing and a wave; an even split reads as neither.
+            // Slightly more of the move goes into the draw now that there is more of it to watch.
+            const float draw = 0.58f;
+            float wind = t < draw
+                ? Mathf.SmoothStep(0f, 1f, t / draw)                       // out, back and up
+                : 1f - Mathf.SmoothStep(0f, 1f, (t - draw) / (1f - draw)); // through and recover
+            // The strike is squared so it accelerates into the contact rather than easing into it.
+            float k = t < draw ? 0f : Mathf.Clamp01((t - draw) / (1f - draw));
+            float strike = Mathf.Sin(k * Mathf.PI) * (0.35f + 0.65f * k);
+
+            tr.localPosition = held.handLocalPosition
+                + new Vector3(swingOut * wind - swingOut * 1.85f * strike,
+                              // Barely any vertical travel: the blade rises a little on the draw and
+                              // comes back through level, which is what a horizontal cut looks like.
+                              swingLift * wind - swingLift * 0.9f * strike,
+                              -swingBack * wind + swingBack * 1.7f * strike);
+            // A little pitch on the draw only, so the head cocks back rather than dropping.
+            tr.localRotation = Quaternion.Euler(-26f * wind + 10f * strike,
+                                                -swingYaw * wind + swingYaw * 1.6f * strike,
+                                                swingRoll * wind - swingRoll * 1.8f * strike)
+                             * Quaternion.Euler(held.handLocalEuler);
+        }
         private int interactFrame = -1;
 
         public void Take(CarryableItem item)
@@ -128,9 +237,14 @@ namespace IterationRoom
         // a lock, a drawer or a plate has marked itself by now, and this stands down.
         private void LateUpdate()
         {
+            // The swing first and unconditionally: it is dressing on the held object's pose and has
+            // to keep running through a frame where the press below is about to put the object down,
+            // and through the frames where there is no press at all.
+            ApplySwing();
+
             if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
             if (Held == null || InteractedThisFrame) return;
-            if (!Input.GetKeyDown(KeyCode.E)) return;
+            if (!GameInput.InteractPressed) return;
 
             Drop();
         }
@@ -190,9 +304,15 @@ namespace IterationRoom
         // on its way out rather than the floor it is going to land on. The sphere is the object's
         // own half-width, so what it reports is "would this fit here", not "is there a wall
         // somewhere over there".
+        //
+        // HOW WIDE THE OBJECT IS, MEASURED - not `handLocalScale.x`, which is a SCALE and only
+        // happens to be a width for something built from a unit mesh. The bucket is the first
+        // carryable where the two differ: it is a 0.35m pail held at a root scale of 2, so this read
+        // it as two metres across, cast a one-metre sphere from inside the player, hit the floor at
+        // distance zero and put every bucket down at `hardMinDrop` - on the player's own feet.
         private float RoomAhead(CarryableItem item)
         {
-            float half = Mathf.Abs(item.handLocalScale.x) * 0.5f;
+            float half = item.WorldHalfWidth();
             float want = dropAhead + half;
 
             Vector3 origin = transform.position + Vector3.up;
@@ -273,7 +393,14 @@ namespace IterationRoom
         // Hands an item over for good - the key going into Room2's lock. Returns the item so the
         // caller can place it; nobody else knows where it should go. It stays in `taken`, because
         // the loop still has to put it back at the top of the next iteration.
-        public CarryableItem Surrender(string itemId)
+        public CarryableItem Surrender(string itemId) => Surrender(itemId, null);
+
+        // WHICH socket, when the id has more than one. Everything up to the buckets had exactly one
+        // place a given id could go, so a surrender needed only to name the item; two stands will
+        // take a bucket, and "put it on that one" is a fact a past self has to reproduce or it
+        // reproduces nothing. Recorded through `CarryEvent.instanceName`, which already carries this
+        // kind of identity for a Take - see ItemRegistry.FindSocket.
+        public CarryableItem Surrender(string itemId, string targetName)
         {
             if (Held == null || Held.itemId != itemId) return null;
 
@@ -285,7 +412,7 @@ namespace IterationRoom
             // Recorded AFTER the item is confirmed gone from the hand, so a surrender is only ever
             // written for one that was genuinely held. RecordedTimeline's own note on re-evaluation
             // explains why both ends are conditional.
-            recorder?.RecordCarry(itemId, CarryKind.Surrender);
+            recorder?.RecordCarry(itemId, CarryKind.Surrender, targetName);
 
             Version++;
             return given;

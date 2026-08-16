@@ -39,6 +39,14 @@ namespace IterationRoom
         // sweep; the two are separate calls below because that ordering is load-bearing.
         public Door[] doors;
         public Drawer[] drawers;
+        // Taps left running are world state exactly like an open drawer, and a good deal more visible:
+        // a tap not shut here floods the next iteration on top of the last one's puddle.
+        public WaterTap[] taps;
+        // Buckets forget what they were holding, and stands forget what was standing on them. Both are
+        // world state the item sweep does not cover: the sweep moves the OBJECT back and says nothing
+        // about how full it was or what still believes it is occupied.
+        public Bucket[] buckets;
+        public BucketStand[] bucketStands;
 
         // This cycle's puzzle rooms. All optional: a cycle that has no balloon field simply leaves it
         // null, which is how a cycle can be built before its puzzles are designed.
@@ -89,6 +97,18 @@ namespace IterationRoom
         {
             if (drawers != null)
                 foreach (Drawer dr in drawers) dr?.Close();
+
+            if (taps != null)
+                foreach (WaterTap tap in taps) tap?.ShutOff();
+
+            // AFTER the item sweep, like every other room reset: the sweep is what puts each bucket
+            // back at its origin, and these are what forget that it was full and that a stand was
+            // holding it. Run the other way round and a bucket would be returned and then immediately
+            // re-seated by a stand that still thought it had one.
+            if (buckets != null)
+                foreach (Bucket b in buckets) b?.EmptyInstant();
+            if (bucketStands != null)
+                foreach (BucketStand s in bucketStands) s?.ResetStand();
 
             balloonField?.ResetField();
             finalRoom?.ResetRoom();

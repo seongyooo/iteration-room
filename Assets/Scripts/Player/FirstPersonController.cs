@@ -49,6 +49,22 @@ namespace IterationRoom
         public float gravity = -20f;
         public float jumpForce = 6f;
 
+        // WALKING IS HELD, LOOKING IS NOT, while an action the player started plays out - see
+        // HandleMove. Set by `Bucket` for the length of a pour and cleared by every path that can end
+        // one, including the loop's rewind and a cycle going to sleep: a lock is world state like any
+        // other, and one left set is a player who can never walk again.
+        //
+        // Deliberately NOT part of `LoopManager.AcceptsInput`. That gate means "the game is not taking
+        // input at all" - the pause menu, the wake-up, the end of a run - and it stops the look, the
+        // interact key and every fixture with it. This stops one of those things and nothing else.
+        public bool MovementLocked { get; set; }
+
+        // THE VIEW, held separately from the legs. Pouring a bucket locks both - a two-handed action
+        // you are watching - while the balloon tool locks neither, so the two cannot be one flag.
+        // `HandleLook` still RUNS while this is set (it maintains `pitch` and writes a zero roll every
+        // frame, see its own note); it simply takes no input.
+        public bool LookLocked { get; set; }
+
         // How long it takes to reach full speed, and to come back to a stop. SECONDS rather than
         // m/s^2 because this is a number tuned by feel, in the Inspector, while playing - and "a
         // seventh of a second to top speed" is a sentence a person can hold, where "32 m/s^2" is not.
@@ -185,7 +201,10 @@ namespace IterationRoom
             // Start is routinely denied on WebGL, and resuming from the pause menu can be denied
             // too. Clicking asks again, which is the one thing a player with a loose cursor will
             // naturally do. On desktop this branch never runs.
-            if (Cursor.lockState != CursorLockMode.Locked)
+            // NO POINTER TO LOCK ON A TOUCH SCREEN, so this whole branch has to stand aside there:
+            // `Cursor.lockState` never becomes Locked on a phone, and the early return below would
+            // then skip HandleLook on every single frame - a game that cannot turn its head.
+            if (!GameInput.TouchActive && Cursor.lockState != CursorLockMode.Locked)
             {
                 // Visible while loose. The pause menu turns the cursor off on resume, and if that
                 // resume did not get its lock back, an invisible free pointer is the worst of both.
@@ -280,9 +299,15 @@ namespace IterationRoom
         // constant - see GameSettings for what WebGL does to the numbers arriving here.
         private void HandleLook()
         {
+            // Both axes, not just yaw: a pour that let the player keep looking up and down would
+            // still be a pour they could aim away from the tank.
             float sensitivity = GameSettings.MouseSensitivity;
-            float mouseX = Input.GetAxis("Mouse X") * sensitivity;
-            float mouseY = Input.GetAxis("Mouse Y") * sensitivity;
+            // Whichever device is driving, in the same units: `GameInput.Look` hands over degrees
+            // before sensitivity, which is what the mouse axis already was. A touch drag is
+            // converted to match rather than this having to know which it is reading.
+            Vector2 look = LookLocked ? Vector2.zero : GameInput.Look;
+            float mouseX = look.x * sensitivity;
+            float mouseY = look.y * sensitivity;
 
             transform.Rotate(Vector3.up * mouseX);
 
@@ -300,8 +325,24 @@ namespace IterationRoom
             // point is that this game's ramp is moveAccelTime/moveDecelTime and not a value inherited
             // from the Input Manager by accident. Reading the axes raw is what makes those two fields
             // the only thing in charge.
-            float x = Input.GetAxisRaw("Horizontal");
-            float z = Input.GetAxisRaw("Vertical");
+            // WITH A MAGNITUDE, which the keyboard cannot express and a thumb stick can: the pair
+            // below is 0 or 1 per axis from keys, and anything in between from a stick. What uses it
+            // is the ClampMagnitude further down, which was already written to take a vector of any
+            // length - so analogue movement costs nothing here.
+            Vector2 wanted = GameInput.Move;
+            float x = wanted.x;
+            float z = wanted.y;
+
+            // ...UNLESS THE PLAYER IS IN THE MIDDLE OF SOMETHING THEY STARTED. Pouring a bucket takes
+            // a second and a half and draws a stream from the bucket's lip to the tank's waterline;
+            // walking off mid-pour drags that stream across the room and pours the water through open
+            // air. Held STILL rather than interrupted, because the pour is a commitment the click
+            // already made.
+            //
+            // The axes are zeroed rather than the whole method skipped, so the ramp still runs and the
+            // player DECELERATES into the stop instead of being stapled to the floor - and gravity,
+            // the ground check and the walk pose below all go on working.
+            if (MovementLocked) { x = 0f; z = 0f; }
 
             // Held, not toggled. A toggle would survive the loop's teleport and leave the player
             // sprinting out of bed having never pressed anything.
@@ -309,9 +350,12 @@ namespace IterationRoom
             // Crouch beats sprint when both are down. Holding two speed keys is an ambiguous request,
             // and the slower one is the safe reading - a player who wanted to go fast can let go of one
             // key, where a player who gets launched at sprint speed while crouched has been lied to.
-            bool crouching = Input.GetKey(crouchKey);
+            // `crouchKey` and `sprintKey` still name the desktop bindings; GameInput reads them and
+            // answers for the stick as well - a run is the stick pushed PAST a threshold rather than
+            // a button of its own, and there is no crouch on touch at all. See GameInput.
+            bool crouching = GameInput.CrouchHeld;
             float topSpeed = crouching ? crouchSpeed
-                          : Input.GetKey(sprintKey) ? sprintSpeed
+                          : GameInput.SprintHeld ? sprintSpeed
                           : walkSpeed;
 
             // Eased, not snapped, and this is the base the head bob rides on.
@@ -344,7 +388,7 @@ namespace IterationRoom
             if (controller.isGrounded && verticalVelocity < 0f)
                 verticalVelocity = -1f;
 
-            if (controller.isGrounded && Input.GetButtonDown("Jump"))
+            if (controller.isGrounded && GameInput.JumpPressed)
                 verticalVelocity = jumpForce;
 
             verticalVelocity += gravity * Time.deltaTime;

@@ -67,3 +67,40 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
    can skip several recorded frames in one tick, which is why press-type interactables stretch their
    pulse. Narrow timing windows are exactly where that bites. Plain simultaneity is safe; sequencing
    with delays needs its own design pass.
+
+
+## The tree hall (cycle 2, built 2026-08-16 - verified in code, NOT played)
+
+- **Is 40 chops the right number?** It is a guess shaped to be out of one player's reach inside sixty
+  seconds and comfortable for five. Only play answers it. One field: `trunk.chopsToFell`.
+- **Five axes is the earliest clearable iteration**, so it is the room's real difficulty knob and it
+  has never been felt. Raising or lowering it is one line in `BuildTreeHall`.
+- **Ghost crowding is still unprofiled**, and this room is where it peaks: five skinned, afterimaged
+  past selves swinging at once is the payoff and the load at the same time. `docs/cycle-design.md` §9
+  has been asking for this measurement since the paradigm was written.
+- **Chop and fall sounds are placeholders** - the item-pickup and door-open clips.
+- ~~Ghosts still do not swing.~~ **DONE** - `GhostReplayer.Swing`, ticked per frame while a swing is
+  live. Whether five of them at once actually reads as a work gang is still unplayed.
+- **The old note, kept for what it says about where this lives:** The LIVING player's axe now arcs on each chop (`PlayerHand.Swing`),
+  but a past self holding one stands still while the notch deepens - the recording only ever carried
+  the player's own body, and a ghost's carried item is posed by `GhostReplayer.LayOutCarried` rather
+  than animated. The room's whole image is five people swinging at once, so this is the largest
+  remaining gap between what it does and what it is for. The hook exists: the chop bit is already
+  per-ghost, so `SetGhostSignal` is where a ghost-side swing would start.
+- **Whether the crossing is now comfortable is unmeasured.** Leaves are non-solid, the deck is 3.3m
+  wide and there is a ramp at each lip - see `docs/puzzle-design.md`. If it is still awkward the next
+  lever is the pit's width, which is 10.5m only because room2-4 was.
+- `Room2_3/4/5_Reflection.exr` are orphaned - the rooms that owned them are gone.
+
+
+## Tree hall, still open after the 2026-08-16 revisions
+
+- **The pour lift is inferred, not observed.** `Bucket.PosePourHold` raises the pail to chest height
+  because `HandPoseFor` holds a big object low and a 104-degree tilt from there swings it below the
+  camera. That is a reading of the code, not of the game - if the real symptom was the bucket
+  JUMPING to the floor, the cause is somewhere else entirely.
+- **The tree roots are placed by measurement** (scaled to 3.1x the trunk's half-width, sunk to 62% of
+  their own height) and have never been looked at in motion.
+- ~~`tree_roots.glb` is 1.33 million triangles~~ **RESOLVED 2026-08-17**: swapped for
+  `stylized_tree_stump`, which is **1,072 triangles** and 0.85MB. The fit is derived rather than
+  written down, so the new asset sized and seated itself with no numbers changed.

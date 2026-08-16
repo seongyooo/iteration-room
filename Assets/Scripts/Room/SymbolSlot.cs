@@ -102,7 +102,7 @@ namespace IterationRoom
             ApplyPlate(Filled ? filledColor : idleColor, Filled ? filledEmission : idleEmission);
 
             if (!WantsInteractHint) return;
-            if (!Input.GetKeyDown(KeyCode.E)) return;
+            if (!GameInput.InteractPressed) return;
             // Checked as well as claimed - see PlayerLookup.InteractTaken. E means one thing at a
             // time, and standing at the right recess with the right cube is what decides which.
             if (PlayerLookup.InteractTaken) return;

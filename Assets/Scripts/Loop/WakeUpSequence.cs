@@ -86,6 +86,16 @@ namespace IterationRoom
             SetLids(0f);
         }
 
+        // SHUT WITH NO BLINK, for the frames before the game has decided what should be on screen.
+        //
+        // `RunLoop` cannot act until the cycle scenes have finished loading, and until it does the
+        // player is standing wherever the prefab was built and the camera is rendering whatever
+        // happens to be awake. Opening on that was reported twice: a flash of "some other map"
+        // before waking in bed. The lids are the one thing in this game that already means "you are
+        // not here yet", so the loading window borrows them.
+        public void ShutInstantly() => SetLids(1f);
+        public void OpenInstantly() => SetLids(0f);
+
         public IEnumerator CloseEyes()
         {
             yield return Blink(blinkShutKeys);

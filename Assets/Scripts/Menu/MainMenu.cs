@@ -22,10 +22,9 @@ namespace IterationRoom
         public Button playButton;
         public Button quitButton;
 
-        // Straight to the cycle boundary, with cycle 1 already finished. A development shortcut and
-        // labelled as one - see DebugStart for why eight minutes of play per test is the thing it
-        // exists to avoid.
-        public Button testBoundaryButton;
+        // ~~testBoundaryButton~~ REMOVED 2026-08-15: the title screen no longer carries a TEST entry.
+        // `DebugStart.AtCycleBoundary` and the jump it drives are still in place for a developer who
+        // sets the flag by hand; what is gone is the button and the handler that set it.
 
         // THE CYCLE PICKER. One button per cycle, on a page of its own so the title screen stays two
         // choices wide - a menu that grows a row every time the game does is a menu that stops being
@@ -34,6 +33,15 @@ namespace IterationRoom
         public Button continueBackButton;
         public CanvasGroup continueGroup;
         public Button[] cycleButtons;
+
+        // SETTINGS, on a page of its own for the same reason the cycle picker is: the title screen
+        // stays a short column of choices, and anything that needs a slider needs room the column
+        // does not have.
+        public Button settingsButton;
+        public Button settingsBackButton;
+        public CanvasGroup settingsGroup;
+        public Slider volumeSlider;
+        public Text volumeValue;
         public Image loadingFill;
         public Text loadingLabel;
 
@@ -52,10 +60,35 @@ namespace IterationRoom
             // an editor script has to be serialized through UnityEventTools, and this is one line.
             if (playButton != null) playButton.onClick.AddListener(Play);
             if (quitButton != null) quitButton.onClick.AddListener(Quit);
-            if (testBoundaryButton != null) testBoundaryButton.onClick.AddListener(PlayFromBoundary);
 
             if (continueButton != null) continueButton.onClick.AddListener(() => ShowContinue(true));
             if (continueBackButton != null) continueBackButton.onClick.AddListener(() => ShowContinue(false));
+
+            if (settingsButton != null) settingsButton.onClick.AddListener(() => ShowSettings(true));
+            if (settingsBackButton != null) settingsBackButton.onClick.AddListener(() =>
+            {
+                // Committed on the way OUT, not on every frame of a drag - the same rule the pause
+                // menu's sensitivity slider follows, and for the same reason (PlayerPrefs.Save is a
+                // storage flush on WebGL).
+                GameSettings.Save();
+                ShowSettings(false);
+            });
+
+            // The stored volume reaches the engine here rather than at the first slider drag, so a
+            // player who never opens this page still gets the level they chose last time.
+            GameSettings.ApplyAudio();
+
+            if (volumeSlider != null)
+            {
+                volumeSlider.minValue = 0f;
+                volumeSlider.maxValue = 1f;
+                // Seeded BEFORE the listener is attached: a Slider raises onValueChanged when its
+                // value is assigned, and a seed that reported itself as a change would write the
+                // default over whatever was loaded.
+                volumeSlider.SetValueWithoutNotify(GameSettings.MasterVolume);
+                volumeSlider.onValueChanged.AddListener(SetVolume);
+            }
+            ShowVolumeValue();
 
             if (cycleButtons == null) return;
             for (int i = 0; i < cycleButtons.Length; i++)
@@ -76,6 +109,10 @@ namespace IterationRoom
 
             if (menuGroup != null) menuGroup.alpha = 1f;
             ShowContinue(false);
+            // Both sub-pages down, and the menu back up after them: each of these restores
+            // `menuGroup`, so whichever runs last is what the player sees.
+            ShowSettings(false);
+            if (menuGroup != null) { menuGroup.alpha = 1f; menuGroup.blocksRaycasts = true; }
             if (loadingGroup != null)
             {
                 loadingGroup.alpha = 0f;
@@ -104,14 +141,9 @@ namespace IterationRoom
             StartCoroutine(LoadGame());
         }
 
-        public void PlayFromBoundary()
-        {
-            if (starting) return;
-            DebugStart.Clear();
-            DebugStart.AtCycleBoundary = true;
-            starting = true;
-            StartCoroutine(LoadGame());
-        }
+        // `PlayFromBoundary` went with the TEST button it was the handler for. `LoopManager` still
+        // honours `DebugStart.AtCycleBoundary`, so the jump is reachable by setting that static; there
+        // is simply nothing on the title screen that sets it.
 
         // Cycle 1 goes through the ordinary route rather than the picker's, so choosing it is exactly
         // the same run as pressing PLAY - including the sensitivity step.
@@ -122,6 +154,34 @@ namespace IterationRoom
             if (cycle > 1) DebugStart.StartCycle = cycle;
             starting = true;
             StartCoroutine(LoadGame());
+        }
+
+        private void SetVolume(float value)
+        {
+            GameSettings.MasterVolume = value;
+            ShowVolumeValue();
+        }
+
+        private void ShowVolumeValue()
+        {
+            // As a percentage rather than 0.00: this is a loudness, and nobody thinks about loudness
+            // in hundredths. Sensitivity keeps its decimals because a mouse multiplier is a ratio.
+            if (volumeValue != null)
+                volumeValue.text = Mathf.RoundToInt(GameSettings.MasterVolume * 100f) + "%";
+        }
+
+        private void ShowSettings(bool show)
+        {
+            if (settingsGroup != null)
+            {
+                settingsGroup.alpha = show ? 1f : 0f;
+                settingsGroup.blocksRaycasts = show;
+            }
+            if (menuGroup != null)
+            {
+                menuGroup.alpha = show ? 0f : 1f;
+                menuGroup.blocksRaycasts = !show;
+            }
         }
 
         private void ShowContinue(bool show)

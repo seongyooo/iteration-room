@@ -42,6 +42,12 @@ namespace IterationRoom
             if (menuButton != null) menuButton.onClick.AddListener(ToMainMenu);
             if (quitButton != null) quitButton.onClick.AddListener(Quit);
 
+            // The saved volume, pushed at the engine here as well as on the title screen: a run
+            // started straight from the Editor never passes through the menu, and `AudioListener`'s
+            // volume is a global nothing else initialises. The slider for it lives on the title
+            // screen (MainMenu.settingsGroup); this only honours what it set.
+            GameSettings.ApplyAudio();
+
             if (sensitivitySlider != null)
             {
                 sensitivitySlider.minValue = GameSettings.MinMouseSensitivity;
@@ -102,7 +108,7 @@ namespace IterationRoom
             // moment the game must not have one.
             bool endingRunning = LoopManager.Instance != null && LoopManager.Instance.RunOver;
 
-            if (Input.GetKeyDown(KeyCode.Escape) && !endingRunning)
+            if (GameInput.PausePressed && !endingRunning)
             {
                 if (IsPaused) Resume();
                 else Pause();

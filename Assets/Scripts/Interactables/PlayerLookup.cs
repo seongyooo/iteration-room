@@ -21,10 +21,14 @@ namespace IterationRoom
     {
         private static Collider playerCollider;
         private static PlayerHand playerHand;
+        private static FirstPersonController playerController;
         private static Camera playerEye;
 
         public static Collider Collider => Resolve() ? playerCollider : null;
         public static PlayerHand Hand => Resolve() ? playerHand : null;
+        // Resolved here with the rest of the player, so a room fixture that has to hold the player
+        // still for a moment does not go hunting for them itself - see FirstPersonController.
+        public static FirstPersonController Controller => Resolve() ? playerController : null;
 
         // Resolved on its own rather than inside Resolve(), so a scene that somehow has a player
         // without a camera still answers Collider and Hand.
@@ -60,6 +64,37 @@ namespace IterationRoom
         {
             PlayerHand hand = Hand;
             if (hand != null) hand.MarkInteract();
+        }
+
+        // A TAKEABLE IN FRONT OF A FIXTURE WINS THE PRESS, and this is the half of "one press, one
+        // action" that check-and-claim could never settle.
+        //
+        // Claiming decides that only ONE thing answers a press; it cannot decide WHICH, because the
+        // fixtures claim in whatever order Unity happens to run their `Update`s. That was survivable
+        // while no fixture's reach volume contained a takeable. Room2-2's taps break it by design: a
+        // stand sits directly under each spout so the water lands in the bucket, which puts the bucket
+        // inside the tap's own reach - and the press went to the valve, so a full bucket standing
+        // under a running tap could not be picked up at all.
+        //
+        // Settled the way this game settles every other "which one did you mean": NEAREST TO THE EYE,
+        // which is also what the prompt is drawn over (`ItemRegistry.NearestTakeable`,
+        // `ControlHintDisplay.NearestWantingHint`). So the press goes to whatever the disc is sitting
+        // on, which is the rule the player can actually see.
+        //
+        // Note it answers FALSE with hands full - `NearestTakeable` only returns things E could pick
+        // up, and a player holding a bucket at a tap means the tap. That is the same asymmetry
+        // `CarryableItem.AlreadyHaveOne` already relies on, and it is what makes "fill, take, carry"
+        // work without a second key.
+        public static bool TakeableIsNearer(Transform anchor)
+        {
+            Camera cam = Eye;
+            if (cam == null || anchor == null) return false;
+
+            Vector3 eye = cam.transform.position;
+            CarryableItem item = ItemRegistry.NearestTakeable(eye);
+            if (item == null) return false;
+
+            return (item.transform.position - eye).sqrMagnitude < (anchor.position - eye).sqrMagnitude;
         }
 
         // ON SCREEN. Every fixture in the game answers E on PROXIMITY - a polled volume around it -
@@ -156,6 +191,7 @@ namespace IterationRoom
 
             playerCollider = player.GetComponent<Collider>();
             playerHand = player.GetComponent<PlayerHand>();
+            playerController = player.GetComponent<FirstPersonController>();
             return playerCollider != null;
         }
     }

@@ -73,3 +73,153 @@ Things that cost a session to discover once. Do not rediscover them.
     that returns garbage returns it silently.
 - **`-nographics` cannot render anything**, which is why the menu capture checks `SystemInfo.graphicsDeviceType`. Anything else needing a real render must make the same check or the canonical headless build stops working.
 - A fresh Unity project via `-createProject` does **not** include uGUI — `"com.unity.ugui": "2.0.0"` had to go into `Packages/manifest.json` before any `Text`/`Canvas` script would compile.
+
+
+## A Z-UP IMPORT ANSWERS A ROTATION WITH A TRANSLATION (`realistic_tree.glb`, 2026-08-16)
+
+The tree model is authored **Z-up**, and glTFast carries the correction *inside the prefab*. Writing
+the instance's rotation - **even to `Quaternion.identity`** - destroys that correction, and the object
+then responds to being rotated by sliding sideways instead of turning. Several attempts at "lay the
+tree down" moved it around the room without ever tipping it.
+
+**The fix is to never touch the imported instance's own transform rotation.** Put a plain `GameObject`
+of your own above it and rotate that. `SceneBuilder.BuildTree` does exactly this - `FallPivot` is the
+thing that turns, and the tree hangs off it untouched.
+
+The same shape of bug is already recorded above for `chess.glb`'s mirrored pieces. The rule
+generalises: **measure a model's pose off the model, never write a number into it.**
+
+## `RecalculateBounds` MEASURES VERTICES, NOT TRIANGLES (2026-08-16)
+
+Splitting a mesh by keeping a subset of its **triangles** while carrying the whole **vertex** array
+over is tempting - it is three lines shorter and renders identically. It is wrong, and nothing about
+the picture says so: `Mesh.RecalculateBounds` walks every vertex whether or not any triangle
+references it, so both halves of a cut tree came back claiming the *whole* tree's bounds. The visible
+costs are that neither half ever culls, and that reading the bounds back to check the cut reports
+that the cut did not happen. **Remap the vertices** - `SceneBuilder.FilterTriangles` does.
+
+## A CYLINDER CANNOT STAND IN FOR A TAPERED, LEANING TRUNK (2026-08-16)
+
+The notch needed something behind it, because a hole cut into a mesh shows the inside of a shell and
+back-faces are not drawn - so the cut looked straight through the tree. A dark cylinder inside the
+bark was tried and failed twice: the trunk loses a third of its width over the notch's height, and it
+also leans off the axis the cylinder is centred on, so it stood proud of the bark as a black ring.
+Sampling the radius harder only moved the failure around.
+
+**What worked was having no shape to get wrong**: the carved trunk is drawn with a `Cull Off` copy of
+its own bark material, so the inside of the trunk is the inside of the trunk.
+
+
+## A WALL WHOSE WIDTH IS NOT A MULTIPLE OF THE CELL (2026-08-16)
+
+`BuildPanelWall` tiled whole `GridCellWidth` cells from the wall's centre, which is exact for every
+room in cycle 1 (8.75 and 10.5 are 5 and 6 cells) and wrong for anything else. The tree hall's 30.45m
+wall went through three versions before it was right, and the middle one is the instructive failure:
+
+1. **Round the count** - leaves 0.35m of bare `GrooveDark` backing at each end, which on a 17.5m wall
+   reads as a **black border**, not as a groove.
+2. **Clamp the last cell** - covers the backing and leaves a **sliver panel** jammed against the
+   corner, which play called out just as fast.
+3. **Fit the cell width**: round the count, then divide the width by it. 17 cells of 1.791m instead of
+   17 of 1.75 plus a gap. Nobody can see 4cm; everybody can see a sliver.
+
+The rule generalises: **when a repeating unit has to fill a fixed span, stretch the unit, do not leave
+a remainder.**
+
+## COPLANAR FACES AT A HOLE'S EDGE (2026-08-16)
+
+The pit's lip flickered all the way round. The shaft walls ran from `y = 0` downward, so their top
+0.1m occupied exactly the volume of the floor slab, and their outer faces sat on exactly the plane of
+the slab's cut edge - two coplanar surfaces fighting for the same pixels. **Hanging the shaft from the
+slab's UNDERSIDE removes the shared plane** rather than biasing it, which is the fix to reach for
+first: a depth offset only moves a z-fight somewhere else.
+
+## SPLICING BY `str.index` FINDS THE WRONG COPY (2026-08-16)
+
+Three separate times this session, a scripted edit that located its target with a first-match search
+spliced a block into the wrong occurrence and left `SceneBuilder.cs` with **1,400 duplicated lines**
+and two definitions of `BuildTreeHall`, `BuildTree` and `BuildPanelWall`. It cost a full build cycle
+each time and the last one needed the duplicate span found by diffing the file against itself.
+
+**Anchor a scripted edit on something that occurs once**, assert the match count before replacing, and
+re-scan for duplicate member definitions afterwards - `grep -c 'private static <Name>('` is enough.
+
+**And the same trap has a second form: an UNBOUNDED replace.** Laying the fire axes flat meant changing
+`root.transform.localRotation = Quaternion.Euler(tipDegrees, yaw, 0f);` in `BuildFireAxe` - a line
+`BuildBucket` has verbatim. The replace hit both, so two of room2-2's buckets lost their tip while
+KEEPING the lift that only a tipped bucket needs, and shipped hovering a quarter of a metre above the
+floor. Nothing failed; the build was clean and the log said nothing.
+
+**Assert the count on every scripted replace, not just the ones that look ambiguous.** A line that
+reads as specific to one builder is exactly the line a sibling builder also has.
+
+
+## AN ADDITIVELY LOADED SCENE IS VISIBLE BEFORE ANYTHING DECIDES IT SHOULD NOT BE (2026-08-16)
+
+Cycle 2's root shipped inactive; cycle 1's shipped active, because cycle 1 is the one the game opens
+in. That is the bug rather than the shortcut: `CycleSceneLoader` brings every cycle in additively and
+asynchronously, and `LoopManager` only decides which one should be awake *after* the load returns. In
+between there are frames rendering whatever each scene happened to be SAVED with - so starting the
+game at cycle 2 opened on a flash of cycle 1's rooms.
+
+**Every cycle root now ships asleep and `LoopManager` wakes exactly one, unconditionally.** The
+general rule: when something's visibility is decided at runtime, its authored state must be the
+INVISIBLE one, or there is a window where the authored state is the answer.
+
+## A `WallPanelDisplay` PANEL CANNOT BE RECOLOURED BY ITS MATERIAL (2026-08-16)
+
+The tree hall's upper walls are faded toward black to hide the ceiling. Setting `sharedMaterial` on
+them is not enough: every panel handed to a `WallPanelDisplay` is driven through a
+`MaterialPropertyBlock`, which overrides the material outright, so the faded panels came back white
+the moment the wake-up powered the walls up. They are excluded from the display's list at build time
+instead - identified by the material they were given rather than by re-deriving their height, so the
+two cannot drift apart.
+
+
+## A `SetActive(false)` ROOT IS ALSO INVISIBLE TO A SCREENSHOT (2026-08-16)
+
+Making cycle 1's root ship asleep (above) silently broke the title screen: `CaptureMenuBackground`
+runs *after* that in `Build()`, so the menu's background photograph became a picture of an empty
+scene, and the title screen went black. The room is woken for the capture and put back afterwards.
+
+**Anything that reads the scene - a probe bake, a screenshot, a bounds measurement - has to run while
+the thing it reads is awake**, and "ships asleep" quietly moves every one of those.
+
+## A `uGUI` IMAGE WITH A NULL SPRITE IS A SOLID RECTANGLE (2026-08-16)
+
+The menu's gradient scrim is a generated PNG. A freshly written PNG imports as a plain `Texture2D`,
+so `LoadAssetAtPath<Sprite>` returned **null** - and an `Image` with a null sprite draws a filled rect
+at its colour, which for `Color.white` is a white sheet over the entire title screen. Set
+`textureType = Sprite` on the importer *before* asking for the asset as one, and keep a fallback
+colour for the case where it still fails: a menu that loses its gradient should still be a menu.
+
+
+## AN IMPORTED MODEL'S TEXTURES ARE UNCOMPRESSED AND NOBODY TELLS YOU (2026-08-17)
+
+`realistic_tree.glb` is a 56MB file. Its textures at runtime were **629MB**: four 4096x4096 maps that
+glTFast imports as uncompressed ARGB32. That was the in-game stutter, and it did not look like a
+texture problem - the same room also has a 1.3M-triangle stump, which is the thing anybody would
+blame first. Measured, the triangles were affordable and the textures were not.
+
+**They cannot be fixed with import settings.** They are SUB-ASSETS of a custom importer, so there is
+no `TextureImporter` to configure. `SceneBuilder.ShrinkModelTextures` blits each one into a render
+target at the size actually wanted, reads it back, writes a real PNG asset with compression on, and
+repoints the material at the copy. 629MB -> 3MB, once per build, idempotent.
+
+**The lesson is to measure before optimising**: `Profiler.GetRuntimeMemorySizeLong` on every texture
+in an imported model takes five lines and would have found this the day the tree went in.
+
+**And the same measurement settled the other half of it.** The stump in the same room was 1.33M
+triangles - the number everyone would have optimised first - and replacing it with a 1,072-triangle
+one cost nothing but the swap, because everything about its placement is DERIVED from the model's own
+bounds. A builder that measures instead of hardcoding is a builder whose assets are replaceable.
+
+## SUPERSAMPLE ANYTHING THAT PHOTOGRAPHS THIS BUILDING (2026-08-17)
+
+The menu background is a picture of a room made of thin black grooves on white - the worst case for
+aliasing there is. Captured at 1:1 the lines crawl and break up, and the title screen advertised the
+game as a jaggy mess. It is rendered at 2x into the RenderTexture and box-filtered down
+(`SceneBuilder.Downsample`), which does not depend on what MSAA the pipeline asset is set to.
+
+The downscale is done in C# rather than with a bilinear blit on purpose: a blit at exactly 2:1 samples
+pixel CENTRES and misses half the detail it is meant to be averaging.

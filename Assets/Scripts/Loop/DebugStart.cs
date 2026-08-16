@@ -22,7 +22,10 @@ namespace IterationRoom
     // part of what gets tested.
     public static class DebugStart
     {
-        // Set by the title screen's test button, consumed by LoopManager on the first iteration.
+        // Consumed by LoopManager on the first iteration. **NOTHING SETS IT ANY MORE**: the title
+        // screen's TEST button was removed 2026-08-15 by request, and it was the only caller. The
+        // machinery is kept because the argument above still holds and it costs one assignment to use
+        // - set this from a script or the console before the scene loads and the jump runs as it did.
         public static bool AtCycleBoundary;
 
         // WHICH CYCLE TO WAKE IN. -1 means the ordinary route: cycle 1, from the beginning.

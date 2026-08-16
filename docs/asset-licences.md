@@ -380,3 +380,212 @@ CC AttributionCreative Commons Attribution
 Learn more
 Published 7 years ago
 https://sketchfab.com/3d-models/gear-clock-bab1a7a488d94c6da9278517afc19d0f
+
+Wooden Bucket
+3D Model
+Avatar of romullus
+romullus
+
+Follow
+1.9k
+1895 Downloads
+5k
+4963 Views
+132
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 9k
+Vertices: 4.5k
+More model information
+Small decorative wooden bucket.
+
+License:
+CC Attribution-ShareAlikeCreative Commons Attribution-ShareAlike
+
+Learn more
+Published 8 years ago
+https://sketchfab.com/3d-models/wooden-bucket-217dd46026ac4cfd947097ad3c466bf2
+
+
+Oak tree
+3D Model
+Avatar of massive-graphisme
+massive-graphisme
+
+Follow
+28.3k
+28317 Downloads
+62.9k
+62914 Views
+711
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 7.1k
+Vertices: 4.4k
+More model information
+A good old oak tree. Bark texture made using Substance Painter. High definition textures
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 6 years ago
+https://sketchfab.com/3d-models/oak-tree-3dc59560f2d24345bdbe65c44636453b
+
+Realistic Tree
+3D Model
+Avatar of danielpetrov
+Daniel
+
+Follow
+19.9k
+19948 Downloads
+53.4k
+53408 Views
+497
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 19.9k
+Vertices: 22.8k
+More model information
+An optimized, low poly realistic tree with OpenGL normal maps.
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 2 years ago
+https://sketchfab.com/3d-models/realistic-tree-d989c0f801d847b9a74992ec4ddcfdfc
+
+Fire Axe
+3D Model
+Avatar of denis_cliofas
+denis_cliofas
+
+Follow
+8k
+7993 Downloads
+18k
+18009 Views
+271
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 912
+Vertices: 458
+More model information
+A low poly fire axe model made blender and finished in substance painter. Tris: 912 Textures: 4K PBR
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 6 years ago
+https://sketchfab.com/3d-models/fire-axe-b9d83055bb3b467c88496299c27ceae0
+
+GA Free_151_Old Tree Stump
+3D Model
+Avatar of galaxyabundant
+Galaxy Abundant
+pro
+
+Follow
+202
+202 Downloads
+583
+583 Views
+16
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 1.3M
+Vertices: 664k
+More model information
+Old Tree Stump – Fantasy Forest Nature Prop
+
+A high-detail old tree stump prop designed for fantasy and realistic forest environments. This asset features a broad cut surface with visible growth rings, rugged bark, exposed roots, moss growth, and decayed hollow details that add age and environmental storytelling.
+
+Built as a standalone nature prop, it works well in forest paths, woodland clearings, abandoned camps, fantasy villages, overgrown ruins, and open-world environments. Its strong silhouette and weathered organic detail make it suitable as both a supporting environment piece and a small storytelling prop.
+
+Features
+
+Large weathered tree stump with visible wood rings Exposed roots, bark texture, moss, and decay detail Hollowed and broken sections for natural age and realism Suitable for fantasy, realistic, survival, and RPG scenes Works as a forest prop, woodland dressing element, or environment storytelling asset
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published a month agoJul 3rd 2026
+Generated with AI
+https://sketchfab.com/3d-models/ga-free-151-old-tree-stump-e79aa9aa3ef947cca37fff4e4ff2d6eb
+
+Stylized tree stump
+3D Model
+Avatar of Aartee
+Aartee
+
+Follow
+7.6k
+7599 Downloads
+19.1k
+19107 Views
+406
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 1.1k
+Vertices: 564
+More model information
+Simple tree stump. Model was sculpted and then decimation was applied. It’s free. If you like it LIKE IT, please. Enjoy.
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 7 years ago
+https://sketchfab.com/3d-models/stylized-tree-stump-04d51f5c2fb643aab3b93b451d1b77c9
