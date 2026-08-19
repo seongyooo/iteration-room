@@ -37,6 +37,8 @@ namespace IterationRoom
         // Putting a chess piece back is a control ON THE PLAYER pointed at a board in a room, so it
         // crosses in the other direction from most of these.
         public ChessPlacer placer;
+        // And the bucket's, which crosses the same way for the same reason - see BucketPlacer.stands.
+        public BucketPlacer bucketPlacer;
         // Room2's wordless sign retires on the first POP rather than on the first visit, so it points
         // at the swing tool - which is on the player.
         public BalloonTool swingTool;
@@ -110,6 +112,16 @@ namespace IterationRoom
             // assigned when this cycle actually has one, or cycle 2 would clear cycle 1's.
             if (placer != null && cycle.chessBoard != null) placer.board = cycle.chessBoard;
 
+            // The bucket's targets, the same direction and the same guard. `Cycle` already gathers the
+            // stands for its own reset, so this reuses that array rather than walking the cycle again;
+            // the tanks are found here, because one room having one of something is not yet a reason
+            // for every cycle to hold a field for it (the same line TreeTrunk is on, below).
+            if (bucketPlacer != null && cycle.bucketStands != null && cycle.bucketStands.Length > 0)
+            {
+                bucketPlacer.stands = cycle.bucketStands;
+                bucketPlacer.tanks = cycle.worldRoot.GetComponentsInChildren<WaterTank>(true);
+            }
+
             // The tree's left-click disc, the same direction and the same guard: assigned only when
             // this cycle actually has a tree, or cycle 1 would clear cycle 2's. Found by type rather
             // than carried on `Cycle`, because one room having one of something is not yet a reason
@@ -123,7 +135,7 @@ namespace IterationRoom
         // Its `player` is the one field on it that points at the core.
         private void BindExits()
         {
-            foreach (CycleExit exit in FindObjectsByType<CycleExit>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            foreach (CycleExit exit in FindObjectsByType<CycleExit>(FindObjectsInactive.Include))
                 exit.player = player;
         }
 
@@ -162,10 +174,16 @@ namespace IterationRoom
         // `LoopManager.EndCycleState`.
         public void PointGasAt(Cycle cycle)
         {
-            if (sleepingGas == null || cycle == null || cycle.worldRoot == null) return;
+            if (sleepingGas == null || cycle == null) return;
 
-            ParticleSystem[] emitters = cycle.worldRoot.GetComponentsInChildren<ParticleSystem>(true);
-            if (emitters.Length > 0) sleepingGas.emitters = emitters;
+            // THE CYCLE'S OWN LIST, not every particle system under it. Gathering by type swept up the
+            // tap sprays with the wall emitters - see Cycle.gasEmitters. A cycle that names none keeps
+            // whatever was already wired rather than being handed the wrong thing.
+            if (cycle.gasEmitters != null && cycle.gasEmitters.Length > 0)
+                sleepingGas.emitters = cycle.gasEmitters;
+            else
+                Debug.LogWarning($"[CycleBinding] '{cycle.name}' declares no gas emitters - the boundary "
+                    + "into it will fire whatever was last wired.");
         }
 
     }

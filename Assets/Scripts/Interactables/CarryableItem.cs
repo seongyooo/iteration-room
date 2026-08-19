@@ -176,7 +176,7 @@ namespace IterationRoom
         // E here would pick this up. The drawer gate is part of the answer: prompting over a pin
         // inside a shut drawer would teach the key on the one press that does nothing.
         // ON SCREEN is the last test rather than the first, and that ordering is load-bearing:
-        // ItemRegistry.NearestTakeable asks this of EVERY registered item, and `playerInRange` is
+        // ItemRegistry.AimedTakeable asks this of EVERY registered item, and `playerInRange` is
         // false for all but the handful beside the player. See PlayerLookup.InView.
         public bool WantsInteractHint =>
             IsAvailable && playerInRange && !AlreadyHaveOne
@@ -193,10 +193,25 @@ namespace IterationRoom
         // is having anything at all.
         private bool AlreadyHaveOne => hand != null && hand.HandsFull;
 
-        public Transform HintAnchor => transform;
+        // WHERE THE PROMPT DISC HANGS, and what the aim arbitration measures against. Its own
+        // transform for almost everything, because almost everything here rests on a floor and its
+        // origin is a fair description of where it is.
+        //
+        // OVERRIDDEN FOR THE THINGS THAT FLOAT. Room2-6's ducks and beach balls have their origin ON
+        // the waterline, half under the surface - so the disc was drawn inside the water and the aim
+        // test was asking about a point that is not really visible. Same reasoning as
+        // `WaterTank.aimAnchor`: the point that decides has to be the point the player is looking at.
+        public Transform hintAnchor;
+
+        public Transform HintAnchor => hintAnchor != null ? hintAnchor : transform;
 
         private PlayerHand hand;
         private Collider trigger;
+        // ALMOST NOTHING HERE HAS ONE, and the two that do are room2-6's ducks and beach balls: they
+        // float on real water on real rigidbodies and can also be picked up, which nothing else in
+        // this game is (see FloatingBalls). Cached because every path in and out of a hand has to
+        // deal with it, and null for everything else.
+        private Rigidbody body;
         private bool playerInRange;
         private bool visible = true;
 
@@ -208,6 +223,7 @@ namespace IterationRoom
         private void Awake()
         {
             trigger = GetComponent<Collider>();
+            body = GetComponent<Rigidbody>();
             originParent = transform.parent;
             originLocalPosition = transform.localPosition;
             originLocalRotation = transform.localRotation;
@@ -231,28 +247,24 @@ namespace IterationRoom
         {
             if (IsCarriedByPlayer) return;
 
-            Collider playerCollider = PlayerLookup.Collider;
             hand = PlayerLookup.Hand;
 
-            playerInRange = playerCollider != null
-                && playerCollider.enabled
-                && trigger != null
-                && trigger.bounds.Intersects(playerCollider.bounds);
+            playerInRange = PlayerLookup.InReach(trigger);
         }
 
         private void Update()
         {
-            if (IsCarriedByPlayer || !playerInRange || hand == null) return;
+            if (IsCarriedByPlayer || hand == null) return;
             if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
-            // Same test the prompt gates on, for the same reason: with three pins in one drawer, E on
-            // the second one would reach PlayerHand.Take and be refused there. Refusing here keeps
-            // the press and the prompt agreeing about what is possible.
-            if (AlreadyHaveOne) return;
 
-            // The drawer gate is about where the item SITS, so it does not apply to one a ghost has
-            // already carried out of it - the pin in a past self's hand is not inside a shut drawer.
-            // IsFullyOpen, not IsOpen, so the same E press cannot both open the drawer and empty it.
-            if (HeldByGhost == null && requiresOpenDrawer != null && !requiresOpenDrawer.IsFullyOpen) return;
+            // EXACTLY WHAT THE PROMPT ASKS, AND NOTHING RESTATED. In reach; available; hands not
+            // already full (E on a second pin would reach PlayerHand.Take and be refused there, so
+            // refusing here keeps the press and the prompt agreeing about what is possible); not
+            // inside a shut drawer, which is about where the item SITS and so does not apply to one a
+            // past self is already carrying; ON SCREEN and not behind anything; and the thing being
+            // looked at. All of it is `WantsInteractHint` plus the arbitration - see
+            // PlayerLookup.PressGoesTo, and CarryableItem.WantsInteractHint just above for each part.
+            if (!PlayerLookup.PressGoesTo(this)) return;
 
             if (!GameInput.InteractPressed) return;
 
@@ -268,15 +280,13 @@ namespace IterationRoom
             // takeable things shared a place, and wrong the moment 32 chess pieces stood a square apart
             // with square-wide triggers. Play found it as "some pieces come up two or three at a time".
             //
-            // Deferring to the nearest candidate rather than to whoever ran first: script execution order
-            // is arbitrary, so first-wins would hand the player a piece they were not looking at. Nearest
-            // is also what the prompt is drawn over, so the press and the disc agree.
+            // Deferring to the best-AIMED-at candidate rather than to whoever ran first: script execution
+            // order is arbitrary, so first-wins would hand the player a piece they were not looking at.
+            // The same measure is what the prompt is drawn over, so the press and the disc agree.
             // No eye, no arbitration: fail CLOSED rather than letting the press through unarbitrated.
-            // The whole point of NearestTakeable is to stop one press reaching several overlapping
-            // items at once (CLAUDE.md SS1.2) - skipping the check because the eye could not be found
-            // would silently reopen exactly that.
-            Camera eye = hand.holdAnchor != null ? hand.holdAnchor.GetComponentInParent<Camera>() : null;
-            if (eye == null || ItemRegistry.NearestTakeable(eye.transform.position) != this) return;
+            // (The arbitration itself is in PressGoesTo, above - it settles this item against the
+            // other takeables AND against the fixtures it overlaps, which is how a cube standing on a
+            // chest of drawers is reachable inside both bays' trigger volumes.)
 
             hand.Take(this);
         }
@@ -288,6 +298,16 @@ namespace IterationRoom
             Released = false;
             if (trigger != null) trigger.enabled = false;
             SetBlocking(false);
+            // THE HAND OWNS IT FROM HERE, and for a rigidbody that has to be said in the same breath
+            // as the reparenting rather than a physics step later.
+            //
+            // The ducks were picked up and did not come: the prompt fired, `PlayerHand.Take` ran, the
+            // object was parented under the camera - and PhysX went on solving a DYNAMIC body, which
+            // overwrites the transform every fixed step from its own simulated position. The object
+            // was in the hand for a fraction of a frame and then wherever the water put it. Waiting
+            // for `FloatingBalls` to notice on the next FixedUpdate is a frame too late and is anyway
+            // the wrong place: what has custody is this class's business (CLAUDE.md §2).
+            Freeze(true);
 
             transform.SetParent(anchor, false);
             transform.localPosition = handLocalPosition;
@@ -322,6 +342,10 @@ namespace IterationRoom
             HeldByGhost = ghost;
             IsCarried = true;
             Released = false;
+            // Same handover as the player's, for the same reason: a past self carrying a duck is
+            // writing that transform every frame off its own recording, and a dynamic body would
+            // overwrite it every physics step.
+            Freeze(true);
             // The trigger stays ON and rides the ghost, which is the whole taking-it-back mechanism:
             // walk up to the past self holding the key and press E. No new verb, no new input, and
             // ControlHintDisplay already puts its own prompt over it because WantsInteractHint is
@@ -385,6 +409,7 @@ namespace IterationRoom
         {
             HeldByGhost = null;
             IsCarried = false;
+            Freeze(false);
             Released = false;
             transform.localScale = originLocalScale;
             SetVisible(true);
@@ -396,6 +421,7 @@ namespace IterationRoom
         {
             HeldByGhost = null;
             IsCarried = false;
+            Freeze(false);
             Released = true;
 
             transform.SetParent(originParent, true);
@@ -493,6 +519,7 @@ namespace IterationRoom
         {
             HeldByGhost = null;
             IsCarried = false;
+            Freeze(false);
             Released = false;
             if (trigger != null) trigger.enabled = true;
             SetBlocking(true);
@@ -521,6 +548,33 @@ namespace IterationRoom
             SetVisible(true);
             if (trigger != null) trigger.enabled = true;
             SetBlocking(true);
+        }
+
+        // A HELD RIGIDBODY IS NOT A SIMULATED ONE. Kinematic while something else writes its
+        // transform, and `detectCollisions` off with it so a duck in the hand cannot shove the pool's
+        // balls around from inside the player's head.
+        //
+        // INTERPOLATION GOES TOO, and that is not a detail: an interpolated kinematic body smooths
+        // its transform toward its physics pose a frame behind, so an object parented to a moving
+        // camera visibly lags and swims. Restored to what the body was built with when it is let go.
+        private void Freeze(bool held)
+        {
+            if (body == null) return;
+
+            if (held)
+            {
+                body.isKinematic = true;
+                body.detectCollisions = false;
+                body.interpolation = RigidbodyInterpolation.None;
+                return;
+            }
+
+            body.detectCollisions = true;
+            body.interpolation = RigidbodyInterpolation.Interpolate;
+            // NOT un-kinematic here. Whoever owns the object next decides that - `FallingItem` scripts
+            // its drop and wants the body out of the way, and `FloatingBalls` takes it back the moment
+            // the loop returns it to the water. Turning simulation on at the instant of release would
+            // drop it under gravity through both of them.
         }
 
         private void SetVisible(bool show)

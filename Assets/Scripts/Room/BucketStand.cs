@@ -132,7 +132,17 @@ namespace IterationRoom
         // The loop rewinding: whatever was standing here has been sent back to its origin by
         // `ItemRegistry.ReturnAllToOrigin`, so the stand has to stop believing it is occupied. Run
         // AFTER the sweep, with the other room resets - see Cycle.ResetRooms.
-        public void ResetStand() => Release();
+        public void ResetStand()
+        {
+            Release();
+            // AND THE SPILL GOES WITH IT, instantly. `Release` only stops FEEDING the puddle, and a
+            // puddle that stops being fed dries on its own schedule - 2.5s of linger and 6s of fade,
+            // every second of which would be spent in the next iteration with the player watching.
+            // That is the exact fault `SpreadingPuddle.ResetInstant` exists for, and the tap's own
+            // puddle already goes through it (WaterTap.ShutOff -> WaterFlow.ResetInstant); this one
+            // hangs off the STAND, so nothing was calling it.
+            if (overflowPuddle != null) overflowPuddle.ResetInstant();
+        }
 
         private void Update()
         {

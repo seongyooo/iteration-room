@@ -274,7 +274,7 @@ namespace IterationRoom
         // THE VISUALS ARE PLACED FROM THE SAME NUMBERS THE HIT TEST USES, every frame, rather than
         // being positioned once by the builder. Two copies of a button's position is two things that
         // can disagree, and the one thing this game refuses to ship is a mark in one place and the
-        // press it describes in another (see ControlHintDisplay, ItemRegistry.NearestTakeable).
+        // press it describes in another (see ControlHintDisplay, ItemRegistry.AimedTakeable).
         //
         // Cheap enough to do unconditionally: four rects, and it also means a rotated phone or a
         // resized browser window needs no notification to follow.

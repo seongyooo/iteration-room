@@ -38,6 +38,12 @@ namespace IterationRoom
             ComputeSpawnPoints();
         }
 
+        // CLEARED ON THE WAY OUT, the pattern ChessBoard already uses and the one this static was
+        // missing. Assigned unguarded, a second field silently steals the first - and a cycle root
+        // going to sleep must not leave the pointer aimed at a field nobody can reach, because
+        // `GhostReplayer.Tick` asks this static every frame for every ghost.
+        private void OnDisable() { if (Instance == this) Instance = null; }
+
         // Computed once, from a fixed seed, and never recomputed. Reseeding per iteration would
         // make the room a different room each time and there would be nothing to learn.
         //

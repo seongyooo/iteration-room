@@ -310,5 +310,128 @@ namespace IterationRoom
             mesh.RecalculateBounds();
             return mesh;
         }
+
+        // A WHIRLPOOL. Built as a funnel of revolution: the mouth is 1 across at the top, it narrows
+        // to `throat` at the bottom, and every ring is TWISTED a little further round than the one
+        // above it - which is what makes it read as spinning water rather than as a cone. The caller
+        // scales it (see PoolDrain, which widens it with how much water is left).
+        //
+        // WHY IT IS NOT A SPINNING TEXTURE ON THE SURFACE. The one thing that says water is leaving a
+        // room is the DIP - the surface stops being flat and goes down somewhere. A texture rotating
+        // on a flat plane says the water is turning and nothing about where it is going.
+        //
+        // OPEN AT BOTH ENDS. There is no cap: the top opens onto the pool's own surface and the bottom
+        // onto the drain, and a lid on either would be a visible disc where the water should be
+        // continuous. The shader draws both faces (`Cull Off`), so the inside of the funnel is what
+        // you see looking down it.
+        public static Mesh Funnel(int rings, int segments, float throat, float swirl)
+        {
+            var mesh = new Mesh { name = "WaterFunnel" };
+
+            var verts = new Vector3[rings * segments];
+            var norms = new Vector3[verts.Length];
+            var uv = new Vector2[verts.Length];
+
+            int v = 0;
+            for (int r = 0; r < rings; r++)
+            {
+                float t = r / (float)(rings - 1);          // 0 at the mouth, 1 at the throat
+                // NARROWING FASTER THAN IT FALLS. A cone tapers linearly and reads as a funnel;
+                // squaring it gives the flared bell a real vortex has, where most of the narrowing
+                // happens in the last quarter.
+                float radius = Mathf.Lerp(0.5f, throat, t * t);
+                float y = -t;
+                // Each ring turned further round than the last. This is the whole of the swirl.
+                float twist = t * swirl;
+
+                for (int seg = 0; seg < segments; seg++)
+                {
+                    float a = seg / (float)segments * Mathf.PI * 2f + twist;
+                    verts[v] = new Vector3(Mathf.Cos(a) * radius, y, Mathf.Sin(a) * radius);
+                    // Pointing out and slightly up, which is the wall of a funnel seen from inside.
+                    norms[v] = new Vector3(Mathf.Cos(a), 0.35f, Mathf.Sin(a)).normalized;
+                    uv[v] = new Vector2(seg / (float)segments, t);
+                    v++;
+                }
+            }
+
+            var tris = new System.Collections.Generic.List<int>(rings * segments * 6);
+            for (int r = 0; r < rings - 1; r++)
+            {
+                int top = r * segments, bottom = (r + 1) * segments;
+                for (int seg = 0; seg < segments; seg++)
+                {
+                    int s2 = (seg + 1) % segments;
+                    tris.Add(top + seg); tris.Add(bottom + seg); tris.Add(top + s2);
+                    tris.Add(top + s2); tris.Add(bottom + seg); tris.Add(bottom + s2);
+                }
+            }
+
+            mesh.vertices = verts;
+            mesh.normals = norms;
+            mesh.uv = uv;
+            mesh.triangles = tris.ToArray();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        // A ROOM-SIZED SURFACE OF STANDING WATER - room2-5's landing room is flooded, and this is the
+        // top of it. Centred on its own origin, facing up, `width` by `depth` metres.
+        //
+        // WHY IT IS SUBDIVIDED AT ALL, when the shape is a rectangle two triangles could describe: the
+        // water shader displaces vertices along their normal (`_WobbleAmp`) and that is what stops the
+        // surface being a mirror-flat pane. A quad has four vertices, all of them at the walls, so the
+        // wobble moves the corners and nothing else - the middle of the pool, which is all anybody
+        // looks at, stays perfectly flat. `cell` is how big a step of the grid is; at a quarter of a
+        // metre a 9x10 room costs about 3,000 triangles, which is a twentieth of one chess piece.
+        //
+        // FLAT, NOT DOMED, unlike `Spill`. That dome is surface tension on a puddle a few centimetres
+        // across; a pool the width of a room is held by its walls and is genuinely level.
+        public static Mesh Sheet(float width, float depth, float cell)
+        {
+            var mesh = new Mesh { name = "WaterSheet" };
+
+            int nx = Mathf.Max(1, Mathf.RoundToInt(width / Mathf.Max(0.02f, cell)));
+            int nz = Mathf.Max(1, Mathf.RoundToInt(depth / Mathf.Max(0.02f, cell)));
+
+            var verts = new Vector3[(nx + 1) * (nz + 1)];
+            var norms = new Vector3[verts.Length];
+            var uv = new Vector2[verts.Length];
+
+            int v = 0;
+            for (int z = 0; z <= nz; z++)
+            {
+                for (int x = 0; x <= nx; x++)
+                {
+                    float u = x / (float)nx, w = z / (float)nz;
+                    verts[v] = new Vector3((u - 0.5f) * width, 0f, (w - 0.5f) * depth);
+                    norms[v] = Vector3.up;
+                    // UVs IN METRES, not normalised. The shader's noise is world-space, but anything
+                    // later that samples a texture on this wants it at the same scale as the room
+                    // rather than stretched across whatever size the sheet happens to be.
+                    uv[v] = new Vector2(u * width, w * depth);
+                    v++;
+                }
+            }
+
+            var tris = new int[nx * nz * 6];
+            int i = 0;
+            for (int z = 0; z < nz; z++)
+            {
+                for (int x = 0; x < nx; x++)
+                {
+                    int a = z * (nx + 1) + x, b = a + 1, c = a + nx + 1, d = c + 1;
+                    tris[i++] = a; tris[i++] = c; tris[i++] = b;
+                    tris[i++] = b; tris[i++] = c; tris[i++] = d;
+                }
+            }
+
+            mesh.vertices = verts;
+            mesh.normals = norms;
+            mesh.uv = uv;
+            mesh.triangles = tris;
+            mesh.RecalculateBounds();
+            return mesh;
+        }
     }
 }

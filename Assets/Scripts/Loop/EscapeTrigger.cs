@@ -47,7 +47,12 @@ namespace IterationRoom
         // conditions TryArm checks were ever met on the way.
         public void ForceArrived() => PlayerArrived = true;
 
+        // CLEARED ON THE WAY OUT, the pattern ChessBoard already uses. A second instance silently
+        // steals the static - and there is one of these per cycle, so the cycle being ENTERED takes
+        // it at the boundary, which is right. What was missing is the other half: a cycle going to
+        // sleep must not leave a pointer to its own trigger behind if it happened to be the holder.
         private void Awake() => Instance = this;
+        private void OnDisable() { if (Instance == this) Instance = null; }
 
         // Polled, like every other volume in this project - see FloorButton for why trigger
         // callbacks are not trustworthy across the loop's teleport. This one would survive them,

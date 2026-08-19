@@ -22,6 +22,20 @@ namespace IterationRoom
         public string bucketItemId = "Bucket";
         public float reach = 3.2f;
 
+        // THIS CYCLE'S STANDS AND TANKS, handed over by `CycleBinding` when the cycle wakes.
+        //
+        // They used to be found with `FindObjectsByType` inside `FindTargets` - twice, every frame a
+        // bucket was in the hand. That scans every loaded scene, and this project keeps every cycle
+        // loaded at once (only the roots are deactivated), so the cost grows with the game rather
+        // than with the room. Handed over instead, for the same reason and by the same route as
+        // `ChessPlacer.board`: this control is on the PLAYER, in the core scene, and a serialized
+        // reference from there into a cycle scene is dropped on save.
+        //
+        // Left alone when a cycle has none, so a cycle without buckets does not clear the one that
+        // has them.
+        public BucketStand[] stands;
+        public WaterTank[] tanks;
+
         private BucketStand targetStand;
         private WaterTank targetTank;
 
@@ -93,27 +107,26 @@ namespace IterationRoom
             if (bucket == null || bucket.IsPouring) return;
 
             // FROM THE EYE, like every other "which one of these did you mean" in this game
-            // (ItemRegistry.NearestTakeable). Measured from the body it disagreed with the prompt,
+            // (ItemRegistry.AimedTakeable). Measured from the body it disagreed with the prompt,
             // which is placed against the camera.
             Camera cam = PlayerLookup.Eye;
             Vector3 eye = cam != null ? cam.transform.position : transform.position;
             float bestStand = reach * reach, bestTank = reach * reach;
 
-            // Found by type rather than wired: this is on the PLAYER, who is in the core scene, and a
-            // serialized reference from there into a cycle scene is dropped on save (see CycleBinding).
-            // The lists are tiny and this runs only while a bucket is in hand.
-            foreach (BucketStand s in FindObjectsByType<BucketStand>(FindObjectsSortMode.None))
-            {
-                if (!s.IsFree) continue;
-                Transform aim = s.Aim;
-                float d = (aim.position - eye).sqrMagnitude;
-                if (d >= bestStand || !PlayerLookup.InView(aim)) continue;
-                bestStand = d; targetStand = s;
-            }
+            if (stands != null)
+                foreach (BucketStand s in stands)
+                {
+                    if (s == null || !s.IsFree) continue;
+                    Transform aim = s.Aim;
+                    float d = (aim.position - eye).sqrMagnitude;
+                    if (d >= bestStand || !PlayerLookup.InView(aim)) continue;
+                    bestStand = d; targetStand = s;
+                }
 
-            if (bucket.Level <= 0.01f) return;
-            foreach (WaterTank t in FindObjectsByType<WaterTank>(FindObjectsSortMode.None))
+            if (bucket.Level <= 0.01f || tanks == null) return;
+            foreach (WaterTank t in tanks)
             {
+                if (t == null) continue;
                 Transform aim = t.Aim;
                 float d = (aim.position - eye).sqrMagnitude;
                 if (d >= bestTank || !PlayerLookup.InView(aim)) continue;

@@ -20,6 +20,7 @@ namespace IterationRoom
 
         public void BeginRecording()
         {
+            WarnIfTooManySignals();
             frames.Clear();
             pops.Clear();
             carries.Clear();
@@ -66,6 +67,23 @@ namespace IterationRoom
                 transform.position,
                 transform.eulerAngles.y,
                 SampleSignals()));
+        }
+
+        // THE MASK IS 32 BITS WIDE AND OVERFLOWING IT IS SILENT, which is the whole reason this
+        // exists. `SampleSignals` below clamps and drops, and a dropped interactable looks exactly
+        // like a fixture a ghost has decided not to touch. `SceneBuilder.CheckGhostSignals` catches
+        // it at build time; this catches the case where the array was swapped at a cycle boundary
+        // rather than authored - once per recording, not once per frame, and once per session after
+        // that, because an error repeated sixty times a second is an error nobody reads.
+        private static bool warnedOverflow;
+
+        private void WarnIfTooManySignals()
+        {
+            if (warnedOverflow || interactables == null || interactables.Length <= 32) return;
+            warnedOverflow = true;
+            Debug.LogError($"[PlayerRecorder] {interactables.Length} ghost interactables, but "
+                + "RecordedFrame.signals is a uint - everything from index 32 on is dropped and no "
+                + "ghost will ever operate it. See CLAUDE.md 1.6.");
         }
 
         private uint SampleSignals()

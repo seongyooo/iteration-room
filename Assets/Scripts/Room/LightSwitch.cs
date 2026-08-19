@@ -58,13 +58,12 @@ namespace IterationRoom
 
         // Once it is on there is nothing left for E to do here - see Drawer.WantsInteractHint for
         // the same shape.
-        // ...and nothing nearer wants the press - the rule the taps needed (see
-        // PlayerLookup.TakeableIsNearer). No takeable lives under a switch today; it is here because
-        // a dropped object can come to rest anywhere, and "the disc is on the thing the press acts
-        // on" should not depend on which fixtures happen to have been thought about.
+        // ELIGIBILITY ONLY. Whether this switch is the thing the press is FOR - against a dropped
+        // object lying in front of it, or against another fixture on the same wall - is asked once
+        // for everything in `PlayerLookup.IsAimedAt`, in the press path below. It must not be asked
+        // here: that arbiter polls this property, so a fixture that consulted it would recurse.
         public bool WantsInteractHint =>
-            playerInRange && !IsOn && PlayerLookup.InView(HintAnchor)
-            && !PlayerLookup.TakeableIsNearer(HintAnchor);
+            playerInRange && !IsOn && PlayerLookup.InView(HintAnchor);
         public Transform HintAnchor =>
             hintAnchor != null ? hintAnchor : (switchVisual != null ? switchVisual : transform);
 
@@ -94,11 +93,7 @@ namespace IterationRoom
 
         private void FixedUpdate()
         {
-            Collider playerCollider = PlayerLookup.Collider;
-
-            playerInRange = playerCollider != null
-                && playerCollider.enabled
-                && trigger.bounds.Intersects(playerCollider.bounds);
+            playerInRange = PlayerLookup.InReach(trigger);
         }
 
         private void Update()
@@ -108,6 +103,11 @@ namespace IterationRoom
             // answer a press.
             if (!WantsInteractHint) return;
             if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
+
+            // ON SCREEN, NOT BEHIND ANYTHING, AND THE THING BEING LOOKED AT - the same answer the
+            // prompt disc is drawn from, so E acts exactly where the mark is. See
+            // PlayerLookup.PressGoesTo.
+            if (!PlayerLookup.PressGoesTo(this)) return;
 
             if (!GameInput.InteractPressed) return;
             if (PlayerLookup.InteractTaken) return;

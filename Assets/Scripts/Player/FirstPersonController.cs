@@ -115,6 +115,30 @@ namespace IterationRoom
         public float footstepWalkVolume = 0.34f;
         public float footstepSprintVolume = 0.62f;
 
+        // WALKING IN WATER, and both halves of it are written here rather than on the water.
+        //
+        // The pool in room2-5's landing room switches these on and off (`WaterPool`); it owns where the
+        // water is, and this owns what walking is. Putting the sound on the pool instead was the
+        // obvious first shape and it is wrong for a specific reason: a step is fired from the head
+        // bob's own phase, so a footstep sound that lives anywhere else has to guess when a foot lands
+        // and drifts out of time with the walk it belongs to. Swapping the CLIP is one line here and a
+        // rhythm nothing has to reinvent.
+        public AudioClip[] wadeClips;
+        // Louder than a footstep because it is a bigger event, and it does not split walk/sprint: you
+        // cannot sprint in this (see `SpeedScale`), so there is no second speed to report.
+        public float wadeVolume = 0.55f;
+        // True while the player is in water deep enough to matter. Written by `WaterPool`, read here.
+        public bool Wading { get; set; }
+        // What the water does to the walk. A multiplier on the TOP SPEED rather than on the ramp, so
+        // acceleration and deceleration keep their tuned times and only the speed they arrive at
+        // changes - water makes you slow, it does not make you sluggish to start.
+        //
+        // ONE WRITER AT A TIME, and it is whoever put the player in the thing that slows them: the
+        // setter restores it themselves (`WaterPool` on leaving the water and in OnDisable). Nothing
+        // resets it here, because a component that cleared it on its own would fight the one that set
+        // it on the frame they disagree.
+        public float SpeedScale { get; set; } = 1f;
+
         public float standingEyeHeight = 1.6f;
 
         // Wading through the balloons in Room2. A CharacterController does not push rigidbodies on
@@ -258,6 +282,13 @@ namespace IterationRoom
             {
                 Rigidbody body = pushHits[i].attachedRigidbody;
                 if (body == null || body.isKinematic) continue;
+
+                // NEVER SHOVE SOMETHING THE PLAYER COULD PICK UP. Room2-6's ducks and beach balls are
+                // both physics props and carryables - the only things in the game that are - and with
+                // this sweep applying to them they FLED: walking up to a duck to press E pushed it out
+                // of reach, and the closer you got the further it went. Balloons and the pool's plastic
+                // balls carry no `CarryableItem` and are still shoved aside, which is what this is for.
+                if (body.GetComponent<CarryableItem>() != null) continue;
                 // Already moving away fast enough: nudging it again is what turned a walk through a
                 // crowd into a shotgun blast.
                 if (body.linearVelocity.magnitude >= pushSpeed) continue;
@@ -354,9 +385,9 @@ namespace IterationRoom
             // answers for the stick as well - a run is the stick pushed PAST a threshold rather than
             // a button of its own, and there is no crouch on touch at all. See GameInput.
             bool crouching = GameInput.CrouchHeld;
-            float topSpeed = crouching ? crouchSpeed
-                          : GameInput.SprintHeld ? sprintSpeed
-                          : walkSpeed;
+            float topSpeed = (crouching ? crouchSpeed
+                           : GameInput.SprintHeld ? sprintSpeed
+                           : walkSpeed) * Mathf.Max(0.05f, SpeedScale);
 
             // Eased, not snapped, and this is the base the head bob rides on.
             float targetEye = crouching ? crouchEyeHeight : standingEyeHeight;
@@ -446,7 +477,13 @@ namespace IterationRoom
         // a footstep for two centimetres of travel is a footstep nobody took.
         private void Footstep(float phase, float amount)
         {
-            if (footstepSource == null || footstepClips == null || footstepClips.Length == 0) return;
+            if (footstepSource == null) return;
+
+            // IN WATER IT IS A DIFFERENT SET AND THE SAME RHYTHM. Falls back to the dry clips if the
+            // wet ones were never wired, which is what a cycle built without the player's audio gets.
+            bool wading = Wading && wadeClips != null && wadeClips.Length > 0;
+            AudioClip[] clips = wading ? wadeClips : footstepClips;
+            if (clips == null || clips.Length == 0) return;
             if (amount < 0.18f) { lastStepIndex = Mathf.FloorToInt(phase); return; }
 
             int step = Mathf.FloorToInt(phase);
@@ -456,13 +493,16 @@ namespace IterationRoom
             // Cycled by step number, so consecutive footfalls are always different files - three of
             // them means the pattern only repeats every third step, and unevenly weighted clips stop
             // that being audible as a pattern at all.
-            AudioClip clip = footstepClips[((step % footstepClips.Length) + footstepClips.Length) % footstepClips.Length];
+            AudioClip clip = clips[((step % clips.Length) + clips.Length) % clips.Length];
             if (clip == null) return;
 
             // Pitch varies with the step too, not randomly: a random pitch per step reads as a broken
-            // sample player, where a small alternation reads as two feet.
-            footstepSource.pitch = 1f + (step % 2 == 0 ? 0.03f : -0.03f);
-            footstepSource.PlayOneShot(clip, Mathf.Lerp(footstepWalkVolume, footstepSprintVolume, amount));
+            // sample player, where a small alternation reads as two feet. Wider in water, because two
+            // strides through it never displace the same amount twice.
+            float sway = wading ? 0.07f : 0.03f;
+            footstepSource.pitch = 1f + (step % 2 == 0 ? sway : -sway);
+            footstepSource.PlayOneShot(clip, wading ? wadeVolume
+                                        : Mathf.Lerp(footstepWalkVolume, footstepSprintVolume, amount));
         }
 
         public void Teleport(Vector3 position, Quaternion rotation)

@@ -267,12 +267,18 @@ namespace IterationRoom
         // square wide that overlap. One press was reaching two and three pieces at once and taking all
         // of them, which is what play found.
         //
-        // Nearest to the CAMERA rather than to the body, because it has to agree with the prompt -
-        // ControlHintDisplay puts its disc over the nearest wanting target measured the same way. If the
-        // two disagreed the game would show a prompt over one object and act on another.
-        public static CarryableItem NearestTakeable(Vector3 eye)
+        // THE ONE THE PLAYER IS LOOKING AT, not the one nearest their face - see PlayerLookup.AimOffset
+        // for why that changed and what it broke. Measured against the CAMERA, because it has to agree
+        // with the prompt: ControlHintDisplay puts its disc over the best-aimed wanting target by the
+        // same comparison. If the two disagreed the game would show a prompt over one object and act on
+        // another.
+        //
+        // `eye` is still the camera's POSITION and is still needed, because the tie inside the aim band
+        // is broken by distance.
+        public static CarryableItem AimedTakeable(Vector3 eye)
         {
             CarryableItem best = null;
+            float bestOffset = float.MaxValue;
             float bestSqr = float.MaxValue;
 
             foreach (List<CarryableItem> pool in items.Values)
@@ -281,8 +287,12 @@ namespace IterationRoom
                     CarryableItem item = pool[i];
                     if (item == null || !item.WantsInteractHint) continue;
 
-                    float sqr = (item.transform.position - eye).sqrMagnitude;
-                    if (sqr >= bestSqr) continue;
+                    Vector3 at = item.transform.position;
+                    float offset = PlayerLookup.AimOffset(at);
+                    float sqr = (at - eye).sqrMagnitude;
+                    if (!PlayerLookup.BetterAim(offset, sqr, bestOffset, bestSqr)) continue;
+
+                    bestOffset = offset;
                     bestSqr = sqr;
                     best = item;
                 }

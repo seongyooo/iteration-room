@@ -79,7 +79,7 @@ namespace IterationRoom
 
         public bool HandsFull => Held != null;
 
-        // ONE PRESS DOES ONE THING, and this is the half of that rule ItemRegistry.NearestTakeable
+        // ONE PRESS DOES ONE THING, and this is the half of that rule ItemRegistry.AimedTakeable
         // could not enforce on its own.
         //
         // Every carryable polls E for itself and defers to the nearest candidate, which reads as

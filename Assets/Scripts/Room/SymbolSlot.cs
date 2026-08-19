@@ -88,13 +88,9 @@ namespace IterationRoom
 
         private void FixedUpdate()
         {
-            Collider playerCollider = PlayerLookup.Collider;
             if (hand == null) hand = PlayerLookup.Hand;
 
-            playerInRange = playerCollider != null
-                && playerCollider.enabled
-                && trigger != null
-                && trigger.bounds.Intersects(playerCollider.bounds);
+            playerInRange = PlayerLookup.InReach(trigger);
         }
 
         private void Update()
@@ -102,6 +98,11 @@ namespace IterationRoom
             ApplyPlate(Filled ? filledColor : idleColor, Filled ? filledEmission : idleEmission);
 
             if (!WantsInteractHint) return;
+            // ON SCREEN, NOT BEHIND ANYTHING, AND THE THING BEING LOOKED AT - the same answer the
+            // prompt disc is drawn from, so E acts exactly where the mark is. See
+            // PlayerLookup.PressGoesTo.
+            if (!PlayerLookup.PressGoesTo(this)) return;
+
             if (!GameInput.InteractPressed) return;
             // Checked as well as claimed - see PlayerLookup.InteractTaken. E means one thing at a
             // time, and standing at the right recess with the right cube is what decides which.

@@ -56,23 +56,20 @@ namespace IterationRoom
         public override bool PlayerSignal => Time.time < openPulseUntil;
 
         // Only while it is shut, UNLESS it can be shut again - then the press means something in both
-        // states. Once an open drawer's contents are what matters, the press that counts is the one
-        // on the object inside, so a takeable nearer than this wins the prompt and the press with it
-        // (see PlayerLookup.TakeableIsNearer, added for the taps standing over their buckets).
-        // On screen as well as in reach, like every other E fixture - see PlayerLookup.InView.
-        // NEAREST-WINS, ACROSS DRAWERS AS WELL AS AGAINST TAKEABLES.
+        // states.
         //
-        // A chest has three of these stacked 0.2m apart, all of them in range at once, and each one
-        // used to answer the press purely on its own proximity - so which drawer opened came down to
-        // script execution order, which is stable and arbitrary. Play reported it as "the top drawer
-        // is always the one that gets picked". This is the same rule `ItemRegistry.NearestTakeable`
-        // gives the carryables, for the same reason: the press and the disc must never disagree, and
-        // the disc is drawn over the nearest anchor.
+        // ELIGIBILITY ONLY, and that is the whole of what changed here on 2026-08-17. This used to
+        // end in `NearestDrawer() == this`, a private nearest-wins between the bays of a chest, and
+        // it answered the right question with the wrong measure: NEAREST, so the top bay won from
+        // every standing position and the bottom one could not be pulled at all.
+        //
+        // It is worse than redundant under the shared arbiter (`PlayerLookup.AimedAnchor`): a drawer
+        // that says it does not want the press is not a CANDIDATE, so the lower bay would have been
+        // hidden from the scan that was supposed to be able to choose it. A fixture states what it
+        // could do; which one the press is for is decided in one place, for everything at once.
         public bool WantsInteractHint =>
             playerInRange && (canClose || !IsOpen)
-            && NearestDrawer() == this
-            && PlayerLookup.InView(HintAnchor)
-            && !PlayerLookup.TakeableIsNearer(HintAnchor);
+            && PlayerLookup.InView(HintAnchor);
         public Transform HintAnchor => drawerBody != null ? drawerBody : transform;
 
         // Only the rising edge means anything: the fall is the recorded pulse expiring, not anyone
@@ -100,58 +97,22 @@ namespace IterationRoom
         // FloorButton: the loop teleports the player by disabling and re-enabling
         // the CharacterController inside one frame, so the exit callback never arrives and
         // playerInRange would stay true for the rest of the run.
-        // Every drawer in the scene, so a chest does not have to be told about its own siblings and a
-        // second chest in another room cannot be dragged into the comparison by an anchor list built
-        // at the wrong time. Registered on enable like the carryables are.
-        private static readonly System.Collections.Generic.List<Drawer> all =
-            new System.Collections.Generic.List<Drawer>();
-
-        private void OnEnable() { if (!all.Contains(this)) all.Add(this); }
-        private void OnDisable() => all.Remove(this);
-
-        // The one whose anchor is nearest the EYE, which is what the prompt is measured against too.
-        // Only drawers that are actually in reach are considered, so a nearer one two rooms away
-        // cannot silence this one.
-        private Drawer NearestDrawer()
-        {
-            Camera eye = PlayerLookup.Eye;
-            if (eye == null) return this;
-
-            Vector3 from = eye.transform.position;
-            Drawer best = null;
-            float bestSqr = float.MaxValue;
-            foreach (Drawer d in all)
-            {
-                if (d == null || !d.playerInRange) continue;
-                if (!(d.canClose || !d.IsOpen)) continue;
-                Transform anchor = d.HintAnchor;
-                if (anchor == null || !PlayerLookup.InView(anchor)) continue;
-
-                float sqr = (anchor.position - from).sqrMagnitude;
-                if (sqr >= bestSqr) continue;
-                bestSqr = sqr;
-                best = d;
-            }
-            return best;
-        }
-
         private void FixedUpdate()
         {
-            Collider playerCollider = PlayerLookup.Collider;
-
-            playerInRange = playerCollider != null
-                && playerCollider.enabled
-                && trigger != null
-                && trigger.bounds.Intersects(playerCollider.bounds);
+            playerInRange = PlayerLookup.InReach(trigger);
         }
 
         private void Update()
         {
-            if (!playerInRange) return;
-            if (IsOpen && !canClose) return;
             // The bed spawn is close enough to the nightstand that a key held down through the
             // wake-up would otherwise open this before the player can see the room.
             if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
+
+            // IN REACH, ON SCREEN, PULLABLE, AND THE THING BEING LOOKED AT - all four in one call.
+            // The first three were spelled out here as `playerInRange` and the open/close test, which
+            // is `WantsInteractHint` MINUS its `InView`: this drawer could be pulled with your back
+            // to it or through the wall behind it, and had been able to since it was built.
+            if (!PlayerLookup.PressGoesTo(this)) return;
 
             if (!GameInput.InteractPressed) return;
             // Checked as well as claimed - see PlayerLookup.InteractTaken. Checking stops a second

@@ -22,6 +22,108 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
    - `RecordedFrame.signals` is a `uint`, so **32 recorded interactables is a hard cap**; four are used. **Per cycle**, once the boundary exists — discarding the ghosts frees every bit for reuse (`cycle-design.md` §5c).
    - The tree room (`Iteration — Future Ideas.md` §3) is the strongest candidate and is now unblocked: multiple axes needed the item pool, which shipped. Its threshold is a HEADCOUNT under the decision in `docs/decisions.md` — N simultaneous choppers cannot be met before iteration N — so pick that number against the run the game actually has — which as of 2026-08-14 is **ten iterations for a practised player**, not the fifteen this line used to say. A tree wanting N simultaneous axes cannot fall before iteration N+1, so N=5 spends half a practised run on one room. It also now has somewhere better to live than the end of the corridor: **cycle 2** (`docs/cycle-design.md`).
 
+## Cycle 2 cannot be finished - it has no room0 and no shards
+
+Superseded 2026-08-19 by the section below: `Room2_0` and its console are DELETED, so the cycle no
+longer declares three shard slots nothing can fill - it declares no exit at all, and `finalRoom` is
+null. `BuildRingShard` is still a builder with no call site, and `ShardA/B/C` are still ids nothing
+wears.
+
+**What is left is a DESIGN decision, not the wiring**: which room ENDS cycle 2, and which three rooms
+pay a shard out and on what condition. Room2-1 (four switches), room2-2 (the tank), the tree hall (the
+felled tree) and room2-6 (three valves) all have rules and doors but no rewards. `RewardPlinth`
+already does "an escape object rises on this room's own condition" and takes a `RoomCondition`, so
+whichever three are chosen cost one call each.
+
+## Cycle 2 lost its third leg, and its console with it (2026-08-19)
+
+The old `room2-6`, `room2-7` and `room2-0` are deleted by request, and the pool at the bottom of the
+slide is **room2-6** now. What that leaves open:
+
+- **There is no `room2-0`, so cycle 2 cannot be finished** - `Cycle.finalRoom` is null, which every
+  consumer guards. It could not be finished before either (its console declared three shard slots and
+  nothing wore those ids), so this removes three build errors per run rather than adding a gap. To put
+  it back: a room at the end of the walk, `BuildFinalRoom` and its `BuildPlinthHousing`, the
+  `CheckCycleFinishable` call, and three carryables wearing `ShardA/B/C`.
+- **Room2-7 is behind room2-6's door now** - the weighing room - and ITS door is the capped one. That
+  is the honest end of the walk.
+- **The tree hall's north-west exit is sealed**, because the room it led to is gone. `TreeFelled` is
+  still built and still reset as a `RoomCondition` - what gates the far ledge now is the PIT, since
+  the tree is the only bridge, so felling it is still the price of leaving that room.
+- **`BuildBallPit` and `BuildBallFill` are now uncalled**, along with `ball_pit.glb`. Kept rather than
+  deleted: the pit is a good prop and the next room that wants one gets it for a line. If cycle 2 is
+  ever declared final, they and the model are a clean deletion.
+- **The core is still measured off `legThreeX`/`legThreeZ`.** Those two numbers now describe where the
+  building's west side was rather than where any room is; the core sits inside a ring with two sides
+  missing and is not visible from anywhere the player can stand.
+
+## Room2-7's weighing puzzle is unplayed, and three things about it are guesses (2026-08-19)
+
+The room, the scale and the weights are in (`docs/puzzle-design.md` has the table and the reasoning).
+**Verified in code and in the built scene; not played.** What that leaves open:
+
+- **Whether five deliveries is too many.** The rule is now "bring all five", and the weights are
+  solved so that nothing else in the cycle reaches 26.7 - which makes this the largest headcount any
+  room in the game has asked for. One hand, sixty seconds, and a sweep home at every boundary means
+  five on the pan at once is five past selves each carrying one. Whether that is the good kind of long
+  is the biggest open question in the room.
+- **A PARTLY FILLED BUCKET IS A CONTINUOUS WEIGHT**, and it is the hole in the uniqueness proof. The
+  proof covers empty and full; `Weighable` reads `Bucket.Level`, which is anything in between while a
+  bucket sits under a tap. A player watching the readout could dial one in to reach the target another
+  way. Left alone deliberately - it takes knowing the weights, it is fiddly, and it reads as a clever
+  route rather than an exploit - but it is why the room is not single-solution without the caveat.
+- **Whether 26.7 is reachable inside the loop at all.** Five objects from four rooms, one hand each -
+  so the last delivery needs four past selves to have already made theirs. That is the intended shape
+  and it has never been walked, and the walk now includes a one-way slide.
+- **THE OBJECTS COME FROM ROOMS THE PLAYER HAS LEFT BEHIND.** The axe is in the tree hall, the bucket
+  and its water in room2-2, the cube on room2-1's dresser - and the slide is one-way. Carrying an axe
+  down the chute is possible; carrying one BACK is not. This is the first puzzle in the game whose
+  ingredients are upstream of a one-way passage, and whether that reads as clever or as cruel is the
+  single biggest open question here.
+- **A carryable ridden down the slide is untested.** `SlideRide` teleports the player and the hand
+  anchor is parented to the camera, so it should simply come along - but nothing has ever been carried
+  through a scripted ride.
+
+## Room2-6 - the flooded room and its valves - is unplayed (2026-08-19)
+
+Room2-5's slide lands in 1.2m of water with 210 plastic balls, three rubber ducks and two beach balls
+floating on it (`WaterPool`, `FloatingBalls`, `SceneBuilder.BuildWaterPool`). **Verified in code
+only** - it builds, the ride path measures the room's floor at -3.71 rather than the waterline, and
+nothing about it touches the loop, the signal array or the reset.
+
+- **It is scenery, like room2-6 and room2-7.** No collider, no carryable, no interactable, no
+  condition. Falling in is not fatal; see `docs/puzzle-design.md` for why drowning and swimming were
+  both turned down. Wading costs speed (0.45x) and changes the footstep clips, and that is all.
+- **The room still has no way out**, and now it is a room somebody will want to stay in. Its doorway
+  went when the room dropped below the hall and has not come back at the new height.
+- **The slide's exit and the room's opening are one hole now**, so the depth of the room below the
+  hall is derived from the mouth (`SlideRoomFloorY`) rather than chosen. If that band ever changes,
+  both walls and the tunnel between them move together - do not pin one of them to a number.
+- Play questions: whether the arc off the chute reads as the slide finishing or as being thrown off
+  it, whether 0.45 speed in water is heavy or annoying, whether the wade clips sit right at walking
+  cadence, and whether the hole shows enough of the room from the hall to earn its geometry.
+- **`room2-8` is an empty shell** built only so room2-7's door leads somewhere. Its own door is the
+  capped end of the walk now.
+- **The valve puzzle's pacing is a guess.** Two turns of 1.4s each on three wheels, in a room 8.75 x
+  10.5 crossed at 1.125 m/s (walking, slowed by the water). That is roughly 30 seconds of work for a
+  player who already knows where the wheels are - so whether "six turns is more than one iteration
+  holds" is TRUE depends entirely on how much of the minute is spent getting down here at all, which
+  has never been measured. If one iteration turns out to be enough, the lever is `turnsToOpen` or
+  `Valve.turnDuration`, not the room.
+- **The floats are 215 rigidbodies** (210 balls, 3 ducks, 2 beach balls) on the balloon layer, and the
+  balls are meant to SLEEP when undisturbed - `FloatingBalls` skips a body it would not move, which is
+  the whole reason the count is affordable. If that room ever costs frames, check that they are
+  actually asleep before blaming the count: anything that writes to them every frame (a bob, a drift,
+  a stray `AddForce`) silently keeps all 210 awake.
+- **`FallingItem` now RAYCASTS for the floor** instead of trusting `floorBaseY`, because room2-6 and
+  room2-7 sit a storey below the rest of cycle 2 and anything dropped in them stopped 3.7m in the air.
+  It also lets objects land on the scale's platform, which the old arithmetic put them inside of. The
+  probe reaches 9m; an object released over a hole deeper than that would find whatever is at the
+  bottom of it, which is the tree hall's pit and is correct there.
+- `FirstPersonController.PushOverlapping` collects at most **24** colliders. Standing in the pool with
+  the balls packed around the player is the first place in the game that can plausibly exceed it; the
+  overflow is silent and simply means some balls are not pushed.
+
 ## Queued fixes
 
 1. **Decide the mirrored `ERROR`, and the panel UVs behind it.** Wall panels are `PrimitiveType.Cube`,
@@ -101,6 +203,9 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
   JUMPING to the floor, the cause is somewhere else entirely.
 - **The tree roots are placed by measurement** (scaled to 3.1x the trunk's half-width, sunk to 62% of
   their own height) and have never been looked at in motion.
-- ~~`tree_roots.glb` is 1.33 million triangles~~ **RESOLVED 2026-08-17**: swapped for
-  `stylized_tree_stump`, which is **1,072 triangles** and 0.85MB. The fit is derived rather than
-  written down, so the new asset sized and seated itself with no numbers changed.
+- ~~`tree_roots.glb` is 1.33 million triangles~~ **GONE ENTIRELY 2026-08-17, by request** - the hall
+  has no separate stump model at all now. What remains after the cut is the tree's OWN lower half,
+  carved by the same wedge that severed it (`Felled_Stump`), so the stump and the log are two halves
+  of one object instead of two different trees' geometry meeting at the floor. `tree_roots.glb` is
+  still in `Assets/ArtAssets/Nature` and is now referenced by nothing - delete it with
+  `nightstand.glb` when the orphans are swept.

@@ -61,13 +61,15 @@ namespace IterationRoom
 
         public override bool PlayerSignal => Time.time < pressPulseUntil;
 
-        // ...AND NOTHING NEARER WANTS THE PRESS. A stand sits directly under this spout so the water
-        // lands in the bucket, which puts a takeable bucket well inside the tap's own reach volume -
-        // and the tap was winning that race, so a filled bucket under a running tap could not be
-        // picked up. Stated on the HINT rather than only on the press, so the disc stands down with
-        // the interaction and the two cannot disagree. See PlayerLookup.TakeableIsNearer.
+        // ELIGIBILITY ONLY - in reach and on screen. A stand sits directly under this spout so the
+        // water lands in the bucket, which puts a takeable bucket well inside the tap's own reach
+        // volume, and the tap used to win that race outright: a filled bucket under a running tap
+        // could not be picked up. Which of the two the press is for is now one answer asked of
+        // everything (`PlayerLookup.IsAimedAt`, in the press path below) - look at the bucket and you
+        // get the bucket, look at the valve and you get the valve. It must not be asked here: that
+        // arbiter polls this property, so consulting it from inside would recurse.
         public bool WantsInteractHint =>
-            playerInRange && PlayerLookup.InView(HintAnchor) && !PlayerLookup.TakeableIsNearer(HintAnchor);
+            playerInRange && PlayerLookup.InView(HintAnchor);
         public Transform HintAnchor =>
             hintAnchor != null ? hintAnchor : (tapVisual != null ? tapVisual : transform);
 
@@ -93,11 +95,7 @@ namespace IterationRoom
 
         private void FixedUpdate()
         {
-            Collider playerCollider = PlayerLookup.Collider;
-
-            playerInRange = playerCollider != null
-                && playerCollider.enabled
-                && trigger.bounds.Intersects(playerCollider.bounds);
+            playerInRange = PlayerLookup.InReach(trigger);
         }
 
         private void Update()
@@ -108,6 +106,11 @@ namespace IterationRoom
             // its disc would be showing.
             if (!WantsInteractHint) return;
             if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
+
+            // ON SCREEN, NOT BEHIND ANYTHING, AND THE THING BEING LOOKED AT - the same answer the
+            // prompt disc is drawn from, so E acts exactly where the mark is. See
+            // PlayerLookup.PressGoesTo.
+            if (!PlayerLookup.PressGoesTo(this)) return;
 
             if (!GameInput.InteractPressed) return;
             if (PlayerLookup.InteractTaken) return;

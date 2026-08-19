@@ -144,24 +144,24 @@ namespace IterationRoom
 
         private void FixedUpdate()
         {
-            Collider playerCollider = PlayerLookup.Collider;
             hand = PlayerLookup.Hand;
 
             // Range only - arriving is deliberately not an attempt. Walking into a locked door
             // should not burn the try before the player has understood that it is a lock. This is
             // now the only door in the game that asks for a press at all; Room1's opens on its pad.
-            playerInRange = playerCollider != null
-                && playerCollider.enabled
-                && trigger.bounds.Intersects(playerCollider.bounds);
+            playerInRange = PlayerLookup.InReach(trigger);
         }
 
         private void Update()
         {
-            // inserting is in the guard as well as in WantsInteractHint: the door is not open yet
-            // during the animation, so IsSpent is still false and a second press would surrender a
-            // key the player no longer has and start the whole thing again on top of itself.
-            if (!playerInRange || IsSpent || Inserting) return;
             if (LoopManager.Instance != null && !LoopManager.Instance.AcceptsInput) return;
+
+            // In reach, not spent, not mid-insert, ON SCREEN, and the thing being looked at. Those
+            // first three were spelled out here - which is `WantsInteractHint` minus its `InView`, so
+            // the lock answered a press the player could not see they were making. `Inserting` matters
+            // twice over: the door is not open yet during the animation, so `IsSpent` is still false
+            // and a second press would surrender a key the player no longer has.
+            if (!PlayerLookup.PressGoesTo(this)) return;
 
             if (!GameInput.InteractPressed) return;
             // Checked as well as claimed - see PlayerLookup.InteractTaken.

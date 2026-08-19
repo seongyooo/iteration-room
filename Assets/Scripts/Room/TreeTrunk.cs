@@ -102,11 +102,11 @@ namespace IterationRoom
 
         // Whether a swing would actually land: the tree still standing, an axe in the hand, and the
         // trunk on screen. Everything - the press, the prompt - goes through this one answer.
-        // NO `TakeableIsNearer` TEST, and its absence is deliberate. That check is E-press
-        // arbitration: it stops a fixture stealing the disc from a takeable lying in front of it,
-        // because both answer the same button. Chopping answers the LEFT button, so it competes with
-        // nothing - and including it meant the four axes still on the floor were "nearer" than the
-        // tree's anchor and silently suppressed the prompt, which is why no overlay appeared.
+        // NO AIM ARBITRATION, and its absence is deliberate. `PlayerLookup.IsAimedAt` settles which
+        // thing an E PRESS is for, because every E fixture answers the same button. Chopping answers
+        // the LEFT button, so it competes with nothing - and an earlier version that did consult the
+        // E arbitration let the four axes lying on the floor take the tree's prompt, which is why no
+        // overlay appeared.
         public bool CanChop =>
             playerInRange && !HasFallen
             && hand != null && hand.Holding(axeItemId)
@@ -153,11 +153,7 @@ namespace IterationRoom
 
         private void FixedUpdate()
         {
-            Collider playerCollider = PlayerLookup.Collider;
-
-            playerInRange = playerCollider != null
-                && playerCollider.enabled
-                && trigger.bounds.Intersects(playerCollider.bounds);
+            playerInRange = PlayerLookup.InReach(trigger);
         }
 
         // LEFT CLICK, NOT E. Swinging an axe is "do the thing this object is FOR", which is what

@@ -214,6 +214,25 @@ triangles - the number everyone would have optimised first - and replacing it wi
 one cost nothing but the swap, because everything about its placement is DERIVED from the model's own
 bounds. A builder that measures instead of hardcoding is a builder whose assets are replaceable.
 
+## GATHERING BY TYPE SWEEPS UP MORE THAN YOU MEANT (2026-08-17)
+
+`CycleBinding.PointGasAt` handed `SleepingGas` every `ParticleSystem` under the cycle root. It was
+written when the only particle systems in a cycle WERE the four wall emitters, and it read as a
+faithful re-derivation of what `SceneBuilder` had already wired by hand. Room2-2's taps then added
+four water sprays, and the boundary started playing them - `Fill()` plays what it is given - and
+`Clear()` stopped and cleared systems belonging to the taps.
+
+**The fault is not the sweep, it is that the sweep replaced a correct wiring with a guessed one.**
+`SceneBuilder` builds the four emitters and knows exactly which they are; the runtime rebinding threw
+that away and asked a question ("what particle systems are in here") whose answer only happened to be
+right. The fix names them on `Cycle`, which is where every other per-cycle list already lives.
+
+**The rule this generalises to**: a runtime rebind may re-establish a reference the scene split drops,
+but it must ask for the SAME thing the builder assigned. `GetComponentsInChildren<T>` is only that when
+T can mean one thing, and "a cycle's particle systems" stopped meaning one thing the moment a room had
+water in it. The same trap is live for anything gathered by type or by name suffix - the wall panels
+(`*_Panels`) are the other one, and they are already scoped per cycle for exactly this reason.
+
 ## SUPERSAMPLE ANYTHING THAT PHOTOGRAPHS THIS BUILDING (2026-08-17)
 
 The menu background is a picture of a room made of thin black grooves on white - the worst case for
@@ -223,3 +242,175 @@ game as a jaggy mess. It is rendered at 2x into the RenderTexture and box-filter
 
 The downscale is done in C# rather than with a bilinear blit on purpose: a blit at exactly 2:1 samples
 pixel CENTRES and misses half the detail it is meant to be averaging.
+
+## `Physics.Raycast` MEASURES THE HIGHEST SURFACE, NOT THE ONE YOU MEANT (2026-08-19)
+
+The slide's ride path is built by dropping a ray at every step along the line the rider takes and
+keeping whatever is underneath - the chute's surface while there is chute (`SampleRidePath`). A single
+`Raycast` returns the CLOSEST hit, and from a ray that starts above the world that is the HIGHEST
+surface. That is the same thing right up until something is above the chute.
+
+Moving the landing room up so its ceiling met the slide's mouth put a ceiling slab exactly there. The
+last two samples of the chute measured that slab's TOP, so the recorded path climbed from 0.53m to
+1.80m and the ride carried the player over the roof of the level and out of it, then dropped them
+five metres. **It played precisely as it was built, and the build reported success.**
+
+Two lessons, and the second is the expensive one:
+
+- Cast with `RaycastAll` and pick by what the surface IS when "under the line" is not the same
+  question as "the first thing hit". Leg 0 prefers a child of the slide and holds its last height
+  otherwise.
+- **The assert that was meant to catch this had a hole in it.** It compared every sample against the
+  height the ride STARTS at (2.73m) - and 1.80m is below that, so a path that climbed 1.3m in one step
+  passed. An assert on the absolute range cannot see a local climb; check each sample against the one
+  before it if that is what you mean.
+
+## A SLAB RUNS TO THE ROOM PITCH, NOT THE ROOM DEPTH (2026-08-19)
+
+`BuildSlab` builds floors and ceilings out to `RoomPitch`, which is the room's depth PLUS a door
+pocket - deliberately, so neighbouring rooms' slabs meet under the shared divider instead of leaving a
+seam. The consequence is easy to miss: **a room's ceiling already sticks half a pocket out past its
+own north wall.**
+
+Anything built into that pocket afterwards is therefore building on top of something. Lining the
+slide's mouth with a tunnel across the full pocket put two of its four pieces exactly level with the
+room's ceiling slab and the hall's floor slab - coplanar faces, and the flicker play reported at the
+mouth. The walls have bodies too (a `BuildPanelWall` hangs a `WallDepth` off the face it is given), so
+the genuinely open span between two rooms is `pocket - WallDepth`, not `pocket`.
+
+Derive such pieces from `RoomPitch`, `WallDepth` and `DoorPocketDepth` rather than measuring them off
+the scene: a change to any of the three otherwise re-opens the slot, silently, one build later.
+
+## A WALL'S BACKING SLAB IS OUTSIDE ITS FACE (2026-08-19)
+
+The second half of the flicker at the slide's mouth, and the half that reasoning about it got wrong
+twice. `BuildPanelWall` is given the plane of the wall's VISIBLE face and puts its backing slab
+`GrooveDepth + WallThickness/2` BEHIND that - away from the room. So a wall's body does not occupy the
+space you would guess from its position: it occupies the pocket on the far side of it.
+
+Between two rooms a door pocket apart, that leaves far less open space than the pocket suggests:
+
+    pocket                     0.35
+    - this room's wall body    0.125
+    - the other room's body    0.125
+    = genuinely empty          0.10
+
+Lining that pocket across the whole 0.35 - which is what "fill the gap between the two wall faces"
+produces - lays the lining straight through both backings, and the shared faces flicker with the
+camera. It survived one round of fixes because the pieces were sized against the wall FACES, which is
+the number that is written down, rather than against the backings, which is where the geometry is.
+
+**Measured off the built scene in the end, not reasoned about.** Parsing `Cycle2.unity` for every box
+near the mouth and printing the pairs whose faces are coplanar and overlapping found it in one pass,
+after two rounds of deriving the wrong number from the constants. When a z-fight will not die, dump
+the boxes.
+
+## A MOVER IS FOUND BY WALKING UP, SO IT HAS TO BE AN ANCESTOR (2026-08-19)
+
+`MarkReflectionProbeStatic` decides what may be baked into a probe by walking UP from every renderer
+looking for a component that moves it - `Door`, `Drawer`, `RewardPlinth`, and so on. That is the right
+shape (the thing that renders is usually a child of the thing that moves), and it has one failure mode
+worth naming: **a component that moves a SIBLING'S subtree is invisible to it.**
+
+Room2-6's valve was built that way at first - the wheel model under the holder, the `Valve` component
+on a reach-trigger object beside it. Walking up from the wheel finds the holder and then the room, and
+never meets a `Valve` at all, so a wheel that spins a full turn on every press would have been baked
+into the room's reflection standing still.
+
+Two fixes, and the structural one is better: put the moving geometry UNDER the component that moves
+it. Here that meant giving the trigger a `center` offset instead of offsetting its transform, so the
+`Valve` object could sit at the holder's origin and be the wheel's parent. The alternative - adding
+`Valve` to `MovesDuringPlay` - would have been a lie about where it sits, and the next fixture built
+to the same pattern would need its own entry.
+
+**When adding a fixture with a moving part, check the part is a descendant of the component.**
+
+## `capFarSide` PUTS A WALL IN THE DOORWAY (2026-08-19)
+
+`BuildDoorPocketFill(capFarSide: true)` seals the far mouth of a door pocket. It exists for the end of
+a walk, where the pocket would otherwise open onto the outside of the level once the door slides
+clear, and it KEEPS its collider on purpose.
+
+Room2-6's door was built with it while there was nothing beyond, and room2-7 was built behind that
+door on the next pass without the flag being revisited. The room existed, was lit, was probed, was
+walkable and was entirely invisible: a solid wall stood in the doorway between the two.
+
+**The flag is a statement about the WALK, not about the door**: true only where the walk ends, false
+at every join with a room through it. It is worth grepping when adding a room behind an existing
+door - nothing else in the build reports it, because a capped pocket is exactly what a correct
+end-of-walk looks like.
+
+## THE PIT-LIP Z-FIGHT, AGAIN, IN A DRAIN (2026-08-19)
+
+Room2-6's drain shaft was built running from `y = 0` downward - so its top 0.1m sat inside the floor
+slab and its outer faces lay on the plane of the slab's cut edge. That is the SAME fault this file
+already records for the tree pit's lip, arrived at independently four rooms later, and the fix is the
+same one: hang the shaft from the slab's UNDERSIDE (`-WallThickness`) so there is no shared plane to
+fight over.
+
+Worth noting because the first version looked right in every static view. The cover hid it until the
+valves opened, so it shipped as "the drain flickers after it opens" rather than as a hole in the
+floor that was always wrong.
+
+## A DYNAMIC RIGIDBODY IGNORES ITS PARENT (2026-08-19)
+
+Room2-6's ducks and beach balls are the only things in this game that are both physics props and
+carryables, and picking one up did not work: the prompt appeared, `PlayerHand.Take` ran, the object
+was parented under the camera - and it did not come. **PhysX overwrites a dynamic body's transform
+every fixed step from its own simulated position**, so the object was in the hand for a fraction of a
+frame and then back wherever the water had it.
+
+Two things were wrong, and the second is the one worth remembering:
+
+- the body has to go **kinematic**, with `detectCollisions` off so a held duck cannot shove the pool's
+  balls around from inside the player's head;
+- it has to happen **in `CarryableItem.AttachTo`**, not in the component that owns the floating. The
+  first version left it to `FloatingBalls.FixedUpdate` to notice `IsCarried` - one physics step later,
+  which is exactly the step that throws the object away. Custody is `CarryableItem`'s job (CLAUDE.md
+  §2), so the freeze belongs beside the reparenting.
+
+**Also clear `interpolation`.** An interpolated kinematic body smooths its transform toward its
+physics pose a frame behind, so an object parented to a moving camera visibly lags and swims.
+
+## A FALLBACK FLOOR HEIGHT IS A FLOOR WHERE THERE IS NO FLOOR (2026-08-19)
+
+`FallingItem.SurfaceUnder` raycasts for whatever is under a dropped object and fell back to
+`item.RestingY` - the one floor height the cycle was told about - when the ray found nothing. Over the
+tree hall's pit that is a description of a floor that is not there, so an object dropped into the hole
+**stopped in mid-air at the lip**, at the height the floor would have been.
+
+Two fixes, both needed: the probe has to be long enough to reach the bottom of the deepest hole in the
+building (the pit is 26m and the probe was 9m), and "nothing underneath" has to return
+`float.NegativeInfinity` rather than a guess - there is no surface, so the fall has no end. Nothing is
+lost by letting it fall: `ItemRegistry.ReturnAllToOrigin` sweeps every object home at the top of the
+next iteration.
+
+## A DOOR AND ITS OPENING ARE TWO SEPARATE CALLS (2026-08-19)
+
+Room2-7 appeared to have no door and no sign over it. Both were built, both were exactly where they
+were meant to be, and both were **inside a solid wall**: `BuildWeighRoom` cut a doorway in the room's
+NORTH wall and left the south one `Rect.zero`, while `BuildPadDoor` and the target sign were placed
+against the south wall.
+
+`BuildPadDoor` places a slab and `BuildPanelWall` cuts the hole, and **nothing in the build checks
+that a door has one.** A door with no opening has no symptom other than being invisible - it still
+opens, still answers its condition, still appears in `Cycle.doors`.
+
+**If a door is invisible, look for the `Rect` before looking at the door.** The same pairing exists for
+every room in the game; this is the first time the two halves disagreed.
+
+## AN ATLAS-MAPPED PATCH CANNOT CARRY A TEXTURE (2026-08-19)
+
+The scale's display was to show its number on the model's own green panel rather than on anything laid
+over it. It cannot, as imported: `weigh_scale.glb` maps that patch into a 0.06-wide window of an
+atlas, and - measured off the file - **U does not run across the panel at all.** The same `u` appears
+at both ends of it, because the patch was UV'd as repeated strips of a flat colour rather than as a
+surface anything is drawn on. There are ten distinct UVs for 45 vertices.
+
+No amount of tiling or offset fixes that. What does is reissuing the submesh with UVs computed from
+its own footprint (`SceneBuilder.FlatUvMesh`) - same vertices, same triangles, same place, mapped so a
+texture lands on it square.
+
+**Check a model's UVs before planning to draw on it.** Reading `TEXCOORD_0`'s min/max from the glb is
+one script and answers it; correlating `u` against vertex position answers whether it is usable, which
+the bounding box alone does not.

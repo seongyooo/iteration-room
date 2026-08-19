@@ -78,7 +78,9 @@ namespace IterationRoom
             spinFrom = fromWorldRotation;
             spinTo = transform.rotation;
             glideTop = p.y;
-            glideBottom = item != null ? item.RestingY : 0f;
+            // The glide's floor is the same one the fall is aiming at, or the horizontal arc finishes
+            // somewhere the object never reaches.
+            glideBottom = item != null ? SurfaceUnder() : 0f;
             gliding = glideTop > glideBottom + 0.01f;
 
             if (gliding) transform.rotation = spinFrom;
@@ -102,8 +104,11 @@ namespace IterationRoom
             // ONLY EVER DOWN. A support put back underneath does not lift this off the floor again -
             // that would be an object climbing, and the only thing entitled to rebuild a tower is
             // the loop's own rewind, which sets the position outright.
-            float target = Supported ? stackedY : item.RestingY;
+            float target = Supported ? stackedY : SurfaceUnder();
             Vector3 p = transform.position;
+            // A target of negative infinity is "there is nothing under this" - see SurfaceUnder. The
+            // comparison below would be false forever, which is exactly right, but say it out loud so
+            // the next reader does not take it for an oversight.
             if (p.y <= target + 0.001f) { Settle(); speed = 0f; return; }
 
             speed += gravity * Time.deltaTime;
@@ -132,6 +137,60 @@ namespace IterationRoom
             speed = 0f;
             if (audioSource != null && landClip != null) audioSource.PlayOneShot(landClip);
         }
+
+        // WHAT IS ACTUALLY UNDERNEATH, rather than the one floor height this cycle was told about.
+        //
+        // `item.RestingY` is `floorBaseY + floorY`, and `floorBaseY` is set ONCE PER CYCLE by
+        // `SceneBuilder.SetFloorBase`. That was true of cycle 1 and true of cycle 2 right up until
+        // 2026-08-19, when room2-6 and room2-7 were hung a further storey down: an axe carried into
+        // either of them was released and fell to a height 3.7m ABOVE their floor, and stopped there,
+        // in mid-air. The same arithmetic put anything dropped onto room2-7's scale INSIDE the scale.
+        //
+        // So the height is found rather than remembered: one ray straight down, and whatever it hits
+        // is the floor - a room's slab, a plinth, the platform of a weighing scale. `RestingY` remains
+        // the fallback for the case that finds nothing, which is what it always was.
+        //
+        // STILL DETERMINISTIC, which is the whole reason a fall is scripted at all (see the note at
+        // the top): a raycast against the room is a question about geometry, not a simulation, and it
+        // answers the same for a ghost's release as for the player's.
+        private float SurfaceUnder()
+        {
+            Vector3 from = transform.position + Vector3.up * 0.05f;
+            int count = Physics.RaycastNonAlloc(from, Vector3.down, floorHits, floorProbe, ~0,
+                                                QueryTriggerInteraction.Ignore);
+
+            float best = float.NegativeInfinity;
+            for (int i = 0; i < count; i++)
+            {
+                RaycastHit hit = floorHits[i];
+                // Never its own collider, and never anything else hanging off this object - a
+                // carryable's blocker is under its own feet by definition.
+                if (hit.transform == null || hit.transform.IsChildOf(transform)) continue;
+                // Nor the thing it is stacked ON, which `stackedY` already answers for.
+                if (support != null && hit.transform.IsChildOf(support.transform)) continue;
+                if (hit.point.y > best) best = hit.point.y;
+            }
+
+            // NOTHING UNDERNEATH MEANS KEEP FALLING, not settle where you are.
+            //
+            // Falling back to `RestingY` - the one floor height the cycle was told about - is what
+            // made an object dropped over the tree hall's pit STOP IN MID-AIR over the hole, at the
+            // height the floor would have been if the floor were there. `float.NegativeInfinity` is
+            // the honest answer: there is no surface, so the fall has no end and the object goes down
+            // the shaft, which is what a hole is for.
+            //
+            // Nothing is lost by it. `ItemRegistry.ReturnAllToOrigin` sweeps every object home at the
+            // top of the next iteration, so an axe thrown into the pit is gone for this iteration and
+            // back for the following one - exactly what CLAUDE.md §1.2 says happens to an axe a past
+            // self carried in there.
+            return best > float.NegativeInfinity ? best + item.floorY : float.NegativeInfinity;
+        }
+
+        // How far down to look. Deep enough to find the bottom of the tree hall's pit, which is 26m
+        // of shaft with a real floor at the end of it - at the 9m this started as, a drop into the pit
+        // found nothing and the fallback above stopped the object at the lip.
+        public float floorProbe = 32f;
+        private readonly RaycastHit[] floorHits = new RaycastHit[8];
 
         // The arc's end state, written outright rather than left to the last lerp - a fall that is
         // interrupted by a landing one frame early would otherwise leave the object a few

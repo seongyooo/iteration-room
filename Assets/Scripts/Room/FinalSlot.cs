@@ -143,12 +143,7 @@ namespace IterationRoom
 
         private void FixedUpdate()
         {
-            Collider playerCollider = PlayerLookup.Collider;
-
-            playerInRange = playerCollider != null
-                && playerCollider.enabled
-                && trigger != null
-                && trigger.bounds.Intersects(playerCollider.bounds);
+            playerInRange = PlayerLookup.InReach(trigger);
         }
 
         private void Update()
@@ -158,6 +153,11 @@ namespace IterationRoom
             else ApplyRim(idleColor, idleEmission);
 
             if (!WantsInteractHint) return;
+            // ON SCREEN, NOT BEHIND ANYTHING, AND THE THING BEING LOOKED AT - the same answer the
+            // prompt disc is drawn from, so E acts exactly where the mark is. See
+            // PlayerLookup.PressGoesTo.
+            if (!PlayerLookup.PressGoesTo(this)) return;
+
             if (!GameInput.InteractPressed) return;
             // Checked as well as claimed - see PlayerLookup.InteractTaken.
             if (PlayerLookup.InteractTaken) return;

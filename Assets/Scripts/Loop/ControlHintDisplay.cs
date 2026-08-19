@@ -94,11 +94,16 @@ namespace IterationRoom
             CacheTargets();
         }
 
+        // ...and the arbiter gets the same list. It decides which fixture a press is for, and it must
+        // never be judging a different set from the one the disc is drawn over.
+        private void PublishTargets() => PlayerLookup.SetHintTargets(targets);
+
         private void CacheTargets()
         {
             int count = interactTargets != null ? interactTargets.Length : 0;
             targets = new IInteractHintTarget[count];
             for (int i = 0; i < count; i++) targets[i] = interactTargets[i] as IInteractHintTarget;
+            PublishTargets();
         }
 
         private void Update()
@@ -111,35 +116,19 @@ namespace IterationRoom
             bool running = LoopManager.Instance == null || LoopManager.Instance.AcceptsInput
                         || (calibration != null && calibration.Active);
 
-            Show(interactGroup, interactRect, running ? NearestWantingHint() : null, ref interactAlpha);
+            Show(interactGroup, interactRect, running ? AimedWantingHint() : null, ref interactAlpha);
             Show(swingGroup, swingRect, running ? SwingAnchor() : null, ref swingAlpha);
         }
 
-        // Nearest rather than first, so standing between the drawer and the pin inside it prompts
-        // over the one being looked at rather than over whichever was built first.
-        private Transform NearestWantingHint()
-        {
-            if (targets == null || playerCamera == null) return null;
-
-            Transform best = null;
-            float bestSqr = float.MaxValue;
-            Vector3 eye = playerCamera.transform.position;
-
-            foreach (IInteractHintTarget target in targets)
-            {
-                if (target == null || !target.WantsInteractHint) continue;
-
-                Transform anchor = target.HintAnchor;
-                if (anchor == null) continue;
-
-                float sqr = (anchor.position - eye).sqrMagnitude;
-                if (sqr >= bestSqr) continue;
-                bestSqr = sqr;
-                best = anchor;
-            }
-
-            return best;
-        }
+        // THE ONE BEING LOOKED AT rather than the one nearest the face - and NOT computed here.
+        //
+        // The disc used to run its own scan, which was correct for as long as the press ran the same
+        // one over the same list. It is one answer now (`PlayerLookup.AimedAnchor`), asked once a
+        // frame and shared, because two scans that agree today are two scans that can be changed
+        // apart tomorrow - and a disc drawn on one fixture while E operates another is the single
+        // worst outcome this family of rules has.
+        private Transform AimedWantingHint() =>
+            playerCamera != null ? PlayerLookup.AimedAnchor : null;
 
         // On the BALLOON, not on the pin. Hung on the held tool this rode the view, so it was up the
         // whole time the pin was in hand and sat on the one thing the player was not being asked to

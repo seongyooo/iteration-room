@@ -56,6 +56,11 @@ namespace IterationRoom.EditorTools
         // The block on cycle 2's chest of drawers. It has no job yet - see BuildDresser - so the id
         // says what the object IS rather than what it opens.
         private const string CycleTwoBlockItemId = "Block2";
+        // THE POOL'S OWN CARRYABLES. Ids naming a SUPPLY, like the pins and the buckets: three ducks
+        // and two beach balls share one id each, and every instance obeys the one-object rule and
+        // returns to its own spot on the water (CLAUDE.md §1.2).
+        private const string DuckItemId = "Duck2";
+        private const string BeachBallItemId = "BeachBall2";
 
         private const string ShardAItemId = "Shard2A";
         private const string ShardBItemId = "Shard2B";
@@ -113,6 +118,7 @@ namespace IterationRoom.EditorTools
         // Kept apart from the furniture because neither is furniture, and because the tree is the
         // only asset in the project whose SHAPE is load-bearing - its clear trunk is the bridge.
         private const string NatureDir = "Assets/ArtAssets/Nature";
+        private const string PlayDir = "Assets/ArtAssets/Play";
         private const string ToolsDir = "Assets/ArtAssets/Tools";
         // Meshes this file builds rather than imports. Written to disk because a Mesh created at
         // build time and left in memory does not survive the scene being saved - see
@@ -401,6 +407,120 @@ namespace IterationRoom.EditorTools
         private const float TreeHallEntranceX = 0f;
         private const float TreeHallExitX = -CornerPitch - RoomPitch;                 // -20.825
 
+        // ---------------------------------------------------------------------------------------
+        // ROOM2-5: THE SLIDE, ITS MOUTH, AND THE ROOM ON THE OTHER SIDE OF THE WALL.
+        //
+        // THE SLIDE AND THE SEESAW WERE PLACED BY HAND IN THE EDITOR AND READ BACK, the same way
+        // room2-1's switch height was. Three things about these numbers matter:
+        //   - each is the MODEL NODE's own pose in the hall's frame, not a wrapper's, so it can be
+        //     applied straight to the imported instance and land where the editor showed it;
+        //   - the 270 in each rotation is the glTF import's Z-up correction. It is PART OF THE POSE,
+        //     not noise - "tidying" it to zero lays the model on its face;
+        //   - the scales are what the hand placement left rather than a fresh fit. The slide keeps
+        //     the 0.5403 its old room2-6 fit produced; the seesaw's 0.3709 is a nudge off its 0.3808.
+        private static readonly Vector3 SlideLocalPosition = new Vector3(-24.8773f, 0.0610f, -4.8604f);
+        private static readonly Vector3 SlideLocalEuler = new Vector3(270f, 183.654f, 0f);
+        private const float SlideLocalScale = 0.5403f;
+
+        private static readonly Vector3 SeesawLocalPosition = new Vector3(-19.8104f, 0.9773f, 2.2949f);
+        private static readonly Vector3 SeesawLocalEuler = new Vector3(270f, 76f, 0f);
+        private const float SeesawLocalScale = 0.3709f;
+
+        // THE MOUTH: where the chute goes through the south wall, and the whole reason the room
+        // beyond it exists.
+        //
+        // From the hall's west corner east to just past the chute's outer rail. That is slightly
+        // WIDER than the one panel cell cleared by hand: the rails are wider than a cell, and a chute
+        // clipping the edge of its own opening is a hole that does not look like the thing going
+        // through it. 1.7m tall, which clears a rider sitting up - the chute's surface is still half a
+        // metre off the floor where it passes the wall.
+        private const float SlideMouthEast = -23.72f;
+        private const float SlideMouthHeight = 1.7f;
+
+        // THE RIDE, in hall coordinates - and only its X and Z. The head is the flat platform the
+        // stairs arrive at, the foot is where the chute's tip passes the wall plane, the landing is
+        // out on the floor of the room beyond. EVERY HEIGHT IS RAYCAST at build time off whatever is
+        // actually under the line, so the path is the chute's own surface rather than a description
+        // of it, and a slide that is moved or replaced gets a new path for free. See SampleRidePath.
+        private static readonly Vector2 SlideRideHead = new Vector2(-24.70f, 0.15f);
+        private static readonly Vector2 SlideRideFoot = new Vector2(-24.70f, -5.50f);
+        // FURTHER INTO THE ROOM than it used to be. The run-out is no longer a run-out: the chute's tip
+        // now hangs inside the landing room near the top of its wall, so this leg is a plunge into the
+        // water rather than a slide across a floor, and how far it reaches is what sets how steep that
+        // plunge is. At -9.80 it is about 4.3m along for 4.0m down - 43 degrees, which is a slide's
+        // last stretch. -8.40 made it 55, which is a fall with a direction.
+        private static readonly Vector2 SlideRideLanding = new Vector2(-24.70f, -9.80f);
+        private const int SlideRideSamples = 26;
+        // The plunge off the end of it. More samples than the six the old flat run-out needed, because
+        // this leg is now a CURVE - see SampleRidePath - and six points across a four-metre arc is a
+        // staircase.
+        private const int SlideRidePlungeSamples = 12;
+
+        // THE ROOM THE SLIDE LANDS IN: an ordinary shell hung on the hall's south wall at the west
+        // end, its west wall flush with the hall's own - so the mouth is in a corner rather than
+        // adrift in a long wall. Nothing is above or below it: cycle 2 was turned round in 2026-08-16
+        // and this is SOUTH of the hall, which is past the end of cycle 1 entirely.
+        private const float SlideRoomCentreX = TreeHallWestFace + RoomWidth / 2f;              // -21.7
+        private const float SlideRoomCentreZ = TreeHallSouthFace - (2f * WallDepth + DoorPocketDepth)
+                                             - RoomDepth / 2f;                                 // -10.85
+
+        // HOW FAR BELOW THE HALL IT SITS, and this number is DERIVED rather than chosen (2026-08-19,
+        // second pass). It was `-StoreyDrop` - a full storey plus the service void - and at that depth
+        // the two openings did not meet: the chute left the hall at the hall's own floor and the room's
+        // opening was five metres further down, so the rider passed through solid slab and arrived
+        // falling out of the ceiling, and the hole in the hall's wall looked into a void rather than
+        // into the room.
+        //
+        // The room's CEILING is now exactly the top of the mouth. Both walls are then cut over the same
+        // 1.7m band (`SlideMouthHeight`), so the hall's opening and the room's are ONE HOLE with a
+        // wall's thickness of tunnel between them: standing at the top of the slide you look through it
+        // and see the room, its water and the balls on it before you commit to the ride.
+        //
+        // What it costs is a drop - the chute's tip is at the top of that wall and the floor is a room's
+        // height below it. That is the point rather than a leftover: it is a slide over a pool, and the
+        // water is what it drops into.
+        private const float SlideRoomFloorY = SlideMouthHeight - RoomHeight;                   // -3.708
+
+        // THE WAY BACK. A slide is one-way, so without a door this room is somewhere the player can
+        // only wait out the clock. At the far end of the wall from the mouth: down the slide, across
+        // the room, back up through the door.
+        private const float SlideRoomDoorX = -18.90f;
+        // Where the south wall is split into two spans - between the mouth and the doorway, because
+        // `SubtractRect` takes one hole per wall and this wall now has two. Same trick as the north.
+        private const float SlideRoomWallSplitX = -21.70f;
+
+        // THE ROOM IS FLOODED, 2026-08-19 by request: the slide does not land on a floor, it lands in
+        // water, and plastic balls float on it. It is PRESENTATION AND NOTHING ELSE - the water is not
+        // solid, not fatal, not a puzzle and not recorded. The player wades out of it.
+        //
+        // 1.2m, which is waist-to-chest on a 1.8m body and the depth that was asked for. It is also the
+        // deepest this can go without becoming a mechanic: the eye is at 1.6m, so at 1.2m the player
+        // looks DOWN at the surface from above it, and anything deeper puts the waterline across the
+        // camera and needs an underwater view, a swim and a way out of it that this room does not have.
+        private const float PoolDepth = 1.2f;
+        // The grid step the surface is built on. See WaterMeshes.Sheet for why a room-sized quad is not
+        // enough: the shader's wobble lives on the vertices, so a sheet with none in the middle is flat
+        // in the middle. ~3,000 triangles at this room's size.
+        private const float PoolSurfaceCell = 0.25f;
+        // HOW MANY BALLS FLOAT ON IT. Not a carpet: things that float SPREAD, and the ball pit in
+        // room2-7 is what a floor covered in balls already looks like. Three hundred over ninety square
+        // metres is a ball every half metre or so - enough that they are everywhere the eye goes and
+        // sparse enough that the water is still the thing under them.
+        //
+        // It is also what the drift costs. These are individual renderers rather than one merged mesh
+        // (see FloatingBalls), so the count is a draw-call count, and a couple of hundred instanced
+        // spheres is cheap where a couple of thousand would not be.
+        //
+        // CUT FROM 300 the same day it was written, once the ducks and the beach balls went on the
+        // water: three hundred small balls is a surface the bigger things have to be picked out OF,
+        // and the whole reason to have them is that they are seen.
+        private const int PoolBallCount = 210;
+        // The same 220mm ball the pit is built from, which means the same generated mesh asset.
+        private const float PoolBallRadius = BallRadius;
+        // How high a ball rides. A hollow plastic ball is nearly all air, so it sits high in the water -
+        // a sphere half under reads as a heavy one, which is a different object.
+        private const float PoolBallFloat = 0.72f;
+
         // Where the tree stands: 0.85m back from the lip, which is what it takes to keep the stump's
         // own collider off the pit - `AssertNotWalkable` caught 0.45m on the first build, which is
         // what that assert is for.
@@ -415,9 +535,6 @@ namespace IterationRoom.EditorTools
         // The flare at the bottom of this trunk is what gives it away: standing exactly on y=0 it
         // meets the floor along a hard line all the way round, which nothing that grew there would.
         private const float TreeSinkDepth = 0.24f;
-        // How much wider than the trunk the stump sits. A real stump flares where the roots leave it,
-        // so a little over 1 - but only a little: at 2.4x it read as a different tree's stump.
-        private const float TreeStumpFlare = 1.35f;
         // Clearance left between the crown and the side walls. The tree is scaled to FIT rather than
         // set to a number - see BuildTree - because the crown is 11.72m across at native size and
         // the hall is 10.5m, so a native-scale tree grows through both walls.
@@ -506,13 +623,13 @@ namespace IterationRoom.EditorTools
             ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), 0.85f);
             ApplySurfaceDetail(floorMat, surfaceGrain, 1.8f, new Vector2(26f, 30f), 0.18f);
 
-            (Transform root, Transform bedSpawn, ParticleSystem[] _,
+            (Transform root, Transform bedSpawn, ParticleSystem[] gas,
              Door[] doors, RoomCondition[] conditions,
              GhostInteractable[] signals, Transform[] rooms) =
                 BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat, null);
 
             (Cycle cycle, _) = AssembleCycleTwo(
-                root, bedSpawn, doors, conditions, signals, rooms,
+                root, bedSpawn, doors, conditions, signals, gas, rooms,
                 floorMat, propMat, MakeTestCardTexture("TvTestCard"), MakeStaticTexture("TvStatic", 64),
                 null, null, null);
 
@@ -1021,6 +1138,8 @@ namespace IterationRoom.EditorTools
             cycleOne.chessBoard = chessBoard;
             cycleOne.cubeRoom = cubeRoom;
             cycleOne.finalRoom = finalRoom;
+            CheckGhostSignals("Cycle 1", ghostInteractables);
+            CheckCycleFinishable("Cycle 1", room.transform, finalRoom);
             cycleOne.ghostInteractables = ghostInteractables;
             cycleOne.wallPanels = wallDisplay;
             cycleOne.worldRoot = room.transform;
@@ -1034,7 +1153,8 @@ namespace IterationRoom.EditorTools
             // it, the same way cycle 1 ends.
             (Cycle cycleTwo, WallPanelDisplay cycleTwoDisplay) = AssembleCycleTwo(
                 cycleTwoRoot, cycleTwoBedSpawn, cycleTwoDoors, cycleTwoConditions, cycleTwoSignals,
-                cycleTwoRooms, floorMat, propMat, testCard, staticNoise, shaker, hand, narration);
+                cycleTwoGas, cycleTwoRooms, floorMat, propMat, testCard, staticNoise, shaker, hand,
+                narration);
 
 
             GameObject loopGO = new GameObject("LoopManager");
@@ -1083,6 +1203,7 @@ namespace IterationRoom.EditorTools
             binding.hints = hints;
             binding.endCycleControl = loop.endCycleControl;
             binding.placer = placer;
+            binding.bucketPlacer = bucketPlacer;
             binding.swingTool = player.GetComponent<BalloonTool>();
             // One per cycle, in cycle order. Cycle 2's is null, and that null is what says it is the
             // last cycle - see LoopManager, which derives "last" from having no successor.
@@ -2115,6 +2236,38 @@ namespace IterationRoom.EditorTools
             public void Disc(Vector2 centre, float radius, float sign = 1f) =>
                 Shape(p => (p - centre).sqrMagnitude <= radius * radius, sign);
 
+            // A THICK LINE WITH ROUND ENDS - the distance from a point to a segment, thresholded.
+            // Everything curved in these icons used to be a stack of overlapping `Bar`s stepped along
+            // the shape, which is why the axe read as a hammer and the question mark as a broken ring:
+            // a staircase of rectangles has corners the eye finds before it finds the curve. One
+            // swept disc has none.
+            public void Capsule(Vector2 a, Vector2 b, float radius, float sign = 1f)
+            {
+                Vector2 ab = b - a;
+                float lenSqr = Mathf.Max(1e-6f, ab.sqrMagnitude);
+                Shape(p =>
+                {
+                    float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / lenSqr);
+                    return (p - (a + ab * t)).sqrMagnitude <= radius * radius;
+                }, sign);
+            }
+
+            // A STROKED ARC, as a chain of capsules. Enough segments that the joins disappear at the
+            // 128px these are authored at; fewer and the curve polygonises again.
+            public void Arc(Vector2 centre, float radius, float fromDegrees, float toDegrees,
+                            float thickness, float sign = 1f)
+            {
+                const int steps = 28;
+                Vector2 previous = Vector2.zero;
+                for (int i = 0; i <= steps; i++)
+                {
+                    float a = Mathf.Deg2Rad * Mathf.Lerp(fromDegrees, toDegrees, i / (float)steps);
+                    Vector2 at = centre + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * radius;
+                    if (i > 0) Capsule(previous, at, thickness, sign);
+                    previous = at;
+                }
+            }
+
             public void Ring(Vector2 centre, float outer, float inner, float sign = 1f) =>
                 Shape(p =>
                 {
@@ -2256,6 +2409,179 @@ namespace IterationRoom.EditorTools
         // is square - a diagonal uses the corners.
         // A pail seen side on: a tapered body with a handle over it. Drawn rather than rendered, like
         // every other icon here.
+        // A RUBBER DUCK IN SILHOUETTE. Body, head, bill, and a notch bitten out for the eye - a duck
+        // is one of the few shapes that survives being reduced to an outline, which is exactly why it
+        // is the object a pictogram can name without a caption.
+        private static Sprite DuckIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 mid = new Vector2(0.5f, 0.46f);
+
+            // The body: a big disc with a tail bar, which reads as a duck sitting on water.
+            icon.Disc(mid + new Vector2(-0.02f, -0.06f), 0.235f);
+            icon.Bar(mid + new Vector2(-0.245f, 0.010f), new Vector2(0.090f, 0.055f), 22f);
+
+            // Head and neck.
+            icon.Disc(mid + new Vector2(0.150f, 0.195f), 0.135f);
+            icon.Bar(mid + new Vector2(0.115f, 0.075f), new Vector2(0.075f, 0.100f), 0f);
+
+            // The bill, forward and slightly down.
+            icon.Bar(mid + new Vector2(0.305f, 0.170f), new Vector2(0.090f, 0.042f), -8f);
+
+            // The eye, cut back OUT of the head - a hole reads at icon size where a dot does not.
+            icon.Disc(mid + new Vector2(0.170f, 0.235f), 0.038f, -1f);
+            return SaveSprite(icon, "icon_duck");
+        }
+
+        // A BEACH BALL: a disc with two curved panel seams. The seams are the whole of it - without
+        // them this is a circle, and a circle in a row of objects reads as "any ball" or as a full
+        // stop.
+        private static Sprite BeachBallIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 mid = new Vector2(0.5f, 0.5f);
+
+            icon.Disc(mid, 0.330f);
+            // Two seams, cut out rather than drawn on, each built from short bars stepped across the
+            // face so they bow like meridians on a sphere.
+            for (int side = -1; side <= 1; side += 2)
+            {
+                for (int i = -5; i <= 5; i++)
+                {
+                    float t = i / 5f;
+                    float y = t * 0.300f;
+                    // The bow: widest at the equator, meeting at the poles.
+                    float x = side * 0.150f * Mathf.Cos(t * Mathf.PI * 0.5f);
+                    icon.Bar(mid + new Vector2(x, y), new Vector2(0.026f, 0.036f), 0f, -1f);
+                }
+            }
+            return SaveSprite(icon, "icon_beachball");
+        }
+
+        // A CUBE, SEEN CORNER-ON: a hexagon with a Y cut into it.
+        //
+        // That is the whole of the shape, and it is why this reads as a cube where the previous two
+        // attempts did not. A square with panels implied on it is a square; a hexagon divided by a Y
+        // is three rhombi meeting at a corner, which the eye resolves as a box with no other cue at
+        // all - it is the same drawing everybody makes of a cube by hand.
+        //
+        // THE Y IS CUT OUT, not drawn on. These icons are a single colour with an alpha mask, so a
+        // hole is the only mark available; it shows through as whatever is behind, which is the white
+        // line asked for.
+        private static Sprite CubeIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 mid = new Vector2(0.5f, 0.5f);
+            const float radius = 0.345f;      // corner to centre
+            const float line = 0.026f;        // half-width of the white lines
+
+            // A pointy-top hexagon is the intersection of three slabs, at 0, 60 and 120 degrees, each
+            // an apothem wide. Written that way rather than as six edges because three inequalities
+            // cannot disagree about a corner.
+            float apothem = radius * Mathf.Cos(30f * Mathf.Deg2Rad);
+            icon.Shape(pt =>
+            {
+                Vector2 d = pt - mid;
+                for (int k = 0; k < 3; k++)
+                {
+                    float a = Mathf.Deg2Rad * (k * 60f);
+                    if (Mathf.Abs(d.x * Mathf.Cos(a) + d.y * Mathf.Sin(a)) > apothem) return false;
+                }
+                return true;
+            });
+
+            // The three arms: up to the top corner, and down to the two lower ones. Those are the
+            // edges where the three visible faces meet.
+            foreach (float degrees in new[] { 90f, 210f, 330f })
+            {
+                float a = Mathf.Deg2Rad * degrees;
+                Vector2 corner = mid + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * radius;
+                icon.Capsule(mid, corner, line, -1f);
+            }
+            return SaveSprite(icon, "icon_cube");
+        }
+
+        // A BUCKET WITH WATER IN IT, which has to be distinguishable from the empty one at a glance
+        // because the two weigh 1.8 and 12.0 - the biggest single fact in room2-7. Same silhouette as
+        // `BucketIcon` with a waterline across it and the pail below it cut hollow, so the difference
+        // is a FILL rather than a decoration.
+        private static Sprite FullBucketIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 mid = new Vector2(0.5f, 0.46f);
+
+            icon.Bar(mid + new Vector2(0f, 0.145f), new Vector2(0.360f, 0.055f), 0f);
+            icon.Bar(mid + new Vector2(0f, 0.055f), new Vector2(0.330f, 0.130f), 0f);
+            icon.Bar(mid + new Vector2(0f, -0.070f), new Vector2(0.280f, 0.130f), 0f);
+            icon.Bar(mid + new Vector2(0f, -0.165f), new Vector2(0.240f, 0.070f), 0f);
+
+            icon.Bar(mid + new Vector2(-0.175f, 0.255f), new Vector2(0.032f, 0.150f), 0f);
+            icon.Bar(mid + new Vector2(0.175f, 0.255f), new Vector2(0.032f, 0.150f), 0f);
+            icon.Bar(mid + new Vector2(0f, 0.325f), new Vector2(0.360f, 0.032f), 0f);
+
+            // THE WATERLINE, and then the pail below it hollowed out. Cutting the body away under the
+            // line leaves a filled band at the top and an outline beneath: at icon size that reads as
+            // "there is something in this one" far better than shading it darker would.
+            icon.Bar(mid + new Vector2(0f, 0.078f), new Vector2(0.300f, 0.026f), 0f, -1f);
+            icon.Bar(mid + new Vector2(0f, -0.085f), new Vector2(0.245f, 0.130f), 0f, -1f);
+            return SaveSprite(icon, "icon_bucket_full");
+        }
+
+        // A QUESTION MARK, built rather than typed. The signs in this building are ICONS - a glyph
+        // from the UI font among them would read as a different kind of object, and the one thing
+        // this sign must not do is look like it is explaining itself in words.
+        //
+        // STROKED ALONG ITS OWN PATH rather than assembled from a ring with a bite taken out of it.
+        // That is how the first version was built and it showed: the cut left a squared-off end where
+        // the hook should taper into the stem, and the join read as a break. A question mark is one
+        // continuous line, so it is drawn as one - an arc from the lower left of the bowl round the
+        // top and down the right, then a short curve into the tail, then the dot.
+        private static Sprite QuestionIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 mid = new Vector2(0.5f, 0.5f);
+            const float stroke = 0.062f;
+
+            // THE BOWL: three-quarters of a circle, opening at the bottom left. 200 degrees round to
+            // -20 leaves the tail pointing down and inward, which is where the stem picks it up.
+            Vector2 bowl = mid + new Vector2(0f, 0.215f);
+            icon.Arc(bowl, 0.175f, 200f, -20f, stroke);
+
+            // THE STEM, from where the bowl ends, curving in to the centre line. Two segments rather
+            // than one: a question mark's tail is not straight, and the bend is what stops it reading
+            // as a lollipop.
+            float endRad = Mathf.Deg2Rad * -20f;
+            Vector2 bowlEnd = bowl + new Vector2(Mathf.Cos(endRad), Mathf.Sin(endRad)) * 0.175f;
+            Vector2 waist = mid + new Vector2(0.055f, -0.020f);
+            Vector2 tail = mid + new Vector2(0.005f, -0.145f);
+            icon.Capsule(bowlEnd, waist, stroke);
+            icon.Capsule(waist, tail, stroke);
+
+            // THE DOT, clear of the tail by its own width - touching, it reads as an exclamation.
+            icon.Disc(mid + new Vector2(0.005f, -0.310f), 0.078f);
+            return SaveSprite(icon, "icon_question");
+        }
+
+        // PLUS AND EQUALS. Two bars and a cross - trivial, and here rather than as text for the same
+        // reason the question mark is.
+        private static Sprite PlusIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 mid = new Vector2(0.5f, 0.5f);
+            icon.Bar(mid, new Vector2(0.300f, 0.062f), 0f);
+            icon.Bar(mid, new Vector2(0.062f, 0.300f), 0f);
+            return SaveSprite(icon, "icon_plus");
+        }
+
+        private static Sprite EqualsIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 mid = new Vector2(0.5f, 0.5f);
+            icon.Bar(mid + new Vector2(0f, 0.115f), new Vector2(0.300f, 0.058f), 0f);
+            icon.Bar(mid + new Vector2(0f, -0.115f), new Vector2(0.300f, 0.058f), 0f);
+            return SaveSprite(icon, "icon_equals");
+        }
+
         private static Sprite BucketIcon()
         {
             var icon = new IconCanvas(128);
@@ -2778,7 +3104,7 @@ namespace IterationRoom.EditorTools
         // on its own.
         private static (Cycle cycle, WallPanelDisplay display) AssembleCycleTwo(
             Transform cycleTwoRoot, Transform bedSpawn, Door[] doors, RoomCondition[] conditions,
-            GhostInteractable[] signals, Transform[] rooms,
+            GhostInteractable[] signals, ParticleSystem[] gasEmitters, Transform[] rooms,
             Material floorMat, Material propMat, Texture2D testCard, Texture2D staticNoise,
             CameraShaker shaker, PlayerHand hand, NarrationDirector narration)
         {
@@ -2804,29 +3130,34 @@ namespace IterationRoom.EditorTools
             cycleTwo.taps = cycleTwoRoot.GetComponentsInChildren<WaterTap>(true);
             cycleTwo.buckets = cycleTwoRoot.GetComponentsInChildren<Bucket>(true);
             cycleTwo.bucketStands = cycleTwoRoot.GetComponentsInChildren<BucketStand>(true);
+            // THE FOUR WALL EMITTERS, BY NAME RATHER THAN BY TYPE. `CycleBinding.PointGasAt` used to
+            // gather every ParticleSystem under the cycle instead, which swept the tap sprays in with
+            // them - see Cycle.gasEmitters. The builder knows exactly which four these are, so it says
+            // so here and nothing has to guess at runtime.
+            cycleTwo.gasEmitters = gasEmitters;
             // Its own array, numbered from ZERO - where cycle 1's pad is also bit 0. Legal because
             // every ghost is destroyed at the boundary, so no surviving timeline refers to cycle 1's
             // bits, and the recorder is repointed at this array when the cycle starts.
+            CheckGhostSignals("Cycle 2", signals);
             cycleTwo.ghostInteractables = signals;
             cycleTwo.conditions = conditions;
 
-            // ROOM0: the console the three shards go into, and the end of the cycle. The same
-            // `FinalRoomSequence` cycle 1 ends on - a cycle ends the way a cycle ends, and only what
-            // goes INTO the console differs.
-            // LAST, not seventh. The ring lost three shells to the tree hall and will lose or gain
-            // more as cycle 2 is designed; room0 is defined as the one the walk ENDS at, and that is
-            // what this should ask for.
-            Transform ringRoom0 = rooms[rooms.Length - 1];
-            FinalRoomSequence final = BuildFinalRoom(ringRoom0, 0f, propMat, doors[doors.Length - 1],
-                                                     display, shaker, hand,
-                                                     ShardAItemId, ShardBItemId, ShardCItemId);
-            final.narration = narration;
-            cycleTwo.finalRoom = final;
-
-            // A plinth retracts a metre under its own floor. Nothing is below cycle 2 yet, but there
-            // will be, and a plinth with no housing is the fault that put cycle 1's console through
-            // room2-1's ceiling.
-            BuildPlinthHousing(ringRoom0, "ConsoleHousing_Cycle2", Vector3.zero, 1.86f, 1.31f, 1.45f, floorMat);
+            // NO ROOM0, AND THEREFORE NO CONSOLE - 2026-08-19, with the request that deleted the old
+            // room2-6, room2-7 and room2-0. The `-0` of a cycle is the room its walk ENDS at, and
+            // cycle 2 no longer has one: the walk currently stops at room2-6's door, which opens onto
+            // a capped pocket.
+            //
+            // **`finalRoom` NULL IS A SUPPORTED STATE, not a hole left by this change.** `Cycle.Complete`,
+            // `LoopManager` and `CycleBinding` all guard it - cycle 2 shipped that way before the
+            // console was built, and it means exactly what it says: this cycle cannot be finished. It
+            // could not be finished before this either, for a different reason the build used to shout
+            // about three times per run (the console declared three shard slots and nothing in the
+            // cycle wore those ids). One honest null replaces three errors describing a console that
+            // nothing could ever fill.
+            //
+            // What has to come back with a room0: `BuildFinalRoom`, its `BuildPlinthHousing`, the
+            // `CheckCycleFinishable` call, and three carryables wearing ShardA/B/C.
+            cycleTwo.finalRoom = null;
 
             cycleTwo.worldRoot = cycleTwoRoot;
             cycleTwo.wallPanels = display;
@@ -2889,7 +3220,7 @@ namespace IterationRoom.EditorTools
 
             Directory.CreateDirectory(TexturesDir);
             ReflectionProbe[] probes = UnityEngine.Object.FindObjectsByType<ReflectionProbe>(
-                FindObjectsInactive.Include, FindObjectsSortMode.None);
+                FindObjectsInactive.Include);
 
             int wired = 0;
             foreach (ReflectionProbe probe in probes)
@@ -2942,7 +3273,7 @@ namespace IterationRoom.EditorTools
         {
             int flagged = 0;
             Renderer[] renderers = UnityEngine.Object.FindObjectsByType<Renderer>(
-                FindObjectsInactive.Include, FindObjectsSortMode.None);
+                FindObjectsInactive.Include);
 
             foreach (Renderer r in renderers)
             {
@@ -2969,6 +3300,17 @@ namespace IterationRoom.EditorTools
                 // so baked in it would leave a shut floor in every reflection of a room the player is
                 // standing in with it open.
                 if (t.GetComponent<CycleExit>() != null) return true;
+                // ROOM2-5'S POOL, both halves of it. The balls drift, so a baked one is a ball frozen
+                // where it was authored rather than where it floats; and the water itself is a
+                // transparent surface that is reflecting the probe - baking it in would put the room's
+                // reflection of the water inside the water's reflection of the room.
+                if (t.GetComponent<WaterPool>() != null) return true;
+                if (t.GetComponent<FloatingBalls>() != null) return true;
+                // ROOM2-6'S VALVES AND ITS DRAIN. The wheels turn, the cover slides aside and the
+                // funnel appears - all three baked into a probe would put a shut drain and a still
+                // wheel in the reflection of a room the player has just changed.
+                if (t.GetComponent<Valve>() != null) return true;
+                if (t.GetComponent<PoolDrain>() != null) return true;
                 // The gas. A particle system baked into a probe would put vapour in the reflection
                 // of a room that has not been gassed yet.
                 if (t.GetComponent<ParticleSystem>() != null) return true;
@@ -3906,6 +4248,11 @@ namespace IterationRoom.EditorTools
             CarryableItem item = root.AddComponent<CarryableItem>();
             item.blocker = block;
             item.itemId = BucketItemId;
+            // THE ONE OBJECT WHOSE WEIGHT IS NOT A CONSTANT: an empty pail and a full one are the same
+            // carryable and read 1.8 and 12.0. That is the room2-2 puzzle's knowledge paying off in a
+            // room two doors away, which is the best kind of connection this building can make.
+            Weighable weighs = MakeWeighable(item, WeightBucket);
+            weighs.contentsKilograms = WeightBucketWater;
             item.displayName = "BUCKET";
             item.icon = BucketIcon();
             item.floorY = 0f;
@@ -3922,12 +4269,25 @@ namespace IterationRoom.EditorTools
             item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
 
             Bucket bucket = root.AddComponent<Bucket>();
+            // The scale reads the water through the bucket rather than through a second copy of "how
+            // full is it" - one owner of that fact, and a half-filled pail reads half way.
+            weighs.bucket = bucket;
             // TWICE THE OLD RATE, by request: play found the tank the bottleneck of room2-2, and a
             // wait that is the slowest thing in a sixty-second loop is a wait the player spends
             // standing still. The number lives here rather than on the component for the reason every
             // tuned value does (CLAUDE.md §2) - it was taking the component's own default, which is
             // how it stayed unexamined.
-            bucket.fillSeconds = 7f;
+            // HALVED, 2026-08-19: play reported that even with past selves running the taps there
+            // was always dead time before the room could be left. Seven seconds under a tap is seven
+            // seconds of STANDING THERE - one object in the hand means the bucket cannot be left to
+            // fill while its carrier does something else, so every second of it is a second of the
+            // sixty spent watching.
+            //
+            // The room's LENGTH is unchanged: it is still four bucketloads into the tank
+            // (`bucketFraction` 0.2 against a 0.75 mark), so it still cannot be finished by one pair
+            // of hands. What is gone is the waiting, which was never the interesting part - the
+            // interesting part is that there are two taps and one of you.
+            bucket.fillSeconds = 3.5f;
             bucket.waterBody = water.transform;
             bucket.innerBottom = innerBottom;
             bucket.innerHeight = innerHeight;
@@ -4365,12 +4725,2151 @@ namespace IterationRoom.EditorTools
             }
         }
 
+
+        // ROOM2-5'S SLIDE - and this one is not scenery.
+        //
+        // It furnished room2-6 until 2026-08-19, when it was dragged onto the tree hall's far ledge
+        // by hand and set against the south wall with its chute going THROUGH it. That makes it the
+        // way into the room beyond, and the only way: see BuildSlideRoom for what is on the other
+        // side and SlideRide for what riding it does.
+        //
+        // THE POSE IS A READ-BACK, NOT A FIT. The old `BuildPlayground` derived its scale from the
+        // room's door lanes, which is the right rule for scenery standing in an empty shell and the
+        // wrong one for a prop that has to line up with a hole in a wall. This one was placed by eye
+        // and measured afterwards - see SlideLocalPosition for the three things those numbers mean.
+        //
+        private static void BuildSlide(Transform hall)
+        {
+            string path = PlayDir + "/slide_playground.glb";
+            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (source == null)
+            {
+                Debug.LogError($"[SceneBuilder] {path} is missing - room2-5 keeps the hole in its "
+                             + "wall and loses the only thing leading through it.");
+                return;
+            }
+
+            ShrinkModelTextures(path, 1024);
+
+            GameObject root = new GameObject("Room2_5_Slide");
+            root.transform.SetParent(hall, false);
+            root.transform.localPosition = SlideLocalPosition;
+
+            GameObject model = (GameObject)PrefabUtility.InstantiatePrefab(source, root.transform);
+            model.name = "Slide";
+
+            // WRITTEN ONTO THE IMPORTED INSTANCE, which is the one case where that is the right thing
+            // to do. The usual rule is a wrapper - a glTF root's own rotation is load-bearing and
+            // overwriting it makes the model answer a rotation with a translation. What is written
+            // here is that node's OWN pose, read back off the editor with the correction already in
+            // it, so it reproduces the hand placement exactly instead of composing with it.
+            model.transform.localPosition = Vector3.zero;
+            model.transform.localRotation = Quaternion.Euler(SlideLocalEuler);
+            model.transform.localScale = Vector3.one * SlideLocalScale;
+
+            // SOLID: a slide you walk through is a poster, the stairs are how the head of the chute is
+            // reached at all, and the ride below is measured by raycasting these very colliders. Mesh
+            // colliders on the parts as they are - convex would swallow the space under the deck and
+            // fill in the chute itself.
+            int solid = 0;
+            foreach (MeshFilter mf in model.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf.sharedMesh == null) continue;
+                MeshCollider mc = mf.gameObject.AddComponent<MeshCollider>();
+                mc.sharedMesh = mf.sharedMesh;
+                solid++;
+            }
+
+            Vector3[] ride = SampleRidePath(hall, model.transform);
+            if (ride == null) return;
+
+            // THE TRIGGER IS THE HEAD OF THE CHUTE, not the stairs and not the deck. The stairs' top
+            // step is a metre east of it, so climbing does not commit you to anything; stepping off
+            // that step onto the chute's platform does, which is what getting on a slide is.
+            //
+            // Tall enough to catch a standing player's capsule from the feet up - the ride starts on
+            // ENTRY, so a volume that only reached the knees would be walked over between frames.
+            const float triggerHeight = 2.2f;
+            GameObject rideGO = new GameObject("Room2_5_SlideRide");
+            rideGO.transform.SetParent(hall, false);
+
+            BoxCollider trigger = rideGO.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            trigger.center = new Vector3(ride[0].x, ride[0].y + triggerHeight / 2f, ride[0].z);
+            trigger.size = new Vector3(1.0f, triggerHeight, 1.0f);
+
+            // The path is in the hall's frame and this object sits at the hall's origin, so what the
+            // component stores and what was measured are the same numbers.
+            SlideRide rideComp = rideGO.AddComponent<SlideRide>();
+            rideComp.path = ride;
+
+            Debug.Log($"[SceneBuilder] Slide: {solid} solid part(s); ride of {ride.Length} points, "
+                    + $"{ride[0].y:0.00}m down to {ride[ride.Length - 1].y:0.00}m over "
+                    + $"{Mathf.Abs(SlideRideLanding.y - SlideRideHead.y):0.00}m");
+        }
+
+        // THE RIDE, MEASURED OFF THE CHUTE RATHER THAN DESCRIBED.
+        //
+        // A downward ray at every step along the line the rider takes, so each height in the path is
+        // whatever is actually underneath it: the chute's surface while there is chute, the landing
+        // room's floor once there is not. The only numbers written down are where the line starts,
+        // where it leaves the hall and where it stops.
+        //
+        // IT FAILS THE BUILD IF THE CHUTE IS NO LONGER UNDER IT, because that is not a visible fault:
+        // the ride would still run and the player would still arrive in the room, and the only
+        // symptom is a rider gliding through the air a foot above the slide.
+        private static Vector3[] SampleRidePath(Transform hall, Transform slide)
+        {
+            // Colliders built this frame are not in the physics scene until it is told about them -
+            // the same line `AssertWalkable` opens with, and for the same reason.
+            Physics.SyncTransforms();
+
+            // WHERE THE RAY STARTS, and it is a narrower window than it looks - and now TWO windows,
+            // one per leg, because the two legs are no longer under the same ceiling.
+            //
+            // LEG 0, the chute, is still entirely inside the hall: has to clear the head of the chute
+            // at 2.8m and stay UNDER the hall's own ceiling - the first version dropped from 6m, which
+            // is fine for the 17.5m hall but lands on the roof of a same-level room the run-out used
+            // to cross, and the ride came out sloping UP to 5.51m.
+            //
+            // LEG 1, the plunge, is inside room2-5's landing room, which sits BELOW the hall with its
+            // ceiling at the top of the mouth - so a ray dropped from hall height would hit that
+            // ceiling before it ever reached the floor beneath it. Starting just under it instead
+            // keeps the ray inside the room it is actually meant to be measuring.
+            const float probeFromHall = 4.5f;
+            float probeFromRoom = SlideRoomFloorY + RoomHeight - 0.05f;
+            // Generous rather than derived from either probe height: leg 0 drops a few metres to the
+            // hall's own floor, leg 1 drops the better part of a storey to room2-5's - one constant
+            // that comfortably clears both beats two numbers each tied to a probe height that used to
+            // double as "how far below the floor is safe to still call a hit".
+            const float probeMaxDistance = 12f;
+            var points = new System.Collections.Generic.List<Vector3>();
+            int onChute = 0, missed = 0;
+
+            // The chute, then the plunge. Two passes rather than one because they are two different
+            // things: leg 0 is measured off the slide, and leg 1 is a fall to a floor that is measured
+            // only to know where it ENDS.
+            //
+            // LEG 0 TAKES THE SLIDE'S OWN SURFACE, not the first thing under the line. A single
+            // `Raycast` takes the highest hit, and once the landing room came up to meet the mouth its
+            // CEILING SLAB is the highest thing under the last two samples - so the measured path
+            // climbed from the chute at 0.53m onto the roof of the room at 1.80m and the ride carried
+            // the player over the top of the level, outside it, before dropping them in. It played
+            // exactly as it reads. `RaycastAll` and prefer the slide.
+            float chuteExitY = 0f;
+            for (int leg = 0; leg < 2; leg++)
+            {
+                Vector2 from = leg == 0 ? SlideRideHead : SlideRideFoot;
+                Vector2 to = leg == 0 ? SlideRideFoot : SlideRideLanding;
+                int steps = leg == 0 ? SlideRideSamples : SlideRidePlungeSamples;
+                float probeFrom = leg == 0 ? probeFromHall : probeFromRoom;
+
+                for (int i = leg == 0 ? 0 : 1; i <= steps; i++)
+                {
+                    float t = i / (float)steps;
+                    Vector2 xz = Vector2.Lerp(from, to, t);
+                    Vector3 at = hall.TransformPoint(new Vector3(xz.x, probeFrom, xz.y));
+
+                    RaycastHit[] hits = Physics.RaycastAll(at, hall.TransformDirection(Vector3.down),
+                                                           probeMaxDistance, ~0,
+                                                           QueryTriggerInteraction.Ignore);
+                    bool found = false;
+                    float surfaceY = 0f;
+                    float best = float.NegativeInfinity;
+                    bool bestIsChute = false;
+
+                    foreach (RaycastHit hit in hits)
+                    {
+                        float y = hall.InverseTransformPoint(hit.point).y;
+                        bool isChute = slide != null && hit.transform.IsChildOf(slide);
+                        // On leg 0 the slide wins outright, whatever is above it. Everywhere else the
+                        // highest surface wins, which is the floor of whichever room the ray is in.
+                        bool better = !found
+                                   || (leg == 0 && isChute && !bestIsChute)
+                                   || (y > best && (leg != 0 || isChute == bestIsChute));
+                        if (!better) continue;
+
+                        found = true;
+                        surfaceY = y;
+                        best = y;
+                        bestIsChute = isChute;
+                    }
+
+                    if (found)
+                    {
+                        if (leg == 0)
+                        {
+                            if (bestIsChute) { onChute++; chuteExitY = surfaceY; }
+                            // ON THE CHUTE OR NOWHERE. A leg-0 sample that found something else has
+                            // found a surface the rider must not be put on - it is what happened with
+                            // the landing room's ceiling - so the height is HELD at the last known one
+                            // rather than stepped up onto it. The `onChute` count below is what says
+                            // so out loud.
+                            else if (points.Count > 0) surfaceY = points[points.Count - 1].y;
+                        }
+                    }
+                    else
+                    {
+                        // Nothing under the ride at all. Carried at the last known height rather than
+                        // dropped to zero, which would put a step in the path instead of a warning.
+                        missed++;
+                        surfaceY = points.Count > 0 ? points[points.Count - 1].y : 0f;
+                    }
+
+                    // LEG 1 IS AN ARC, NOT A FLOOR. Every sample of it raycasts the same floor, so
+                    // taking the surface directly gave a path that stood at the mouth and then fell
+                    // four metres straight down between two waypoints - a drop with a slide attached
+                    // to it. The height is interpolated from the chute's exit down to the floor on a
+                    // SQUARED curve instead: shallow where it leaves the chute, steepening as it goes,
+                    // which is the shape of something thrown rather than something released. The
+                    // raycast still decides where it ends and still clamps it - nothing may pass
+                    // through the floor.
+                    if (leg == 1)
+                    {
+                        float arc = Mathf.Lerp(chuteExitY, surfaceY, t * t);
+                        surfaceY = Mathf.Max(surfaceY, arc);
+                    }
+
+                    points.Add(new Vector3(xz.x, surfaceY, xz.y));
+                }
+            }
+
+            if (points.Count < 2)
+            {
+                Debug.LogError("[SceneBuilder] the slide's ride path came out empty.");
+                return null;
+            }
+
+            if (onChute < SlideRideSamples / 2)
+                Debug.LogError($"[SceneBuilder] the slide's ride path only touches the chute at "
+                             + $"{onChute} of {SlideRideSamples + 1} samples - it has moved out from "
+                             + "under the line in SlideRideHead/SlideRideFoot.");
+
+            if (missed > 0)
+                Debug.LogError($"[SceneBuilder] the slide's ride path has {missed} sample(s) with "
+                             + "nothing underneath - the run-out is off the landing room's floor.");
+
+            // A SLIDE GOES DOWN. Anything the sampler found ABOVE the head it started at is something
+            // it was never meant to be measuring - a ceiling, a rail, the underside of a deck - and
+            // the symptom is a ride that carries the player upward through the room. See probeFrom
+            // for the version of this that actually happened.
+            foreach (Vector3 point in points)
+            {
+                if (point.y <= points[0].y + 0.05f) continue;
+                Debug.LogError($"[SceneBuilder] the slide's ride path climbs to {point.y:0.00}m, "
+                             + $"above the {points[0].y:0.00}m it starts at - it is measuring "
+                             + "something that is not the chute.");
+                break;
+            }
+
+            return points.ToArray();
+        }
+
+        // WHAT THE SLIDE LANDS IN. Room2-5's own room, south of the tree hall's west end, reached by
+        // riding the slide through the hall's south wall and left through a door back into the hall.
+        //
+        // BUILT HERE RATHER THAN THROUGH `BuildRingRoom` for one reason: its north wall needs TWO
+        // openings - the chute's mouth and the doorway back - and `BuildPanelWall` takes one cutout.
+        // Everything else is the standard helpers at the standard sizes, so it is the same floor, the
+        // same panelling, the same lighting and the same probe as every other room in the building.
+        //
+        // NO PUZZLE, NO CARRYABLE, NO SIGNAL: it touches neither the loop nor the reset. What goes in
+        // it is a later decision, and until then it is a room that exists.
+        private static (Transform room, Door door, PoolDrain drain, Valve[] valves)
+            BuildPoolRoom(Transform parent, Material floorMat, Material grooveMat, Material panelMat,
+                          Material propMat, Material fixtureMat)
+        {
+            GameObject rootGO = new GameObject("Room2_6_Root");
+            rootGO.transform.SetParent(parent, false);
+            // BELOW THE HALL, BY EXACTLY WHAT PUTS ITS CEILING AT THE TOP OF THE MOUTH. It sat beside
+            // the hall at the hall's own floor height, then a full `StoreyDrop` under it, and neither
+            // connected: see `SlideRoomFloorY` for why the depth is derived from the opening now
+            // rather than picked.
+            rootGO.transform.localPosition =
+                new Vector3(SlideRoomCentreX, SlideRoomFloorY, SlideRoomCentreZ);
+
+            GameObject roomGO = new GameObject("Room2_6");
+            roomGO.transform.SetParent(rootGO.transform, false);
+            Transform t = roomGO.transform;
+
+            // THE FLOOR IS CUT FOR THE DRAIN. `BuildSlab` subtracts one Rect, which is why the hole is
+            // square and the grate is what makes it read as a drain.
+            BuildSlab(t, "Floor", -WallThickness / 2f, 0f, floorMat,
+                      new Rect(-DrainSize / 2f, -DrainSize / 2f, DrainSize, DrainSize));
+            BuildSlab(t, "Ceiling", RoomHeight + WallThickness / 2f, 0f, floorMat, default);
+
+            // THE NORTH WALL IS THE SHARED ONE, and its one opening sits AGAINST THE CEILING - the top
+            // 1.7m of the wall, which is now the same 1.7m band the hall's own opening covers, because
+            // the room's height below the hall is derived from exactly that (`SlideRoomFloorY`). The
+            // two cut the same rectangle out of two walls a pocket apart, so they are one hole with a
+            // short tunnel in it. Same X as the hall's opening, shifted into this room's frame by the
+            // one offset below rather than written down twice.
+            //
+            // NO DOOR YET, and the wall is back to ONE span rather than two because of it: the old
+            // "way back" doorway assumed the room on the other side was at the same height, and it no
+            // longer is. Its doorway, its pocket and the walkability asserts that checked it are gone
+            // with the floor-level entrance - `SlideRoomDoorX`/`SlideRoomWallSplitX` are unused until
+            // the exit is designed for a room that is now a storey down instead of next door.
+            float mouthFrom = TreeHallWestFace - SlideRoomCentreX;
+            float mouthTo = SlideMouthEast - SlideRoomCentreX;
+
+            BuildPanelWall(t, "Wall_North", new Vector3(0f, 0f, RoomDepth / 2f),
+                Vector3.right, Vector3.back, RoomWidth, grooveMat, panelMat,
+                Rect.MinMaxRect(mouthFrom, RoomHeight - SlideMouthHeight, mouthTo, RoomHeight));
+
+            // THE TUNNEL BETWEEN THE TWO WALLS. The hall's wall and this one are a door pocket apart,
+            // and with a hole cut through both that gap is open on all four sides - looking through the
+            // mouth at any angle but straight ahead you see along a slot with the sky at the end of it.
+            // Thin pieces line it, so the hole reads as a hole through a thick wall, which is what it is.
+            //
+            // EVERY PIECE IS SIZED TO WHAT IS ACTUALLY OPEN, and the first version was not: it spanned
+            // the whole pocket and so lay ON TOP of two slabs that already reach into it, which is two
+            // pairs of coplanar faces and the flicker play reported at the mouth. What reaches in:
+            //   - `BuildSlab` runs to the room PITCH, not its depth, so this room's ceiling already
+            //     covers half a pocket past its own north wall;
+            //   - the walls themselves have bodies - the hall's south wall hangs a `WallDepth` south of
+            //     its face, which is the north end of the gap.
+            // So the genuinely open span is from this room's wall face to the hall's, and the head only
+            // has to close what the ceiling slab does not reach. Both are derived below rather than
+            // measured, so a change to the pocket or the wall depth cannot re-open the slot.
+            //
+            // NOT a `BuildPanelWall`: these are the reveals of an opening rather than a surface of the
+            // room, and panelling them would put grooves on strips nobody stands square to.
+            float pocket = 2f * WallDepth + DoorPocketDepth;
+            // FROM THE BACK OF ONE WALL TO THE BACK OF THE OTHER, which is a much narrower span than
+            // the one between their FACES - 0.1m rather than 0.35 - and getting that wrong is what
+            // play saw flickering at the mouth twice.
+            //
+            // **A WALL'S BACKING SLAB SITS BEHIND ITS FACE, OUTSIDE THE ROOM**: `BuildPanelWall` puts
+            // it at `GrooveDepth + WallThickness/2` back from the face it is given, so the wall's body
+            // is in the pocket rather than in the room. Two of them, one per side, eat 0.25 of the
+            // 0.35, and anything lining the pocket across the whole of it is laid straight through
+            // both - coplanar faces, and the flicker moves with the camera. Measured off the built
+            // scene rather than reasoned about, after reasoning about it got it wrong once.
+            float wallBody = GrooveDepth + WallThickness;
+            float gapFrom = RoomDepth / 2f + wallBody;                        // back of this room's wall
+            float gapTo = RoomDepth / 2f + pocket - wallBody;                 // back of the hall's
+            float ceilingReach = RoomPitch / 2f;                   // how far the ceiling slab overruns
+            float mouthMid = (mouthFrom + mouthTo) / 2f, mouthSpan = mouthTo - mouthFrom;
+            // The sill is level with the hall's floor, which in this room's frame is `-SlideRoomFloorY`
+            // - the one conversion between the two storeys.
+            float sillY = -SlideRoomFloorY;
+
+            GameObject tunnel = new GameObject("MouthTunnel");
+            tunnel.transform.SetParent(t, false);
+
+            if (gapTo - ceilingReach > 0.001f)
+                Prim(PrimitiveType.Cube, "Head", tunnel.transform,
+                     new Vector3(mouthMid, RoomHeight + WallThickness / 2f,
+                                 (ceilingReach + gapTo) / 2f),
+                     new Vector3(mouthSpan + WallThickness * 2f, WallThickness,
+                                 gapTo - ceilingReach), floorMat);
+
+            Prim(PrimitiveType.Cube, "Sill", tunnel.transform,
+                 new Vector3(mouthMid, sillY - WallThickness / 2f, (gapFrom + gapTo) / 2f),
+                 new Vector3(mouthSpan + WallThickness * 2f, WallThickness, gapTo - gapFrom), floorMat);
+
+            for (int side = 0; side < 2; side++)
+            {
+                float x = side == 0 ? mouthFrom - WallThickness / 2f : mouthTo + WallThickness / 2f;
+                Prim(PrimitiveType.Cube, side == 0 ? "Reveal_West" : "Reveal_East", tunnel.transform,
+                     new Vector3(x, (sillY + RoomHeight) / 2f, (gapFrom + gapTo) / 2f),
+                     new Vector3(WallThickness, RoomHeight - sillY, gapTo - gapFrom), floorMat);
+            }
+
+            // THE WAY ON IS THE SOUTH WALL - straight ahead of the slide. The chute comes through the
+            // north wall heading south, so a rider lands facing this door: the room says where it goes
+            // before the player has turned round.
+            BuildPanelWall(t, "Wall_South", new Vector3(0f, 0f, -RoomDepth / 2f),
+                Vector3.right, Vector3.forward, RoomWidth, grooveMat, panelMat,
+                new Rect(-DoorWidth / 2f, 0f, DoorWidth, DoorHeight));
+            BuildPanelWall(t, "Wall_West", new Vector3(-RoomWidth / 2f, 0f, 0f),
+                Vector3.forward, Vector3.right, RoomDepth, grooveMat, panelMat, Rect.zero);
+            BuildPanelWall(t, "Wall_East", new Vector3(RoomWidth / 2f, 0f, 0f),
+                Vector3.forward, Vector3.left, RoomDepth, grooveMat, panelMat, Rect.zero);
+
+            BuildCeilingLights(t, "Room2_6", 0f, fixtureMat, castShadows: false);
+            BuildReflectionProbe(t, "Room2_6", 0f);
+
+            // AND IT IS FULL OF WATER, which is what the slide lands in.
+            WaterPool pool = BuildWaterPool(t);
+
+            // --- the door ---------------------------------------------------------------------------
+            // **NOT CAPPED.** It was, for the one build where there was nothing on the other side, and
+            // `capFarSide` does exactly what it says: it puts a SOLID WALL across the far mouth of the
+            // pocket. Room2-7 was built behind this door and the cap was left on, so the room existed,
+            // was lit, was probed - and was invisible and unreachable behind a wall in the doorway.
+            //
+            // The rule: `capFarSide` is true only where the walk ENDS. Every join with a room through
+            // it is false.
+            Door door = BuildPadDoor(t, "Door2_6", 0f, new FloorButton[0], propMat, yaw: 180f);
+            BuildDoorPocketFill(t, "Pocket2_6", 0f, grooveMat, capFarSide: false, yaw: 180f);
+
+            // --- the three valves -------------------------------------------------------------------
+            // ONE PER WALL THAT HAS NO DOOR, centred, at a height a standing player turns a wheel at.
+            // Spread as far apart as this room allows on purpose: six turns is more than one iteration
+            // holds, and what makes that interesting rather than tedious is that the three of them
+            // cannot be reached by one person in one minute. A past self at the east wheel is the
+            // room being solved.
+            var valves = new Valve[3];
+            valves[0] = BuildValve(t, "Valve2_6_North", new Vector3(0f, ValveHeight, RoomDepth / 2f), 180f);
+            valves[1] = BuildValve(t, "Valve2_6_East", new Vector3(RoomWidth / 2f, ValveHeight, 0f), 270f);
+            valves[2] = BuildValve(t, "Valve2_6_West", new Vector3(-RoomWidth / 2f, ValveHeight, 0f), 90f);
+
+            // --- the drain, and the rule ------------------------------------------------------------
+            PoolDrain drain = BuildDrain(t, pool, valves, floorMat, propMat);
+            door.condition = drain;
+
+            return (t, door, drain, valves);
+        }
+
+        // ROOM2-7: THE WEIGHING ROOM, through room2-6's door.
+        //
+        // ONE ROOM, ONE SCALE, ONE NUMBER. Everything the player has learned to carry is worth
+        // something here and they are told none of it - see the weight constants for why the numbers
+        // are what they are, and `WeighScale` for why the room is a measuring instrument before it is
+        // a lock.
+        //
+        // BUILT LIKE ROOM2-6 rather than through `BuildRingRoom`: it is off the ring entirely, hung
+        // south of the pool at the pool's own depth, so it takes its parent's frame and its own
+        // lights and probe. Its NORTH wall carries the doorway, which is the same opening room2-6's
+        // south wall has - one door, two rooms, and the pocket between them belongs to room2-6.
+        // A PLAIN SHELL, one room further on, so room2-7's door has somewhere to lead. Empty by
+        // design and by admission: it is where cycle 2 continues, and what goes in it is the next
+        // decision rather than something to guess at now. Its own door is the capped end of the walk.
+        private static Transform BuildEmptyRoom(Transform parent, string name, Vector3 at,
+                                                Material floorMat, Material grooveMat,
+                                                Material panelMat, Material fixtureMat,
+                                                bool doorwayNorth)
+        {
+            GameObject rootGO = new GameObject(name + "_Root");
+            rootGO.transform.SetParent(parent, false);
+            rootGO.transform.localPosition = at;
+
+            GameObject roomGO = new GameObject(name);
+            roomGO.transform.SetParent(rootGO.transform, false);
+            Transform t = roomGO.transform;
+
+            Rect doorway = new Rect(-DoorWidth / 2f, 0f, DoorWidth, DoorHeight);
+
+            BuildSlab(t, "Floor", -WallThickness / 2f, 0f, floorMat, default);
+            BuildSlab(t, "Ceiling", RoomHeight + WallThickness / 2f, 0f, floorMat, default);
+
+            BuildPanelWall(t, "Wall_North", new Vector3(0f, 0f, RoomDepth / 2f),
+                Vector3.right, Vector3.back, RoomWidth, grooveMat, panelMat,
+                doorwayNorth ? doorway : Rect.zero);
+            BuildPanelWall(t, "Wall_South", new Vector3(0f, 0f, -RoomDepth / 2f),
+                Vector3.right, Vector3.forward, RoomWidth, grooveMat, panelMat, Rect.zero);
+            BuildPanelWall(t, "Wall_West", new Vector3(-RoomWidth / 2f, 0f, 0f),
+                Vector3.forward, Vector3.right, RoomDepth, grooveMat, panelMat, Rect.zero);
+            BuildPanelWall(t, "Wall_East", new Vector3(RoomWidth / 2f, 0f, 0f),
+                Vector3.forward, Vector3.left, RoomDepth, grooveMat, panelMat, Rect.zero);
+
+            BuildCeilingLights(t, name, 0f, fixtureMat, castShadows: false);
+            BuildReflectionProbe(t, name, 0f);
+            return t;
+        }
+
+        private static (Transform room, WeighScale scale)
+            BuildWeighRoom(Transform parent, Material floorMat, Material grooveMat, Material panelMat,
+                           Material propMat, Material fixtureMat)
+        {
+            GameObject rootGO = new GameObject("Room2_7_Root");
+            rootGO.transform.SetParent(parent, false);
+            rootGO.transform.localPosition = new Vector3(SlideRoomCentreX, SlideRoomFloorY,
+                                                          SlideRoomCentreZ - RoomPitch);
+
+            GameObject roomGO = new GameObject("Room2_7");
+            roomGO.transform.SetParent(rootGO.transform, false);
+            Transform t = roomGO.transform;
+
+            BuildSlab(t, "Floor", -WallThickness / 2f, 0f, floorMat, default);
+            BuildSlab(t, "Ceiling", RoomHeight + WallThickness / 2f, 0f, floorMat, default);
+
+            BuildPanelWall(t, "Wall_North", new Vector3(0f, 0f, RoomDepth / 2f),
+                Vector3.right, Vector3.back, RoomWidth, grooveMat, panelMat,
+                new Rect(-DoorWidth / 2f, 0f, DoorWidth, DoorHeight));
+            // THE SOUTH WALL IS CUT FOR THE WAY ON, and it was NOT - which is why room2-7 appeared to
+            // have neither a door nor a sign. `BuildPadDoor` places a door slab and `MakeWallFace`
+            // hangs the target number over it, and both were doing exactly that INSIDE a solid wall:
+            // the door had no opening to slide across and the number was behind the panelling.
+            //
+            // The lesson generalises past this room: a door and its opening are two separate calls in
+            // two different places, and nothing in the build checks that a door has a hole. If a door
+            // is invisible, look for the Rect before looking at the door.
+            BuildPanelWall(t, "Wall_South", new Vector3(0f, 0f, -RoomDepth / 2f),
+                Vector3.right, Vector3.forward, RoomWidth, grooveMat, panelMat,
+                new Rect(-DoorWidth / 2f, 0f, DoorWidth, DoorHeight));
+            BuildPanelWall(t, "Wall_West", new Vector3(-RoomWidth / 2f, 0f, 0f),
+                Vector3.forward, Vector3.right, RoomDepth, grooveMat, panelMat, Rect.zero);
+            BuildPanelWall(t, "Wall_East", new Vector3(RoomWidth / 2f, 0f, 0f),
+                Vector3.forward, Vector3.left, RoomDepth, grooveMat, panelMat, Rect.zero);
+
+            BuildCeilingLights(t, "Room2_7", 0f, fixtureMat, castShadows: false);
+            BuildReflectionProbe(t, "Room2_7", 0f);
+
+            WeighScale scale = BuildWeighScale(t, propMat);
+            BuildWeighPictogram(t, scale);
+            return (t, scale);
+        }
+
+        // A FLAT PANEL WHERE THE MODEL HAD ITS OWN NUMBER.
+        //
+        // **THE SCALE'S DIGITS ARE GEOMETRY, NOT A TEXTURE**, and that took looking at the file to
+        // find: `weigh_scale.glb` has no textures at all - four flat-colour materials - and its green
+        // display is a single connected surface of 45 vertices and 54 triangles, 0.1 deep, with a
+        // fixed number embossed into it. A first pass rebuilt that mesh's UVs and drew the live
+        // reading onto it, which mapped a picture of digits across a surface that IS digits: play
+        // reported it as the panel overlapping the number behind it, and that is exactly what it was.
+        //
+        // So the submesh is REPLACED rather than re-mapped. The model's fixed number goes with it -
+        // asked for, and unavoidable anyway, since it is the same triangles - and what stands in its
+        // place is a quad across the same footprint, at the same outer face, with clean 0..1 UVs. The
+        // display is still the model's own display part, in the model's own place; it is simply a
+        // surface something can be drawn on now.
+        //
+        // DOUBLE-SIDED, as eight vertices rather than four. Which way the panel's outer face points
+        // is decided by the model's import rotation, and a single-sided quad that guessed wrong would
+        // be invisible from above with nothing to say why.
+        //
+        // Saved as an asset, like every other generated mesh here: a `Mesh` built at edit time and
+        // assigned straight to a scene object does not survive the scene being reloaded.
+        private static Mesh FlatPanelMesh(Mesh source, string assetName)
+        {
+            if (source == null) return null;
+
+            Bounds b = source.bounds;
+            return SaveGeneratedMesh(assetName + "_panel", () =>
+            {
+                // The two widest axes are the face; the third is its thickness.
+                int thin = b.size.x <= b.size.y && b.size.x <= b.size.z ? 0
+                         : b.size.y <= b.size.z ? 1 : 2;
+                int across = thin == 0 ? 2 : 0;
+                int up = thin == 1 ? 2 : 1;
+
+                // At the OUTER face rather than the middle: the digits were embossed toward the top of
+                // the scale, so that is the side anything replacing them has to be on.
+                float at = b.max[thin];
+
+                Vector3 Corner(float u, float v)
+                {
+                    Vector3 c = Vector3.zero;
+                    c[across] = Mathf.Lerp(b.min[across], b.max[across], u);
+                    c[up] = Mathf.Lerp(b.min[up], b.max[up], v);
+                    c[thin] = at;
+                    return c;
+                }
+
+                Vector3 normal = Vector3.zero;
+                normal[thin] = 1f;
+
+                var verts = new Vector3[8];
+                var norms = new Vector3[8];
+                var uvs = new Vector2[8];
+                var tris = new int[12];
+
+                for (int side = 0; side < 2; side++)
+                {
+                    int o = side * 4;
+                    verts[o + 0] = Corner(0f, 0f);
+                    verts[o + 1] = Corner(1f, 0f);
+                    verts[o + 2] = Corner(1f, 1f);
+                    verts[o + 3] = Corner(0f, 1f);
+
+                    for (int i = 0; i < 4; i++) norms[o + i] = side == 0 ? normal : -normal;
+
+                    // **THE BACK FACE IS MIRRORED, AND IT IS THE ONE BEING LOOKED AT.**
+                    //
+                    // Two sides of a quad see the same texture from opposite directions, so whichever
+                    // one the player is on, one of them reads back to front. Play saw exactly that -
+                    // the number as if in a mirror - which also settles which face is up: the panel's
+                    // outward normal points AWAY from the player, so it is the back set they see.
+                    //
+                    // Giving the two sides opposite U fixes it for both at once, which is better than
+                    // flipping the whole thing and hoping: read from above or from underneath, the
+                    // number runs the right way.
+                    bool mirrored = side == 1;
+                    float u0 = mirrored ? 1f : 0f, u1 = mirrored ? 0f : 1f;
+                    uvs[o + 0] = new Vector2(u0, 0f);
+                    uvs[o + 1] = new Vector2(u1, 0f);
+                    uvs[o + 2] = new Vector2(u1, 1f);
+                    uvs[o + 3] = new Vector2(u0, 1f);
+                }
+
+                // Front wound one way, back the other, so both faces are lit and drawn correctly.
+                int[] front = { 0, 2, 1, 0, 3, 2 };
+                int[] back = { 4, 5, 6, 4, 6, 7 };
+                System.Array.Copy(front, 0, tris, 0, 6);
+                System.Array.Copy(back, 0, tris, 6, 6);
+
+                var mesh = new Mesh { name = assetName + "_panel" };
+                mesh.vertices = verts;
+                mesh.normals = norms;
+                mesh.uv = uvs;
+                mesh.triangles = tris;
+                mesh.RecalculateBounds();
+                return mesh;
+            });
+        }
+
+        // AN UNLIT SURFACE. Used for the scale's display, which carries its own brightness in its
+        // texture and must not be shaded by the room - a lit panel goes grey in a shadow, and an LCD
+        // that dims when you lean over it is a painted one.
+        private static Material MakeUnlitMaterial(string name, Color colour)
+        {
+            string path = $"{MaterialsDir}/{name}.mat";
+            Shader unlit = Shader.Find("Universal Render Pipeline/Unlit");
+            if (unlit == null) unlit = OpaqueShader();
+
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(unlit);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = unlit;
+            mat.color = colour;
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        // ROOM2-7'S SIGNS: what can be weighed, and what the total has to come to.
+        //
+        // THE ROOM CANNOT BE SOLVED WITHOUT THEM, and that is why they exist rather than as decoration.
+        // The design is that a player is told no WEIGHTS - they learn those on the scale - but a player
+        // told nothing at all has no reason to think this room wants a sum at all, let alone which
+        // objects are eligible or what number to hit. So the signs say exactly the two things that are
+        // not discoverable by experiment and nothing else:
+        //
+        //   - the SIDE WALLS carry the shape of the answer: `A + B + C = ?`, drawn from the objects
+        //     themselves, so "bring things here and add them up" is stated without a word;
+        //   - the WALL OVER THE DOOR carries the target, `= 23.0`, over the thing it opens.
+        //
+        // The question mark is the point of the side walls. It says the total is the unknown, which
+        // makes the scale's readout the place to look - and it leaves every weight, and which three
+        // objects to use, entirely to the player.
+        //
+        // DRAWN, NOT WRITTEN. Everything but the number is an icon, for the reason the balloon
+        // pictogram gives: this facility does not explain itself in sentences, and a caption in among
+        // the objects reads as a different kind of thing on the wall.
+        private static void BuildWeighPictogram(Transform room, WeighScale scale)
+        {
+            GameObject root = new GameObject("WeighPictogram");
+            root.transform.SetParent(room, false);
+
+            const float standoff = 0.05f;
+            float halfWidth = RoomWidth / 2f;
+            float halfDepth = RoomDepth / 2f;
+
+            // --- the equation, on both side walls ---------------------------------------------------
+            // WHAT CAN BE WEIGHED, AND THAT THE ANSWER IS A SUM. Restored 2026-08-19 after a pass that
+            // cut it back to the number alone: without it the room says what total it wants and
+            // nothing about what to bring, and the objects it names are scattered across four rooms
+            // the player has already walked through.
+            //
+            // FIVE OBJECTS, not the three that make the cheapest solution. That is the difference
+            // between a sign and an answer: this one lists what the scale ACCEPTS - cube, full bucket,
+            // axe, beach ball, rubber duck - and the question mark says the total is the unknown. Which
+            // of them add up to the number over the door is left entirely to the player.
+            //
+            // BOTH SIDE WALLS, because the player is turning on the spot at a scale in the middle of
+            // the room: whichever way they face, one of the two is in front of them.
+            const float sideWidth = GridCellWidth * 5f;
+            const float sideAuthoredHeight = 618f;
+            // Above head height, and above the scale - which is 5.7m across and sits between the
+            // player and both of these.
+            const float sideY = 3.4f;
+
+            System.Action<Transform> equation = f => FillWeighEquation(f);
+
+            CanvasGroup west = MakeWallFace(root.transform, "West",
+                new Vector3(-halfWidth + standoff, sideY, 0f), Quaternion.Euler(0f, -90f, 0f),
+                equation, sideWidth, withPlate: false, authoredHeight: sideAuthoredHeight);
+            CanvasGroup east = MakeWallFace(root.transform, "East",
+                new Vector3(halfWidth - standoff, sideY, 0f), Quaternion.Euler(0f, 90f, 0f),
+                equation, sideWidth, withPlate: false, authoredHeight: sideAuthoredHeight);
+
+            // OVER THE DOOR ONTO ROOM2-8, in the SOUTH wall - which is the door this scale opens, so
+            // the number is written on the thing it is the price of. Facing back into the room, which
+            // is where somebody who has just weighed something is standing: a canvas's forward must
+            // match the direction the VIEWER is looking, not point at them (see MakeWallFace).
+            //
+            // THE EQUATION IS GONE, 2026-08-19 by request. It drew `full bucket + cube + axe = ?` on
+            // the side walls, which named the three objects that work - the number alone leaves that
+            // to the player, and it is the only part of this that experiment cannot supply.
+            //
+            // NO PLATE. `withPlate` draws the near-black backing every other sign in this building
+            // sits on, and it is what makes those read as DISPLAYS. This one is meant to read as
+            // painted on the wall - a number stencilled over a doorway - so the plate is off and the
+            // wall shows through behind the figures.
+            float overDoorY = DoorHeight + 0.95f;
+            CanvasGroup target = MakeWallFace(root.transform, "Target",
+                new Vector3(0f, overDoorY, -halfDepth + standoff), Quaternion.Euler(0f, 180f, 0f),
+                f => FillWeighTarget(f, scale != null ? scale.targetKilograms : WeighTarget),
+                worldWidth: 3.6f, withPlate: false, authoredHeight: 440f);
+
+            // FULLY VISIBLE, AND PERMANENT. `MakeWallFace` authors every sign at alpha 0 because the
+            // ones it was built for are faded in and retired by `PanelMessage` - room2's pictogram
+            // goes when the player pops a balloon. These never go: what they say is true for as long
+            // as the room is unsolved, and a player who has forgotten it has to be able to look up
+            // again.
+            foreach (CanvasGroup group in new[] { west, east, target })
+                if (group != null) group.alpha = 1f;
+        }
+
+        // `CUBE + BUCKET + AXE + BEACH BALL + DUCK = ?`, in objects.
+        //
+        // EVERYTHING THE SCALE ACCEPTS, not a solution. Five objects and four plus signs, and the
+        // question mark at the end says the total is the unknown - so the sign names the INGREDIENTS
+        // and the number over the door names the answer, and what adds up to it is the player's to
+        // work out. That is the whole puzzle: they are told no weights.
+        //
+        // The bucket drawn is the FULL one, waterline and all, because an empty pail and a full one
+        // are the same carryable at 1.8kg and 12.0kg and that difference is the largest single fact in
+        // this room. Drawing the empty one would be a quieter lie than drawing a wrong object.
+        private static void FillWeighEquation(Transform face)
+        {
+            Sprite[] objects = { CubeIcon(), FullBucketIcon(), AxeIcon(), BeachBallIcon(), DuckIcon() };
+            string[] names = { "Cube", "Bucket", "Axe", "BeachBall", "Duck" };
+
+            // Five objects, four pluses, an equals and a question mark - eleven slots across a sign
+            // authored 1600 wide. The icon size is DERIVED from that rather than written down, so the
+            // row fills the sign however many objects it ends up naming.
+            const float authoredWidth = 1600f;
+            const float opRatio = 90f / 190f;                     // the balloon pictogram's proportion
+            int ops = objects.Length;                             // four pluses plus the equals
+            float icon = authoredWidth / (objects.Length + 1f + ops * opRatio);
+            float op = icon * opRatio;
+
+            float x = -authoredWidth / 2f;
+
+            Color ink = new Color(0.20f, 0.20f, 0.23f, 0.72f);
+            // The operators are RED while the things they join stay charcoal, exactly as room2's
+            // pictogram does it: the eye gets the shape of the sum before it has identified any of the
+            // objects in it.
+            Color punctuation = new Color(0.82f, 0.12f, 0.12f, 0.85f);
+
+            for (int i = 0; i < objects.Length; i++)
+            {
+                MakeWallIcon(face, names[i], objects[i], new Vector2(x + icon / 2f, 0f), icon, ink);
+                x += icon;
+
+                Sprite between = i < objects.Length - 1 ? PlusIcon() : EqualsIcon();
+                string label = i < objects.Length - 1 ? $"Plus{i}" : "Equals";
+                MakeWallIcon(face, label, between, new Vector2(x + op / 2f, 0f), op, punctuation);
+                x += op;
+            }
+
+            // The unknown, in the same red as the operators - it is punctuation about the sum rather
+            // than another object in it.
+            MakeWallIcon(face, "Question", QuestionIcon(), new Vector2(x + icon / 2f, 0f), icon, punctuation);
+        }
+
+        // The target, over the door it opens. Written to ONE DECIMAL like the scale's own readout,
+        // so the two are visibly the same kind of value and a player can compare them without
+        // wondering whether "23" and "23.0" mean the same thing.
+        //
+        // DARK ON A WHITE WALL, because there is no plate behind it any more: the pale grey it used to
+        // be was legible against near-black and would be invisible against the panelling. Same
+        // charcoal every other mark in this facility is printed in.
+        private static void FillWeighTarget(Transform face, float kilograms)
+        {
+            MakeWallLine(face, "Target", $"{kilograms:0.0} KG", 260,
+                         new Color(0.17f, 0.17f, 0.20f, 0.88f), Vector2.zero,
+                         new Vector2(1400f, 320f));
+        }
+
+        // How wide the scale is. A bathroom scale is 0.3m across and would be a coaster in this
+        // building; this is a PLATFORM scale, big enough to stand on with an axe beside your feet,
+        // which is what the room asks of it.
+        //
+        // TRIPLED, 2026-08-19 by request: 5.7m across in a room 8.75m wide, so it is most of the
+        // floor and the room reads as being BUILT around the weighing rather than as a room with a
+        // scale in it. Two consequences worth knowing, both accepted:
+        //   - the PAN is derived from this (0.95 of it), so the volume that counts as "on the scale"
+        //     is now 5.4m across. Anything put down near the middle of the room is being weighed,
+        //     which is generous - but the room contains nothing else, so there is nothing to put down
+        //     near the middle by accident;
+        //   - the readout is sized off the model's own display panel, so it grows with it and the
+        //     digits stay legible from the doorway.
+        private const float WeighScaleWidth = 5.7f;
+
+        // THE SCALE, and its readout.
+        //
+        // THE MODEL IS A BATHROOM SCALE and it is scaled up by roughly six. That is not a fudge: every
+        // dimension in this building is oversized (a 220mm ball-pit ball, a 10.5m room, a 13m tree),
+        // and a scale you can put a full bucket AND an axe AND a cube on has to be a pallet, not a
+        // tile.
+        //
+        // THE READOUT IS OURS, NOT THE MODEL'S. The model has a green display panel painted on it,
+        // which cannot show a number; the digits are a world-space canvas laid flat just above that
+        // panel, found by its material name and fallen back to the model's own top face. UI text is
+        // unlit, which is what makes it read as a lit LCD rather than as paint.
+        private static WeighScale BuildWeighScale(Transform room, Material propMat)
+        {
+            GameObject root = new GameObject("WeighScale2_7");
+            root.transform.SetParent(room, false);
+
+            float top = 0.18f;
+            Bounds raw = new Bounds();
+            Transform display = null;
+
+            string path = PlayDir + "/weigh_scale.glb";
+            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (source != null)
+            {
+                ShrinkModelTextures(path, 1024);
+
+                GameObject model = (GameObject)PrefabUtility.InstantiatePrefab(source, root.transform);
+                model.name = "Scale";
+                model.transform.localPosition = Vector3.zero;
+
+                raw = ModelBounds(root.transform, model);
+                float across = Mathf.Max(0.001f, Mathf.Max(raw.size.x, raw.size.z));
+                float scale = WeighScaleWidth / across;
+                model.transform.localScale = Vector3.one * scale;
+
+                raw = ModelBounds(root.transform, model);
+                model.transform.localPosition = new Vector3(-raw.center.x, -raw.min.y, -raw.center.z);
+                raw = ModelBounds(root.transform, model);
+                top = raw.max.y;
+
+                // SOLID, so things put on it stay on it. A mesh collider on the parts as they are -
+                // convex would swallow the dish the platform makes and objects would slide off a dome.
+                foreach (MeshFilter mf in model.GetComponentsInChildren<MeshFilter>(true))
+                {
+                    if (mf.sharedMesh == null) continue;
+                    MeshCollider mc = mf.gameObject.AddComponent<MeshCollider>();
+                    mc.sharedMesh = mf.sharedMesh;
+                }
+
+                // The display is the part wearing the model's own `Green` material. Found by name
+                // because that is what the export calls it, and harmless if it ever stops being true:
+                // the readout falls back to the middle of the platform's top face.
+                foreach (Renderer r in model.GetComponentsInChildren<Renderer>())
+                {
+                    if (r.sharedMaterial == null || !r.sharedMaterial.name.Contains("Green")) continue;
+                    display = r.transform;
+                    break;
+                }
+            }
+            else
+            {
+                Debug.LogWarning($"[SceneBuilder] {path} is missing - room2-7 gets a scale with no scale.");
+                Prim(PrimitiveType.Cube, "Platform", root.transform, new Vector3(0f, 0.09f, 0f),
+                     new Vector3(WeighScaleWidth, 0.18f, WeighScaleWidth * 0.9f), propMat);
+            }
+
+            // --- the digits ---------------------------------------------------------------------
+            // ON THE MODEL'S OWN DISPLAY PANEL, and nothing is added to the scene to do it. Two
+            // earlier versions put something over the panel instead - a world-space `Canvas`, then a
+            // grid of quads - and both are the same mistake: a thing stuck on the prop rather than the
+            // prop showing something.
+            //
+            // THE MODEL'S OWN NUMBER HAS TO GO FIRST, and it is not a texture - it is GEOMETRY.
+            // `weigh_scale.glb` ships no textures at all and its green display is one connected
+            // surface with a fixed number embossed into it, so drawing the live reading onto that
+            // surface put a picture of digits across a thing that already was digits. The submesh is
+            // replaced with a clean quad over the same footprint - see FlatPanelMesh.
+            Bounds panel = display != null
+                ? ModelBounds(root.transform, display.gameObject)
+                : new Bounds(new Vector3(0f, top, -WeighScaleWidth * 0.28f),
+                             new Vector3(WeighScaleWidth * 0.42f, 0.01f, WeighScaleWidth * 0.20f));
+
+            PanelDigits digits = null;
+            if (display != null)
+            {
+                MeshFilter panelFilter = display.GetComponent<MeshFilter>();
+                if (panelFilter != null && panelFilter.sharedMesh != null)
+                    panelFilter.sharedMesh = FlatPanelMesh(panelFilter.sharedMesh, "ScalePanel");
+
+                // UNLIT, because an LCD is not lit by the room - and the texture carries its own dark
+                // background and bright bars, so there is nothing for the room's light to add.
+                Renderer panelRenderer = display.GetComponent<Renderer>();
+                if (panelRenderer != null)
+                    panelRenderer.sharedMaterial = MakeUnlitMaterial("ScalePanel", Color.white);
+
+                digits = display.gameObject.AddComponent<PanelDigits>();
+                digits.panel = panelRenderer;
+                digits.digitCount = 4;
+                digits.decimalsAfter = 1;
+            }
+            else
+            {
+                Debug.LogWarning("[SceneBuilder] the scale has no display panel - its readout is gone.");
+            }
+
+            WeighScale weigh = root.AddComponent<WeighScale>();
+            weigh.display = digits;
+            weigh.targetKilograms = WeighTarget;
+            weigh.playerKilograms = WeightPlayer;
+            // THE PAN, and it is generous on purpose. It has to hold a person standing up, so it is
+            // taller than a person; anything within the platform's footprint and under two metres of
+            // it counts as being on the scale.
+            weigh.panCentre = new Vector3(0f, top + 1.0f, 0f);
+            weigh.panSize = new Vector3(WeighScaleWidth * 0.95f, 2.0f, WeighScaleWidth * 0.9f);
+            weigh.audioSource = MakeSource(root.transform, "ScaleAudio", spatialBlend: 1f, volume: 0.9f);
+            weigh.acceptClip = MakeValveStopClip("sfx_valve_stop");
+
+            Debug.Log($"[SceneBuilder] Room2_7 scale: {WeighScaleWidth:0.00}m platform, "
+                    + $"target {WeighTarget:0.0}kg, top at {top:0.00}m, display panel "
+                    + $"{panel.size.x:0.00}x{panel.size.z:0.00}"
+                    + (digits != null ? " (panel replaced)" : " - MISSING"));
+            return weigh;
+        }
+
+        // THE POOL AT THE BOTTOM OF THE SLIDE, and the plastic balls floating on it.
+        //
+        // WHAT IT IS FOR. The chute comes through this room's CEILING, so whoever rides it arrives
+        // falling - and a fall that ends on a hard floor is a landing, while one that ends in water is
+        // a plunge. That is the whole ask: the ride has somewhere to go that answers it.
+        //
+        // NOT SOLID, NOT FATAL, NOT RECORDED. There is no collider on any of it (see WaterPool for why
+        // one would break the slide's own measured path), no `KillVolume` under it, no signal bit and
+        // nothing for `Cycle.ResetRooms` to put back. The player wades out; a past self wades out the
+        // same way, because walking is already recorded and this changes nothing about walking.
+        //
+        // THREE OBJECTS, THREE JOBS: the surface is a mesh with the water shader on it, `WaterPool`
+        // owns where the waterline is and the splash when somebody is in it, and `FloatingBalls` owns
+        // the drift. None of the three knows what the other two are doing.
+        private static WaterPool BuildWaterPool(Transform room)
+        {
+            GameObject root = new GameObject("Room2_SlideRoom_Pool");
+            root.transform.SetParent(room, false);
+
+            WaterPool pool = root.AddComponent<WaterPool>();
+            pool.surfaceLocalY = PoolDepth;
+            pool.halfExtents = new Vector2(RoomWidth / 2f, RoomDepth / 2f);
+            // Everything from the floor to the surface is "in the water". Half a metre of slack under
+            // the floor, so a frame in which the controller is a hair through it still counts.
+            pool.floorDrop = PoolDepth + 0.5f;
+
+            // --- the surface ----------------------------------------------------------------------
+            // PUSHED INTO THE WALLS by a few centimetres. A sheet cut exactly to the room leaves a
+            // hairline of floor showing at every wall as soon as the vertex wobble pulls an edge
+            // vertex inward, and a gap at the waterline is the one place the eye is guaranteed to look.
+            const float wallOverlap = 0.06f;
+
+            GameObject surface = new GameObject("Surface");
+            surface.transform.SetParent(root.transform, false);
+            surface.transform.localPosition = new Vector3(0f, PoolDepth, 0f);
+            // THE SIZE IS IN THE ASSET NAME. `SaveGeneratedMesh` serves from cache, so a shape
+            // parameter changed without the name changing gets the OLD mesh back and the change
+            // silently does nothing - the same trap `WaterSpill_..._d45` names itself against.
+            surface.AddComponent<MeshFilter>().sharedMesh = SaveGeneratedMesh(
+                "WaterSheet_SlideRoom_c25",
+                () => WaterMeshes.Sheet(RoomWidth + wallOverlap * 2f,
+                                        RoomDepth + wallOverlap * 2f, PoolSurfaceCell));
+
+            MeshRenderer surfaceRend = surface.AddComponent<MeshRenderer>();
+            surfaceRend.sharedMaterial = MakePoolWaterMaterial();
+            surfaceRend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            surfaceRend.receiveShadows = false;
+
+            // --- the splash -----------------------------------------------------------------------
+            // The tap's spray with the tap taken off it: no rate, no bursts, nothing playing on its
+            // own. `WaterPool` moves it to the waterline and calls `Emit`, so one system serves the
+            // arrival and every wading step after it.
+            GameObject splashGO = new GameObject("Splash");
+            splashGO.transform.SetParent(root.transform, false);
+            splashGO.transform.localPosition = new Vector3(0f, PoolDepth, 0f);
+
+            ParticleSystem splash = splashGO.AddComponent<ParticleSystem>();
+            ParticleSystem.MainModule splashMain = splash.main;
+            // PLAYING FOREVER AND EMITTING NOTHING, which is not the contradiction it reads as: a
+            // STOPPED system does not simulate, so particles pushed into one by `Emit` are created and
+            // then never move. Looping with the emission module switched off is how a system is kept
+            // running for a caller that supplies every particle itself.
+            splashMain.loop = true;
+            splashMain.playOnAwake = true;
+            splashMain.startLifetime = new ParticleSystem.MinMaxCurve(0.35f, 1.05f);
+            splashMain.startSpeed = new ParticleSystem.MinMaxCurve(1.6f, 4.6f);
+            splashMain.startSize = new ParticleSystem.MinMaxCurve(0.02f, 0.09f);
+            splashMain.gravityModifier = 1f;
+            splashMain.startColor = new ParticleSystem.MinMaxGradient(new Color(0.90f, 0.95f, 1f, 0.92f));
+            // World space, or the droplets ride the emitter as it is moved to the next splash.
+            splashMain.simulationSpace = ParticleSystemSimulationSpace.World;
+            splashMain.maxParticles = 400;
+
+            ParticleSystem.EmissionModule splashEmit = splash.emission;
+            // NOTHING ON ITS OWN. Every particle this ever makes comes from an `Emit` call.
+            splashEmit.enabled = false;
+
+            // A flat skirt: water thrown up by something dropping into it goes out and over, not up in
+            // a column - a narrow cone reads as a fountain.
+            ParticleSystem.ShapeModule splashShape = splash.shape;
+            splashShape.shapeType = ParticleSystemShapeType.Cone;
+            splashShape.angle = 72f;
+            splashShape.radius = 0.22f;
+            splashShape.rotation = new Vector3(-90f, 0f, 0f);
+
+            ParticleSystem.SizeOverLifetimeModule splashSize = splash.sizeOverLifetime;
+            splashSize.enabled = true;
+            splashSize.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 1f, 1f, 0.1f));
+
+            ParticleSystemRenderer splashRend = splashGO.GetComponent<ParticleSystemRenderer>();
+            splashRend.sharedMaterial = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/WaterStream.mat");
+            splashRend.renderMode = ParticleSystemRenderMode.Billboard;
+            splashRend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            splashRend.receiveShadows = false;
+
+            pool.splash = splash;
+            pool.audioSource = MakeSource(root.transform, "SplashAudio", spatialBlend: 1f, volume: 0.9f);
+            // ARRIVING IS A BODY GOING THROUGH THE SURFACE, not water hitting a floor. The three
+            // `sfx_water_splash_*` clips were here and played as an effect laid over the room - they
+            // are the tap's, and a tap's water lands on tiles from above. This is the wade sound at
+            // twice the length, slower to die and with more of it low: the same event, person-sized.
+            pool.splashClips = new[]
+            {
+                MakeWadeClip("sfx_water_plunge", 20260822, seconds: 1.15f, decay: 2.9f,
+                             fizzLevel: 0.5f, lowWeight: 3.4f),
+            };
+
+            // --- the rings ----------------------------------------------------------------------
+            pool.ripples = BuildWaterRipples(root.transform);
+
+            pool.surface = surface.transform;
+
+            // --- what floats on it -------------------------------------------------------------------
+            // Three kinds, smallest first, and the count of the small one is what leaves room for the
+            // other two to be seen at all (2026-08-19, by request: fewer balls, and beach balls in
+            // among them).
+            FloatingBalls balls = BuildFloatingBalls(root.transform);
+
+            // THE DUCKS. Rocking and turning, which a plastic sphere cannot show and a duck must - see
+            // FloatingBalls' turn fields. Slow: this is still water in a sealed room.
+            FloatingBalls ducks = BuildFloatingProps(root.transform, "Ducks", "rubber_duck.glb",
+                PoolDuckLength, sinkFraction: 0.34f,
+                spots: new[] { new Vector2(-2.35f, 2.60f), new Vector2(1.70f, -0.40f),
+                               new Vector2(-0.90f, -3.40f) },
+                yaws: new[] { 34f, 205f, 128f },
+                itemId: DuckItemId, displayName: "RUBBER DUCK", kilograms: WeightDuck,
+                icon: DuckIcon());
+            if (ducks != null)
+            {
+                ducks.bobHeight = 0.030f;
+                ducks.bobPeriod = 4.2f;
+                // An ACCELERATION now, not a radius: against the mooring it settles into a wander of
+                // about a third of a metre, and the turning that used to be written here is the
+                // rigidbody's own - a duck shouldered by a beach ball turns because it was shouldered.
+                // LESS THAN IT WAS. A duck that wanders is charming and is also a thing the player
+                // has to chase in water that halves their speed; the drift is now small enough to
+                // read as the water moving under it rather than as the duck going somewhere.
+                ducks.drift = 0.045f;
+                ducks.driftPeriod = 21f;
+            }
+
+            // THE BEACH BALLS. Bigger and lighter than anything else on the water, so they sit HIGH -
+            // a beach ball is a bag of air and barely breaks the surface - and they wander furthest,
+            // because the bigger the sail the more the room's nothing-at-all moves it.
+            FloatingBalls beach = BuildFloatingProps(root.transform, "BeachBalls", "beach_ball.glb",
+                PoolBeachBallSize, sinkFraction: 0.16f,
+                spots: new[] { new Vector2(2.60f, 3.30f), new Vector2(-2.90f, -1.60f) },
+                yaws: new[] { 62f, 241f },
+                itemId: BeachBallItemId, displayName: "BEACH BALL", kilograms: WeightBeachBall,
+                icon: BeachBallIcon());
+            if (beach != null)
+            {
+                beach.bobHeight = 0.045f;
+                beach.bobPeriod = 5.1f;
+                // Furthest, because the bigger the sail the more the room's nothing-at-all moves it.
+                // An ACCELERATION now, not a radius - against the mooring it settles into a wander of
+                // about half a metre, and the rolling that used to be written here is the rigidbody's
+                // own: a beach ball turns because something turned it.
+                beach.drift = 0.07f;
+                beach.driftPeriod = 26f;
+            }
+
+            // EVERY GROUP, NAMED HERE. The pool moves them all when it drains, and gathering them by
+            // type at runtime is the thing CLAUDE.md §2 says a cycle must not do - a `FloatingBalls`
+            // in some later room would be dragged down with this room's water.
+            pool.floats = new[] { balls, ducks, beach };
+            return pool;
+        }
+
+        // How long a duck is, nose to tail. A real bath duck is about 80mm; this building is oversized
+        // throughout (a 220mm ball-pit ball, a 10.5m room) and at bath size these would be specks on a
+        // ninety-square-metre pool. 0.42m puts one at about two plastic balls long, which is what reads.
+        private const float PoolDuckLength = 0.42f;
+        // And a beach ball, which is the biggest thing on the water: three plastic balls across.
+        private const float PoolBeachBallSize = 0.66f;
+
+        // ONE KIND OF THING FLOATING ON THE POOL: an imported model, placed at named spots, riding the
+        // same `FloatingBalls` component the plastic balls do. The ducks and the beach balls differ by
+        // their file, their size, how deep they sit and how they move - so those are the arguments, and
+        // the motion is set by the caller on the component this returns.
+        //
+        // A WRAPPER PER OBJECT, with the model inside it untouched. `FloatingBalls` writes the
+        // wrapper's local position and rotation; the model keeps the pose its import gave it, which is
+        // the rule every glTF in this project is placed by (see BuildSlide for what overwriting one
+        // costs).
+        private static FloatingBalls BuildFloatingProps(Transform poolRoot, string name, string file,
+                                                        float size, float sinkFraction,
+                                                        Vector2[] spots, float[] yaws,
+                                                        string itemId, string displayName,
+                                                        float kilograms, Sprite icon)
+        {
+            string path = PlayDir + "/" + file;
+            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (source == null)
+            {
+                Debug.LogWarning($"[SceneBuilder] {path} is missing - the pool keeps everything else "
+                               + $"and loses its {name}.");
+                return null;
+            }
+
+            ShrinkModelTextures(path, 1024);
+
+            GameObject root = new GameObject(name);
+            root.transform.SetParent(poolRoot, false);
+
+            // THE SPOTS ARE WRITTEN DOWN rather than scattered randomly. Two or three objects are too
+            // few for a random scatter to look scattered - a pair lands beside each other often enough
+            // to matter, and the pool is nine metres across.
+            Random.State entry = Random.state;
+            Random.InitState(20260819 + name.GetHashCode());
+
+            int floatLayer = EnsureLayer(BalloonLayerName);
+            int count = Mathf.Min(spots.Length, yaws.Length);
+            var bodies = new Rigidbody[count];
+            var homes = new Vector3[count];
+            var carriedItems = new CarryableItem[count];
+
+            for (int i = 0; i < count; i++)
+            {
+                GameObject holder = new GameObject($"{name}_{i}");
+                holder.transform.SetParent(root.transform, false);
+                holder.layer = floatLayer;
+
+                GameObject model = (GameObject)PrefabUtility.InstantiatePrefab(source, holder.transform);
+                model.name = "Model";
+                model.transform.localPosition = Vector3.zero;
+
+                Bounds raw = ModelBounds(holder.transform, model);
+                float footprint = Mathf.Max(0.001f, Mathf.Max(raw.size.x, raw.size.z));
+                float scale = size / footprint * Random.Range(0.92f, 1.08f);
+                model.transform.localScale = Vector3.one * scale;
+
+                // FLOATING, NOT SITTING ON THE SURFACE. Whatever it is displaces some of itself, so
+                // the waterline crosses the body - anything resting with its lowest point exactly on
+                // the surface reads as an object on a glass table. How much is the caller's, because
+                // a duck sits deep and a bag of air does not.
+                float sink = raw.size.y * scale * sinkFraction;
+                model.transform.localPosition = new Vector3(-raw.center.x * scale,
+                                                            -raw.min.y * scale - sink,
+                                                            -raw.center.z * scale);
+
+                homes[i] = new Vector3(spots[i].x, PoolDepth, spots[i].y);
+                holder.transform.localPosition = homes[i];
+                holder.transform.localRotation = Quaternion.Euler(0f, yaws[i], 0f);
+
+                // The collider is a sphere the size of the FOOTPRINT, not of the model. A duck is
+                // mostly a body with a head on it, and a collider drawn round the head as well is a
+                // duck that fends other things off with a bubble it does not appear to have.
+                float radius = footprint * scale * 0.45f;
+                (Rigidbody body, SphereCollider solid) = MakeFloatBody(holder, radius, PoolPropMass,
+                                                                        upright: true);
+                bodies[i] = body;
+
+                // AND IT CAN BE PICKED UP AND CARRIED OUT. The ducks and the beach balls are the only
+                // things in this game that are both physics props and carryables, and the handover is
+                // in `FloatingBalls`: while a hand has it, or once it is further from home than the
+                // pool is wide, its body goes kinematic and the ordinary carryable machinery owns it -
+                // including `FallingItem`, so its drop is SCRIPTED and lands in the same place every
+                // iteration, which is what room2-7's scale needs of it (CLAUDE.md §4).
+                //
+                // The reach trigger goes on the HOLDER, which is what `CarryableItem` has to live on -
+                // it is the transform that gets parented into a hand, and the physics sphere is a
+                // child so the two colliders cannot be confused for each other (see MakeFloatBody).
+                //
+                // MUCH BIGGER THAN A SHELF ITEM'S, and it has to be. Everything else in this game is
+                // picked up off a floor by a player walking at 2.5m/s; these are picked up out of
+                // waist-deep water, which halves the walk, while the object itself DRIFTS. At the
+                // 0.55m clearance the rest of the game uses, closing the last metre on a duck that is
+                // wandering took several attempts - play reported it twice as "잘 안 잡혀". 1.25m is
+                // about an arm and a step, and nothing else is close enough to lose the press to.
+                SphereCollider reach = holder.AddComponent<SphereCollider>();
+                reach.isTrigger = true;
+                reach.radius = radius + 1.25f;
+
+                // WHERE THE PROMPT HANGS, AND WHAT THE AIM IS MEASURED AGAINST - above the waterline
+                // rather than at the object's centre, which sits ON it. `CarryableItem.HintAnchor` is
+                // its own transform by default, and for a duck that point is half under the surface:
+                // the disc was drawn inside the water and the aim test was asking about a point the
+                // player cannot really see. Everything else in the game rests on a floor, where the
+                // two are the same place.
+                GameObject aim = new GameObject("Aim");
+                aim.transform.SetParent(holder.transform, false);
+                aim.transform.localPosition = new Vector3(0f, radius + 0.10f, 0f);
+
+                CarryableItem item = holder.AddComponent<CarryableItem>();
+                item.hintAnchor = aim.transform;
+                // The physics sphere is also what makes it SOLID, so it is the blocker: switched off
+                // while it is in a hand, exactly like a cube's.
+                item.blocker = solid;
+                item.itemId = itemId;
+                item.displayName = displayName;
+                item.icon = icon;
+                item.floorY = radius;
+                item.handLocalPosition = HandPoseFor(size);
+                item.handLocalScale = Vector3.one;
+                item.audioSource = MakeSource(holder.transform, "PickupAudio", 1f, 0.8f);
+                item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+                MakeWeighable(item, kilograms);
+                carriedItems[i] = item;
+            }
+
+            Random.state = entry;
+
+            FloatingBalls floating = root.AddComponent<FloatingBalls>();
+            floating.bodies = bodies;
+            floating.homes = homes;
+            floating.carried = carriedItems;
+
+            Debug.Log($"[SceneBuilder] Room2_6 pool: {count} x {name} at {size:0.00}m, {kilograms:0.0}kg each.");
+            return floating;
+        }
+
+        // A STILL BODY OF WATER, which is not the same material as a falling one.
+        //
+        // `WaterStream.mat` is tuned for a column half a metre across dropping two metres: its noise is
+        // fine and fast because a stream is moving, and at that scale on a ten-metre pool the surface
+        // crawls with a rash of tiny ripples that reads as static. This is the same shader with the
+        // noise an order of magnitude broader and ten times slower, more body to it (a metre of water
+        // absorbs where a 45mm spill does not), and a softer meeting where it reaches the walls and the
+        // player's legs - a hard line around a pair of knees is the tell that the water is a decal.
+        private static Material MakePoolWaterMaterial()
+        {
+            const string path = MaterialsDir + "/PoolWater.mat";
+            Shader shader = Shader.Find("IterationRoom/WaterSurface");
+            if (shader == null)
+            {
+                Debug.LogWarning("[SceneBuilder] IterationRoom/WaterSurface is missing - the pool "
+                               + "falls back to the stream material.");
+                return AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/WaterStream.mat");
+            }
+
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = shader;
+
+            mat.SetColor("_BaseColor", new Color(0.78f, 0.88f, 0.93f, 0.16f));
+            mat.SetFloat("_Refraction", 0.030f);
+            mat.SetFloat("_Reflection", 0.62f);
+            mat.SetFloat("_Smoothness", 0.96f);
+            mat.SetFloat("_SpecPower", 220f);
+            mat.SetFloat("_SpecGain", 2.2f);
+            mat.SetFloat("_FresnelPower", 3.2f);
+            // MORE BODY THAN THE STREAM HAS, and it is depth that buys it: looking down into 1.2m of
+            // water you are looking through 1.2m of water, and a pool as clear as a tap's output is a
+            // sheet of glass over a white floor.
+            mat.SetFloat("_EdgeAlpha", 0.80f);
+            mat.SetFloat("_CoreAlpha", 0.22f);
+            mat.SetColor("_DeepColor", new Color(0.30f, 0.50f, 0.60f, 1f));
+            mat.SetFloat("_DeepStrength", 0.62f);
+            // BROAD AND SLOW. This is the whole difference between a pool and a stream.
+            mat.SetFloat("_NoiseScale", 3.6f);
+            mat.SetFloat("_NoiseSpeed", 0.22f);
+            mat.SetFloat("_NoiseAmount", 0.26f);
+            mat.SetFloat("_WobbleAmp", 0.014f);
+            mat.SetFloat("_WobbleFreq", 1.6f);
+            mat.SetFloat("_WobbleSpeed", 0.45f);
+            mat.SetFloat("_DepthFade", 0.25f);
+
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        // THE BALLS ON THE POOL. The same six hues as room2-7's pit and the opposite construction -
+        // three hundred separate objects rather than six merged meshes, because these have to move
+        // independently. See FloatingBalls.
+        //
+        // THEY LOOKED CHEAP ON THE FIRST PASS, and "cheap" was three specific things (2026-08-19):
+        //
+        //  - **Too bright.** The pit's colours are display colours at full value, and full value under
+        //    six ceiling fixtures in a white room is a flat bright patch with no shading left in it.
+        //    A real ball has its colour in the MIDTONES and gets its brightness from the highlight.
+        //  - **Too uniform.** Six colours across three hundred balls, every one the same shade of its
+        //    colour and every one the same size. Nothing manufactured is that consistent, and the eye
+        //    reads the repetition long before it reads the objects.
+        //  - **Too faceted.** 96 triangles is right for a ball pit seen as a mass from two metres up;
+        //    these float at knee height under the player's nose, and at that range a 96-triangle
+        //    sphere has a visible polygon silhouette.
+        // HOW MANY RINGS CAN BE IN FLIGHT AT ONCE. A ring lives 1.9s and the player makes one every
+        // 0.55s of walking, so four covers a walk and the rest is headroom for the entry plus a player
+        // turning circles. The cost of the cap is that a ninth ring recycles the oldest, which is the
+        // one already almost invisible.
+        private const int PoolRippleCount = 8;
+
+        // THE RINGS THE PLAYER LEAVES IN THE WATER. Quads lying on the surface with a ripple painted
+        // on them, expanded and faded by `WaterRipples`.
+        //
+        // DRAWN RATHER THAN SHADED. The water shader already has moving noise in it, but that noise is
+        // the same everywhere and answers to nothing - a ripple has to start where the player is. The
+        // alternative is feeding the surface shader a list of disturbance centres and ages; this is a
+        // texture and eight quads, and it composes with a shader nobody has to touch.
+        //
+        // A MILLIMETRE ABOVE THE WATER, because two coplanar transparent surfaces is the same flicker
+        // the mouth's tunnel just had.
+        private static WaterRipples BuildWaterRipples(Transform poolRoot)
+        {
+            GameObject root = new GameObject("Ripples");
+            root.transform.SetParent(poolRoot, false);
+            root.transform.localPosition = new Vector3(0f, PoolDepth + 0.012f, 0f);
+
+            Material mat = MakeRippleMaterial();
+            Mesh quad = PrimitiveMesh(PrimitiveType.Quad);
+
+            var rings = new Transform[PoolRippleCount];
+            var renderers = new Renderer[PoolRippleCount];
+
+            for (int i = 0; i < PoolRippleCount; i++)
+            {
+                GameObject go = new GameObject($"Ring_{i}");
+                go.transform.SetParent(root.transform, false);
+                // FLAT, and authored that way once. A quad faces -Z; ninety degrees about X lays it
+                // face-up. `WaterRipples` never writes a rotation, precisely so this survives.
+                go.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                go.transform.localScale = Vector3.one * 0.5f;
+
+                go.AddComponent<MeshFilter>().sharedMesh = quad;
+                MeshRenderer rend = go.AddComponent<MeshRenderer>();
+                rend.sharedMaterial = mat;
+                rend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                rend.receiveShadows = false;
+                rend.enabled = false;
+
+                rings[i] = go.transform;
+                renderers[i] = rend;
+            }
+
+            WaterRipples ripples = root.AddComponent<WaterRipples>();
+            ripples.rings = rings;
+            ripples.renderers = renderers;
+            return ripples;
+        }
+
+        // UNLIT AND TRANSPARENT. A ripple is not a surface being lit - it is the water's own highlight
+        // rearranged - so a lit material would put the room's six fixtures on it and make each ring a
+        // shiny disc. Unlit also means the per-ring alpha can ride in a `MaterialPropertyBlock` without
+        // eight materials, which is what `WaterRipples` fades.
+        private static Material MakeRippleMaterial()
+        {
+            const string path = MaterialsDir + "/WaterRipple.mat";
+            Shader unlit = Shader.Find("Universal Render Pipeline/Unlit");
+            if (unlit == null) unlit = OpaqueShader();
+
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(unlit);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = unlit;
+
+            mat.SetTexture("_BaseMap", MakeRippleTexture("WaterRipple", 128));
+            mat.SetColor("_BaseColor", new Color(1f, 1f, 1f, 0f));
+
+            // The blend modes AND the keyword - alpha alone does nothing in URP (CLAUDE.md §3).
+            mat.SetFloat("_Surface", 1f);
+            mat.SetFloat("_Blend", 0f);
+            mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            mat.SetFloat("_ZWrite", 0f);
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent + 10;
+
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        // TWO RINGS, NOT ONE. A single ring reads as a stamp; a bright leading edge with a fainter one
+        // chasing it reads as a wave that has been travelling. Both are soft-edged gaussians - a hard
+        // ring is a drawn circle, and the eye finds the line before it finds the water.
+        private static Texture2D MakeRippleTexture(string name, int size)
+        {
+            Color[] px = new Color[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = (x + 0.5f) / size * 2f - 1f;
+                    float dy = (y + 0.5f) / size * 2f - 1f;
+                    float r = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    float lead = Mathf.Exp(-Mathf.Pow((r - 0.82f) / 0.085f, 2f));
+                    float trail = Mathf.Exp(-Mathf.Pow((r - 0.58f) / 0.13f, 2f)) * 0.42f;
+                    // Cut at the edge of the disc, or the outer ring is clipped by the quad and the
+                    // ripple has four straight sides.
+                    float alpha = r > 1f ? 0f : Mathf.Clamp01(lead + trail);
+
+                    px[y * size + x] = new Color(1f, 1f, 1f, alpha);
+                }
+            }
+
+            return WriteTexture(name, size, size, px, TextureWrapMode.Clamp, FilterMode.Bilinear);
+        }
+
+        // HANGS A WEIGHT ON A CARRYABLE. One line at each call site, and the weight lives on the
+        // object rather than in a table inside the room that reads it - see Weighable.
+        private static Weighable MakeWeighable(Component item, float kilograms)
+        {
+            if (item == null) return null;
+            Weighable w = item.gameObject.AddComponent<Weighable>();
+            w.kilograms = kilograms;
+            return w;
+        }
+
+        // ONE VALVE ON A WALL. The model is a handwheel and nothing else, so the WHOLE of it spins -
+        // there is no body to hold still (checked: `industrial_valve.glb` is one `Torus001` group of
+        // five parts).
+        //
+        // WHICH WAY IT FACES IS MEASURED, NOT WRITTEN DOWN. A handwheel is a disc, so its axle is its
+        // THINNEST axis - found from the bounds and rotated to point out of the wall. That survives a
+        // different model, a re-export, or the glTF Z-up correction changing under us, all of which
+        // have cost this project a day each before (see the seesaw and the slide).
+        private static Valve BuildValve(Transform room, string name, Vector3 wallPoint, float yaw)
+        {
+            GameObject holder = new GameObject(name);
+            holder.transform.SetParent(room, false);
+            holder.transform.localPosition = wallPoint;
+            // Yaw so local +Z points INTO the room, whichever wall this is.
+            holder.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+
+            // BUILT BEFORE THE MODEL, because the model hangs under it - see the note on the reach
+            // collider below for why the wheel has to be a descendant of the thing that turns it.
+            GameObject spin = new GameObject(name + "Interact");
+            spin.transform.SetParent(holder.transform, false);
+
+            string path = PlayDir + "/industrial_valve.glb";
+            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            Transform wheel = null;
+            Vector3 axle = Vector3.forward;
+            float thickness = 0.18f;
+
+            if (source != null)
+            {
+                ShrinkModelTextures(path, 1024);
+
+                GameObject model = (GameObject)PrefabUtility.InstantiatePrefab(source, spin.transform);
+                model.name = "Wheel";
+                model.transform.localPosition = Vector3.zero;
+
+                Bounds raw = ModelBounds(spin.transform, model);
+                // The thinnest of the three is the axle. Measured on the model as imported, so the
+                // correction below is expressed in the model's own axes.
+                axle = raw.size.x <= raw.size.y && raw.size.x <= raw.size.z ? Vector3.right
+                     : raw.size.y <= raw.size.z ? Vector3.up : Vector3.forward;
+                // TURNED TO FACE THE ROOM, AND THEN TURNED RIGHT ROUND. Aligning the axle to +Z is a
+                // choice of AXIS, not of direction - it lands the wheel's face either toward the room
+                // or into the wall, and this model comes out the wrong way. The extra half turn is
+                // about the room's up axis so the wheel's front is what the player walks up to.
+                model.transform.localRotation = Quaternion.AngleAxis(180f, Vector3.up)
+                                              * Quaternion.FromToRotation(axle, Vector3.forward)
+                                              * model.transform.localRotation;
+
+                // Re-measured AFTER the turn: the fit is of the FACE of the wheel, which is a
+                // different pair of axes once it has been stood up.
+                raw = ModelBounds(spin.transform, model);
+                float across = Mathf.Max(0.001f, Mathf.Max(raw.size.x, raw.size.y));
+                float scale = ValveDiameter / across;
+                model.transform.localScale = Vector3.one * scale;
+
+                raw = ModelBounds(spin.transform, model);
+                thickness = Mathf.Max(0.05f, raw.size.z);
+                // Centred on the mount and standing PROUD of the wall by its own depth, so it is a
+                // thing bolted on rather than a decal.
+                model.transform.localPosition = new Vector3(-raw.center.x, -raw.center.y,
+                                                            thickness / 2f + 0.02f - raw.center.z);
+
+                // ONLY THE HANDWHEEL TURNS, not the whole fixture. A valve whose BODY spins with its
+                // wheel is a valve nobody has ever seen: the body is bolted to the wall and the red
+                // wheel is the part a pair of hands moves.
+                //
+                // FOUND BY SHAPE, not by name or material. The wheel is a disc, so it is the part with
+                // the largest span across the face and the smallest along the axle - which stays true
+                // of a re-export that renames every node, and of a different valve model entirely.
+                // (Checked against this one: five parts, and the wheel is 1131 x 1131 x 170 where the
+                // body is 477 x 477 x 809.)
+                wheel = WidestFlattestPart(spin.transform, model) ?? model.transform;
+            }
+            else
+            {
+                Debug.LogWarning($"[SceneBuilder] {path} is missing - {name} is an invisible valve.");
+            }
+
+            // WHERE THE E DISC HANGS: on the wheel's face, not at the mount inside the wall.
+            GameObject anchorGO = new GameObject("HintAnchor");
+            anchorGO.transform.SetParent(holder.transform, false);
+            anchorGO.transform.localPosition = new Vector3(0f, 0f, thickness + 0.05f);
+
+            // Reach, like every other E fixture: a box in front of the wheel deep enough to stand in.
+            //
+            // THE REACH IS AN OFFSET ON THE COLLIDER, not on the object - the object sits at the
+            // holder's origin so that it can be the WHEEL'S PARENT. That matters for one reason:
+            // `MarkReflectionProbeStatic` decides what is a mover by walking UP from each renderer
+            // looking for a component that moves it, so a spinning wheel whose `Valve` is a SIBLING
+            // reads as scenery and gets baked into the room's reflection mid-turn.
+            GameObject interact = spin;
+            BoxCollider trigger = interact.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            trigger.center = new Vector3(0f, 0f, 0.9f);
+            trigger.size = new Vector3(1.9f, 2.4f, 2.0f);
+
+            Valve valve = interact.AddComponent<Valve>();
+            valve.wheel = wheel;
+            valve.hintAnchor = anchorGO.transform;
+            // THE AXIS IS THE HOLDER'S, NOT THE MODEL'S, now that what spins is a part INSIDE the
+            // model rather than the model itself: that part carries the import's own rotation, and
+            // the one thing known about it is that its face has been turned to look into the room.
+            valve.spinAxis = wheel != null && wheel.parent != null
+                ? wheel.parent.InverseTransformDirection(holder.transform.forward).normalized
+                : axle;
+            valve.audioSource = MakeSource(holder.transform, "ValveAudio", spatialBlend: 1f, volume: 0.85f);
+            valve.turnClip = MakeValveTurnClip("sfx_valve_turn");
+            valve.lockClip = MakeValveStopClip("sfx_valve_stop");
+            return valve;
+        }
+
+        // THE FLATTEST, WIDEST PART OF A MODEL - which for a handwheel is the wheel. Compares each
+        // renderer on its own bounds in the given frame: widest across the two long axes, thinnest
+        // along the third. Returns null for a model with nothing in it.
+        private static Transform WidestFlattestPart(Transform frame, GameObject model)
+        {
+            Transform best = null;
+            float bestScore = float.NegativeInfinity;
+
+            foreach (Renderer r in model.GetComponentsInChildren<Renderer>())
+            {
+                Mesh mesh = r.GetComponent<MeshFilter>() != null ? r.GetComponent<MeshFilter>().sharedMesh : null;
+                if (mesh == null) continue;
+
+                Bounds b = ModelBounds(frame, r.gameObject);
+                float[] size = { b.size.x, b.size.y, b.size.z };
+                System.Array.Sort(size);                       // thinnest first
+                if (size[2] < 0.0001f) continue;
+                // Flat AND big: the ratio alone would pick a washer, the span alone the body.
+                float score = size[2] / Mathf.Max(0.0001f, size[0]) * size[2];
+                if (score <= bestScore) continue;
+
+                bestScore = score;
+                best = r.transform;
+            }
+
+            return best;
+        }
+
+        // THE DRAIN IN THE MIDDLE OF THE FLOOR, and what the three valves are for.
+        //
+        // THREE PARTS AND THEY ARE NOT INTERCHANGEABLE:
+        //   - the SUMP, a dark box under the hole. It is what makes the drain a hole rather than a
+        //     dark square painted on the floor - you can see down it;
+        //   - the GRATE, bars across the top at floor level. SOLID, and that is a safety rule rather
+        //     than a decoration: the floor has a real hole in it, and a player who could fall in would
+        //     be stuck in a sump they cannot climb out of, in a room with a sixty-second clock;
+        //   - the COVER, the one moving part, sliding aside when the valves are all open.
+        private static PoolDrain BuildDrain(Transform room, WaterPool pool, Valve[] valves,
+                                            Material floorMat, Material propMat)
+        {
+            GameObject root = new GameObject("Drain2_6");
+            root.transform.SetParent(room, false);
+
+            Material dark = MakeColorMaterial("DrainDark", new Color(0.045f, 0.05f, 0.055f));
+            Material metal = MakeColorMaterial("DrainGrate", new Color(0.28f, 0.30f, 0.32f));
+            SetSmoothness(metal, 0.55f);
+
+            float half = DrainSize / 2f;
+
+            // --- the sump ---------------------------------------------------------------------------
+            // HUNG FROM THE FLOOR SLAB'S UNDERSIDE, not run up to its top face - which is the fix
+            // `docs/gotchas.md` already records for the tree pit's lip, arrived at again here. The
+            // sides used to start at y=0, so their top 0.1m occupied exactly the floor slab's volume
+            // and their outer faces sat on exactly the plane of the slab's cut edge: two coplanar
+            // surfaces fighting for the same pixels all the way round the hole, which is the flicker
+            // play saw once the cover slid off it.
+            //
+            // Starting them a slab's thickness lower removes the shared plane rather than biasing it.
+            // A depth offset only moves a z-fight somewhere else.
+            float shaftTop = -WallThickness;
+            float shaftDepth = DrainDepth - WallThickness;
+
+            Prim(PrimitiveType.Cube, "Sump_Bottom", root.transform,
+                 new Vector3(0f, -DrainDepth - WallThickness / 2f, 0f),
+                 new Vector3(DrainSize + 2f * WallThickness, WallThickness, DrainSize + 2f * WallThickness),
+                 dark);
+            for (int i = 0; i < 4; i++)
+            {
+                bool alongX = i < 2;
+                float sign = i % 2 == 0 ? 1f : -1f;
+                float midY = shaftTop - shaftDepth / 2f;
+                Vector3 at = alongX ? new Vector3(sign * (half + WallThickness / 2f), midY, 0f)
+                                    : new Vector3(0f, midY, sign * (half + WallThickness / 2f));
+                Vector3 size = alongX ? new Vector3(WallThickness, shaftDepth, DrainSize + 2f * WallThickness)
+                                      : new Vector3(DrainSize, shaftDepth, WallThickness);
+                Prim(PrimitiveType.Cube, "Sump_Side_" + i, root.transform, at, size, dark);
+            }
+
+            // --- the grate --------------------------------------------------------------------------
+            // Seven bars with six gaps between them. The gaps read as a grate from standing height and
+            // are far narrower than the player's own capsule.
+            const int bars = 7;
+            float pitch = DrainSize / bars;
+            for (int i = 0; i < bars; i++)
+            {
+                float x = -half + pitch * (i + 0.5f);
+                Prim(PrimitiveType.Cube, "Grate_" + i, root.transform,
+                     new Vector3(x, -WallThickness / 2f, 0f),
+                     new Vector3(pitch * 0.45f, WallThickness, DrainSize), metal);
+            }
+
+            // --- the cover --------------------------------------------------------------------------
+            // Sitting ON the floor rather than recessed into it, which needs no second hole and reads
+            // as a plate somebody laid over the drain. Its underside is level with the floor's top
+            // face - two surfaces that touch and never share a visible plane.
+            GameObject cover = Prim(PrimitiveType.Cube, "Cover", root.transform,
+                new Vector3(0f, 0.025f, 0f),
+                new Vector3(DrainSize + 0.12f, 0.05f, DrainSize + 0.12f), metal);
+
+            // --- what goes down it ------------------------------------------------------------------
+            GameObject vortexGO = new GameObject("Vortex");
+            vortexGO.transform.SetParent(root.transform, false);
+            vortexGO.transform.localPosition = new Vector3(0f, 0.05f, 0f);
+            ParticleSystem vortex = vortexGO.AddComponent<ParticleSystem>();
+            ParticleSystem.MainModule vm = vortex.main;
+            vm.loop = true;
+            vm.playOnAwake = false;
+            vm.startLifetime = new ParticleSystem.MinMaxCurve(0.35f, 0.9f);
+            vm.startSpeed = new ParticleSystem.MinMaxCurve(0.4f, 1.4f);
+            vm.startSize = new ParticleSystem.MinMaxCurve(0.02f, 0.08f);
+            vm.gravityModifier = 1.4f;
+            vm.startColor = new ParticleSystem.MinMaxGradient(new Color(0.90f, 0.95f, 1f, 0.85f));
+            vm.simulationSpace = ParticleSystemSimulationSpace.World;
+            vm.maxParticles = 300;
+            ParticleSystem.EmissionModule ve = vortex.emission;
+            ve.rateOverTime = 90f;
+            ParticleSystem.ShapeModule vs = vortex.shape;
+            vs.shapeType = ParticleSystemShapeType.Circle;
+            vs.radius = half * 0.9f;
+            ParticleSystemRenderer vr = vortexGO.GetComponent<ParticleSystemRenderer>();
+            vr.sharedMaterial = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/WaterStream.mat");
+            vr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
+            // --- the whirlpool ----------------------------------------------------------------------
+            // A FUNNEL, not a spinning texture. The dip in the surface is the thing that says the
+            // water is going somewhere - a flat sheet that shrinks reads as the water being switched
+            // off - so this is real geometry with the water shader on it, rotating and narrowing as
+            // the room empties. Hidden until the drain opens; `PoolDrain` owns both.
+            GameObject funnel = new GameObject("Funnel");
+            funnel.transform.SetParent(root.transform, false);
+            funnel.AddComponent<MeshFilter>().sharedMesh = SaveGeneratedMesh(
+                "WaterFunnel_r24",
+                () => WaterMeshes.Funnel(rings: 14, segments: 24, throat: 0.16f, swirl: 1.35f));
+            MeshRenderer funnelRend = funnel.AddComponent<MeshRenderer>();
+            funnelRend.sharedMaterial = MakePoolWaterMaterial();
+            funnelRend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            funnelRend.receiveShadows = false;
+            funnel.SetActive(false);
+
+            PoolDrain drain = root.AddComponent<PoolDrain>();
+            drain.funnel = funnel.transform;
+            drain.valves = valves;
+            drain.pool = pool;
+            drain.cover = cover.transform;
+            // Aside by its own width plus a hand's breadth, so the hole is completely clear.
+            drain.coverOpenOffset = new Vector3(DrainSize + 0.2f, 0f, 0f);
+            drain.vortex = vortex;
+            drain.audioSource = MakeSource(root.transform, "DrainAudio", spatialBlend: 1f, volume: 0.8f);
+            // A room emptying is long, low and continuous - so it is the wade sound stretched out and
+            // looped rather than a splash. See MakeWadeClip for why nothing in this room is a splash.
+            drain.drainClip = MakeWadeClip("sfx_drain_run", 20260823, seconds: 1.6f, decay: 0.9f,
+                                           fizzLevel: 0.62f, lowWeight: 3.0f);
+            // What the water drags with it. Named by the caller, because the pool knows its float
+            // groups and this does not - see BuildPoolRoom.
+            drain.floats = pool != null ? pool.floats : null;
+            return drain;
+        }
+
+        // WHAT EVERYTHING WEIGHS, and what room2-7's scale is looking for. **The player is never told
+        // any of this** - the only way to learn a weight is to carry the thing to the scale and put it
+        // down, which is what makes that room a measuring instrument rather than a keypad.
+        //
+        // HOW THE NUMBERS WERE CHOSEN, and they were SOLVED FOR rather than picked (2026-08-19).
+        //
+        // The room's rule is now "bring all five", so the target is the sum of one of each - and the
+        // weights are chosen so that **no other combination in the whole cycle reaches it.** Checked
+        // exhaustively against everything cycle 2 contains (5 axes, 4 buckets each of which may be
+        // empty or full, 1 cube, 2 beach balls, 3 ducks): at these values 26.7 has exactly ONE
+        // solution, and the nearest miss is 0.1 away, which is a whole display digit.
+        //
+        //     cube 8.3  +  full bucket 12.0  +  axe 4.7  +  beach ball 1.3  +  duck 0.4  =  26.7
+        //
+        // That is what the side walls draw and what the number over the door asks for. The player is
+        // still told no weights: the sign names the INGREDIENTS and the door names the ANSWER, and
+        // which of them add up is the thing to work out on the scale.
+        //
+        // THE REAL COST IS TRIPS. One object in the hand (CLAUDE.md §4), a 60-second clock, and
+        // `ItemRegistry.ReturnAllToOrigin` sweeping everything home at the boundary - so five objects
+        // on the pan at once is five past selves each carrying one. It is the largest headcount any
+        // room in this game has ever asked for.
+        private const float WeightDuck = 0.4f;
+        private const float WeightBeachBall = 1.3f;
+        private const float WeightBucket = 2.1f;
+        private const float WeightBucketWater = 9.9f;       // a full bucket reads 12.0
+        private const float WeightAxe = 4.7f;
+        private const float WeightCube = 8.3f;
+        private const float WeightPlayer = 71f;
+        private const float WeighTarget = 26.7f;
+
+        // ROOM2-6'S PUZZLE, and the numbers are here for the reason every tuned number is (CLAUDE.md
+        // §2): the components own the mechanism, this owns how much of it there is.
+        //
+        // WHEEL HEIGHT. A valve is turned with both hands at chest height - lower and the player is
+        // looking down at their own feet to find it, higher and it is a thing on a wall rather than a
+        // thing you operate.
+        private const float ValveHeight = 1.45f;
+        // How big the wheel is across. Deliberately large: it has to be findable from the far side of
+        // a nine-metre room through waist-deep water, and it is the only fixture in here.
+        private const float ValveDiameter = 0.62f;
+        // THE DRAIN in the middle of the floor. A square hole, because `BuildSlab` subtracts a Rect -
+        // the grate over it is what gives it a shape.
+        private const float DrainSize = 0.95f;
+        // How deep the sump under it is. Only ever seen through the grate, so it is depth enough to
+        // read as a shaft and no more.
+        private const float DrainDepth = 0.9f;
+
+        // How heavy a floating thing is. All three are light and within a factor of three of each
+        // other, so the player's push (`FirstPersonController.pushSpeed`, tuned on the balloons) moves
+        // any of them and none of them barges the others aside.
+        private const float PoolBallMass = 0.05f;
+        private const float PoolPropMass = 0.09f;
+
+        // ONE BODY, ONE COLLIDER, ONE LAYER - everything that floats gets the same treatment.
+        //
+        // NO GRAVITY. Buoyancy is a spring in `FloatingBalls` rather than gravity fought by a water
+        // volume: nothing can sink, nothing can be knocked out of the pool, and there is no settling
+        // for a hard shove to get wrong.
+        //
+        // ON THE BALLOON LAYER, which is not a borrow of convenience. That layer means exactly "a light
+        // thing the player wades THROUGH and shoves aside": the CharacterController excludes it, so
+        // there is no invisible wall in the pool, and `pushLayers` already contains it, so the push
+        // sweep works with nothing rewired. The Balloon COMPONENT is what balloon code looks for, and
+        // none of these carry one.
+        private static (Rigidbody body, SphereCollider solid) MakeFloatBody(GameObject go, float radius,
+                                                                             float mass, bool upright)
+        {
+            // THE SOLID PART IS A CHILD, and that is load-bearing rather than tidy. The ducks and the
+            // beach balls also carry a `CarryableItem`, which takes `GetComponent<Collider>()` on its
+            // own object as its REACH trigger - with the physics sphere on the same object, which of
+            // the two it picks is a coin toss. Same trap `BuildKeyPlinth` and the symbol cubes
+            // document, and the same answer: one collider per object, and the rigidbody is happy to
+            // own a collider a level down.
+            GameObject solidGO = new GameObject("Solid");
+            solidGO.transform.SetParent(go.transform, false);
+            solidGO.layer = go.layer;
+
+            SphereCollider col = solidGO.AddComponent<SphereCollider>();
+            col.radius = radius;
+            col.sharedMaterial = AssetDatabase.LoadAssetAtPath<PhysicsMaterial>(
+                MaterialsDir + "/BalloonRubber.physicMaterial");
+
+            Rigidbody rb = go.AddComponent<Rigidbody>();
+            rb.mass = mass;
+            rb.useGravity = false;
+            // Enough that a shoved float coasts to a stop in a second or so, which is water, and
+            // enough damping that the mooring cannot set up a slow oscillation across the pool.
+            rb.linearDamping = 1.4f;
+            rb.angularDamping = 1.6f;
+            rb.interpolation = RigidbodyInterpolation.Interpolate;
+            // UPRIGHT for anything with a top - a duck rolled onto its side by a ball is a dead duck.
+            // A plastic ball is a single-coloured sphere, so its rotation is invisible and freezing it
+            // is free solver work saved.
+            rb.constraints = upright
+                ? RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ
+                : RigidbodyConstraints.FreezeRotation;
+            return (rb, col);
+        }
+
+        private static FloatingBalls BuildFloatingBalls(Transform poolRoot)
+        {
+            int floatLayer = EnsureLayer(BalloonLayerName);
+            // A HIGHER-RESOLUTION BALL THAN THE PIT'S, and its own asset - the resolution is in the
+            // name because `SaveGeneratedMesh` caches by name (see the note on it). 384 triangles at
+            // 300 balls is 115k for the room, against the pit's 554k for its 5,772.
+            Mesh ball = SaveGeneratedMesh("PoolBall_r12s16",
+                () => LowPolySphereMesh(PoolBallRadius, 12, 16));
+            if (ball == null) return null;
+
+            GameObject root = new GameObject("FloatingBalls");
+            root.transform.SetParent(poolRoot, false);
+
+            // TWO TONES PER HUE, so twelve materials carry the six colours. The variation is what the
+            // eye reads as "a lot of balls" rather than "six balls repeated", and two shades is enough
+            // - the tones are half a stop apart, not a different colour.
+            Material[] mats = new Material[PlasticBallColours.Length * 2];
+            for (int i = 0; i < PlasticBallColours.Length; i++)
+            {
+                for (int tone = 0; tone < 2; tone++)
+                {
+                    Color hue = PlasticBallColours[i];
+                    // DOWN, not up. The colour is what the ball is made of and the room is what lights
+                    // it; a base colour near 1.0 leaves the light nowhere to go and the ball reads as
+                    // if it is emitting.
+                    //
+                    // THE TONE, and it is a scale on a SATURATED hue rather than a wash toward grey -
+                    // which is the whole reason 0.55/0.72 read as too bright and 0.30/0.42 as too
+                    // dull. Scaling a pure hue keeps the chroma and only takes the light out of it, so
+                    // these are plastic in a brightly lit white room: definitely red, definitely blue,
+                    // and not glowing.
+                    float level = tone == 0 ? 0.52f : 0.68f;
+                    Material mat = MakeColorMaterial($"PoolBall_{i}_{tone}", hue * level);
+                    // WET PLASTIC. High enough to resolve the ceiling fixtures as distinct shapes in
+                    // the reflection - which is the structure that reads as a hard shiny surface, the
+                    // same reasoning the escape objects' 0.97 is chosen on (CLAUDE.md §3). A ball that
+                    // has just come out of the water is glossier than a dry one, not duller.
+                    // A HARD SMALL HIGHLIGHT, NOT A MIRROR. At 0.88 the whole white ceiling sat on
+                    // every ball and drank the colour; at 0.62 the highlight is a spot and the rest of
+                    // the sphere is its own colour, which is what a wet moulded ball looks like.
+                    SetSmoothness(mat, 0.62f);
+                    // Three hundred renderers on twelve materials: instancing is what keeps that a
+                    // handful of draws rather than three hundred.
+                    mat.enableInstancing = true;
+                    EditorUtility.SetDirty(mat);
+                    mats[i * 2 + tone] = mat;
+                }
+            }
+
+            // A JITTERED GRID RATHER THAN FREE RANDOM POSITIONS. Uniform random scatter clumps - it
+            // puts three balls inside each other and leaves a two-metre hole across the room - and the
+            // one thing floating objects reliably do is push each other apart. One ball per cell with a
+            // jitter inside it is that spacing, for free and without a relaxation pass.
+            float inset = PoolBallRadius * 2f + 0.15f;
+            float spanX = RoomWidth - inset * 2f, spanZ = RoomDepth - inset * 2f;
+            // Half again as many cells as balls, so which cells are empty is itself part of the
+            // scatter - a grid with one ball in every cell is visibly a grid.
+            float cell = Mathf.Sqrt(spanX * spanZ / (PoolBallCount * 1.5f));
+            int columns = Mathf.Max(1, Mathf.FloorToInt(spanX / cell));
+            int rows = Mathf.Max(1, Mathf.FloorToInt(spanZ / cell));
+            float cellX = spanX / columns, cellZ = spanZ / rows;
+
+            // A FIXED SEED, like the balloon field's and the ball pit's: the room has to be the same
+            // room every time it is built, or a rebuild quietly reshuffles a scene somebody has already
+            // looked at.
+            Random.State entry = Random.state;
+            Random.InitState(20260819);
+
+            int cells = columns * rows;
+            int[] order = new int[cells];
+            for (int i = 0; i < cells; i++) order[i] = i;
+            for (int i = cells - 1; i > 0; i--)
+            {
+                int j = Random.Range(0, i + 1);
+                (order[i], order[j]) = (order[j], order[i]);
+            }
+
+            int count = Mathf.Min(PoolBallCount, cells);
+            var bodies = new Rigidbody[count];
+            var homes = new Vector3[count];
+
+            // How high the centre sits: a ball `PoolBallFloat` of the way out of the water has its
+            // centre that fraction of a radius above the surface. Written as the arithmetic rather than
+            // as a number, so changing how buoyant they look is one constant.
+            float centreOffset = PoolBallRadius * (2f * PoolBallFloat - 1f);
+            float jitterX = Mathf.Max(0f, cellX * 0.5f - PoolBallRadius);
+            float jitterZ = Mathf.Max(0f, cellZ * 0.5f - PoolBallRadius);
+
+            for (int i = 0; i < count; i++)
+            {
+                int c = order[i] % columns, r = order[i] / columns;
+                float x = -spanX / 2f + (c + 0.5f) * cellX + Random.Range(-jitterX, jitterX);
+                float z = -spanZ / 2f + (r + 0.5f) * cellZ + Random.Range(-jitterZ, jitterZ);
+
+                GameObject go = new GameObject($"Ball_{i}");
+                go.transform.SetParent(root.transform, false);
+                go.layer = floatLayer;
+                go.AddComponent<MeshFilter>().sharedMesh = ball;
+                MeshRenderer rend = go.AddComponent<MeshRenderer>();
+                rend.sharedMaterial = mats[Random.Range(0, mats.Length)];
+                rend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
+                // NOT ALL THE SAME BALL. A tenth either way, which is under the threshold at which any
+                // one of them looks wrong and over the one at which three hundred identical spheres
+                // look printed. It rides in the transform rather than in the mesh, so it is free.
+                float scale = Random.Range(0.90f, 1.10f);
+                go.transform.localScale = Vector3.one * scale;
+
+                homes[i] = new Vector3(x, PoolDepth + centreOffset * scale, z);
+                go.transform.localPosition = homes[i];
+                (bodies[i], _) = MakeFloatBody(go, PoolBallRadius * scale, PoolBallMass, upright: false);
+            }
+
+            Random.state = entry;
+
+            FloatingBalls floating = root.AddComponent<FloatingBalls>();
+            floating.bodies = bodies;
+            floating.homes = homes;
+            // STILL WATER, AND STILL BALLS. No bob and no drift, which is what lets a settled ball
+            // sleep - see FloatingBalls. What moves them is the player walking through, and then the
+            // mooring walks them back.
+            floating.bobHeight = 0f;
+            floating.drift = 0f;
+
+            Debug.Log($"[SceneBuilder] Room2_6 pool: {PoolDepth:0.00}m of water, {count} floating "
+                    + $"balls of {PoolBallRadius * 2f:0.00}m on a {columns}x{rows} grid.");
+            return floating;
+        }
+
+        // ROOM2-7: THE BALL PIT, and the room IS the pit.
+        //
+        // The prop is a 0.68m box of balls; the room is 8.75 x 10.5. So the model is placed as the
+        // thing the balls came out of, and the floor of the room is filled separately - to hip height
+        // on a standing player, which is what "up to half the body" comes to at this eye height.
+        //
+        // THE BALLS ARE GENERATED RATHER THAN TILED FROM THE MODEL, and the reason is arithmetic. Each
+        // of the prop's colour clusters is ~3,500 triangles for a 0.62m square of balls; tiling that
+        // across this floor three deep is over two million triangles for one room, which is the scale
+        // of the stump this project already replaced once for exactly that reason. A generated ball is
+        // 96 triangles, and the whole pit comes out around 400k - built as ONE MESH PER COLOUR, so the
+        // room costs six draw calls rather than five thousand.
+        //
+        // NOTHING ABOUT THEM IS SOLID. The player wades: they walk on the real floor with the mass at
+        // their waist, which is both what a ball pit feels like and the only version that does not need
+        // five thousand colliders. It also keeps them out of the loop entirely - no carryables, no
+        // recorded state, nothing to rewind.
+        private static void BuildBallPit(Transform room, Material propMat)
+        {
+            GameObject root = new GameObject("Room2_7_BallPit");
+            root.transform.SetParent(room, false);
+
+            // --- the prop -------------------------------------------------------------------------
+            string path = PlayDir + "/ball_pit.glb";
+            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (source != null)
+            {
+                ShrinkModelTextures(path, 1024);
+
+                GameObject model = (GameObject)PrefabUtility.InstantiatePrefab(source, root.transform);
+                model.name = "PitProp";
+
+                Bounds raw = ModelBounds(root.transform, model);
+                // A ball pit somebody could climb into rather than a desk toy: 1.9m across, which is
+                // where the model's own 0.68m lands when its FOOTPRINT is fitted rather than its
+                // height. Measured, so a different prop re-fits itself.
+                const float propAcross = 1.9f;
+                float scale = propAcross / Mathf.Max(0.001f, Mathf.Max(raw.size.x, raw.size.z));
+                model.transform.localScale = Vector3.one * scale;
+
+                // In the corner away from both doorways - the doors are in the Z walls at x=0, so a
+                // prop pushed into +X and +Z stands clear of both approaches.
+                Vector3 stand = new Vector3(RoomWidth / 2f - 1.6f, 0f, RoomDepth / 2f - 1.7f);
+                model.transform.localPosition = new Vector3(stand.x - raw.center.x * scale,
+                                                            stand.y - raw.min.y * scale,
+                                                            stand.z - raw.center.z * scale);
+
+                Debug.Log($"[SceneBuilder] Ball pit prop: scale {scale:0.000} -> {raw.size.x * scale:0.00}m across");
+            }
+            else
+            {
+                Debug.LogWarning($"[SceneBuilder] {path} is missing - room2-7 gets the loose balls only.");
+            }
+
+            // --- the fill -------------------------------------------------------------------------
+            BuildBallFill(root.transform, propMat);
+        }
+
+        // HOW DEEP THE BALLS COME. The player's eye is at 1.6m and their body is 1.8m, so 0.9m is the
+        // waist - "half the body", which is what was asked for. It is also the depth at which a
+        // standing player can never see the floor of the pit, which is what keeps three layers enough.
+        private const float BallFillDepth = 0.9f;
+        // 220mm - twice a real ball-pit ball. Deliberately: at 70mm this room needs fifty thousand of
+        // them to fill, and a bigger ball reads correctly in a building whose every other dimension is
+        // oversized already.
+        private const float BallRadius = 0.11f;
+        // THREE LAYERS, NOT THE FULL DEPTH. Five would fill the volume honestly and cost 60% more
+        // triangles for a thing nobody can see: the mass is only ever looked at from above, because a
+        // 1.6m eye is above a 0.9m surface from every position in the room. Each layer is offset by
+        // half a pitch from the one under it, so the gaps between three of them line up with nothing.
+        private const int BallLayers = 3;
+
+        // The colours the ball-pit prop wears - blue, purple, yellow, green, red, orange. Values live
+        // here like every other tuned number in this project, and they are SHARED with the balls
+        // floating on room2-5's pool: the two rooms are meant to be the same plastic out of the same
+        // building, and two copies of six colours is two copies that can drift apart.
+        // SATURATED RATHER THAN BRIGHT, which is the distinction the pool's balls took three passes to
+        // land on. "Too bright" and "not distinct enough" sound like opposites and are not: what was
+        // wrong both times was CHROMA. A colour near white in one channel and mid in the others is
+        // pale - it renders as a bright pastel under this building's flat white light, and pale
+        // colours are also the ones hardest to tell apart. These are close to pure hues, with the
+        // off-channels pushed down rather than the on-channel pushed up, so they can be darkened for
+        // the room (see the tone below) and still read as red, blue, yellow.
+        private static readonly Color[] PlasticBallColours =
+        {
+            new Color(0.05f, 0.28f, 0.95f),   // blue
+            new Color(0.60f, 0.06f, 0.80f),   // purple
+            new Color(1.00f, 0.80f, 0.02f),   // yellow
+            new Color(0.05f, 0.70f, 0.16f),   // green
+            new Color(0.92f, 0.05f, 0.07f),   // red
+            new Color(1.00f, 0.40f, 0.02f),   // orange
+        };
+
+        private static void BuildBallFill(Transform root, Material propMat)
+        {
+            Color[] colours = PlasticBallColours;
+
+            Mesh ball = SaveGeneratedMesh("BallPitBall", () => LowPolySphereMesh(BallRadius, 6, 8));
+            if (ball == null) return;
+
+            // INSET FROM THE WALLS by a ball's own width, so nothing pokes through a wall or through a
+            // door slab sitting in its pocket.
+            float inset = BallRadius * 2f;
+            float halfX = RoomWidth / 2f - inset, halfZ = RoomDepth / 2f - inset;
+
+            // Hexagonal packing: rows offset by half a pitch, which is how balls actually settle and
+            // what stops the grid reading as a grid.
+            float pitch = BallRadius * 2f;
+            float rowPitch = pitch * 0.87f;                 // sqrt(3)/2, the hex row spacing
+            float layerDrop = BallRadius * 1.55f;           // layers sit in each other's hollows
+
+            int columns = Mathf.FloorToInt(2f * halfX / pitch);
+            int rows = Mathf.FloorToInt(2f * halfZ / rowPitch);
+
+            var byColour = new System.Collections.Generic.List<CombineInstance>[colours.Length];
+            for (int i = 0; i < colours.Length; i++) byColour[i] = new System.Collections.Generic.List<CombineInstance>();
+
+            // A FIXED SEED, like the balloon field's: the room has to be the same room every time it is
+            // built, or a rebuild quietly reshuffles a scene somebody has already looked at.
+            Random.State entry = Random.state;
+            Random.InitState(20260817);
+
+            int placed = 0;
+            for (int layer = 0; layer < BallLayers; layer++)
+            {
+                float y = BallFillDepth - BallRadius - layer * layerDrop;
+                if (y < BallRadius) break;
+
+                for (int r = 0; r < rows; r++)
+                {
+                    for (int c = 0; c < columns; c++)
+                    {
+                        // Each layer is shifted half a pitch in both axes from the one above, so no
+                        // column of gaps ever runs straight through the mass.
+                        float ox = (r % 2 == 0 ? 0f : pitch * 0.5f) + (layer % 2 == 0 ? 0f : pitch * 0.25f);
+                        float oz = layer % 2 == 0 ? 0f : rowPitch * 0.5f;
+
+                        float x = -halfX + pitch * 0.5f + c * pitch + ox;
+                        float z = -halfZ + rowPitch * 0.5f + r * rowPitch + oz;
+                        if (x > halfX || z > halfZ) continue;
+
+                        // Loose balls do not sit level. Only the top layer is jittered upward - the
+                        // ones underneath are held down by the ones on top.
+                        float jitter = layer == 0 ? Random.Range(-0.35f, 0.55f) * BallRadius
+                                                  : Random.Range(-0.2f, 0.2f) * BallRadius;
+
+                        var ci = new CombineInstance();
+                        ci.mesh = ball;
+                        ci.transform = Matrix4x4.TRS(
+                            new Vector3(x, y + jitter, z),
+                            Random.rotationUniform,
+                            Vector3.one);
+                        byColour[Random.Range(0, colours.Length)].Add(ci);
+                        placed++;
+                    }
+                }
+            }
+
+            Random.state = entry;
+
+            int tris = 0;
+            for (int i = 0; i < colours.Length; i++)
+            {
+                if (byColour[i].Count == 0) continue;
+
+                Mesh merged = new Mesh { name = $"BallPitFill_{i}" };
+                // A merged ball field runs past 65,535 vertices in one colour, and the default index
+                // format silently wraps rather than failing - the symptom is a mesh that renders as
+                // garbage triangles across the room.
+                merged.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+                merged.CombineMeshes(byColour[i].ToArray(), true, true);
+                merged.RecalculateBounds();
+
+                string meshPath = GeneratedDir + "/BallPitFill_" + i + ".mesh";
+                AssetDatabase.DeleteAsset(meshPath);
+                if (!Directory.Exists(GeneratedDir)) Directory.CreateDirectory(GeneratedDir);
+                AssetDatabase.CreateAsset(merged, meshPath);
+
+                Material mat = MakeColorMaterial($"BallPit_{i}", colours[i]);
+                SetSmoothness(mat, 0.72f);
+
+                GameObject go = new GameObject($"Balls_{i}");
+                go.transform.SetParent(root, false);
+                go.AddComponent<MeshFilter>().sharedMesh = AssetDatabase.LoadAssetAtPath<Mesh>(meshPath);
+                go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+
+                tris += merged.triangles.Length / 3;
+            }
+
+            AssetDatabase.SaveAssets();
+
+            Debug.Log($"[SceneBuilder] Ball pit: {placed} balls of {BallRadius * 2f:0.00}m in "
+                    + $"{BallLayers} layers to {BallFillDepth:0.00}m, {tris} triangles in "
+                    + $"{colours.Length} draw calls");
+        }
+
+        // A BALL, cheap enough to have five thousand of. Unity's own sphere primitive is 515 triangles,
+        // which is 2.7 million for this room; this is 96, and at 220mm across seen from a metre or more
+        // the difference is not visible.
+        private static Mesh LowPolySphereMesh(float radius, int rings, int segments)
+        {
+            var verts = new System.Collections.Generic.List<Vector3>();
+            var norms = new System.Collections.Generic.List<Vector3>();
+            var tris = new System.Collections.Generic.List<int>();
+
+            for (int y = 0; y <= rings; y++)
+            {
+                float v = (float)y / rings;
+                float phi = v * Mathf.PI;
+                for (int x = 0; x <= segments; x++)
+                {
+                    float u = (float)x / segments;
+                    float theta = u * Mathf.PI * 2f;
+                    Vector3 n = new Vector3(Mathf.Sin(phi) * Mathf.Cos(theta),
+                                            Mathf.Cos(phi),
+                                            Mathf.Sin(phi) * Mathf.Sin(theta));
+                    norms.Add(n);
+                    verts.Add(n * radius);
+                }
+            }
+
+            int stride = segments + 1;
+            for (int y = 0; y < rings; y++)
+            {
+                for (int x = 0; x < segments; x++)
+                {
+                    int a = y * stride + x, b = a + stride;
+                    tris.Add(a); tris.Add(b); tris.Add(a + 1);
+                    tris.Add(a + 1); tris.Add(b); tris.Add(b + 1);
+                }
+            }
+
+            Mesh mesh = new Mesh();
+            mesh.SetVertices(verts);
+            mesh.SetNormals(norms);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
         // THE TREE HALL - room2-3, room2-4 and room2-5 as ONE ROOM: 10.5m across, 30.45m along and
         // 17.57m to the ceiling, at one width and one height throughout. See the constants block.
         //
         // Built at the hall's own origin with Z relative and X absolute, which is the frame the ring
         // already works in for this leg - so both openings land in the walls their neighbours meet.
-        private static (Transform root, TreeTrunk trunk, TreeFelled felled, Door exit)
+        private static (Transform root, TreeTrunk trunk, TreeFelled felled,
+                        Transform poolRoom, Door poolDoor, PoolDrain poolDrain, Valve[] poolValves,
+                        Transform weighRoom, WeighScale weighScale, Transform emptyRoom)
             BuildTreeHall(Transform parent, float z0, Material floorMat, Material grooveMat,
                           Material panelMat, Material propMat, Material fixtureMat)
         {
@@ -4389,9 +6888,21 @@ namespace IterationRoom.EditorTools
             // under the shared dividers - the same reason BuildSlab runs to the room PITCH.
             Rect floorXZ = Rect.MinMaxRect(TreeHallWestFace - WallDepth, TreeHallSouthFace - WallDepth,
                                            TreeHallEastFace + WallDepth, TreeHallNorthFace + WallDepth);
-            // THE PIT IS CUT WALL TO WALL. Anything narrower leaves a ledge along one side and the
-            // bridge stops being the only way over, which is the whole room.
-            Rect pitXZ = Rect.MinMaxRect(TreePitWestEdge, floorXZ.yMin, TreePitEastEdge, floorXZ.yMax);
+            // THE PIT IS CUT WALL TO WALL - to the walls' FACES, and not one centimetre past them.
+            //
+            // It used to be cut across the whole floor slab, and the slab deliberately overruns the
+            // interior by a `WallDepth` at each end so that it meets the neighbouring rooms' slabs
+            // under the shared dividers. Cutting the pit over that overrun takes the floor out from
+            // UNDER the hall's own north and south walls, which leaves a 0.125m slot running along the
+            // base of each of them with nothing but shaft on the other side - play saw it as the
+            // outside of the level showing through at the pit's ends.
+            //
+            // Stopping at the faces costs nothing the original note was protecting: the ledge it warns
+            // about would be a ledge you could stand on INSIDE the room, and this one is buried in the
+            // wall's own body where nobody can reach it or see it. The pit is still the full width of
+            // the space, and the tree is still the only way across.
+            Rect pitXZ = Rect.MinMaxRect(TreePitWestEdge, TreeHallSouthFace,
+                                         TreePitEastEdge, TreeHallNorthFace);
 
             BuildSlabRect(t, "Floor", -WallThickness / 2f, floorXZ, floorMat, pitXZ);
 
@@ -4412,13 +6923,24 @@ namespace IterationRoom.EditorTools
                 Vector3.right, Vector3.back, splitX, TreeHallEastFace, grooveMat, panelMat,
                 Rect.MinMaxRect(TreeHallEntranceX - DoorWidth / 2f, 0f,
                                 TreeHallEntranceX + DoorWidth / 2f, DoorHeight), TreeHallHeight);
+            // THE WEST SPAN IS SOLID NOW. It carried the way out onto room2-6, and 2026-08-19's
+            // second pass deleted that room along with the whole of leg 3 - the way on is the SLIDE,
+            // through the south wall and a storey down. A doorway onto nothing is worse than a wall:
+            // it is a promise the building cannot keep.
             BuildPanelWallSpan(t, "Wall_North_West", new Vector3(0f, 0f, TreeHallNorthFace),
                 Vector3.right, Vector3.back, TreeHallWestFace, splitX, grooveMat, panelMat,
-                Rect.MinMaxRect(TreeHallExitX - DoorWidth / 2f, 0f,
-                                TreeHallExitX + DoorWidth / 2f, DoorHeight), TreeHallHeight);
+                Rect.zero, TreeHallHeight);
 
-            BuildPanelWall(t, "Wall_South", new Vector3(centreX, 0f, TreeHallSouthFace),
-                Vector3.right, Vector3.forward, spanX, grooveMat, panelMat, Rect.zero, TreeHallHeight);
+            // THE SOUTH WALL CARRIES ONE OPENING - the slide's mouth at the west corner. It carried a
+            // second, the way back out of the room the slide lands in, until that room moved a storey
+            // down on 2026-08-19: a same-level doorway stopped making sense the moment the floor on
+            // the other side of it was no longer at this floor's height, so it is gone with the room
+            // move rather than repositioned. Back to one span until the exit is designed.
+            BuildPanelWallSpan(t, "Wall_South", new Vector3(0f, 0f, TreeHallSouthFace),
+                Vector3.right, Vector3.forward, TreeHallWestFace, TreeHallEastFace,
+                grooveMat, panelMat,
+                Rect.MinMaxRect(TreeHallWestFace, 0f, SlideMouthEast, SlideMouthHeight),
+                TreeHallHeight);
             BuildPanelWall(t, "Wall_East", new Vector3(TreeHallEastFace, 0f, 0f),
                 Vector3.forward, Vector3.left, TreeHallWidth, grooveMat, panelMat, Rect.zero, TreeHallHeight);
             BuildPanelWall(t, "Wall_West", new Vector3(TreeHallWestFace, 0f, 0f),
@@ -4503,25 +7025,20 @@ namespace IterationRoom.EditorTools
                 sizeOverride: new Vector3(spanX, TreeHallHeight, TreeHallWidth),
                 yCenter: TreeHallHeight * 0.5f);
 
-            // --- the way out ----------------------------------------------------------------------
-            // `BuildDoorShell` places a door at its parent's origin, so the parent moves rather than
-            // the door gaining an offset it has never needed.
-            GameObject exitHolder = new GameObject("Room2_TreeHall_Exit");
-            exitHolder.transform.SetParent(t, false);
-            exitHolder.transform.localPosition = new Vector3(TreeHallExitX, 0f, 0f);
-
-            Door exit = BuildPadDoor(exitHolder.transform, "Door2_3", TreeHallNorthFace - RoomDepth / 2f,
-                                     new FloorButton[0], propMat, yaw: 0f, wallHalfExtent: RoomDepth / 2f);
-            BuildDoorPocketFill(exitHolder.transform, "Pocket2_3", TreeHallNorthFace - RoomDepth / 2f,
-                                grooveMat, capFarSide: false,
-                                wallHalfExtent: RoomDepth / 2f, crossHalfWidth: RoomWidth / 2f, yaw: 0f);
-
             // --- what the tree opens, and the five axes ---------------------------------------------
+            //
+            // THE TREE NO LONGER OPENS A DOOR, AND STILL GATES THE ROOM. `Door2_3` used to hang on
+            // this condition in the north wall above; that wall is solid now (see the span above) and
+            // the way on is the slide, on the FAR ledge. The pit is what keeps it shut: the tree is
+            // the only bridge, so felling it is still the price of getting out of this room, and it is
+            // enforced by the hole in the floor rather than by a lock.
+            //
+            // `TreeFelled` is kept and still handed back as a `RoomCondition`, which is what rewinds it
+            // at the top of an iteration - and is what a door built here later would ask.
             GameObject felledGO = new GameObject("TreeFelled");
             felledGO.transform.SetParent(t, false);
             TreeFelled felled = felledGO.AddComponent<TreeFelled>();
             felled.trunk = trunk;
-            exit.condition = felled;
 
             // SCATTERED, AND TWO OF THEM KNOCKED OVER, for the reason the buckets are: five axes in a
             // row is equipment issued to the player, five lying about is a room somebody left in a
@@ -4537,7 +7054,73 @@ namespace IterationRoom.EditorTools
             BuildFireAxe(t, "FireAxe_3", new Vector3(-1.10f, 0f, 3.30f), yaw: 152f);
             BuildFireAxe(t, "FireAxe_4", new Vector3(-3.20f, 0f, -0.60f), yaw: -21f);
 
-            return (rootGO.transform, trunk, felled, exit);
+            // --- the far ledge, room2-5 ---------------------------------------------------------------
+            //
+            // ORDER MATTERS FOR EXACTLY ONE REASON: the ride's path is raycast off whatever is under
+            // it, and the last few metres of that path are the landing room's FLOOR. Build the room,
+            // then the slide, then measure the ride - anything else measures a hole.
+            (Transform poolRoom, Door poolDoor, PoolDrain poolDrain, Valve[] poolValves) =
+                BuildPoolRoom(rootGO.transform, floorMat, grooveMat, panelMat, propMat, fixtureMat);
+            (Transform weighRoom, WeighScale weighScale) =
+                BuildWeighRoom(rootGO.transform, floorMat, grooveMat, panelMat, propMat, fixtureMat);
+            // ROOM2-8, one further south again, so room2-7's door leads somewhere.
+            Transform emptyRoom = BuildEmptyRoom(rootGO.transform, "Room2_8",
+                new Vector3(SlideRoomCentreX, SlideRoomFloorY, SlideRoomCentreZ - 2f * RoomPitch),
+                floorMat, grooveMat, panelMat, fixtureMat, doorwayNorth: true);
+            BuildSeesaw(t);
+            BuildSlide(t);
+
+            // NO WAY BACK. The slide is one-way and the pool room's own door leads ON rather than
+            // back - see BuildPoolRoom. A player who rides down without solving it waits out the
+            // clock, which is what every room in this game does to somebody who is not finished.
+
+            return (rootGO.transform, trunk, felled, poolRoom, poolDoor, poolDrain, poolValves,
+                    weighRoom, weighScale, emptyRoom);
+        }
+
+        // ROOM2-5: THE SEESAW, and the only thing on the far ledge that IS scenery. A child's thing
+        // at full size in a building that has none of them, next to the slide it was placed beside.
+        //
+        // PLACED BY HAND AND READ BACK, like the slide - see SeesawLocalPosition. Note that it does
+        // NOT stand on the floor: the hand placement left it about half a metre up, and that is
+        // reproduced here as it was found rather than quietly corrected. Dropping it is one number.
+        private static void BuildSeesaw(Transform hall)
+        {
+            string path = PlayDir + "/seesaw.glb";
+            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (source == null)
+            {
+                Debug.LogWarning($"[SceneBuilder] {path} is missing - room2-5 loses its seesaw.");
+                return;
+            }
+
+            ShrinkModelTextures(path, 1024);
+
+            GameObject root = new GameObject("Room2_5_Seesaw");
+            root.transform.SetParent(hall, false);
+            root.transform.localPosition = SeesawLocalPosition;
+
+            GameObject model = (GameObject)PrefabUtility.InstantiatePrefab(source, root.transform);
+            model.name = "Seesaw";
+            model.transform.localPosition = Vector3.zero;
+            model.transform.localRotation = Quaternion.Euler(SeesawLocalEuler);
+            model.transform.localScale = Vector3.one * SeesawLocalScale;
+
+            // SOLID, for the reason the slide is: a seesaw you walk through is a poster. Mesh colliders
+            // on the parts as they are - the plank is held up by nothing at its ends, and convex would
+            // fill that in and turn the whole thing into one box.
+            int solid = 0;
+            foreach (MeshFilter mf in model.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf.sharedMesh == null) continue;
+                MeshCollider mc = mf.gameObject.AddComponent<MeshCollider>();
+                mc.sharedMesh = mf.sharedMesh;
+                solid++;
+            }
+
+            Debug.Log($"[SceneBuilder] Seesaw: scale {SeesawLocalScale:0.000} at "
+                    + $"x={SeesawLocalPosition.x:0.00}, z={SeesawLocalPosition.z:0.00}, "
+                    + $"{solid} solid part(s)");
         }
 
         // A wall between two points along its own axis, rather than one centred on its parent.
@@ -4646,7 +7229,6 @@ namespace IterationRoom.EditorTools
             // uncompressed texture, which is the stutter this room was reported to have - see
             // ShrinkModelTextures. 1024 is well past what a tree read at three metres needs.
             ShrinkModelTextures(assetPath, 1024);
-            ShrinkModelTextures($"{NatureDir}/tree_roots.glb", 1024);
             GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
             if (source == null)
             {
@@ -4802,10 +7384,15 @@ namespace IterationRoom.EditorTools
 
             // AND THE PAIR THAT ONLY EXISTS ONCE IT IS DOWN, carved to the deepest stage so the
             // severed faces match the notch that severed them.
-            // NO FELLED LOWER HALF ANY MORE - the root model above is what remains, and it is there
-            // the whole time rather than being switched in. Building one and hiding it would leave a
-            // second stump inside the first.
-            GameObject felledLower = null;
+            //
+            // BOTH HALVES ARE THE TREE'S OWN MESH AGAIN (2026-08-17, by request: "remove the roots,
+            // leave only the tree model"). A separate `tree_roots.glb` used to stand at the base as
+            // the thing left behind, which meant the room contained two different trees' geometry
+            // meeting at the floor. What remains after the cut is now the trunk the player has been
+            // chopping, carved by the same wedge that severed it - so the stump and the log are two
+            // halves of one object, which is what they are.
+            GameObject felledLower = BuildNotchStage(root.transform, stages.transform, stumpTrunk,
+                "Felled_Stump", westFace, maxDepth, TreeCutHeight, keepAbove: false, cutMat: barkCut);
             GameObject felledUpper = BuildNotchStage(root.transform, stages.transform, fallerTrunk,
                 "Felled_Faller", westFace, maxDepth, TreeCutHeight, keepAbove: true, cutMat: barkCut);
             felledUpper.transform.SetParent(pivotGO.transform, true);
@@ -4813,63 +7400,6 @@ namespace IterationRoom.EditorTools
             // Something solid to walk into while it stands. On the STUMP only - the faller is in the
             // air until it is not, and a collider swinging through the room during the fall would
             // shove the player.
-            // THE STUMP IS THE ROOT MODEL, not the bottom of the trunk mesh.
-            //
-            // What stays behind after the cut used to be the carved lower half of `realistic_tree`,
-            // which is a straight column ending in a flat flare - it read as a post somebody set in
-            // the floor, and the cut face on top of it read as a plank. `old_tree_stump` is a stump:
-            // it has the flare, the buttress roots and a broken top already, so the thing left in the
-            // room after the tree goes over looks like the thing a tree leaves behind.
-            //
-            // SIZED TO THE CUT: scaled so its top lands at `TreeCutHeight`, and wide enough to swallow
-            // the trunk's own base, so the standing tree appears to grow out of it. Everything is
-            // measured off the model rather than written down, so swapping the asset re-fits it.
-            GameObject rootsSource = AssetDatabase.LoadAssetAtPath<GameObject>($"{NatureDir}/tree_roots.glb");
-            if (rootsSource != null)
-            {
-                GameObject roots = (GameObject)PrefabUtility.InstantiatePrefab(rootsSource, root.transform);
-                roots.name = "Stump";
-                Bounds rb = ModelBounds(root.transform, roots);
-
-                // ITS WIDTH DECIDES THE SCALE, not its height. Fitting the height to the cut made it
-                // 2.94m across against a 1.21m trunk - a stump nearly three times the thickness of
-                // the tree standing on it, which reads as two unrelated objects. Thickness is the
-                // thing the eye checks, so thickness is what is matched: a little over the trunk's
-                // own, because a real stump flares where the roots leave it.
-                //
-                // The height then falls where it falls, and it is POSITIONED rather than stretched -
-                // its top set at the cut, with whatever is left going below the floor. Roots being
-                // underground is what roots do; a squashed stump is not.
-                float rootScale = (halfWidth * 2f * TreeStumpFlare)
-                                / Mathf.Max(0.001f, Mathf.Max(rb.size.x, rb.size.z));
-                roots.transform.localScale = Vector3.one * rootScale;
-                // SAT ON THE FLOOR, not hung from the cut. Matching the width fixes the height too -
-                // this stump comes out 0.80m tall at the thickness the trunk wants, and hanging its
-                // TOP at the 1.20m cut therefore left its base floating 0.40m in the air.
-                //
-                // The floor is at local +TreeSinkDepth, because the tree's own origin is sunk by that
-                // much. Its top then lands wherever it lands, below the cut, and the trunk carries on
-                // up through it - which is the right way round: this is a root ball the tree grows
-                // out of, not a plug filling the gap to the cut.
-                roots.transform.localPosition = new Vector3(
-                    -rb.center.x * rootScale,
-                    TreeSinkDepth - rb.min.y * rootScale,
-                    -rb.center.z * rootScale);
-
-                float spread = Mathf.Max(rb.size.x, rb.size.z) * rootScale;
-                float top = TreeSinkDepth + rb.size.y * rootScale;
-                Debug.Log($"[SceneBuilder] Tree stump: scale {rootScale:0.000}, {spread:0.00}m across "
-                        + $"against a {halfWidth * 2f:0.00}m trunk, standing on the floor and reaching "
-                        + $"{top:0.00}m of the {TreeCutHeight:0.00}m cut");
-                if (spread < halfWidth * 2f)
-                    Debug.LogWarning("[SceneBuilder] the stump is narrower than the trunk it replaces - "
-                                   + "the trunk's own base will show through it.");
-            }
-            else
-            {
-                Debug.LogWarning($"[SceneBuilder] {NatureDir}/tree_roots.glb is missing - the tree has no stump.");
-            }
-
             GameObject stumpSolid = new GameObject("StumpBlocker");
             stumpSolid.transform.SetParent(root.transform, false);
             stumpSolid.transform.localPosition = new Vector3(0f, TreeCutHeight / 2f, 0f);
@@ -4985,7 +7515,11 @@ namespace IterationRoom.EditorTools
             // wall of time it always was with fewer of them landing - the count comes down by ten to
             // hold the room where it was. It is still out of one player's reach inside sixty seconds
             // and still comfortable for five pairs of hands, which is the only thing it has to be.
-            trunk.chopsToFell = 30;
+            // TWENTY, down from twenty-five and forty before that (2026-08-19, by request). The
+            // number only has to be well past what one pair of hands fits into a minute, which twenty
+            // still is; past that, more of them is more waiting rather than more accumulation.
+            // `TreeNotchStages` is unchanged at 8, so the notch deepens faster per swing.
+            trunk.chopsToFell = 20;
             // WHAT IS SHOWN WHEN, and it is three states rather than two. `wholeTrunk` is the
             // untouched trunk before any chop has landed; `notchStages` are the bitten-but-unbroken
             // trunk while it is being cut; `felledLower`/`felledUpper` are the severed pair, and they
@@ -5259,8 +7793,8 @@ namespace IterationRoom.EditorTools
         // ItemRegistry on an id naming a SUPPLY. Each axe still obeys the one-object rule and
         // returns to its own origin; what is forbidden is two holders of one axe, never five axes
         // of one id.
-        private static void BuildFireAxe(Transform parent, string name, Vector3 localPosition,
-                                         float yaw)
+        private static CarryableItem BuildFireAxe(Transform parent, string name, Vector3 localPosition,
+                                                  float yaw)
         {
             // A real fire axe. The model is already authored at 0.817m, so this is barely a
             // correction - but it is here rather than assumed, because a different axe would need it.
@@ -5307,25 +7841,74 @@ namespace IterationRoom.EditorTools
             item.restsUpright = true;
             item.audioSource = MakeSource(root.transform, "PickupAudio", 1f, 0.85f);
             item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+            MakeWeighable(item, WeightAxe);
 
             root.transform.localPosition = localPosition;
             root.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+            return item;
         }
 
+        // AN AXE, AND THE POINT IS THAT IT IS NOT A HAMMER.
+        //
+        // Two things separate the shapes at icon size, and neither is detail:
+        //   - **SYMMETRY.** A hammer's head sits centred on its haft; an axe's hangs off ONE SIDE.
+        //   - **THE EDGE IS A CURVE.** A blade is a crescent - convex where it cuts, and swept back
+        //     to a point at each end. A straight-ended block is a mallet however it is attached.
+        //
+        // Built in the AXE'S OWN FRAME - `along` up the haft, `side` across it - so the shape is
+        // described once and the 45-degree lie of it is a rotation applied to the samples. The first
+        // version stacked rectangles to fake the flare, which is what left it reading as a block.
         private static Sprite AxeIcon()
         {
             var icon = new IconCanvas(128);
-            Vector2 along = new Vector2(0.7071f, 0.7071f);
             Vector2 mid = new Vector2(0.5f, 0.5f);
-            System.Func<float, Vector2> at = t => mid + along * t;
+            const float turn = 45f * Mathf.Deg2Rad;
+            float cos = Mathf.Cos(turn), sin = Mathf.Sin(turn);
 
-            // Haft, then a head wide enough to read at 58px - the size every one of these is
-            // actually shown at, which is why none of them is drawn to scale.
-            icon.Bar(at(-0.08f), new Vector2(0.055f, 0.30f), -45f);
-            icon.Bar(at(0.255f), new Vector2(0.20f, 0.115f), -45f);
-            icon.Disc(at(-0.34f), 0.055f);
+            // World point -> axe frame. x is across the haft (the blade hangs at +x), y is up it.
+            System.Func<Vector2, Vector2> local = pt =>
+            {
+                Vector2 d = pt - mid;
+                return new Vector2(d.x * cos + d.y * sin, -d.x * sin + d.y * cos);
+            };
+            // ...and back, for placing things by hand in the axe's own terms.
+            System.Func<float, float, Vector2> world = (x, y) =>
+                mid + new Vector2(x * cos - y * sin, x * sin + y * cos);
+
+            // THE HAFT, with a swell at the butt - the knob that stops a hand sliding off is most of
+            // what says "handle" at this size.
+            icon.Capsule(world(0f, -0.375f), world(0f, 0.255f), 0.042f);
+            icon.Disc(world(0f, -0.395f), 0.062f);
+
+            // THE HEAD. Everything to one side of the haft:
+            //   - the EYE, the block the haft passes through, squared off;
+            //   - the BIT, flaring out and ending in a convex edge struck from a centre well behind
+            //     it, which is what gives the curve its shallow, weapon-like sweep;
+            //   - the BEARD, a bite taken out under the bit where a real axe is cut away.
+            icon.Shape(pt =>
+            {
+                Vector2 l = local(pt);
+                if (l.x < -0.055f) return false;
+
+                // The eye: a short block around the haft.
+                bool eye = l.x <= 0.075f && l.y >= 0.115f && l.y <= 0.315f;
+
+                // The bit: half-height grows with reach, so it flares.
+                float reach = Mathf.InverseLerp(0.055f, 0.315f, l.x);
+                float half = Mathf.Lerp(0.105f, 0.185f, reach);
+                bool bit = l.x >= 0.055f
+                        && Mathf.Abs(l.y - 0.215f) <= half
+                        // The cutting edge, convex: struck from a long way back so the arc is shallow.
+                        && (l - new Vector2(-0.42f, 0.215f)).sqrMagnitude <= 0.735f * 0.735f;
+
+                return eye || bit;
+            });
+
+            // The beard, cut out: the underside of the bit is hollowed where it meets the haft.
+            icon.Disc(world(0.105f, 0.010f), 0.115f, -1f);
             return SaveSprite(icon, "icon_axe");
         }
+
 
         // THE MACHINE THE RING IS BUILT AROUND.
         //
@@ -5430,22 +8013,24 @@ namespace IterationRoom.EditorTools
             // r2's, and a hall joining both had to step between the two - the step the soffit covered.
             // Putting r6 on the SAME Z as r2 lets one straight wall carry both openings, and a corner
             // room is free to sit wherever its own door needs it to.
+            // LEG 3 IS GONE, 2026-08-19 by request: the old room2-6, room2-7 and room2-0 are deleted
+            // and the SLIDE'S LANDING ROOM is room2-6 now, with the weighing room behind it as room2-7
+            // and an empty shell as room2-8. The walk is room2-1, room2-2, the tree hall - and then
+            // down the chute into the pool, which is a way on that no door provides.
+            //
+            // The two numbers survive because the CORE is still measured off them (below): the shaft
+            // in the middle is placed by the four legs' inner faces, and leg 3's is still where the
+            // building's west side is even with no rooms standing on it.
             float legThreeX = -CornerPitch - RoomPitch;
             float legThreeZ = ringZ - RoomPitch;                 // 43.4, level with r2
-            Transform r6 = BuildRingRoom(root.transform, "Room2_6", legThreeX, legThreeZ, 180f,
-                floorMat, grooveMat, panelMat, doorway, doorway, Rect.zero);
-            Transform r7 = BuildRingRoom(root.transform, "Room2_7", legThreeX, legThreeZ + RoomPitch, 180f,
-                floorMat, grooveMat, panelMat, Rect.zero, doorway, doorway);
 
-            Transform r0 = BuildRingRoom(root.transform, "Room2_0", legThreeX + CornerPitch,
-                legThreeZ + RoomPitch, 270f,
-                floorMat, grooveMat, panelMat, Rect.zero, doorway, Rect.zero);
-
-            // FIVE SHELLS AND A HALL. The hall is not in this list because it is not a shell - it
-            // builds its own floor, walls, lights and probes at two different ceiling heights, so
-            // the per-room loop below would be wrong for it in every one of those.
-            var rooms = new[] { r1, r2, r6, r7, r0 };
-            var names = new[] { "Room2_1", "Room2_2", "Room2_6", "Room2_7", "Room2_0" };
+            // TWO SHELLS AND A HALL. The hall is not in this list because it is not a shell - it
+            // builds its own floor, walls, lights and probes at two different ceiling heights - and
+            // neither are room2-6, room2-7 and room2-8, which are built with the hall (the slide has
+            // to be measured against room2-6's floor) and light and probe themselves for the same
+            // reason.
+            var rooms = new[] { r1, r2 };
+            var names = new[] { "Room2_1", "Room2_2" };
 
             // THE WINDOWS ARE GONE, with the puzzles that looked through them. They were built as
             // translucent panes at 0.94 smoothness, and in a lit white room that reads as a MIRROR
@@ -5472,12 +8057,9 @@ namespace IterationRoom.EditorTools
             // the hall absorbed; two of those joins no longer exist and the third - the way out onto
             // r6 - is built by `BuildTreeHall` itself, in the same wall at the same x, because the
             // door has to be positioned along a 21m wall rather than at a room's centre.
-            var ringDoors = new Door[4];
+            var ringDoors = new Door[2];
             ringDoors[0] = BuildPadDoor(r1, "Door2_1", 0f, new FloorButton[0], propMat, yaw: 180f);
             ringDoors[1] = BuildPadDoor(r2, "Door2_2", 0f, new FloorButton[0], propMat, yaw: 180f);
-            ringDoors[2] = BuildPadDoor(r6, "Door2_6", 0f, new FloorButton[0], propMat, yaw: 180f);
-            ringDoors[3] = BuildPadDoor(r7, "Door2_7", 0f, new FloorButton[0], propMat, yaw: 270f,
-                                    wallHalfExtent: RoomWidth / 2f);
 
             // EVERY DOOR WHOSE ROOM HAS NO PUZZLE YET STANDS OPEN, and this flag is the to-do list kept
             // in the scene - it comes off as each room is designed. Door2_1 is the one that has come
@@ -5488,14 +8070,15 @@ namespace IterationRoom.EditorTools
             // and cycle 2 dead-ends at room2-2. That is the right default for a MIS-WIRED door and the
             // wrong one for a door whose room simply has not been built, which is exactly why the two
             // are different facts and this one is said out loud.
-            for (int i = 1; i < ringDoors.Length; i++) ringDoors[i].openUntilPuzzled = true;
+            // BOTH DOORS THE RING STILL HAS HANG ON A PUZZLE, so nothing is flagged here any more -
+            // Door2_1 on the four switches, Door2_2 on the tank, both set below. The flag stays in
+            // `Door` because it is the to-do list kept in the scene and the next unfinished room will
+            // want it again.
+            ringDoors[1].openUntilPuzzled = true;
 
             // One pocket per join, all uncapped: every one has a room through it.
             BuildDoorPocketFill(r1, "Pocket2_1", 0f, grooveMat, capFarSide: false, yaw: 180f);
             BuildDoorPocketFill(r2, "Pocket2_2", 0f, grooveMat, capFarSide: false, yaw: 180f);
-            BuildDoorPocketFill(r6, "Pocket2_6", 0f, grooveMat, capFarSide: false, yaw: 180f);
-            BuildDoorPocketFill(r7, "Pocket2_7", 0f, grooveMat, capFarSide: false,
-                                wallHalfExtent: RoomWidth / 2f, crossHalfWidth: RoomDepth / 2f, yaw: 270f);
 
             Material fixtureMat = MakeEmissiveMaterial("CeilingFixtureCycle2", Color.white, 3.5f);
             Light[] room1Lights = null;
@@ -5510,7 +8093,9 @@ namespace IterationRoom.EditorTools
 
             // THE TREE HALL, on this leg where r3, r4 and r5 used to be. It lights and probes itself
             // - see BuildTreeHall - which is why it sits outside the loop above rather than in it.
-            (Transform hall, TreeTrunk treeTrunk, TreeFelled treeFelled, Door hallExit) =
+            (Transform hall, TreeTrunk treeTrunk, TreeFelled treeFelled,
+             Transform poolRoom, Door poolDoor, PoolDrain poolDrain, Valve[] poolValves,
+             Transform weighRoom, WeighScale weighScale, Transform emptyRoom) =
                 BuildTreeHall(root.transform, legTwoZ, floorMat, grooveMat, panelMat, propMat,
                               fixtureMat);
 
@@ -5654,11 +8239,13 @@ namespace IterationRoom.EditorTools
             AssertWalkable(rooms[0], "room2-1 south door", sIn, sOut);
             AssertWalkable(rooms[1], "room2-2 north door", nIn, nOut);
             AssertWalkable(rooms[1], "room2-2 south door", sIn, sOut);
-            AssertWalkable(rooms[2], "room2-6 north door", nIn, nOut);
-            AssertWalkable(rooms[2], "room2-6 south door", sIn, sOut);
-            AssertWalkable(rooms[3], "room2-7 north door", nIn, nOut);
-            AssertWalkable(rooms[3], "room2-7 west door", wIn, wOut);
-            AssertWalkable(rooms[4], "room2-0 north door", nIn, nOut);
+            // ROOM2-6 IS ENTERED BY FALLING INTO IT, so there is no approach to walk. What is checked
+            // instead is the way OUT: from the middle of the pool to its door, which is the walk the
+            // drain has to leave possible.
+            AssertWalkable(poolRoom, "room2-6 south door", sIn, sOut);
+            AssertWalkable(weighRoom, "room2-7 north door", nIn, nOut);
+            AssertWalkable(weighRoom, "room2-7 south door", sIn, sOut);
+            AssertWalkable(emptyRoom, "room2-8 north door", nIn, nOut);
 
             // THE HALL'S OWN CHECKS, in its own frame rather than a room's: both openings are in
             // the north wall now, one at x=0 and one at x=-20.825, twenty metres apart.
@@ -5711,6 +8298,11 @@ namespace IterationRoom.EditorTools
             // bit says only that, and whether the swing lands is asked of that ghost's own hands at
             // replay (TreeTrunk.SetGhostSignal). Five simultaneous axes cost one bit, not five.
             if (treeTrunk != null) cycleTwoSignalList.Add(treeTrunk);
+            // ROOM2-6'S THREE VALVES, at 12, 13 and 14. One bit each rather than one for the room,
+            // because they are three separate things a past self can be doing - and the whole design
+            // of that room is that six turns is more than one pair of hands fits in a minute, so a
+            // ghost standing at the far wheel IS the solution. Appended, like everything else here.
+            if (poolValves != null) cycleTwoSignalList.AddRange(poolValves);
 
             // The hall's exit joins the ring's four here rather than being wired separately: `Cycle`
             // shuts every door it is handed at the top of an iteration, and one left out of the list
@@ -5720,11 +8312,28 @@ namespace IterationRoom.EditorTools
             // `BuildFinalRoom` seals at the break. Appending the hall's exit on the end instead would
             // have been silently wrong there, and it is not the kind of wrong that shows up until
             // somebody finishes the cycle.
-            var doors = new[] { ringDoors[0], ringDoors[1], hallExit, ringDoors[2], ringDoors[3] };
+            // ROOM2-7'S DOOR, ONTO ROOM2-8. **NOT capped** - there is a room through it, and
+            // `capFarSide` puts a solid wall across the pocket, which is exactly how room2-7 came to
+            // be invisible behind room2-6's door for a build. The flag is a statement about where the
+            // WALK ENDS, and the walk ends at room2-8 now.
+            Door weighDoor = BuildPadDoor(weighRoom, "Door2_7", 0f, new FloorButton[0], propMat,
+                                          yaw: 180f);
+            weighDoor.condition = weighScale;
+            BuildDoorPocketFill(weighRoom, "Pocket2_7", 0f, grooveMat, capFarSide: false, yaw: 180f);
+
+            // FOUR DOORS. The hall's own exit is gone with leg 3 - the tree opens no door, it opens
+            // the only bridge across the pit (see BuildTreeHall) - and room2-7's is the last, which is
+            // the one a final room would seal if this cycle had one.
+            var doors = new[] { ringDoors[0], ringDoors[1], poolDoor, weighDoor };
+
+            // AND THE NEW ROOMS ARE IN THE ROOM LIST, appended rather than built into it: the loop
+            // above lights and probes the shells, and these three did both for themselves when the
+            // hall built them.
+            var allRooms = new[] { r1, r2, poolRoom, weighRoom, emptyRoom };
 
             return (root.transform, spawn, gas, doors,
-                    new RoomCondition[] { allLightsOn, tank, treeFelled },
-                    cycleTwoSignalList.ToArray(), rooms);
+                    new RoomCondition[] { allLightsOn, tank, treeFelled, poolDrain, weighScale },
+                    cycleTwoSignalList.ToArray(), allRooms);
         }
 
         // WHAT A RETRACTED PLINTH RETRACTS INTO.
@@ -7883,10 +10492,42 @@ namespace IterationRoom.EditorTools
             return SaveSprite(icon, "icon_key_sphere");
         }
 
+        // A SQUARE THAT READS AS A CUBE. It was a plain filled square, which names a shape rather
+        // than an object - and the thing it labels is a cube.
+        //
+        // The lines are CUT OUT rather than drawn on: these icons are a single colour with an alpha
+        // mask, so there is no second colour to draw with, and a hole is the only mark available. It
+        // shows through as whatever is behind - the pale HUD disc, the wall - which is the white line
+        // asked for.
+        //
+        // Two lines from the top-left corner, one across and one down, which is the minimum that
+        // makes a square read as a box seen corner-on: they separate a top face and a side face from
+        // the front one without changing the silhouette.
         private static Sprite SquareIcon()
         {
             var icon = new IconCanvas(128);
-            icon.Bar(new Vector2(0.5f, 0.5f), new Vector2(0.30f, 0.30f));
+            Vector2 mid = new Vector2(0.5f, 0.5f);
+            const float half = 0.300f;
+            const float inset = 0.105f;      // how deep the two implied faces are
+            const float line = 0.021f;
+
+            icon.Bar(mid, new Vector2(half, half));
+
+            // The top face's lower edge: across, stopping short of the right side so it meets the
+            // other line's corner rather than cutting the square in two.
+            icon.Bar(mid + new Vector2(inset / 2f, half - inset),
+                     new Vector2(half - inset / 2f, line), 0f, -1f);
+            // The side face's inner edge: down from that corner.
+            icon.Bar(mid + new Vector2(-half + inset, -inset / 2f),
+                     new Vector2(line, half - inset / 2f), 0f, -1f);
+            // And the short diagonal at the corner where the two faces meet, which is what tells the
+            // eye they are receding rather than being panels painted on a flat square.
+            for (int i = 0; i < 7; i++)
+            {
+                float t = i / 6f;
+                icon.Bar(mid + new Vector2(-half + inset * (1f - t), half - inset * (1f - t)),
+                         new Vector2(line, line), 0f, -1f);
+            }
             return SaveSprite(icon, "icon_key_square");
         }
 
@@ -8145,6 +10786,8 @@ namespace IterationRoom.EditorTools
             item.handLocalScale = Vector3.one;
             item.audioSource = MakeSource(root.transform, "PickupAudio", 1f, 0.85f);
             item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+            // The heaviest thing one hand can carry to room2-7, and the only one of its kind.
+            MakeWeighable(item, WeightCube);
         }
 
         private static (Drawer, CarryableItem[]) BuildNightstand(Transform parent, string pinItemId = ToolItemId)
@@ -9041,6 +11684,19 @@ namespace IterationRoom.EditorTools
                 LoadClip(SfxDir, "sfx_footstep_2"),
                 LoadClip(SfxDir, "sfx_footstep_3"),
             };
+            // AND THE SAME THREE FOR WATER, swapped in while the player is in room2-5's pool. Generated
+            // rather than sourced, like the chop - see MakeWadeClip for why a splash clip and a
+            // footstep clip are both the wrong sound for this.
+            //
+            // ON THE PLAYER, so it is built by `Build` and NOT by `RebuildCycleTwo`: a cycle rebuilt on
+            // its own gets the pool without the sound of walking in it, and the fallback in `Footstep`
+            // is what makes that quiet rather than silent. Same standing hazard as the door audio.
+            fpc.wadeClips = new[]
+            {
+                MakeWadeClip("sfx_wade_1", 20260819),
+                MakeWadeClip("sfx_wade_2", 20260820),
+                MakeWadeClip("sfx_wade_3", 20260821),
+            };
 
             PlayerRecorder recorder = player.AddComponent<PlayerRecorder>();
             recorder.interactables = ghostInteractables;
@@ -9616,6 +12272,190 @@ namespace IterationRoom.EditorTools
             return AssetDatabase.LoadAssetAtPath<AudioClip>(path);
         }
 
+        // A STEP THROUGH WAIST-DEEP WATER, generated like every other clip in this project.
+        //
+        // IT IS NOT A SPLASH AND IT IS NOT A FOOTSTEP, which is the whole reason it exists rather than
+        // reusing either. `sfx_water_splash_*` is water hitting something from above - a hard front and
+        // a bright scatter - and a footstep is a transient off a hard floor. Neither is what a leg
+        // pushed through a body of water sounds like:
+        //
+        //  - **There is no transient.** Water is heavy and slow, so the sound SWELLS over ~50ms rather
+        //    than starting. A sharp attack is the single thing that makes a water sound read as a
+        //    sample of a water sound.
+        //  - **Most of it is low.** The body is the mass being shoved sideways, a couple of hundred
+        //    hertz and below, and it is what makes the water sound DEEP rather than shallow.
+        //  - **The top is bubbles, and it comes AFTER.** Air dragged under surfaces behind the push
+        //    and breaks up, so the fizz is delayed and decays on its own, faster, clock.
+        //
+        // Three of them, seeded differently, for the reason the three footsteps exist: consecutive
+        // identical steps read as a sample player rather than as a person walking.
+        private static AudioClip MakeWadeClip(string assetName, int seed, float seconds = 0.62f,
+                                              float decay = 5.2f, float fizzLevel = 0.42f,
+                                              float lowWeight = 2.6f)
+        {
+            string path = $"{SfxDir}/{assetName}.wav";
+            AudioClip existing = AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+            if (existing != null) return existing;
+
+            const int rate = 44100;
+            int count = (int)(rate * seconds);
+            float[] data = new float[count];
+
+            var rng = new System.Random(seed);
+            float low = 0f, mid = 0f, high = 0f;
+            // Where the bubbles start, which is after the push - and not the same place twice.
+            float fizzDelay = 0.045f + (float)rng.NextDouble() * 0.05f;
+            float peak = 0f;
+
+            for (int i = 0; i < count; i++)
+            {
+                float t = i / (float)rate;
+                float raw = (float)(rng.NextDouble() * 2.0 - 1.0);
+
+                // Three one-pole filters off one noise source, which is how one sound ends up with a
+                // bottom, a middle and a top that move together rather than three layers that do not.
+                low += (raw - low) * 0.035f;
+                mid += (raw - mid) * 0.20f;
+                high += (raw - high) * 0.65f;
+
+                // THE PUSH. Soft in, long out - and the tail is longer than the body because water
+                // keeps moving after the leg has stopped.
+                float swell = (1f - Mathf.Exp(-t * 26f)) * Mathf.Exp(-t * decay);
+                float body = (low * lowWeight + mid * 0.9f) * swell;
+
+                // THE BUBBLES, delayed and on their own decay, and gated so they only exist while
+                // there is air still coming up.
+                float ft = t - fizzDelay;
+                float fizz = 0f;
+                if (ft > 0f)
+                {
+                    // Modulated, because bubbles are individual events rather than a hiss - two slow
+                    // waves are enough to break it into a texture.
+                    float grain = 0.55f + 0.45f * Mathf.Sin(2f * Mathf.PI * 23f * ft)
+                                              * Mathf.Sin(2f * Mathf.PI * 7.3f * ft + seed);
+                    fizz = (raw - high) * Mathf.Exp(-ft * 11f) * fizzLevel * grain;
+                }
+
+                // A 3ms fade in, so sample zero is not a click of its own.
+                data[i] = (body + fizz) * Mathf.Clamp01(t / 0.003f);
+                peak = Mathf.Max(peak, Mathf.Abs(data[i]));
+            }
+
+            // NORMALISED rather than hand-balanced. The three layers are noise, so their sum's level
+            // depends on the seed - without this the three clips come out at three volumes and the
+            // walk has a limp.
+            float gain = peak > 0.0001f ? 0.86f / peak : 1f;
+            for (int i = 0; i < count; i++) data[i] = Mathf.Clamp(data[i] * gain, -1f, 1f);
+
+            WriteWav(path, data, rate);
+            AssetDatabase.ImportAsset(path);
+            return AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+        }
+
+        // A HANDWHEEL BEING WOUND ROUND. Generated like every other clip here.
+        //
+        // Three things, and the second is the one that makes it a valve rather than a machine:
+        //  - a low GRIND, filtered noise with a slow tremolo on it, which is the thread turning under
+        //    load. It runs the whole length of the turn and is most of the volume;
+        //  - a SQUEAK that RISES then FALLS, two detuned partials with vibrato. Metal complaining
+        //    changes pitch as the load on it changes, and a steady tone reads as an electric motor;
+        //  - CLICKS, one per twelfth of a turn, so the wheel has teeth and you can hear how far round
+        //    it has gone with your eyes elsewhere. That last part is the load-bearing one: this room
+        //    is solved by past selves turning wheels behind you.
+        //
+        // Its length is the valve's turn duration - `Valve.turnDuration` - because a sound that ends
+        // before the animation does says the wheel stopped when it did not.
+        private static AudioClip MakeValveTurnClip(string assetName)
+        {
+            string path = $"{SfxDir}/{assetName}.wav";
+            AudioClip existing = AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+            if (existing != null) return existing;
+
+            const int rate = 44100;
+            const float seconds = 1.4f;
+            int count = (int)(rate * seconds);
+            float[] data = new float[count];
+
+            var rng = new System.Random(20260824);
+            float low = 0f, mid = 0f;
+            float peak = 0f;
+
+            for (int i = 0; i < count; i++)
+            {
+                float t = i / (float)rate;
+                float u = t / seconds;
+                // In and out over the first and last tenth, so neither end is a cut.
+                float env = Mathf.Min(1f, u / 0.1f) * Mathf.Min(1f, (1f - u) / 0.12f);
+
+                float raw = (float)(rng.NextDouble() * 2.0 - 1.0);
+                low += (raw - low) * 0.06f;
+                mid += (raw - mid) * 0.30f;
+                // The tremolo is what makes the grind mechanical rather than a hiss.
+                float grind = (low * 2.2f + mid * 0.5f) * (0.65f + 0.35f * Mathf.Sin(2f * Mathf.PI * 11f * t));
+
+                // The squeak: up over the first half, down over the second, with vibrato on top.
+                float bend = Mathf.Sin(Mathf.PI * u);
+                float freq = Mathf.Lerp(430f, 690f, bend) + Mathf.Sin(2f * Mathf.PI * 6.5f * t) * 18f;
+                float squeal = (Mathf.Sin(2f * Mathf.PI * freq * t)
+                              + Mathf.Sin(2f * Mathf.PI * freq * 1.51f * t) * 0.45f) * 0.13f * bend;
+
+                // Teeth. A short decaying tick every twelfth of a turn.
+                const int teeth = 12;
+                float toothPhase = (t * teeth / seconds) % 1f;
+                float click = Mathf.Exp(-toothPhase * 60f) * 0.22f * (float)(rng.NextDouble() * 0.6 + 0.7);
+
+                data[i] = (grind + squeal + click) * env;
+                peak = Mathf.Max(peak, Mathf.Abs(data[i]));
+            }
+
+            float gain = peak > 0.0001f ? 0.82f / peak : 1f;
+            for (int i = 0; i < count; i++) data[i] = Mathf.Clamp(data[i] * gain, -1f, 1f);
+
+            WriteWav(path, data, rate);
+            AssetDatabase.ImportAsset(path);
+            return AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+        }
+
+        // THE VALVE REACHING ITS STOP. A short, hard, metallic clank - this is the sound that says
+        // "this one is finished", and it is the only feedback a player gets that a wheel is done other
+        // than E going quiet on it.
+        private static AudioClip MakeValveStopClip(string assetName)
+        {
+            string path = $"{SfxDir}/{assetName}.wav";
+            AudioClip existing = AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+            if (existing != null) return existing;
+
+            const int rate = 44100;
+            const float seconds = 0.5f;
+            int count = (int)(rate * seconds);
+            float[] data = new float[count];
+
+            var rng = new System.Random(20260825);
+            float noise = 0f;
+
+            for (int i = 0; i < count; i++)
+            {
+                float t = i / (float)rate;
+
+                // The impact: a fast noise burst, low-passed just enough not to be a hiss.
+                float raw = (float)(rng.NextDouble() * 2.0 - 1.0);
+                noise += (raw - noise) * 0.55f;
+                float hit = noise * Mathf.Exp(-t * 95f) * 0.7f;
+
+                // And the ring, three INHARMONIC partials - a struck metal object has no harmonic
+                // series, and giving it one is what makes a clank read as a musical note.
+                float ring = (Mathf.Sin(2f * Mathf.PI * 320f * t) * 0.5f
+                            + Mathf.Sin(2f * Mathf.PI * 741f * t) * 0.32f
+                            + Mathf.Sin(2f * Mathf.PI * 1483f * t) * 0.16f) * Mathf.Exp(-t * 13f) * 0.5f;
+
+                data[i] = Mathf.Clamp(hit + ring, -1f, 1f) * Mathf.Clamp01(t / 0.001f);
+            }
+
+            WriteWav(path, data, rate);
+            AssetDatabase.ImportAsset(path);
+            return AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+        }
+
         // 16-bit mono PCM. Unity can author an AudioClip in memory but cannot SAVE one, and a clip
         // that exists only in memory does not survive the scene being written - the same trap the
         // reflection probes fell into.
@@ -9646,7 +12486,8 @@ namespace IterationRoom.EditorTools
         // SHRINKS THE TEXTURES OF AN IMPORTED MODEL, in place, by rewriting them as real assets.
         //
         // WHY THIS EXISTS. `realistic_tree.glb` ships four 4096x4096 textures and glTFast imports
-        // them UNCOMPRESSED: 628MB of VRAM for one tree, measured. `tree_roots.glb` adds 17MB more.
+        // them UNCOMPRESSED: 628MB of VRAM for one tree, measured. (`tree_roots.glb` added 17MB more
+        // while the hall had a separate stump model; it does not any longer - the tree keeps its own.)
         // That is the stutter play reported, and it is not the polygon count it looks like - the
         // roots are 1.3M triangles, which is a lot, but a modern GPU eats triangles and chokes on
         // two thirds of a gigabyte of texture.
@@ -10792,6 +13633,92 @@ namespace IterationRoom.EditorTools
         // NORMALISED TO A UNIT BOUNDING BOX like the prism it generalises, so a localScale of 0.30
         // still means 0.30 ACROSS for every one of the three. The barrel ring is the widest part, so
         // it is the ring the bounds are taken from.
+        // EVERY BIT A GHOST WILL EVER READ, CHECKED AT BUILD TIME.
+        //
+        // `RecordedFrame.signals` is one `uint`, so an interactable's index IS its bit and there are
+        // 32 of them. `PlayerRecorder.SampleSignals` clamps to that width and DROPS the rest, which
+        // is the correct thing for it to do at runtime and a terrible way to find out: the 33rd
+        // fixture simply never records, the ghosts never operate it, and nothing about the room it is
+        // in looks wrong. Said here instead, where the array is known exactly and a build log is
+        // already being read.
+        //
+        // Two more faults are the same shape and cost nothing to catch alongside it. A NULL entry is
+        // a bit that can never be set - usually a builder that returned null because its object was
+        // not built - and it silently shifts nothing, so it is a wasted bit rather than a corruption.
+        // A DUPLICATE entry is worse: one fixture on two bits, where the second bit's rising edge
+        // fires a second time on a ghost that only ever did the thing once.
+        private static void CheckGhostSignals(string cycleName, GhostInteractable[] signals)
+        {
+            if (signals == null) return;
+
+            if (signals.Length > 32)
+            {
+                Debug.LogError($"[SceneBuilder] {cycleName} wires {signals.Length} ghost interactables, "
+                    + "and RecordedFrame.signals is a uint - 32 is the hard cap. Everything from index "
+                    + $"32 on ({signals[32]?.name ?? "null"} first) is dropped by "
+                    + "PlayerRecorder.SampleSignals and will never be replayed by a ghost. Widen the "
+                    + "mask to a ulong (RecordedFrame, PlayerRecorder, GhostReplayer) or spend fewer "
+                    + "bits - see CLAUDE.md 1.6.");
+            }
+
+            for (int i = 0; i < signals.Length; i++)
+            {
+                if (signals[i] == null)
+                {
+                    Debug.LogError($"[SceneBuilder] {cycleName} ghost interactable {i} is NULL - "
+                        + "that bit can never be set, and every entry after it is one a ghost will "
+                        + "read but nothing will ever write.");
+                    continue;
+                }
+
+                for (int j = i + 1; j < signals.Length; j++)
+                {
+                    if (signals[j] != signals[i]) continue;
+                    Debug.LogError($"[SceneBuilder] {cycleName} wires '{signals[i].name}' at both bit "
+                        + $"{i} and bit {j}. One fixture on two bits fires its rising edge twice.");
+                }
+            }
+        }
+
+        // CAN THIS CYCLE ACTUALLY BE FINISHED? Asked as a build error, for the same reason
+        // `CheckGhostSignals` is: the failure is silent and the build log is already being read.
+        //
+        // A cycle ends by putting the objects its console asks for into that console, and the console
+        // asks by ID. Nothing checks that an object wearing that id exists - `FinalSlot` registers as
+        // a socket for it, `ItemRegistry` happily holds a socket with no supply, and the room simply
+        // waits forever. Cycle 2 is in exactly that state as this is written: its console declares
+        // three shards, `BuildRingShard` is never called, and the only way to discover that is to walk
+        // the whole cycle carrying nothing.
+        //
+        // Scoped to the cycle's own root, because an id is only reachable from inside the cycle that
+        // holds it - one cycle is awake at a time, and a carryable in a sleeping one is unregistered.
+        private static void CheckCycleFinishable(string cycleName, Transform cycleRoot,
+                                                 FinalRoomSequence final)
+        {
+            if (cycleRoot == null || final == null || final.slots == null) return;
+
+            var ids = new System.Collections.Generic.HashSet<string>();
+            foreach (CarryableItem item in cycleRoot.GetComponentsInChildren<CarryableItem>(true))
+                if (item != null && !string.IsNullOrEmpty(item.itemId)) ids.Add(item.itemId);
+
+            int declared = 0;
+            foreach (FinalSlot slot in final.slots)
+            {
+                if (slot == null || !slot.Declared) continue;
+                declared++;
+                if (ids.Contains(slot.AcceptedItemId)) continue;
+
+                Debug.LogError($"[SceneBuilder] {cycleName}'s console declares a slot for "
+                    + $"'{slot.AcceptedItemId}' and NOTHING IN THE CYCLE WEARS THAT ID. The cycle "
+                    + "cannot be finished: the slot waits for an object that does not exist, and the "
+                    + "only symptom is a player walking the whole cycle finding nothing to carry.");
+            }
+
+            if (declared == 0)
+                Debug.LogWarning($"[SceneBuilder] {cycleName}'s console declares no slots at all, so "
+                    + "nothing can complete it. That is correct only for a cycle still being designed.");
+        }
+
         // CAN THE PLAYER ACTUALLY WALK THROUGH HERE? Asked as a build error rather than left for
         // somebody to find by walking.
         //

@@ -502,7 +502,7 @@ namespace IterationRoom
             //
             // ONE SHOT PER ITERATION. These live on plinths in three other rooms; letting the clock run
             // out sweeps them home and hides them again. Press the button again rather than waiting.
-            RewardPlinth[] plinths = UnityEngine.Object.FindObjectsByType<RewardPlinth>(FindObjectsSortMode.None);
+            RewardPlinth[] plinths = UnityEngine.Object.FindObjectsByType<RewardPlinth>();
 
             float[] offsets = { -0.7f, 0f, 0.7f };
             int placed = 0;

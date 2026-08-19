@@ -61,6 +61,15 @@ namespace IterationRoom
         // way out of a cycle, and `Completed` is what `LoopManager` watches for.
         public FinalRoomSequence finalRoom;
 
+        // WHAT PUTS THE PLAYER OUT WHEN THEY ARRIVE IN THIS CYCLE. Named here rather than found by
+        // type at runtime, and that distinction is the fix to a real fault: `CycleBinding.PointGasAt`
+        // used to hand `SleepingGas` every ParticleSystem under the cycle root, which is the four wall
+        // emitters AND every other particle system the cycle happens to own - room2-2's four tap
+        // sprays among them. `Fill()` plays what it is given, so the boundary started water spraying
+        // in a room nobody was in, and `Clear()` then stopped and cleared systems that belong to the
+        // taps. `SceneBuilder` already knows exactly which four these are; this is where it says so.
+        public ParticleSystem[] gasEmitters;
+
         // Everything a ghost can operate IN THIS CYCLE. An entry's index is its bit in
         // `RecordedFrame.signals`, so this array is a wire format: append, never reorder.
         //

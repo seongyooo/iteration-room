@@ -204,6 +204,10 @@ namespace IterationRoom
             // time this runs; this is the belt to that braces, for any other caller.
             ReleaseCarried();
             swingUntil = -1f;
+            // The axe swing too. It is measured against `Time.time`, which the loop does not rewind,
+            // so a ghost reset mid-swing came back to the bed still holding the pose - see SwingPose,
+            // which only clears the marker when it next runs.
+            swingStarted = -1f;
             if (timeline != null && timeline.Count > 0)
             {
                 transform.position = timeline[0].position;

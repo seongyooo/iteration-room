@@ -271,6 +271,16 @@ iteration ending are the same event, and the loop already had the machinery. A p
 simply stops there: its recording ends, and `GhostReplayer` releases what it was carrying, so an axe
 taken into the pit comes back to the room.
 
+**Twenty-five chops** (2026-08-19, down from forty and then thirty). The number only has to be well
+past what one pair of hands fits into a minute; past that, more of them is more waiting rather than
+more accumulation. `TreeNotchStages` stays at 8, so the notch simply deepens faster per swing.
+
+**Things dropped into the pit fall down it**, and that took a fix: `FallingItem` looked 9m for a floor
+and settled at the cycle's own floor height when it found none, so an axe dropped into a 26m hole hung
+at the lip. See `docs/gotchas.md`. An object that goes in is gone for that iteration and back at the
+top of the next one, which is what CLAUDE.md §1.2 already said happened to an axe a past self carried
+in there.
+
 **What the notch is.** Eight cut trunk meshes, built by `SceneBuilder` and switched by chop count, so
 wood is genuinely missing rather than a dark shape being laid over the bark. The first version drew
 the wedge on and play read it as a vertical groove stuck to the tree. See `docs/gotchas.md` for the
@@ -302,3 +312,275 @@ over a drop that is now fatal. Three changes, in the order they matter:
 
 **Still unmeasured**: whether that is enough. If it is not, the honest next lever is the pit's width -
 it is 10.5m because room2-4 was 10.5m, not because anything about the tree wanted it.
+
+
+### The slide's landing room is flooded (2026-08-19)
+
+The room at the bottom of room2-5's slide - the shell hung under the tree hall's south-west corner,
+reached by riding the chute through what is now that room's **ceiling** - is full of water, and
+plastic balls float on it.
+
+**It is presentation, not a mechanic.** 1.2m of water, no collider on any of it, no `KillVolume`
+under it, no signal bit, nothing for `Cycle.ResetRooms` to put back. The player drops through the
+surface, splashes, and wades. That was the decision taken over the two alternatives:
+
+- **Drowning** - the pit's `KillVolume` verbatim, ending the iteration. Rejected: the game already
+  has exactly one fatal hole and a second one turns "somewhere the slide goes" into a punishment for
+  taking the slide.
+- **Swimming** - buoyancy and a swim stroke in `FirstPersonController`. Rejected as a new movement
+  mode for one room, and this room has no exit yet for a swimmer to reach.
+
+**1.2m is the deepest it can be without becoming one of those.** The eye is at 1.6m, so at 1.2m the
+player looks *down* at the surface from above it. Any deeper puts the waterline across the camera,
+which needs an underwater view and a way back out that this room does not have.
+
+**Walking in it is slowed to 0.45 of the dry speed, and the footsteps change with it.** Both are on
+the player rather than on the water (`FirstPersonController.SpeedScale` / `wadeClips`, switched by
+`WaterPool`), and the sound is a swapped CLIP rather than a second sound system: a step is fired from
+the head bob's own phase, so anything playing wade sounds from outside would have to guess when a
+foot lands and would drift out of time with the walk. The clips are generated (`MakeWadeClip`) and
+are neither a splash nor a footstep - no transient, most of the energy low, and the bubbles arriving
+after the push rather than with it.
+
+### Where the slide actually meets the room (2026-08-19, second pass)
+
+The room's depth below the hall is **derived from the mouth, not chosen**: its ceiling is exactly the
+top of the 1.7m opening (`SlideRoomFloorY = SlideMouthHeight - RoomHeight`). Both walls are then cut
+over the same band, so the hall's opening and the room's are **one hole** with a door pocket's depth
+of tunnel between them - lined on four sides, or the gap is a slot with the sky at the end of it.
+
+That replaced a full `StoreyDrop`, which failed in a way worth recording: the chute left the hall at
+the hall's own floor and the room's opening was five metres further down, so the rider passed through
+solid slab and **arrived falling out of the ceiling**, and the hole in the hall's wall looked into a
+void. The point of the new depth is that you can stand at the top of the slide, look through the
+hole, and see the water you are about to land in before you commit to the ride.
+
+**The drop is now the last stretch of the slide rather than a fall.** The chute's tip hangs inside
+the room at the top of its wall and the ride's final leg runs 4.3m out for 4.0m down - about 43
+degrees, into the water. `SlideRideLanding` is what sets that, and it is the one number to change if
+it plays as too much of a launch.
+
+**Why nothing about it is solid.** Beyond the wading: the slide's ride path is **raycast at build
+time** off whatever is under the line (`SceneBuilder.SampleRidePath`). A water surface with a
+collider would be what those rays hit, and the rider would be set down on the waterline a metre and a
+bit in the air instead of on the floor.
+
+**The balls are built the opposite way to room2-7's ball pit**, on purpose. The pit is 5,000 balls
+merged into six meshes because a solid mass of them never moves; these are separate renderers because
+things floating on water have to drift independently, and a merged mesh can only move as a lump. One
+`FloatingBalls` component writes every transform from the clock and a per-object phase - no
+simulation, nothing accumulating, so nothing can wander out of the pool however long the run lasts
+and there is no state at the loop boundary to reset.
+
+**Three things float, and the small one's count is set by the other two.** 210 plastic balls (down
+from 300), three rubber ducks and two beach balls. Three hundred small balls is a surface the bigger
+things have to be picked OUT of, and the only reason to have them is to be seen.
+
+**What "cheap-looking" turned out to be**, when the first pass of the balls was called too bright and
+poor: display colours at full value (a flat bright patch with no shading left in it - the fix is to
+put the colour in the midtones at 0.55/0.72 and let the highlight carry the brightness), one shade
+and one size for all of them (now two tones per hue and a tenth either way on scale), and a
+96-triangle sphere seen at knee height rather than as a distant mass (now 384). The pit is untouched:
+it is seen as a mass from above, which is what 96 triangles is right for.
+
+**The ducks and the beach balls rock and turn; the balls do not.** Rotation is off by default in
+`FloatingBalls` and that is not an oversight - a single-coloured sphere cannot show one, so writing it
+would cost 210 transforms a frame for nothing. For a duck it is the opposite: turning is most of what
+says a thing is floating rather than placed.
+
+### What the first play of it found (2026-08-19, third pass)
+
+Four things, and two of them were faults the build had been reporting as fine:
+
+- **The mouth flickered.** The tunnel lining the gap between the two walls spanned the whole pocket,
+  and two things already reach into that pocket - `BuildSlab` runs to the room PITCH rather than its
+  depth, so the room's ceiling overruns its own north wall by half a pocket, and the hall's south wall
+  has a body hanging a `WallDepth` south of its face. Two pairs of coplanar faces, one flicker. Every
+  piece is now sized to what is genuinely open, derived from those constants rather than measured.
+- **Riding the slide carried the player over the roof of the level.** `Physics.Raycast` returns the
+  CLOSEST hit, which from above is the HIGHEST surface - and once the landing room came up to meet the
+  mouth, the highest thing under the last two samples of the chute was that room's ceiling slab. The
+  measured path climbed from the chute at 0.53m onto the roof at 1.80m, and the ride played exactly as
+  it was built. Leg 0 now uses `RaycastAll` and **prefers the slide**, holding its last height rather
+  than stepping onto anything else. The build's own "path climbs" assert did not catch it because
+  1.80m is below the 2.73m the ride starts at - the assert only ever knew about climbing past the top.
+- **The plunge was a vertical drop.** Every sample of leg 1 raycast the same floor, so the whole four
+  metres of descent happened between two waypoints. It is interpolated on a **squared curve** from the
+  chute's exit height down to the floor now - shallow where it leaves the chute and steepening, which
+  is the shape of something thrown - with the raycast still deciding where it ends and still clamping
+  it out of the floor.
+- **The balls were still too bright**, at 0.55/0.72 of their display colour and 0.88 smoothness. The
+  room is the reason: six fixtures over white walls and a white floor is bounced light arriving from
+  every direction, so a midtone renders nearly a stop up and a near-mirror wears the whole ceiling.
+  0.30/0.42 and 0.72.
+
+**Still unplayed**: whether the arc off the end of the chute reads as the slide finishing, whether
+0.45 speed in the water is heavy or merely annoying, and whether the hole shows enough of the room
+from the hall to be worth the geometry it cost.
+
+### The floats collide, and are real rigidbodies for it (2026-08-19)
+
+Play asked for the things on the water to bump into each other; the first version wrote each one's
+position from a sine of the clock, which cannot collide with anything by construction - two balls
+crossing passed through one another, and so did the player.
+
+**This is the same exception the tap's spray takes, not a hole in the no-physics rule.** CLAUDE.md §4
+forbids rigidbodies on CARRYABLES, because the loop must put every carryable back exactly and PhysX
+solves in islands - where a dropped object settles depends on everything near it, including a living
+player who moves differently every iteration. Nothing floating on this pool is carried, recorded,
+socketed or reset.
+
+- **Gravity is off; buoyancy is a damped spring** to the height each was placed at. Nothing can sink
+  and nothing can be knocked out of the pool, and there is no settle for a hard shove to get wrong.
+- **A weak mooring** pulls each back toward where it was placed. Without it, a room walked through for
+  fifteen minutes ends with everything heaped in one corner.
+- **The balls have no bob and no drift, and that is what makes them free**: with nothing writing to
+  them they settle, sleep, and cost nothing until something disturbs them. Only the five big floats
+  are awake all the time.
+- **They are on the BALLOON layer**, which is not a borrow of convenience: that layer already means
+  "a light thing the player wades through and shoves aside". The controller excludes it, so there is
+  no invisible wall in the pool, and `pushLayers` already contains it, so the player's push works with
+  nothing rewired.
+- **A ghost leaves the water flat.** Ghosts have no colliders (CLAUDE.md §1.7) and are not getting
+  one; a colliding ghost would change the recording being made against it, which is a far worse thing
+  to be wrong about than still water.
+
+### The sound is passing through water, and the rings are drawn (2026-08-19)
+
+The entry used the tap's three `sfx_water_splash_*` clips, and in play that is what they sounded like
+- water landing on tiles from above, laid over the room. It is the generated wade sound at twice the
+length now, slower to die and with more of it low: the same event, person-sized.
+
+**Ripples are quads, not shader.** The surface shader's noise is the same everywhere and answers to
+nothing; a ripple has to start where the player is. The alternative is feeding the shader a list of
+disturbance centres and their ages - this is a texture and eight pooled quads, expanded and faded by
+`WaterRipples`, and it composes with a shader nobody has to touch. They are fired from the same points
+and moments as the spray, so what spreads is what the player just did.
+
+
+## Room2-6: three valves, a drain, and the room you are standing in emptying (2026-08-19)
+
+The pool room IS room2-6 now. The old room2-6, room2-7 and room2-0 - the whole of the ring's third leg
+- are deleted, and with them cycle 2's console. The walk is **room2-1, room2-2, the tree hall, and
+then down the slide into room2-6**, which is a way on that no door provides.
+
+**The puzzle**: three wheel valves, one centred on each wall that has no door, two full turns each.
+Six turns opens a drain in the middle of the floor; the room empties; the empty room is what the door
+hangs on.
+
+- **`Satisfied` is "the water is gone", not "the valves are open".** The door does not open when the
+  puzzle is solved, it opens when the CONSEQUENCE has finished - the drain takes six seconds in full
+  view and the player watches the room they are standing in change before they are let out of it.
+- **One press is one turn, and the turn is an animation.** A valve that snapped would be a switch
+  drawn as a wheel. It is also why this is two presses rather than a hold: a hold is a LEVEL, and a
+  level has to survive a ghost that skips several frames in one tick, where an instant does not.
+- **Six turns is more than one pair of hands fits in a minute**, and that is the room. The three
+  wheels are as far apart as this room allows, so a past self at the far wheel is the room being
+  solved - the same accumulated-HANDS shape as room2-2's tank, and nothing about it survives the
+  boundary. Three bits of `RecordedFrame.signals`, one per valve, because they are three separate
+  things a past self can be doing.
+- **The grate is solid, and that is a safety rule.** The floor has a real hole in it; a player who
+  could fall into the sump would be stuck in it with a sixty-second clock running.
+- **The way out faces the way in.** The door is in the south wall, straight ahead of the chute, so a
+  rider lands looking at it. It opens onto a capped pocket - there is nothing beyond it yet.
+
+**Cycle 2 has no final room, and `finalRoom` null is a supported state** rather than a hole this left:
+`Cycle.Complete`, `LoopManager` and `CycleBinding` all guard it, and the cycle could not be finished
+before this either - its console declared three shard slots that nothing in the cycle wore, which the
+build shouted about three times per run. One honest null replaces three errors about a console nothing
+could fill.
+
+
+## Room2-7: the scale, and six weights nobody is told (2026-08-19)
+
+Through room2-6's door. One room, one platform scale, one number - and **the player is told none of
+the weights.** There is no label on an axe and no note on a wall; the only way to learn what anything
+weighs is to carry it here and put it down. That makes the room a MEASURING instrument first and a
+lock second, and the first thing most players will weigh is themselves.
+
+| | kg |
+|---|---|
+| rubber duck | 0.4 |
+| beach ball | 1.3 |
+| bucket, empty | 2.1 |
+| fire axe | 4.7 |
+| cube | 8.3 |
+| bucket, full | 12.0 |
+| the player | 71.0 |
+| **target** | **26.7** |
+
+**The player is weighed with whatever they are holding.** Standing on the pan with an axe in your
+hands reads 74.6 - a real scale cannot tell the two apart and neither does this one - which also
+gives the player a way to read two things at once without putting either down. A GHOST's hands are
+empty as far as the scale is concerned, and that asymmetry is the room's rule rather than an
+oversight: a past self has no collider (CLAUDE.md §1.7) so it can never be in the pan at all, and
+what it CAN do is put an object down in it, which is how the room is solved.
+
+**The rule is BRING ALL FIVE**, and the weights were solved for rather than picked (2026-08-19).
+The target is the sum of one of each, and the numbers are chosen so that **no other combination in the
+whole cycle reaches it**:
+
+    cube 8.3 + full bucket 12.0 + axe 4.7 + beach ball 1.3 + duck 0.4 = 26.7
+
+Checked exhaustively against everything cycle 2 contains (5 axes, 4 buckets each of which may be empty
+or full, 1 cube, 2 beach balls, 3 ducks): **exactly one combination reaches 26.7**, and the nearest
+miss is 0.1 away - a whole display digit, against a tolerance of 0.05.
+
+This replaces a first pass where 23.0 had twelve solutions and the cheapest was three objects. That
+version was defended on the grounds that a unique answer punishes a player who worked out a different
+one; the rule changed to "all five", and with it the argument - there is now one intended set, the
+sign names all of it, and the only thing left to discover is which of the five add up, which is
+everything.
+
+**Five objects is the largest headcount any room in this game has asked for.** One object in the hand,
+a 60-second clock and a sweep home at every boundary means five on the pan at once is five past selves
+each carrying one.
+
+**The player's own weight is not part of any solution**, and that is what it is for: it is far heavier
+than the target, so standing on the scale teaches the room in one step and cannot be mistaken for
+progress.
+
+**The real cost is TRIPS.** One object in the hand (CLAUDE.md §4), a 60-second clock, and
+`ItemRegistry.ReturnAllToOrigin` sweeping everything home at the boundary - so three objects on the
+pan at once is three past selves each carrying one. The bucket is the connection worth having: filling
+it is room2-2's puzzle, and the knowledge that a full one weighs 12.0 is what makes that room pay off
+two doors away.
+
+**The scale latches.** `Door` re-reads its condition every frame and shuts when it lapses, which is
+right for pads and wrong here for one specific reason: the player's own weight is part of what this
+can read, so any target they are standing in would be one they could not walk away from. Latched, the
+scale means "this reading HAPPENED", and the reset at the top of each iteration is what stops that
+being permanent.
+
+### The two signs (2026-08-19)
+
+**Over the door onto room2-8**, `26.7 KG` - the door this scale opens, so the number is written on the
+thing it is the price of. **Painted on the wall rather than on a plate**: `withPlate` draws the
+near-black backing every other sign in the building sits on, which is what makes those read as
+DISPLAYS, and this one is meant to read as stencilled over a doorway.
+
+**On both side walls**, the equation: `cube + full bucket + axe + beach ball + duck = ?` in icons.
+That is what the scale ACCEPTS, which is also the answer now that the rule is "bring all five" - the
+question mark says the total is the unknown, and the number over the door says what it has to be. So
+the two signs together name the ingredients and the answer, and what is left for the player is every
+weight, which is the whole puzzle.
+
+It was cut back to the number alone for one pass and put back by request. The reason it belongs: the
+objects it names are scattered across four rooms the player has already walked through, and without it
+the room says what total it wants and nothing about what to bring.
+
+Both walls, because the player is turning on the spot at a scale that is 5.7m across in the middle of
+the room - whichever way they face, one of the two is in front of them.
+
+The target is written to ONE DECIMAL like the scale's own readout, so the two are visibly the same
+kind of value and nobody has to wonder whether `23` and `23.0` mean the same thing. It never
+retires: `MakeWallFace` authors every sign at alpha 0 because the ones it was built for are faded in
+and retired by `PanelMessage`, and this is set to 1 and stays - the target is true for as long as the
+room is unsolved, and a player who has forgotten it must be able to look up again.
+
+**The ducks and the beach balls are both physics props and carryables**, which nothing else in this
+game is. The handover is in `FloatingBalls`: while a hand has it, or once it is further from home than
+the pool is wide, its rigidbody goes kinematic and the ordinary carryable machinery owns it -
+including `FallingItem`, so its drop is scripted and lands in the same place every iteration. That is
+what the scale needs of it, and it is the no-physics rule (CLAUDE.md §4) being kept rather than bent.
+

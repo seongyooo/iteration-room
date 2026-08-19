@@ -24,6 +24,11 @@ Status as of 2026-08-14. **Six rows are unresolved** and every one of them is a 
 | `ArtAssets/Furniture/chess.glb` | **YarikLegendary** | [Sketchfab — *Chess*](https://sketchfab.com/3d-models/chess-6471ad3881ad45dba7634f1442ed3efe) | **CC-BY** | 421.3k tris, board + pieces. Half the pieces are mirrored — see `gotchas.md`. |
 | `ArtAssets/Furniture/rubiks_cube.glb` | **Shivansh Singh** | [Sketchfab — *rubik's cube*](https://sketchfab.com/3d-models/rubiks-cube-155420e09a124ec3a3bcca0852280672) | **CC-BY** | 1.7k tris. On the nightstand. |
 | `ArtAssets/Furniture/gold_key.glb` | **JeremyW** | [Sketchfab — *Gold Key*](https://sketchfab.com/3d-models/gold-key-34998df98cac4fa4a3a1ac395df5f708) | **CC-BY** | 4.2k tris. |
+| `ArtAssets/Play/seesaw.glb` | **IronEqual** (ie-niels) | [Sketchfab — *Seesaw from Poly by Google*](https://sketchfab.com/3d-models/seesaw-from-poly-by-google-b518b55b56f249ee902205775d2d0cdd) | **CC-BY** | 3.2k tris. A Poly backup. Scenery on room2-5's ledge. |
+| `ArtAssets/Play/rubber_duck.glb` | **Ikki_3d** | [Sketchfab — *Rubber duck*](https://sketchfab.com/3d-models/rubber-duck-f1de4fc390db4266a509b9739350512a) | **CC-BY** | 3.5k tris. Three of them float on room2-5's pool. |
+| `ArtAssets/Play/weigh_scale.glb` | *(unrecorded)* | Sketchfab — *Digital weight scale* | **CC-BY (assumed)** | Room2-7's platform scale, scaled up ~6x. **The source page has not been written down** — find it or replace the model before a paid build. |
+| `ArtAssets/Play/industrial_valve.glb` | **Miguel Angel Jimenez** (Mangel Tekila) | [Sketchfab — *Industrial valve*](https://sketchfab.com/3d-models/industrial-valve-cea67369ae50485c9f06ea44cb608b92) | **CC-BY** | 3.2k tris. Three of them on room2-6's walls. Its textures are 175MB as imported — `ShrinkModelTextures` takes them to 5MB. |
+| `ArtAssets/Play/beach_ball.glb` | **MaggaModels** | [Sketchfab — *Beach Ball*](https://sketchfab.com/3d-models/beach-ball-25e1816c0e22444bb62816d3999d1b0b) | **CC-BY** | 3.6k tris. Two of them, the biggest things on that pool. |
 | ~~`ArtAssets/Furniture/nightstand.glb`~~ | — | — | — | **DELETED 2026-08-14, unused.** Nothing loaded it — the nightstand is built from primitives. It was 8.5 MB of LFS and a CC-BY attribution obligation for a model not in the game. |
 
 ### The good news, and the obligation that comes with it
@@ -589,3 +594,242 @@ CC AttributionCreative Commons Attribution
 Learn more
 Published 7 years ago
 https://sketchfab.com/3d-models/stylized-tree-stump-04d51f5c2fb643aab3b93b451d1b77c9
+
+Slide PlayGround
+3D Model
+Avatar of vaedskalw
+vaedskalw
+
+Follow
+12.9k
+12887 Downloads
+27.1k
+27062 Views
+252
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 78.1k
+Vertices: 39.4k
+More model information
+Slide from kids playground. Wooden stairs and color painted.
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 6 years ago
+https://sketchfab.com/3d-models/slide-playground-e59c8559ba42463881732790dcbfbb3c
+
+FFPS Discount Ball Pit
+3D Model
+Avatar of skylajade69
+skylajade69
+
+Follow
+793
+793 Downloads
+2.4k
+2358 Views
+89
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 21.6k
+Vertices: 12.7k
+More model information
+Who thought this was a good idea?
+
+For legal reasons, the previous sentence was a joke.
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 2 years ago
+https://sketchfab.com/3d-models/ffps-discount-ball-pit-760904b50a46430f886803665518da2f
+
+Seesaw from Poly by Google
+3D Model
+Avatar of ie-niels
+IronEqual
+
+Follow
+1.2k
+1163 Downloads
+2.8k
+2801 Views
+23
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 3.2k
+Vertices: 1.7k
+More model information
+This is a backup of a Poly Asset named Seesaw. Saved from Poly by Google. Preview may be without textures, they are still in the Download ZIP with a preview thumbnail.
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 6 years ago
+https://sketchfab.com/3d-models/seesaw-from-poly-by-google-b518b55b56f249ee902205775d2d0cdd
+
+Rubber duck
+3D Model
+Avatar of ikki_3d
+Ikki_3d
+
+Follow
+15.4k
+15372 Downloads
+43.5k
+43479 Views
+257
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 3.5k
+Vertices: 1.9k
+More model information
+A cute little rubber duck
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 6 years agoJun 13th 2020
+Uploaded with Substance Painter
+https://sketchfab.com/3d-models/rubber-duck-f1de4fc390db4266a509b9739350512a
+
+Beach Ball
+3D Model
+Avatar of MaggaModels
+Maggatron
+
+Follow
+12.1k
+12097 Downloads
+22.5k
+22482 Views
+227
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 3.6k
+Vertices: 2.1k
+More model information
+For Day 27 of Nodevember, I made a beach ball. But like a really big one. You know those giant beach balls they bounce on top of crowds at beach concerts? I modeled one of those big beach balls.
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 5 years ago
+https://sketchfab.com/3d-models/beach-ball-25e1816c0e22444bb62816d3999d1b0b
+
+Industrial Valve
+3D Model
+Avatar of mangel.jimenez
+Miguel Ángel
+
+Follow
+3.2k
+3169 Downloads
+7.1k
+7114 Views
+137
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 1.9k
+Vertices: 2k
+More model information
+Valve 3D model
+
+Model made in 3ds Max 2015
+Materials made in Photoshop
+Miguel Angel Jimenez (Mangel Tekila) - 2017
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 9 years ago
+https://sketchfab.com/3d-models/industrial-valve-cea67369ae50485c9f06ea44cb608b92
+
+Digital Weight Scale
+3D Model
+Avatar of dimitri_blender
+Dimitri
+
+Follow
+867
+867 Downloads
+2.3k
+2282 Views
+27
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 2.4k
+Vertices: 1.4k
+More model information
+Digital Weight Scale created in Blender. Made in 15 minutes and pretty happy with the result. Free to download, edit and use it in any way that you like.
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 4 years agoJun 19th 2022
+NoAI: This model may not be used in datasets for, in the development of, or as inputs to generative AI programs.
+https://sketchfab.com/3d-models/digital-weight-scale-1b1b2ad2f06640528e67c1c37e0359b0

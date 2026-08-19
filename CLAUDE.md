@@ -114,21 +114,41 @@ says nothing about whether the player can see it, so a press used to take an ite
 `WantsInteractHint` therefore ends in `PlayerLookup.InView(HintAnchor)`, and stating it against the
 **prompt** is the point: an interaction is available exactly when its prompt disc would be on screen,
 so a player never presses E on something the game gave them no mark for. Put it **last** in the
-condition — `NearestTakeable` asks `WantsInteractHint` of every registered item, and the cheap
+condition — the aim scan asks `WantsInteractHint` of every registered item, and the cheap
 `playerInRange` test in front of it is what keeps that free. Frustum only, no occlusion test; see
 `PlayerLookup.InView` for why a line-of-sight raycast is the wrong trade here.
+
+**THE PRESS PATH IS ONE CALL: `PlayerLookup.PressGoesTo(this)`.** It is the fixture's own
+`WantsInteractHint` (in reach · on screen · not behind anything · in a state where E would act) AND
+the arbitration below, and **every fixture that polls E must end in it**. Stated as two separate
+things it was got wrong three times out of eight: `Drawer`, `KeyLock` and `CarryableItem` polled E off
+`playerInRange` alone and never asked their own hint property, so a press opened a drawer through a
+wall or with your back to it. **The press goes exactly where the disc is — if there is no mark on
+screen, E does nothing here.**
 
 **One press takes ONE item, and it takes TWO mechanisms to hold that.** Every `CarryableItem` polls E
 for itself, so overlapping triggers used to be taken by all of them at once — 32 chess pieces a
 square apart found it, two stacked cubes found the half of it that was left.
 
-1. **Which** — anything answering a key press over a takeable must defer to
-   `ItemRegistry.NearestTakeable(eye)`: **nearest to the camera**, which is also what the prompt disc
-   is drawn over, so the press and the disc can never disagree.
-2. **How many** — and nearest-wins cannot answer this, because each item recomputes it as its own
-   `Update` runs and a take already made drops out of the running, promoting the next one down the
-   pile. Gate on `PlayerHand.InteractedThisFrame` as well: one press, one action, whatever the script
-   execution order happens to be.
+1. **Which** — **whatever the player is LOOKING AT** (2026-08-17, by request; it was *nearest to the
+   camera* until then). `PlayerLookup.AimedAnchor` ranks every candidate by how far its **hint anchor
+   sits from the centre of the screen**, and within `AimTieBand` — things genuinely stacked, where aim
+   cannot separate them — the nearer wins. **Every E fixture's press path ends in
+   `PlayerLookup.IsAimedAt(HintAnchor)`**, and the prompt disc is drawn from the same value, so the
+   press and the disc can never disagree.
+   - **This is ONE scan for everything, and it has to be.** The old rule arbitrated takeable-vs-fixture
+     only; two fixtures were left to script execution order, which is why cycle 2's chest answered
+     every press with its top drawer and neither the lower bay nor the cube on top could be reached.
+   - **`WantsInteractHint` is ELIGIBILITY ONLY and must never consult the arbitration** — the scan
+     polls that property, so a fixture that asked back would recurse. A fixture states what it *could*
+     do; which one the press is *for* is decided in one place.
+   - The scan reads the fixture list from `ControlHintDisplay` (rebuilt per cycle by `CycleBinding`)
+     and takeables from `ItemRegistry`. Anything in **neither** is judged on its own merits rather than
+     silently losing a contest it was never entered in — see `IsAimedAt`.
+2. **How many** — and aim cannot answer this, because each item recomputes it as its own `Update` runs
+   and a take already made drops out of the running, promoting the next one down the pile. Gate on
+   `PlayerHand.InteractedThisFrame` as well: one press, one action, whatever the script execution
+   order happens to be.
 
 **Every fixture that answers an E press must CHECK `PlayerLookup.InteractTaken` and CLAIM the press
 with `PlayerLookup.ClaimInteract()` — and claim it only when it actually acts.** All three halves are
@@ -190,7 +210,16 @@ so press-type interactables stretch their pulse and act on the rising edge.
 
 An interactable's index **is** its bit in `RecordedFrame.signals`. `PlayerRecorder.interactables` and
 `GhostReplayer` must be the same array in the same order; `SceneBuilder` builds one and hands it to
-both. `signals` is a `uint`, so **32 interactables is a hard cap** (4 used).
+both. `signals` is a `uint`, so **32 interactables is a hard cap** — **per cycle**, since the boundary
+destroys every ghost (cycle 1 uses 4, cycle 2 uses 12).
+
+**Overflowing it is silent** — `PlayerRecorder.SampleSignals` clamps to the mask width and drops the
+rest, so the 33rd fixture simply never records and the room it is in looks fine. Both ends now say so
+instead: `SceneBuilder.CheckGhostSignals` fails the build (and catches a **null** entry — a bit
+nothing can ever set — and a **duplicate** — one fixture on two bits, whose second rising edge fires
+an action the player performed once), and `PlayerRecorder` logs once if an array is swapped in at
+runtime. If 32 is ever genuinely not enough, widen the mask to a `ulong`: `RecordedFrame`,
+`PlayerRecorder`, `GhostReplayer.activeSignals`/`ApplySignals`, four edits and 4 bytes a frame.
 
 ### 1.7 Ghosts have no colliders
 
@@ -245,6 +274,7 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `PourPoint` | Where a pour is RECORDED. A signal, because pouring hands nothing over |
 | `RewardPlinth` | A plinth that rises carrying an escape object, on its room's own condition |
 | `FinalRoomSequence` | Room4: the console, the three-object exit condition, and the break |
+| `Cycle` | One cycle's world: its bed, doors, rooms, signal array, panels — and **which particle systems are its gas**. Anything per-cycle a system outside needs is NAMED here, never gathered by type at runtime |
 
 **Values live in `SceneBuilder`, mechanisms live in components.** Shaders and scripts take the
 number; they do not choose it.
@@ -382,9 +412,15 @@ Play runs whichever scene is open. Prefer MCP for incremental visual tweaks, but
 Rebuild headlessly (only when the Editor does **not** have the project open):
 
 ```
-"C:\Program Files\Unity\Hub\Editor\6000.5.7f1\Editor\Unity.exe" -batchmode -nographics \
+"C:\Program Files\Unity\Hub\Editor\6000.5.7f1\Editor\Unity.exe" -batchmode \
   -projectPath "<repo>" -executeMethod IterationRoom.EditorTools.SceneBuilder.Build -quit -logFile <log>
 ```
+
+**Do NOT add `-nographics` unless you mean to skip the bakes.** With no graphics device
+`BakeReflectionProbes` and the menu-background capture both bail by design - they cannot render - and
+they say so in the log, so a room that MOVED keeps a cubemap of where it used to be and every metal
+and every water surface in it reflects the old scene. Verified 2026-08-19: plain `-batchmode` on
+Windows gets a real device and reports `14/14`. Watch the log for `probes NOT baked (-nographics)`.
 
 **With the Editor open, a batchmode build fails outright.** Drive it through Unity MCP instead:
 
