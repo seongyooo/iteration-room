@@ -41,8 +41,23 @@ have already finished and carrying them to the console. **The clock runs through
 it ends nothing, and a run that gets there with two objects is pulled back to the bed like any
 other. There is no button anywhere in the game that ends it.
 
-**CYCLE 2 HAS BEEN CLEARED END TO END: ITERATION 22, 10:04, 2026-08-20** - the first time the second
-cycle has been finishable at all. Four billiard balls into four pedestals, the ERROR, and the floor
+**THE WHOLE GAME HAS BEEN CLEARED, 2026-08-20: 31 ITERATIONS, 14:23.399** - cycle 1 in 9 / 4:20.640
+and cycle 2 in 22 / 10:02.759, read off the ending card's own breakdown.
+
+- **CYCLE 2'S COUNT IS REPRODUCIBLE, AND THAT IS THE FINDING.** Two independent clears on two
+  different builds came out at 22 iterations, **1.2 seconds apart**. A number that tight across
+  separate runs is not skill or luck - it is the room2-7 latch, which re-locks every iteration and
+  makes five past-self deliveries the standing price of every trip to room2-0. If cycle 2 is ever to
+  be shorter, that is the lever (`TODO.md`).
+- **Cycle 1 is 9 now**, against the 10 of its third clear. Within the noise the entry below already
+  warns about - do NOT read one iteration as content having changed.
+- **The tempo has not moved all year**: 29.0s an iteration in cycle 1, 27.4s in cycle 2, against the
+  28.7s measured on 2026-08-14. Sixty seconds is still not the binding constraint anywhere.
+- **The ending card is verified by play** - the per-cycle breakdown, the millisecond clock and the
+  total were read off the screen rather than computed here.
+
+**CYCLE 2 WAS FIRST CLEARED AT ITERATION 22, 10:04, 2026-08-20** - the first time the second cycle
+had been finishable at all. Four billiard balls into four pedestals, the ERROR, and the floor
 opening. What it settles and what it does not:
 
 - **The whole chain works in a human's hands.** The chest, the nine balls, the four pedestals, the
@@ -343,6 +358,20 @@ Script-by-script detail: `docs/architecture.md`.
   the wrapper sits after the object's own rotation and scale either way — and the object's own
   transform, which is what colliders and hand poses are read off, is positively scaled again.
 - **Adding a renderer feature is not idempotent** — reconcile, don't append.
+- **A `.ps1` in `Tools/` MUST keep its UTF-8 BOM.** Windows PowerShell 5.1 reads one without as
+  ANSI, and every non-ASCII string in the script arrives at whatever it drives as mojibake. It fails
+  almost silently — see `docs/gotchas.md`.
+- **WHICH KEY A VERB IS ON IS `InputBindings`, NEVER A FIELD.** Every verb is read through
+  `GameInput`, which asks `InputBindings`, which the settings page can change. A `public KeyCode` on
+  a component is a second answer the player cannot reach; three of them existed and are gone.
+  **Escape always pauses whatever PAUSE is bound to** — it is the only verb whose loss cannot be
+  recovered from inside the game.
+- **NEW UI TEXT NEEDS A `Loc` KEY; NEW SIGNAGE DOES NOT.** The split is *the game talking to the
+  player* (menus, HUD, pause, ending, the calibration room) against *the facility talking to itself*
+  (`ROOM 2`, `ERROR`, `FIRE AXE`, the title) — the second stays English in every language, on
+  purpose. `SceneBuilder` still authors the English into the `Text` and `Localize(text, key)` tags
+  it, so a scene with the components stripped is an English scene. Reasoning:
+  `docs/loop-and-ui.md`.
 
 More: `docs/gotchas.md`, `docs/rendering-notes.md`.
 

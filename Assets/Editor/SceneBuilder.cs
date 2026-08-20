@@ -25,7 +25,7 @@ namespace IterationRoom.EditorTools
         //
         // The order is play order, and it is the same order `CycleSceneLoader` reads them back in - so
         // a cycle's position in this array is what says which cycle it is. Append, never reorder.
-        private static readonly string[] CycleSceneNames = { "Cycle1", "Cycle2" };
+        private static readonly string[] CycleSceneNames = { "Cycle1", "Cycle2", "Cycle3" };
         private static string CycleScenePath(string name) => $"Assets/Scenes/{name}.unity";
         private const string MaterialsDir = "Assets/Materials";
         private const string PrefabsDir = "Assets/Prefabs";
@@ -341,7 +341,7 @@ namespace IterationRoom.EditorTools
         // HOW MANY CYCLES THE GAME HAS. Read by the title screen's picker; `LoopManager` derives the
         // same fact from the length of its own array, which is the authority. Adding a cycle means
         // changing both, and they are meant to be found together.
-        private const int CycleCount = 2;
+        private const int CycleCount = 3;
 
         private const float CycleTwoFirstRoomZ = 5f * RoomPitch;
 
@@ -529,6 +529,23 @@ namespace IterationRoom.EditorTools
         // a sphere half under reads as a heavy one, which is a different object.
         private const float PoolBallFloat = 0.72f;
 
+        // CYCLE 3, AND IT IS PLACED BY MEASUREMENT RATHER THAN BY THE RING.
+        //
+        // Cycle 1 and cycle 2 are stacked on the ORIGIN - cycle 2 is one `StoreyDrop` under cycle 1's
+        // last room and turned about its own bed. Cycle 3 cannot be: cycle 2's walk wanders twenty
+        // metres west and two rooms south of where it started, and it ENDS in room2-0. The bed a
+        // player wakes in has to be under the hatch they fell through, so these two numbers are
+        // room2-0's own centre, and the storey below it is where cycle 3 begins.
+        //
+        // Read off the built scene rather than derived: room2-0's world position is the product of the
+        // tree hall's origin, the slide room's offsets and `CycleTwoYaw`, and re-deriving that chain
+        // here would be a second copy of it to keep in step. If room2-0 ever moves, these move with it
+        // and the build says so - `AssertUnderHatch` below fails the build if they drift apart.
+        private const float CycleThreeX = 21.7f;
+        private const float CycleThreeZ = 108.5f;
+        // Room2-0's floor is at -10.916; one storey under it is where cycle 3's floor goes.
+        private const float CycleThreeFloorY = -10.916f - StoreyDrop;
+
         // ROOM2-0: THE END OF CYCLE 2, and the four pedestals that break it.
         //
         // THE SHAPE OF THE PUZZLE. Four pedestals rise as the player comes through the last door, each
@@ -677,13 +694,49 @@ namespace IterationRoom.EditorTools
                 if (go.GetComponent<Camera>() != null || go.GetComponent<Light>() != null)
                     Object.DestroyImmediate(go);
 
-            Material floorMat = MakeColorMaterial("FloorWhite", Color.white);
+            // **0.85, NOT WHITE** - settled 2026-08-20, and the
+            // reason it is not 1.0 is measurable rather than a matter of taste. Albedo 1.0 is a
+            // surface that returns every photon that hits it; nothing does, fresh white paint is
+            // about 0.85, and a floor is always darker than the walls above it. With four spots at
+            // intensity 10.5 pointing straight down, a 1.0 floor CLIPPED - the title screen's own
+            // capture had this floor at (235, 253, 255), two channels already at the top - and play
+            // read it exactly: stand in the middle, look down, it is too white.
+            //
+            // The alternatives were both wider. Dropping the light intensity darkens the walls with
+            // it, and pulling exposure down in the volume changes every surface in the game. This
+            // changes the one surface that was wrong, and it still reads WHITE: it is 15% off
+            // clipping and the eye has nothing brighter on screen to compare it against.
+            Material floorMat = MakeColorMaterial("FloorWhite", new Color(0.85f, 0.85f, 0.86f));
             Material grooveMat = MakeColorMaterial("GrooveDark", new Color(0.04f, 0.04f, 0.045f));
             Material propMat = MakeColorMaterial("PropLight", new Color(0.85f, 0.85f, 0.85f));
             Material panelMat = MakeColorMaterial("PanelWhite", Color.white);
             Texture2D surfaceGrain = MakeNoiseNormalMap("SurfaceGrain", 512, 2.5f);
             ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), 0.85f);
-            ApplySurfaceDetail(floorMat, surfaceGrain, 1.8f, new Vector2(26f, 30f), 0.18f);
+            // SMOOTHNESS 0.65, UP FROM 0.3, and BUMP 0.6, DOWN FROM 1.8. Settled 2026-08-20. They are
+            // one decision, not two, and the order they happened in is the whole lesson.
+            //
+            // The smoothness first: a floor at smoothness 0 is a perfectly uniform field, and the eye
+            // reads a field with no variation in it as blown out rather than as bright - which was
+            // half of what "too white" meant. At 0.65 the ceiling fixtures lay pools across the floor
+            // and the 26x30 grain rides in them, so the floor has structure to read distance off.
+            //
+            // THEN THE BUMP, because raising the gloss is what exposed it. Wall and floor share one
+            // normal map at one physical grain size (~0.35m repeat on both) and differed ONLY in this
+            // number - 0.2 against 1.8, nine times apart. While the floor was matte that relief only
+            // reached the diffuse and read as the tooth of sealed concrete. Glossy, the same grain
+            // modulates the SPECULAR, and the floor stopped being the matte counterpart to a glazed
+            // wall and became a third finish that was neither. Play called it as the wall and the
+            // floor not going together.
+            //
+            // 0.6, not the wall's 0.2, and the asymmetry is earned: a wall is a grid of 1.7x0.9m
+            // panels with near-black grooves between them, so it already has geometry breaking up its
+            // reflection. The floor is one 9x10.9m slab with nothing of the sort, and its grain is the
+            // only thing doing that job.
+            //
+            // WHAT TO WATCH IF EITHER MOVES AGAIN: specular is added on top of diffuse, so both of
+            // these push the floor back toward the clipping that 0.85 albedo was chosen to stop. Judge
+            // them standing under a fixture, not in the middle of the room.
+            ApplySurfaceDetail(floorMat, surfaceGrain, 0.6f, new Vector2(26f, 30f), 0.65f);
 
             (Transform root, Transform bedSpawn, ParticleSystem[] gas,
              Door[] doors, RoomCondition[] conditions,
@@ -741,7 +794,19 @@ namespace IterationRoom.EditorTools
             // One material for both slabs. Floor and ceiling were split apart for a marble floor;
             // that was dropped in favour of a plain white one, and with the two surfaces identical
             // again the split was only duplication.
-            Material floorMat = MakeColorMaterial("FloorWhite", Color.white);
+            // **0.85, NOT WHITE** - settled 2026-08-20, and the
+            // reason it is not 1.0 is measurable rather than a matter of taste. Albedo 1.0 is a
+            // surface that returns every photon that hits it; nothing does, fresh white paint is
+            // about 0.85, and a floor is always darker than the walls above it. With four spots at
+            // intensity 10.5 pointing straight down, a 1.0 floor CLIPPED - the title screen's own
+            // capture had this floor at (235, 253, 255), two channels already at the top - and play
+            // read it exactly: stand in the middle, look down, it is too white.
+            //
+            // The alternatives were both wider. Dropping the light intensity darkens the walls with
+            // it, and pulling exposure down in the volume changes every surface in the game. This
+            // changes the one surface that was wrong, and it still reads WHITE: it is 15% off
+            // clipping and the eye has nothing brighter on screen to compare it against.
+            Material floorMat = MakeColorMaterial("FloorWhite", new Color(0.85f, 0.85f, 0.86f));
             // Sits at the bottom of every groove and inside the door pocket. Near-black so the
             // seams read the way the old painted-on grid lines did.
             Material grooveMat = MakeColorMaterial("GrooveDark", new Color(0.04f, 0.04f, 0.045f));
@@ -774,14 +839,41 @@ namespace IterationRoom.EditorTools
             // and it only reads correctly because the reflection probes give it the room to mirror
             // rather than the blue sky.
             //
-            // The floor stays matte by comparison, as a hard-wearing floor finish would be against
-            // a glazed wall.
+            // THE FLOOR IS NO LONGER MATTE BY COMPARISON - it was, and that pairing is what this
+            // paragraph was written against, but it went to smoothness 0.65 on 2026-08-20. What now
+            // separates the two is relief rather than gloss: the wall keeps its whisper of grain
+            // (0.2) and the floor carries three times it (0.6), because the wall has a panel grid to
+            // break up its reflection and the floor is one bare slab. See the floor's own comment.
             Texture2D surfaceGrain = MakeNoiseNormalMap("SurfaceGrain", 512, 2.5f);
             ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), 0.85f);
             // Floor and ceiling: plain white, matte, with the same plaster grain the walls get -
             // just at a far higher repeat count, since a slab face is 9 x 10.9m against a wall
             // panel's 1.7 x 0.9m.
-            ApplySurfaceDetail(floorMat, surfaceGrain, 1.8f, new Vector2(26f, 30f), 0.18f);
+            // SMOOTHNESS 0.65, UP FROM 0.3, and BUMP 0.6, DOWN FROM 1.8. Settled 2026-08-20. They are
+            // one decision, not two, and the order they happened in is the whole lesson.
+            //
+            // The smoothness first: a floor at smoothness 0 is a perfectly uniform field, and the eye
+            // reads a field with no variation in it as blown out rather than as bright - which was
+            // half of what "too white" meant. At 0.65 the ceiling fixtures lay pools across the floor
+            // and the 26x30 grain rides in them, so the floor has structure to read distance off.
+            //
+            // THEN THE BUMP, because raising the gloss is what exposed it. Wall and floor share one
+            // normal map at one physical grain size (~0.35m repeat on both) and differed ONLY in this
+            // number - 0.2 against 1.8, nine times apart. While the floor was matte that relief only
+            // reached the diffuse and read as the tooth of sealed concrete. Glossy, the same grain
+            // modulates the SPECULAR, and the floor stopped being the matte counterpart to a glazed
+            // wall and became a third finish that was neither. Play called it as the wall and the
+            // floor not going together.
+            //
+            // 0.6, not the wall's 0.2, and the asymmetry is earned: a wall is a grid of 1.7x0.9m
+            // panels with near-black grooves between them, so it already has geometry breaking up its
+            // reflection. The floor is one 9x10.9m slab with nothing of the sort, and its grain is the
+            // only thing doing that job.
+            //
+            // WHAT TO WATCH IF EITHER MOVES AGAIN: specular is added on top of diffuse, so both of
+            // these push the floor back toward the clipping that 0.85 albedo was chosen to stop. Judge
+            // them standing under a fixture, not in the middle of the room.
+            ApplySurfaceDetail(floorMat, surfaceGrain, 0.6f, new Vector2(26f, 30f), 0.65f);
 
             GameObject room = new GameObject("Room");
             BuildShell(room.transform, floorMat, grooveMat, panelMat);
@@ -797,7 +889,10 @@ namespace IterationRoom.EditorTools
              Door[] cycleTwoDoors, RoomCondition[] cycleTwoConditions,
              GhostInteractable[] cycleTwoSignals, Transform[] cycleTwoRooms,
              Transform[] cycleTwoLoweredRooms,
-             FinalRoomSequence cycleTwoFinalRoom, CycleExit cycleTwoExit) =
+             // The hatch element is DISCARDED: room2-0 stopped building its own the day cycle 3
+             // existed, so this is always null now. It is built on `CycleJoin_2_3` below, in the core
+             // scene, because one `CycleExit` drives a lid in two different cycles' scenes.
+             FinalRoomSequence cycleTwoFinalRoom, _) =
                 BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat, ghostParent.transform);
 
             // Every wall panel, gathered by parent name rather than threaded back out through
@@ -1225,6 +1320,35 @@ namespace IterationRoom.EditorTools
                 propMat, testCard, staticNoise, shaker, hand, narration);
 
 
+            // CYCLE 3. One sealed room under room2-0's hatch: a bed, an empty chest and the gas.
+            // What cycle 2 was on the day it was started, and for the same reason - the boundary is
+            // the thing being exercised, and a puzzle would be in the way of testing it.
+            (Transform cycleThreeRoot, Transform cycleThreeBedSpawn, ParticleSystem[] cycleThreeGas,
+             Transform cycleThreeRoom, GhostInteractable[] cycleThreeSignals) =
+                BuildCycleThreeShell(floorMat, grooveMat, panelMat, propMat);
+
+            // THE JOIN BETWEEN CYCLE 2 AND CYCLE 3, and it is in the CORE scene for the reason
+            // cycle 1's is: one `CycleExit` drives a lid in the floor above and a lid in the ceiling
+            // below, and a reference across a scene boundary comes back null with no error.
+            //
+            // Positioned so that `BuildCycleExit`'s own `+CycleExitZ` lands the hatch exactly on
+            // room2-0's centre, which is where its floor hole is cut. The Y is room2-0's floor plane.
+            GameObject join23 = new GameObject("CycleJoin_2_3");
+            join23.transform.position =
+                new Vector3(CycleThreeX, CycleThreeFloorY + StoreyDrop, CycleThreeZ - CycleExitZ);
+
+            CycleExit cycleTwoExit = BuildCycleExit(join23.transform, 0f, floorMat, fpc.transform);
+            if (cycleTwoFinalRoom != null) cycleTwoFinalRoom.wayOut = cycleTwoExit;
+
+            // And the tube the player falls down, joining room2-0's floor to room3-1's ceiling.
+            BuildExitShaft(join23.transform, "ExitShaft_Cycle2", 0f, floorMat);
+
+            AssertUnderHatch(cycleTwoExit != null ? cycleTwoExit.transform : null);
+
+            (Cycle cycleThree, WallPanelDisplay cycleThreeDisplay) = AssembleCycleThree(
+                cycleThreeRoot, cycleThreeBedSpawn, cycleThreeGas, cycleThreeSignals,
+                testCard, staticNoise);
+
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
             loop.loopDuration = 60f;
@@ -1280,7 +1404,10 @@ namespace IterationRoom.EditorTools
             // room2-0, because there is nothing under that floor for it to join TO - it is a hatch in
             // the last room rather than a seam between two. When cycle 3 exists, it becomes a seam and
             // moves out here with cycle 1's.
-            binding.wayOuts = new[] { cycleOneExit, cycleTwoExit };
+            // THREE CYCLES, AND THE LAST ONE'S NULL IS WHAT MAKES IT LAST. Cycle 3 has no successor
+            // and no hatch of its own yet; `LoopManager` derives "last" from the array rather than
+            // from a count, so the day cycle 4 exists this grows by one entry.
+            binding.wayOuts = new[] { cycleOneExit, cycleTwoExit, null };
             // The one E fixture that belongs to no cycle: the calibration room runs before the first
             // iteration, so its button cannot be gathered off a cycle root.
             binding.coreHintTargets = new MonoBehaviour[] { startButton };
@@ -1353,7 +1480,8 @@ namespace IterationRoom.EditorTools
             // scene, exactly as it always did - a reflection probe renders the world around it, so it
             // has to be baked while that world is still assembled. Only once the cubemaps are on disk
             // does each cycle move out into a scene of its own.
-            SplitCyclesIntoScenes(new[] { cycleOne, cycleTwo }, new[] { wallDisplay, cycleTwoDisplay });
+            SplitCyclesIntoScenes(new[] { cycleOne, cycleTwo, cycleThree },
+                                  new[] { wallDisplay, cycleTwoDisplay, cycleThreeDisplay });
 
             // And again, because the cycles have just left it. The first save wrote a scene that still
             // contained them.
@@ -3340,6 +3468,50 @@ namespace IterationRoom.EditorTools
             return (cycleTwo, display);
         }
 
+        // CYCLE 3, GATHERED ONTO ONE OBJECT. The same shape as `AssembleCycleTwo` and much less of it,
+        // because the cycle is one sealed room: no doors to shut, no conditions to rewind, no final
+        // room to finish. All three are supported states rather than gaps - see `Cycle.Complete`,
+        // which is false forever without a `finalRoom`, and `LoopManager`, which simply keeps
+        // iterating.
+        private static (Cycle cycle, WallPanelDisplay display) AssembleCycleThree(
+            Transform root, Transform bedSpawn, ParticleSystem[] gasEmitters,
+            GhostInteractable[] signals, Texture2D testCard, Texture2D staticNoise)
+        {
+            // ONE DISPLAY PER CYCLE, gathered by parent name exactly as cycle 2's is: the ERROR
+            // spreading from a console means *this bed's cycle is over*, so a panel in a cycle the
+            // player has not reached has no business failing.
+            var panels = new System.Collections.Generic.List<Renderer>();
+            foreach (Renderer r in root.GetComponentsInChildren<Renderer>())
+            {
+                if (r.transform.parent == null || !r.transform.parent.name.EndsWith("_Panels")) continue;
+                panels.Add(r);
+            }
+            WallPanelDisplay display = MakeWallPanelDisplay(
+                "WallPanelDisplay_Cycle3", panels.ToArray(), testCard, staticNoise);
+
+            GameObject go = new GameObject("Cycle3");
+            Cycle cycle = go.AddComponent<Cycle>();
+            cycle.bedSpawnPoint = bedSpawn;
+            cycle.doors = new Door[0];
+            cycle.drawers = root.GetComponentsInChildren<Drawer>(true);
+            cycle.gasEmitters = gasEmitters;
+            CheckGhostSignals("Cycle 3", signals);
+            cycle.ghostInteractables = signals;
+            cycle.conditions = new RoomCondition[0];
+            // No room0 yet, so no console and no way to finish - see the note in AssembleCycleTwo for
+            // what a `finalRoom` costs to add when there is one.
+            cycle.finalRoom = null;
+            cycle.worldRoot = root;
+            cycle.wallPanels = display;
+
+            // Everything down here stands on a floor two storeys below zero, and every carryable has
+            // to be told so or it falls through it. Nothing is carryable in this room yet except the
+            // chest's cube, which is exactly the kind of thing that would fall through it.
+            SetFloorBase(root, CycleThreeFloorY);
+
+            return (cycle, display);
+        }
+
         // THE CALIBRATION ROOM BELONGS TO NO CYCLE, and the split is what made that structural rather
         // than merely true. It is built inside cycle 1's shell because it is a room and that is where
         // rooms are built - but it runs ONCE, before the first iteration, before there is a cycle to be
@@ -3489,6 +3661,39 @@ namespace IterationRoom.EditorTools
                 t = t.parent;
             }
             return false;
+        }
+
+        // THE CEILING, AND IT IS NOT THE FLOOR. They shared `floorMat` until 2026-08-20 - both are
+        // white slabs, which is fair - and they are lit from opposite ends: the floor is directly
+        // under four spots and the ceiling faces AWAY from every one of them, lit by ambient alone.
+        // The albedo that stops one clipping is the albedo that kills the other.
+        //
+        // So: 1.0, the wall's own brightness, because a ceiling needs everything it can get.
+        //
+        // SMOOTHNESS 0.3, UP FROM 0 - settled 2026-08-20. The argument for
+        // 0 was that there is nothing above a ceiling to reflect, so a specular response there is a
+        // highlight of nothing. What that missed is the same thing the floor was fixed for: with no
+        // direct light on it at all (the spots point down) and ambient ground as its only term, a
+        // ceiling at smoothness 0 is a CONSTANT field across the whole slab - the grain cannot show,
+        // because trilight's ground and equator are 0.075 apart and perturbing the normal moves it by
+        // under a percent. 0.3 lets the probe put a faint gradient on it, which is the one thing that
+        // can give it shape without touching how bright it is.
+        //
+        // Cached because it is asked for once per room and `MakeNoiseNormalMap` regenerates its
+        // texture on every call rather than loading it.
+        private static Material ceilingMaterial;
+
+        private static Material CeilingMaterial()
+        {
+            if (ceilingMaterial != null) return ceilingMaterial;
+
+            ceilingMaterial = MakeColorMaterial("CeilingWhite", Color.white);
+            // The floor's grain, at the floor's scale. It is the same slab built the same way; at the
+            // 0.3 above it shows in the diffuse as the faint tooth a painted ceiling has, and now also
+            // breaks up the probe's reflection so that reflection is not a second flat field.
+            ApplySurfaceDetail(ceilingMaterial, MakeNoiseNormalMap("SurfaceGrain", 512, 2.5f),
+                               1.8f, new Vector2(26f, 30f), 0.3f);
+            return ceilingMaterial;
         }
 
         private static Material MakeEmissiveMaterial(string name, Color color, float emission)
@@ -5167,7 +5372,7 @@ namespace IterationRoom.EditorTools
             // square and the grate is what makes it read as a drain.
             BuildSlab(t, "Floor", -WallThickness / 2f, 0f, floorMat,
                       new Rect(-DrainSize / 2f, -DrainSize / 2f, DrainSize, DrainSize));
-            BuildSlab(t, "Ceiling", RoomHeight + WallThickness / 2f, 0f, floorMat, default);
+            BuildSlab(t, "Ceiling", RoomHeight + WallThickness / 2f, 0f, CeilingMaterial(), default);
 
             // THE NORTH WALL IS THE SHARED ONE, and its one opening sits AGAINST THE CEILING - the top
             // 1.7m of the wall, which is now the same 1.7m band the hall's own opening covers, because
@@ -5311,7 +5516,8 @@ namespace IterationRoom.EditorTools
         private static Transform BuildEmptyRoom(Transform parent, string name, Vector3 at,
                                                 Material floorMat, Material grooveMat,
                                                 Material panelMat, Material fixtureMat,
-                                                bool doorwayNorth, Rect floorHole = default)
+                                                bool doorwayNorth, Rect floorHole = default,
+                                                Rect ceilingHole = default)
         {
             GameObject rootGO = new GameObject(name + "_Root");
             rootGO.transform.SetParent(parent, false);
@@ -5324,7 +5530,7 @@ namespace IterationRoom.EditorTools
             Rect doorway = new Rect(-DoorWidth / 2f, 0f, DoorWidth, DoorHeight);
 
             BuildSlab(t, "Floor", -WallThickness / 2f, 0f, floorMat, floorHole);
-            BuildSlab(t, "Ceiling", RoomHeight + WallThickness / 2f, 0f, floorMat, default);
+            BuildSlab(t, "Ceiling", RoomHeight + WallThickness / 2f, 0f, CeilingMaterial(), ceilingHole);
 
             BuildPanelWall(t, "Wall_North", new Vector3(0f, 0f, RoomDepth / 2f),
                 Vector3.right, Vector3.back, RoomWidth, grooveMat, panelMat,
@@ -5359,6 +5565,86 @@ namespace IterationRoom.EditorTools
         //
         // THE ORDER OF THE ROW IS NOT THE ORDER OF THE ANSWERS (5, 3, 4, 2 left to right). A row that
         // read 2, 3, 4, 5 would be solvable by noticing that it counts.
+        // CYCLE 3'S FIRST ROOM, AND SO FAR ITS ONLY ONE.
+        //
+        // A bed, a chest with nothing in it, and four gas emitters - which is exactly what room2-1 was
+        // on the day cycle 2 was started, and deliberately so: what a cycle opens with is a person
+        // waking up in a cell, and that is the same sentence every time. The chest is the cycle 2
+        // build (`BuildDresser`, two opening bays and a cube on top) with `withBilliards` off, because
+        // what goes in a drawer belongs to a puzzle that has not been designed.
+        //
+        // NO DOORWAY, NO DOOR, NO CONDITION. The room is sealed, `Cycle.finalRoom` is null and the
+        // cycle cannot be finished - all three are supported states that cycle 2 shipped in for weeks
+        // (see `AssembleCycleTwo`). The loop simply keeps iterating here, which is the honest state of
+        // a cycle with no puzzles in it.
+        private static (Transform root, Transform bedSpawn, ParticleSystem[] gas, Transform room,
+                        GhostInteractable[] signals)
+            BuildCycleThreeShell(Material floorMat, Material grooveMat, Material panelMat,
+                                 Material propMat)
+        {
+            // ITS OWN FIXTURE MATERIAL, like cycle 2's. `CeilingFixture` is one emissive material
+            // shared by every room in a cycle, and `ChessReward` dims cycle 1's through a property
+            // block - a third cycle borrowing either would be a third cycle that goes dark when a
+            // board on another storey is finished.
+            Material fixtureMat = MakeEmissiveMaterial("CeilingFixtureCycle3", Color.white, 3.5f);
+
+            GameObject root = new GameObject("Room_Cycle3");
+            // AXIS-ALIGNED, unlike cycle 2. That cycle turns 180 about its own bed so its hall can be
+            // tall without switchbacking under cycle 1; cycle 3 has one room and nothing to avoid, so
+            // it is left square to the world and the next room it grows can decide for itself.
+            root.transform.position = new Vector3(CycleThreeX, CycleThreeFloorY, CycleThreeZ);
+
+            // THE HOLE THE PLAYER ARRIVES THROUGH. Its lid is NOT here - it lives on the join in the
+            // core scene with the floor lid above it, exactly as cycle 1's does, because one
+            // `CycleExit` drives both and a reference across a scene boundary comes back null. What
+            // this room owns is the absence.
+            Transform r1 = BuildEmptyRoom(root.transform, "Room3_1", Vector3.zero,
+                                          floorMat, grooveMat, panelMat, fixtureMat,
+                                          doorwayNorth: false, ceilingHole: CycleTwoExitHole);
+
+            // THE BED, and the point the loop teleports to at the top of every iteration.
+            (_, Transform spawn) = BuildBed(r1, propMat, floorY: CycleThreeFloorY, zCentre: CycleThreeZ,
+                                            yaw: 0f, xCentre: CycleThreeX);
+
+            // Cycle 2's chest, in cycle 2's place, with cycle 2's lamp - and empty. Both bays are
+            // wired as `GhostInteractable`s by `BuildDresser` whatever is in them, which is what makes
+            // putting something in one later a one-line change rather than a signal-bit problem
+            // (CLAUDE.md SS1.6).
+            Drawer[] drawers = BuildDresser(r1, "Dresser3_1", new Vector3(-0.95f, 0f, 1.35f),
+                                            yaw: 0f, withLamp: true);
+
+            ParticleSystem[] gas = BuildGasEmitters(r1, "Room3_1_Gas", 0f);
+
+            Debug.Log($"[SceneBuilder] Cycle 3: Room3_1 at ({CycleThreeX:0.##}, {CycleThreeFloorY:0.###}, "
+                    + $"{CycleThreeZ:0.##}), sealed, no puzzle yet");
+            // THE TWO DRAWER BAYS ARE THE WHOLE SIGNAL ARRAY, and they are in it before anything is
+            // in THEM - the same order cycle 2's chest was wired in, and for the reason CLAUDE.md
+            // SS1.6 gives: an entry's index IS its bit, so appending one later is the one change this
+            // array makes awkward. Numbered from zero, which is legal because every ghost is destroyed
+            // at a cycle boundary and no surviving timeline refers to another cycle's bits.
+            var signals = new GhostInteractable[drawers.Length];
+            for (int i = 0; i < drawers.Length; i++) signals[i] = drawers[i];
+
+            return (root.transform, spawn, gas, r1, signals);
+        }
+
+        // THE BED A PLAYER FALLS INTO HAS TO BE UNDER THE HATCH THEY FELL THROUGH, and nothing else in
+        // the build checks that. `CycleThreeX`/`Z` are read off room2-0 by hand (see their comment), so
+        // this is the line that notices when room2-0 moves and they do not.
+        private static void AssertUnderHatch(Transform breakRoom)
+        {
+            if (breakRoom == null) return;
+
+            Vector3 hatch = breakRoom.position;
+            float dx = Mathf.Abs(hatch.x - CycleThreeX), dz = Mathf.Abs(hatch.z - CycleThreeZ);
+            if (dx < 0.05f && dz < 0.05f) return;
+
+            Debug.LogError($"[SceneBuilder] Cycle 3's bed room is not under room2-0's hatch: the hatch "
+                + $"is at ({hatch.x:0.##}, {hatch.z:0.##}) and CycleThreeX/Z say "
+                + $"({CycleThreeX:0.##}, {CycleThreeZ:0.##}). A player dropping through would land "
+                + "outside the room, or inside a wall. Update the two constants.");
+        }
+
         private static (Transform room, FinalRoomSequence final, CycleExit exit) BuildBreakRoom(
             Transform parent, Vector3 at, Material floorMat, Material grooveMat, Material panelMat,
             Material propMat, Material fixtureMat)
@@ -5464,7 +5750,15 @@ namespace IterationRoom.EditorTools
             EscapeTrigger escape = escapeGO.AddComponent<EscapeTrigger>();
             escape.halfWidth = DoorWidth / 2f + 0.05f;
 
-            CycleExit exit = BuildCycleTwoExit(t, floorMat, propMat);
+            // **THE HATCH IS NOT BUILT HERE ANY MORE, since cycle 3 exists.** It was, while there was
+            // nothing underneath: a lid in this room's floor and a capped shaft under it, all owned by
+            // room2-0 because there was no storey for it to join TO.
+            //
+            // There is one now, and a `CycleExit` drives BOTH lids - the floor above and the ceiling
+            // below - so it cannot live in either cycle's scene: a reference across a scene boundary
+            // comes back null and Unity does not say so. It moves to `CycleJoin_2_3` in the core
+            // scene, which is where cycle 1's has always been and for exactly this reason. See Build.
+            CycleExit exit = null;
 
             GameObject seqGO = new GameObject("BreakSequence");
             seqGO.transform.SetParent(t, false);
@@ -5479,10 +5773,14 @@ namespace IterationRoom.EditorTools
             // it at runtime as well.
             foreach (FinalSlot slot in slots) if (slot != null) slot.sequence = sequence;
             sequence.arrival = escape;
-            sequence.wayOut = exit;
-            // THE BREAK OPENS THE FLOOR ITSELF, because there is no cycle 3 to wait for. See
-            // FinalRoomSequence.opensWayOutOnBreak - this goes back to false the day one exists.
-            sequence.opensWayOutOnBreak = true;
+            // `wayOut` is wired in `Build` along with the hatch itself, and `CycleBinding` writes it
+            // again at runtime from `wayOuts`.
+            //
+            // **AND THE BREAK NO LONGER OPENS THE FLOOR**, which it did for exactly as long as there
+            // was nothing under it. `LoopManager.CrossToNextCycle` owns the hatch now: it wakes cycle
+            // 3, repoints the gas at it and THEN opens the way down, because a player must not be able
+            // to drop into a storey that is still asleep.
+            sequence.opensWayOutOnBreak = false;
             sequence.breakDuration = 10f;
 
             return (t, sequence, exit);
@@ -5513,68 +5811,6 @@ namespace IterationRoom.EditorTools
             if (face != null) face.alpha = 1f;
         }
 
-        // THE HOLE IN ROOM2-0'S FLOOR, and the shaft under it.
-        //
-        // ONE LID, WHERE CYCLE 1'S HAS TWO. That pair exists because cycle 1's opening goes through
-        // the floor of one storey and the CEILING of the next, with a service void between them -
-        // plug only the top and the room below gets a square recess in its ceiling with the shaft
-        // visible up inside it. There is no room below this one, so there is one lid.
-        //
-        // AND THE SHAFT IS CAPPED, which cycle 1's is not, and that is the honest shape of "cycle 3
-        // does not exist yet": the floor opens onto a way down that is built and not yet connected.
-        // Uncapped it would be a hole into nothing that a player standing in a broken room can walk
-        // into and fall out of the world. When cycle 3 is built, the cap comes out and the shaft
-        // lengthens to `ServiceVoid` like cycle 1's.
-        private static CycleExit BuildCycleTwoExit(Transform room, Material floorMat, Material propMat)
-        {
-            const float shaftDepth = 3.2f;
-
-            GameObject go = new GameObject("CycleExit_Cycle2");
-            go.transform.SetParent(room, false);
-            // At the floor plane, which is what `throughDrop` is measured from.
-            go.transform.localPosition = Vector3.zero;
-
-            // Flush with the floor it fills, and it retracts OUT of the slab as it slides - sideways
-            // alone would leave a face coplanar with the one on show, which z-fights across the whole
-            // square. Cycle 1's lid learned that the expensive way.
-            GameObject lid = Prim(PrimitiveType.Cube, "Cover_Floor", go.transform,
-                new Vector3(0f, -WallThickness / 2f, 0f),
-                new Vector3(GridCellWidth, WallThickness, GridCellWidth), floorMat);
-
-            CycleExit exit = go.AddComponent<CycleExit>();
-            exit.covers = new[] { lid.transform };
-            exit.openOffsets = new[] { new Vector3(GridCellWidth, -0.16f, 0f) };
-            exit.audioSource = MakeSource(go.transform, "ExitAudio", spatialBlend: 1f, volume: 0.9f);
-            exit.openClip = LoadClip(SfxDir, "sfx_door_open");
-            exit.sealClip = LoadClip(SfxDir, "sfx_power_down");
-
-            // Four walls and a floor: without them the opening looks out into the void the building
-            // stands in, and the drop reads as falling out of the level rather than as going down.
-            GameObject shaft = new GameObject("ExitShaft_Cycle2");
-            shaft.transform.SetParent(room, false);
-            shaft.transform.localPosition = new Vector3(0f, -WallThickness, 0f);
-
-            float half = GridCellWidth / 2f;
-            float outer = GridCellWidth + 2f * WallThickness;
-            Prim(PrimitiveType.Cube, "Shaft_West", shaft.transform,
-                new Vector3(-half - WallThickness / 2f, -shaftDepth / 2f, 0f),
-                new Vector3(WallThickness, shaftDepth, outer), propMat);
-            Prim(PrimitiveType.Cube, "Shaft_East", shaft.transform,
-                new Vector3(half + WallThickness / 2f, -shaftDepth / 2f, 0f),
-                new Vector3(WallThickness, shaftDepth, outer), propMat);
-            Prim(PrimitiveType.Cube, "Shaft_South", shaft.transform,
-                new Vector3(0f, -shaftDepth / 2f, -half - WallThickness / 2f),
-                new Vector3(GridCellWidth, shaftDepth, WallThickness), propMat);
-            Prim(PrimitiveType.Cube, "Shaft_North", shaft.transform,
-                new Vector3(0f, -shaftDepth / 2f, half + WallThickness / 2f),
-                new Vector3(GridCellWidth, shaftDepth, WallThickness), propMat);
-            Prim(PrimitiveType.Cube, "Shaft_Cap", shaft.transform,
-                new Vector3(0f, -shaftDepth - WallThickness / 2f, 0f),
-                new Vector3(outer, WallThickness, outer), propMat);
-
-            return exit;
-        }
-
         private static (Transform room, WeighScale scale)
             BuildWeighRoom(Transform parent, Material floorMat, Material grooveMat, Material panelMat,
                            Material propMat, Material fixtureMat)
@@ -5589,7 +5825,7 @@ namespace IterationRoom.EditorTools
             Transform t = roomGO.transform;
 
             BuildSlab(t, "Floor", -WallThickness / 2f, 0f, floorMat, default);
-            BuildSlab(t, "Ceiling", RoomHeight + WallThickness / 2f, 0f, floorMat, default);
+            BuildSlab(t, "Ceiling", RoomHeight + WallThickness / 2f, 0f, CeilingMaterial(), default);
 
             BuildPanelWall(t, "Wall_North", new Vector3(0f, 0f, RoomDepth / 2f),
                 Vector3.right, Vector3.back, RoomWidth, grooveMat, panelMat,
@@ -7322,7 +7558,7 @@ namespace IterationRoom.EditorTools
             // ordinary ceiling again. `DarkenAbove` is gone with it; the panel-display exclusion it
             // needed is documented in docs/gotchas.md, because the trap is real for the next thing
             // that tries to recolour a wall panel.
-            BuildSlabRect(t, "Ceiling", TreeHallHeight + WallThickness / 2f, floorXZ, floorMat);
+            BuildSlabRect(t, "Ceiling", TreeHallHeight + WallThickness / 2f, floorXZ, CeilingMaterial());
 
             // THE NORTH WALL CARRIES BOTH DOORWAYS, which is what a single width bought - they used
             // to be in two walls 0.875m apart. `SubtractRect` takes one hole, so the wall is emitted
@@ -9132,9 +9368,13 @@ namespace IterationRoom.EditorTools
                 new Vector3(GridCellWidth, WallThickness, GridCellWidth), floorMat);
 
             float ceilingMid = -(ServiceVoid + 1.5f * WallThickness);
+            // THE CEILING LID TAKES THE CEILING'S MATERIAL, which stopped being the floor's on
+            // 2026-08-20 when the two were split (albedo 0.85/smoothness 0.3 against 1.0/0). Left on
+            // `floorMat` it is a darker, glossier square sitting in a matte white ceiling - play saw
+            // it as a patch of the wrong colour, which is exactly what it was.
             GameObject lower = Prim(PrimitiveType.Cube, "Cover_Ceiling", go.transform,
                 new Vector3(0f, ceilingMid, 0f),
-                new Vector3(GridCellWidth, WallThickness, GridCellWidth), floorMat);
+                new Vector3(GridCellWidth, WallThickness, GridCellWidth), CeilingMaterial());
 
             CycleExit exit = go.AddComponent<CycleExit>();
             exit.covers = new[] { upper.transform, lower.transform };
@@ -9316,6 +9556,12 @@ namespace IterationRoom.EditorTools
         // floorHole / ceilingHole: a rectangle in ROOM-LOCAL XZ (x across the room, y of the Rect being
         // Z relative to zCenter) to leave out of that slab. Rect.zero means none, which is every room
         // but the two a cycle boundary passes through.
+        //
+        // The floor takes `floorMat` and the ceiling takes `CeilingMaterial()`, and the two are NOT
+        // interchangeable: a floor is directly under the lights and a ceiling faces away from every
+        // one of them, so the albedo that stops one clipping is the albedo that kills the other. A
+        // pair of per-room overrides lived here for a day in 2026-08-20 while that was being settled;
+        // the answer is in the two materials now, so a room does not get to disagree with it.
         private static void BuildRoomShell(Transform parent, string roomName, float zCenter, Material floorMat, Material grooveMat, Material panelMat, Rect southCutout, Rect northCutout, Rect westCutout = default, Rect eastCutout = default, Rect floorHole = default, Rect ceilingHole = default)
         {
             GameObject room = new GameObject(roomName);
@@ -9326,7 +9572,7 @@ namespace IterationRoom.EditorTools
             float minZ = zCenter - RoomDepth / 2f, maxZ = zCenter + RoomDepth / 2f;
 
             BuildSlab(t, "Floor", -WallThickness / 2f, zCenter, floorMat, floorHole);
-            BuildSlab(t, "Ceiling", RoomHeight + WallThickness / 2f, zCenter, floorMat, ceilingHole);
+            BuildSlab(t, "Ceiling", RoomHeight + WallThickness / 2f, zCenter, CeilingMaterial(), ceilingHole);
 
             BuildPanelWall(t, "Wall_South", new Vector3(0f, 0f, minZ), Vector3.right, Vector3.forward, RoomWidth, grooveMat, panelMat, southCutout);
             BuildPanelWall(t, "Wall_North", new Vector3(0f, 0f, maxZ), Vector3.right, Vector3.back, RoomWidth, grooveMat, panelMat, northCutout);
@@ -9553,9 +9799,14 @@ namespace IterationRoom.EditorTools
         // corrects `localPosition` by a world-space delta: under a rotated parent that correction goes
         // in the wrong direction entirely. Anything placed with plain `localPosition` (the spawn point
         // here, the nightstand elsewhere) can use a rotated wrapper quite safely.
+        // `xCentre`/`zCentre` are a WORLD position, because `PlaceModel` corrects a world-space
+        // delta into a localPosition - so a caller whose room is not on the origin has to say where it
+        // is. X was hard-coded to zero until 2026-08-20 and got away with it for two cycles, both of
+        // which put their bed room on x=0; cycle 3's is twenty-one metres out, under room2-0, and the
+        // bed would have been built in the middle of the tree hall's pit.
         private static (Transform bed, Transform spawn) BuildBed(Transform parent, Material mat,
                                                                  float floorY = 0f, float zCentre = 0f,
-                                                                 float yaw = 0f)
+                                                                 float yaw = 0f, float xCentre = 0f)
         {
             // Combined bed + bedside table model, which replaces the old separate Kenney bed,
             // drawer, lamp and cup. It is authored Z-up in centimetres, hence the -90 X rotation
@@ -9571,10 +9822,18 @@ namespace IterationRoom.EditorTools
             float facing = Mathf.Round(Mathf.Cos(yaw * Mathf.Deg2Rad));
 
             (GameObject bed, _) = PlaceModel($"{FurnitureDir}/messy_bed.glb", parent, "Bed",
-                new Vector3(0f, 0f, zCentre + 0.7f * facing), floorY, 0.00941f, addBoxCollider: true,
+                new Vector3(xCentre, 0f, zCentre + 0.7f * facing), floorY, 0.00941f, addBoxCollider: true,
                 rotation: Quaternion.Euler(-90f, 180f + yaw, 0f));
 
-            UseSinglePillow(bed, keepName: "Pillow_2", hideName: "Pillow_1", centreX: 0f);
+            // `xCentre`, NOT ZERO. This shifts the pillow in WORLD space (see UseSinglePillow), so a
+            // hard zero centres it on the world origin rather than on its own bed - and cycle 3's bed
+            // is twenty-one metres out, under room2-0. Play found it as "room3-1's bed has no pillow";
+            // it had one, in the middle of the tree hall's pit.
+            //
+            // The same fault `BuildBed` itself carried until the same day, for the same reason: two
+            // cycles' bed rooms both sat on x = 0, so a world X hard-coded to zero was accidentally
+            // right twice.
+            UseSinglePillow(bed, keepName: "Pillow_2", hideName: "Pillow_1", centreX: xCentre);
 
             // This model bakes contact shadows into its occlusion maps, which only looks right in
             // the exact pose it was authored in. Moving the pillow and removing its neighbour left
@@ -12824,26 +13083,46 @@ namespace IterationRoom.EditorTools
             narration.voiceSource = MakeSource(paGO.transform, "Voice", 0f, 1f);
             narration.chimeSource = MakeSource(paGO.transform, "Chime", 0f, 0.7f);
             // Both go through the same speaker, so both get the same treatment.
-            AddTannoyFilters(narration.voiceSource);
+            (AudioEchoFilter voiceEcho, AudioReverbFilter voiceReverb) =
+                AddTannoyFilters(narration.voiceSource);
+            // The chime is not trimmed. It is two notes with nothing to smear, and it is the same
+            // two notes in every language - see NarrationDirector.
             AddTannoyFilters(narration.chimeSource);
 
-            AudioClip[] iterationLines = new AudioClip[NarrationIterationLines];
-            for (int i = 0; i < iterationLines.Length; i++)
-                iterationLines[i] = LoadClip(VoiceDir, $"voice_iteration_{i + 1:00}");
-            narration.iterationLines = iterationLines;
-            narration.iterationGenericLine = LoadClip(VoiceDir, "voice_iteration_generic");
-            narration.tenSecondsLine = LoadClip(VoiceDir, "voice_ten_seconds");
+            narration.voiceEcho = voiceEcho;
+            narration.voiceReverb = voiceReverb;
+            // THE NUMBERS LIVE HERE, not in the component (CLAUDE.md §2). English is what
+            // `AddTannoyFilters` just authored, restated so switching back is a real assignment
+            // rather than "whatever the filter happens to hold".
+            narration.englishTannoy = new NarrationDirector.TannoyTrim
+            {
+                echoWetMix = 0.33f,
+                reverbDecayTime = 2.1f,
+                reverbLevel = 250f,
+            };
+            // Roughly half the slap and half the tail. Enough that the horn is still in a room, not
+            // so much that a one-syllable countdown digit is still ringing when the next one lands.
+            narration.koreanTannoy = new NarrationDirector.TannoyTrim
+            {
+                echoWetMix = 0.15f,
+                reverbDecayTime = 1.1f,
+                reverbLevel = 80f,
+            };
 
-            // Element 0 is "Nine.", counting down to "One." at the end.
-            AudioClip[] countdownLines = new AudioClip[9];
-            for (int i = 0; i < countdownLines.Length; i++)
-                countdownLines[i] = LoadClip(VoiceDir, $"voice_count_{9 - i}");
-            narration.countdownLines = countdownLines;
-            narration.newCycleLine = LoadClip(VoiceDir, "voice_new_cycle");
-            narration.cycleTerminatedLine = LoadClip(VoiceDir, "voice_cycle_terminated");
-            narration.cycleBrokenLine = LoadClip(VoiceDir, "voice_cycle_broken");
-            narration.manualTerminationLine = LoadClip(VoiceDir, "voice_manual_termination");
+            // BOTH LANGUAGES WIRED IN, one chosen at runtime - see `NarrationDirector.Lines` for why
+            // it is not loaded on demand. The two folders carry the SAME FILENAMES, which is what lets
+            // one gather serve both; `Tools/generate_narration.ps1` writes them.
+            narration.english = LoadVoiceSet(VoiceDir);
+            narration.korean = LoadVoiceSet(VoiceDir + "/ko");
             narration.announcementChime = LoadClip(SfxDir, "sfx_chime");
+
+            // Say so rather than shipping a silent PA. A missing Korean folder is not an error - the
+            // director falls back to English - but it is never what anybody intended, and a language
+            // that quietly stops talking is exactly the kind of fault that survives to a release.
+            if (narration.korean == null || narration.korean.iterationGenericLine == null)
+                Debug.LogWarning("[SceneBuilder] No Korean voice lines in " + VoiceDir + "/ko - the PA "
+                               + "will speak English in both languages. Run "
+                               + "Tools/generate_narration.ps1 -Language ko");
 
             // --- room tone and machinery ---
             GameObject ambienceGO = new GameObject("Ambience");
@@ -12895,7 +13174,10 @@ namespace IterationRoom.EditorTools
         // GameObject, so these are added in the order they should process. Reverb last: putting it
         // ahead of the distortion would grit up the tail as well as the voice, which reads as a
         // broken speaker rather than a room.
-        private static void AddTannoyFilters(AudioSource source)
+        // Returns the two filters whose settings are language-dependent, so `NarrationDirector` can
+        // dial them without owning the rest of the chain. Everything else here is the same in every
+        // language: the band-limiting and the drive are the SPEAKER, and the speaker does not change.
+        private static (AudioEchoFilter echo, AudioReverbFilter reverb) AddTannoyFilters(AudioSource source)
         {
             GameObject go = source.gameObject;
 
@@ -12940,6 +13222,8 @@ namespace IterationRoom.EditorTools
             verb.reverbLevel = 250f;
             verb.diffusion = 100f;
             verb.density = 100f;
+
+            return (echo, verb);
         }
 
         // spatialBlend 0 is 2D (heard the same everywhere), 1 is fully positional.
@@ -13331,6 +13615,32 @@ namespace IterationRoom.EditorTools
         }
 
         // Extension-agnostic, so a sourced .ogg or .mp3 drops in as readily as a .wav.
+        // ONE LANGUAGE'S WORTH OF PA LINES. Both folders use identical filenames, so which language
+        // this is comes entirely from `dir` - that is the whole reason the Korean set went into a
+        // subfolder rather than getting a suffix on every name.
+        private static NarrationDirector.VoiceSet LoadVoiceSet(string dir)
+        {
+            var set = new NarrationDirector.VoiceSet();
+
+            set.iterationLines = new AudioClip[NarrationIterationLines];
+            for (int i = 0; i < set.iterationLines.Length; i++)
+                set.iterationLines[i] = LoadClip(dir, $"voice_iteration_{i + 1:00}");
+
+            set.iterationGenericLine = LoadClip(dir, "voice_iteration_generic");
+            set.tenSecondsLine = LoadClip(dir, "voice_ten_seconds");
+
+            // Element 0 is "Nine.", counting down to "One." at the end.
+            set.countdownLines = new AudioClip[9];
+            for (int i = 0; i < set.countdownLines.Length; i++)
+                set.countdownLines[i] = LoadClip(dir, $"voice_count_{9 - i}");
+
+            set.newCycleLine = LoadClip(dir, "voice_new_cycle");
+            set.cycleTerminatedLine = LoadClip(dir, "voice_cycle_terminated");
+            set.cycleBrokenLine = LoadClip(dir, "voice_cycle_broken");
+            set.manualTerminationLine = LoadClip(dir, "voice_manual_termination");
+            return set;
+        }
+
         private static AudioClip LoadClip(string dir, string baseName)
         {
             foreach (string ext in new[] { ".wav", ".ogg", ".mp3", ".aif", ".aiff" })
@@ -13367,6 +13677,12 @@ namespace IterationRoom.EditorTools
         // A hierarchy built from SIZE alone is what four sizes with no ratio between them looks like;
         // one built from weight needs only two sizes. ExtraLight at 86 is a different instrument from
         // Regular at 86, and it is the one a title wants.
+        // THE HANGUL FACE, for the one label that must be Korean before any language is chosen.
+        // Everything else swaps at runtime through `LocalizedText`, which resolves the same asset -
+        // this exists so the two cannot point at different files.
+        private static Font KoreanUIFont() =>
+            AssetDatabase.LoadAssetAtPath<Font>("Assets/Resources/Fonts/D2Coding.ttf");
+
         private static Font UIFont(string weight)
         {
             Font font = AssetDatabase.LoadAssetAtPath<Font>(
@@ -13440,6 +13756,7 @@ namespace IterationRoom.EditorTools
             hint.color = Color.red;
             // Bracketed key then the verb, the same shape as the end-cycle control's label.
             hint.text = "[E] — PUT DOWN";
+            Localize(hint, "hud.putDown");
             // 0.6 * 16 * 16 is about 154px against a 300px rect, but overflow is set anyway - a
             // silently rewrapping HUD label has bitten this project twice.
             hint.horizontalOverflow = HorizontalWrapMode.Overflow;
@@ -13911,6 +14228,7 @@ namespace IterationRoom.EditorTools
             title.color = Color.red;
             // Spaced out in the string, as everything else in this typeface is.
             title.text = "P A U S E D";
+            Localize(title, "pause.title");
             title.horizontalOverflow = HorizontalWrapMode.Overflow;
             title.verticalOverflow = VerticalWrapMode.Overflow;
             title.raycastTarget = false;
@@ -13924,20 +14242,32 @@ namespace IterationRoom.EditorTools
             // than last: it is an action on the run like RESUME, where MAIN MENU and QUIT are ways
             // out of the game - and putting a destructive one at the bottom of a column is how it
             // gets clicked by somebody reaching for QUIT.
-            Button resume = MakeMenuButton(root.transform, "ResumeButton", "RESUME", new Vector2(0f, 80f));
-            Button restart = MakeMenuButton(root.transform, "RestartButton", "RESTART CYCLE", new Vector2(0f, 0f));
-            Button toMenu = MakeMenuButton(root.transform, "MenuButton", "MAIN MENU", new Vector2(0f, -80f));
-            Button quit = MakeMenuButton(root.transform, "QuitButton", "QUIT", new Vector2(0f, -160f));
+            Button resume = Localize(MakeMenuButton(root.transform, "ResumeButton", "RESUME", new Vector2(0f, 80f)), "pause.resume", "  ");
+            Button restart = Localize(MakeMenuButton(root.transform, "RestartButton", "RESTART CYCLE", new Vector2(0f, 0f)), "pause.restart", "  ");
+            Button toMenu = Localize(MakeMenuButton(root.transform, "MenuButton", "MAIN MENU", new Vector2(0f, -80f)), "pause.mainMenu", "  ");
+            Button quit = Localize(MakeMenuButton(root.transform, "QuitButton", "QUIT", new Vector2(0f, -160f)), "menu.quit", "  ");
 
-            // Below the buttons rather than above them: this is a setting, not an action, and the
-            // things a paused player most often wants stay at the top.
-            const float settingsY = -240f;
-            MakeRowLabel(root.transform, "SensitivityLabel", "MOUSE SENSITIVITY",
-                new Vector2(-150f, settingsY), new Vector2(260f, 30f), TextAnchor.MiddleLeft);
-            Slider sensitivity = MakeSlider(root.transform, "SensitivitySlider",
-                new Vector2(80f, settingsY), new Vector2(200f, 26f));
-            Text sensitivityValue = MakeRowLabel(root.transform, "SensitivityValue", "0.00",
-                new Vector2(225f, settingsY), new Vector2(80f, 30f), TextAnchor.MiddleLeft);
+            // THE SETTINGS, below the buttons rather than above them: these are settings, not
+            // actions, and the things a paused player most often wants stay at the top.
+            //
+            // **VOLUME IS HERE NOW as well as on the title screen** (2026-08-21, by request), and the
+            // pause overlay is the place it was most missing: "too loud" is a thought a player has
+            // while the PA is talking over them, and until now the only fix was quitting to the menu.
+            // Both write the same `GameSettings.MasterVolume`, so neither can disagree with the other.
+            //
+            // ON THE SAME LEFT COLUMN AS THE BUTTONS. They were centre-anchored while the buttons hang
+            // off the screen's left margin, so the two only lined up at 16:9 and read as two designs
+            // at any other aspect - see MakeLeftColumn.
+            Transform pauseColumn = MakeLeftColumn(root.transform, "Column");
+            // Red on a near-black scrim, where the settings page is charcoal on a bright photograph.
+            Color pauseInk = new Color(1f, 0.35f, 0.35f, 0.85f);
+
+            (Slider sensitivity, Text sensitivityValue) =
+                MakeSettingsSliderRow(pauseColumn, "Sensitivity", "MOUSE SENSITIVITY",
+                                      "set.sensitivity", "0.00", -250f, pauseInk);
+            (Slider volume, Text volumeValue) =
+                MakeSettingsSliderRow(pauseColumn, "Volume", "VOLUME", "set.volume", "80%",
+                                      -300f, pauseInk);
 
             GameObject hintGO = new GameObject("Hint");
             hintGO.transform.SetParent(root.transform, false);
@@ -13952,7 +14282,7 @@ namespace IterationRoom.EditorTools
             hintRect.anchorMin = new Vector2(0.5f, 0.5f);
             hintRect.anchorMax = new Vector2(0.5f, 0.5f);
             hintRect.sizeDelta = new Vector2(600f, 36f);
-            hintRect.anchoredPosition = new Vector2(0f, -302f);
+            hintRect.anchoredPosition = new Vector2(0f, -370f);
 
             PauseMenu pause = root.AddComponent<PauseMenu>();
             pause.playerController = playerController;
@@ -13963,6 +14293,8 @@ namespace IterationRoom.EditorTools
             pause.quitButton = quit;
             pause.sensitivitySlider = sensitivity;
             pause.sensitivityValue = sensitivityValue;
+            pause.volumeSlider = volume;
+            pause.volumeValue = volumeValue;
         }
 
         // The ending: a full-screen black scrim and a card over it. Two separate CanvasGroups
@@ -14012,6 +14344,7 @@ namespace IterationRoom.EditorTools
             // Filled in by EndingSequence, which spaces it out in the string. Seeded here only so
             // the object is not blank in the saved scene.
             headline.text = "C Y C L E   B R O K E N";
+            Localize(headline, "end.title");
             headline.horizontalOverflow = HorizontalWrapMode.Overflow;
             headline.verticalOverflow = VerticalWrapMode.Overflow;
             headline.raycastTarget = false;
@@ -14090,7 +14423,38 @@ namespace IterationRoom.EditorTools
             breakdownRect.sizeDelta = new Vector2(1000f, 200f);
             breakdownRect.anchoredPosition = new Vector2(0f, -166f);
 
+            // "CLICK TO CONTINUE", on a group of its own so it can arrive after the card rather than
+            // with it - the numbers get their moment before anything asks the player to move on.
+            GameObject promptGO = new GameObject("Prompt");
+            promptGO.transform.SetParent(root.transform, false);
+            CanvasGroup promptGroup = promptGO.AddComponent<CanvasGroup>();
+            promptGroup.alpha = 0f;
+            promptGroup.blocksRaycasts = false;
+            Stretch(promptGO.AddComponent<RectTransform>());
+
+            GameObject promptTextGO = new GameObject("PromptText");
+            promptTextGO.transform.SetParent(promptGO.transform, false);
+            Text prompt = promptTextGO.AddComponent<Text>();
+            prompt.font = UIFont();
+            prompt.fontSize = 18;
+            prompt.alignment = TextAnchor.MiddleCenter;
+            // Dimmer than the record above it: this is an instruction, not part of what the run said.
+            prompt.color = new Color(1f, 0.35f, 0.35f, 0.55f);
+            prompt.text = "CLICK TO CONTINUE";
+            Localize(prompt, "end.clickContinue");
+            prompt.horizontalOverflow = HorizontalWrapMode.Overflow;
+            prompt.verticalOverflow = VerticalWrapMode.Overflow;
+            prompt.raycastTarget = false;
+            RectTransform promptRect = prompt.GetComponent<RectTransform>();
+            promptRect.anchorMin = new Vector2(0.5f, 0.5f);
+            promptRect.anchorMax = new Vector2(0.5f, 0.5f);
+            promptRect.sizeDelta = new Vector2(800f, 34f);
+            // Below the breakdown, which is 200 tall centred at -166 - so this clears its bottom edge.
+            promptRect.anchoredPosition = new Vector2(0f, -300f);
+
             EndingSequence ending = root.AddComponent<EndingSequence>();
+            ending.prompt = prompt;
+            ending.promptGroup = promptGroup;
             ending.scrimGroup = scrimGroup;
             ending.cardGroup = cardGroup;
             ending.headline = headline;
@@ -15361,6 +15725,53 @@ namespace IterationRoom.EditorTools
         // `ink` null keeps the pale red this was built with, which is right over the pause menu's
         // black scrim and wrong over the title screen's white wall - the same split MakeMenuButton
         // makes, for the same reason.
+        // A LABEL THAT ALSO PICKS ITS FACE AND SIZE, for the page and section headings. The menu's
+        // whole hierarchy is size and weight - see the title's note on why it is ExtraLight at 86 -
+        // and `MakeRowLabel` hard-codes Regular at 18, which is one voice and not three.
+        private static Text MakeRowLabelWeight(Transform parent, string name, string content,
+                                               Vector2 anchoredPosition, Vector2 size,
+                                               TextAnchor alignment, Color ink,
+                                               string weight, int fontSize)
+        {
+            Text text = MakeRowLabelInk(parent, name, content, anchoredPosition, size, alignment, ink);
+            if (text != null)
+            {
+                text.font = UIFont(weight);
+                text.fontSize = fontSize;
+            }
+            return text;
+        }
+
+        // ONE SETTINGS ROW: label on the column edge, slider at the indent, number after it. Both
+        // sliders on the settings page and both on the pause overlay are built through here, so the
+        // four cannot drift apart - which is exactly what had happened.
+        //
+        // The INK is a parameter and not a constant, because the two pages that use it sit on
+        // opposite grounds: the settings page is charcoal on a bright photograph, the pause overlay
+        // is red on a near-black scrim. Everything else about the row is identical, which is the
+        // point of having one.
+        private static (Slider slider, Text value) MakeSettingsSliderRow(
+            Transform column, string name, string label, string locKey, string initialValue,
+            float y, Color ink)
+        {
+            Localize(MakeRowLabelInk(column, name + "Label", label,
+                new Vector2(SettingsLabelWidth / 2f, y), new Vector2(SettingsLabelWidth, 30f),
+                TextAnchor.MiddleLeft, ink), locKey);
+
+            const float sliderWidth = 240f;
+            Slider slider = MakeSlider(column, name + "Slider",
+                new Vector2(SettingsControlX + sliderWidth / 2f, y), new Vector2(sliderWidth, 26f));
+
+            // The readout starts a clear gap past the track's right end. Left-aligned in its rect, so
+            // "100%" and "8%" both begin at the same x instead of the number sliding about as it
+            // changes width.
+            Text value = MakeRowLabelInk(column, name + "Value", initialValue,
+                new Vector2(SettingsControlX + sliderWidth + 20f + 45f, y), new Vector2(90f, 30f),
+                TextAnchor.MiddleLeft, ink);
+
+            return (slider, value);
+        }
+
         private static Text MakeRowLabelInk(Transform parent, string name, string content,
                                             Vector2 anchoredPosition, Vector2 size,
                                             TextAnchor alignment, Color ink)
@@ -15371,6 +15782,20 @@ namespace IterationRoom.EditorTools
         }
 
         // Same shape, one line: a menu button that has already been told what surface it is on.
+        // Re-hangs a menu button on the BOTTOM-RIGHT corner. `MakeMenuButton` anchors everything to
+        // the left edge at mid-height, which is right for a column and wrong for the one entry that is
+        // not in it - and anchoring to the corner rather than offsetting from the centre is what keeps
+        // it in the corner when the window is resized.
+        private static void CornerBottomRight(RectTransform rect)
+        {
+            if (rect == null) return;
+            rect.anchorMin = new Vector2(1f, 0f);
+            rect.anchorMax = new Vector2(1f, 0f);
+            rect.pivot = new Vector2(1f, 0f);
+            // The same margin off both edges as the column has off the left.
+            rect.anchoredPosition = new Vector2(-MenuLeftMargin, MenuLeftMargin);
+        }
+
         private static Button MakeMenuButtonInk(Transform parent, string name, string label,
                                                 Vector2 anchoredPosition) =>
             MakeMenuButton(parent, name, label, anchoredPosition, MenuInk, "Medium");
@@ -15660,10 +16085,23 @@ namespace IterationRoom.EditorTools
             // a white wall - which is what the room is, and what this screen was not.
             Button continueButton = MakeMenuButton(menuGO.transform, "ContinueButton",
                                                    "CONTINUE", new Vector2(0f, -30f), MenuInk, "Medium");
+            Localize(continueButton, "menu.continue", "  ");
             Button playButton = MakeMenuButton(menuGO.transform, "PlayButton", "PLAY",
                                                new Vector2(0f, -118f), MenuInk, "Medium");
+            Localize(playButton, "menu.play", "  ");
             Button cycleSelectButton = MakeMenuButton(menuGO.transform, "CycleSelectButton",
                                                       "CYCLE SELECT", new Vector2(0f, -206f), MenuInk, "Medium");
+            Localize(cycleSelectButton, "menu.cycleSelect", "  ");
+            // THE LAST RUN'S BILL, IN THE BOTTOM-RIGHT CORNER rather than in the column.
+            //
+            // It is not a way into the game and it is not a way out of it, which is what every entry
+            // in that column is - and a sixth row pushed QUIT down to within seventy pixels of the
+            // screen edge. Cornered, it reads as what it is: a thing the facility keeps, off to one
+            // side of the choices.
+            Button recordButton = MakeMenuButton(menuGO.transform, "RecordButton",
+                                                 "RECORD", Vector2.zero, MenuInk, "Medium");
+            Localize(recordButton, "menu.record", "  ");
+            CornerBottomRight(recordButton.GetComponent<RectTransform>());
             // ~~TEST: CYCLE BOUNDARY~~ REMOVED 2026-08-15, by request. It was a development shortcut
             // into the cycle boundary with cycle 1 already finished, sitting on the title screen
             // between CONTINUE and QUIT and labelled loudly so it could not be mistaken for content.
@@ -15676,6 +16114,7 @@ namespace IterationRoom.EditorTools
             // QUIT moves up into the gap rather than leaving a hole in the column.
             Button settingsButton = MakeMenuButton(menuGO.transform, "SettingsButton",
                                                    "SETTINGS", new Vector2(0f, -294f), MenuInk, "Medium");
+            Localize(settingsButton, "menu.settings", "  ");
             Button quitButton = MakeMenuButton(menuGO.transform, "QuitButton", "QUIT",
                                                new Vector2(0f, -382f), MenuInk, "Medium");
 
@@ -15701,14 +16140,66 @@ namespace IterationRoom.EditorTools
                                                  $"CYCLE {i + 1}", new Vector2(0f, -30f - i * 88f),
                                                  MenuInk, "Medium");
 
-            Button cycleBack = MakeMenuButton(cycleGO.transform, "CycleBackButton",
-                                              "BACK", new Vector2(0f, -30f - CycleCount * 88f),
-                                              MenuInk, "Medium");
+            // AND ONE "END" ENTRY PER CYCLE THAT HAS A SUCCESSOR: start that cycle with its last room
+            // already finished, so the hatch into the next one opens within seconds. A development
+            // shortcut, on the page that is already one - see MainMenu.PlayFromCycleEnd.
+            //
+            // `CycleCount - 1` rather than a written number, so the day cycle 4 exists this grows by
+            // itself and the last cycle never gets an entry it has nothing to cross into.
+            var cycleEndButtons = new Button[Mathf.Max(0, CycleCount - 1)];
+            for (int i = 0; i < cycleEndButtons.Length; i++)
+                cycleEndButtons[i] = MakeMenuButton(cycleGO.transform, $"CycleEndButton_{i + 1}",
+                                                    $"CYCLE {i + 1} END", 
+                                                    new Vector2(0f, -30f - (CycleCount + i) * 88f),
+                                                    MenuInk, "Medium");
 
-            // SETTINGS, on its own page over the same background as the cycle picker. One setting so
-            // far: how loud the game is. It belongs on the TITLE screen rather than only in the pause
-            // menu because the first thing this game does is talk - the PA is running before the
-            // player has a control to press - and "turn it down" should not require starting first.
+            Button cycleBack = MakeMenuButton(cycleGO.transform, "CycleBackButton",
+                                              "BACK",
+                                              new Vector2(0f, -30f - (CycleCount + cycleEndButtons.Length) * 88f),
+                                              MenuInk, "Medium");
+            Localize(cycleBack, "menu.back", "  ");
+
+            // THE RECORD PAGE, over the same background as the cycle picker and laid out the same:
+            // one block of monospaced text and a way back. The table itself comes from `RunReport`,
+            // which is also what the ending card prints - one formatter, two screens.
+            GameObject recordGO = new GameObject("Record");
+            recordGO.transform.SetParent(canvasGO.transform, false);
+            CanvasGroup recordGroup = recordGO.AddComponent<CanvasGroup>();
+            recordGroup.alpha = 0f;
+            recordGroup.blocksRaycasts = false;
+            Stretch(recordGO.AddComponent<RectTransform>());
+
+            GameObject recordTableGO = new GameObject("RecordTable");
+            recordTableGO.transform.SetParent(recordGO.transform, false);
+            Text recordTable = recordTableGO.AddComponent<Text>();
+            recordTable.font = UIFont("Medium");
+            recordTable.fontSize = 22;
+            recordTable.alignment = TextAnchor.UpperCenter;
+            recordTable.color = MenuInk;
+            // Padded columns need a monospace cell, which UIFont is - see RunReport.Row.
+            recordTable.lineSpacing = 1.3f;
+            recordTable.text = string.Empty;
+            recordTable.horizontalOverflow = HorizontalWrapMode.Overflow;
+            recordTable.verticalOverflow = VerticalWrapMode.Overflow;
+            recordTable.raycastTarget = false;
+            RectTransform recordTableRect = recordTable.GetComponent<RectTransform>();
+            recordTableRect.anchorMin = new Vector2(0.5f, 0.5f);
+            recordTableRect.anchorMax = new Vector2(0.5f, 0.5f);
+            recordTableRect.pivot = new Vector2(0.5f, 0.5f);
+            recordTableRect.sizeDelta = new Vector2(1000f, 320f);
+            // Anchored so the first row starts just under the title, and the block grows downward as
+            // cycles are added without anything above it moving.
+            recordTableRect.anchoredPosition = new Vector2(0f, -30f);
+
+            Button recordBack = Localize(MakeMenuButtonInk(recordGO.transform, "RecordBackButton",
+                                                  "BACK", new Vector2(0f, -230f)), "menu.back", "  ");
+
+            // SETTINGS, on its own page over the same background as the cycle picker. It belongs on
+            // the TITLE screen rather than only in the pause menu because the first thing this game
+            // does is talk - the PA is running before the player has a control to press - and "turn it
+            // down" should not require starting first. The same argument now carries the other two:
+            // a player who already knows their sensitivity, or who cannot use the default movement
+            // keys at all, should not have to play an iteration to say so.
             GameObject settingsGO = new GameObject("Settings");
             settingsGO.transform.SetParent(canvasGO.transform, false);
             CanvasGroup settingsGroup = settingsGO.AddComponent<CanvasGroup>();
@@ -15716,18 +16207,56 @@ namespace IterationRoom.EditorTools
             settingsGroup.blocksRaycasts = false;
             Stretch(settingsGO.AddComponent<RectTransform>());
 
-            // Laid out on one row like the pause menu's sensitivity, and with the same three parts in
-            // the same order, so the two pages read as the same control rather than as two designs.
-            const float volumeRowY = -40f;
-            MakeRowLabelInk(settingsGO.transform, "VolumeLabel", "VOLUME",
-                new Vector2(-150f, volumeRowY), new Vector2(260f, 30f), TextAnchor.MiddleLeft, MenuInk);
-            Slider volumeSlider = MakeSlider(settingsGO.transform, "VolumeSlider",
-                new Vector2(80f, volumeRowY), new Vector2(200f, 26f));
-            Text volumeValue = MakeRowLabelInk(settingsGO.transform, "VolumeValue", "80%",
-                new Vector2(225f, volumeRowY), new Vector2(80f, 30f), TextAnchor.MiddleLeft, MenuInk);
+            // EVERYTHING ON ONE LEFT EDGE, the same one the title screen's buttons and this page's
+            // own BACK are hung on - see MakeLeftColumn for why that is a container rather than a
+            // number written into each row.
+            Transform col = MakeLeftColumn(settingsGO.transform, "Column");
 
-            Button settingsBack = MakeMenuButtonInk(settingsGO.transform, "SettingsBackButton",
-                                                 "BACK", new Vector2(0f, -150f));
+            // The page says its own name, in the title's face rather than the buttons'. The title
+            // screen sets its hierarchy with SIZE and WEIGHT and no rules or boxes anywhere, so this
+            // page does too: ExtraLight 52 against the rows' Regular 18 is what separates them.
+            Localize(MakeRowLabelWeight(col, "SettingsHeading", "SETTINGS",
+                new Vector2(300f, 330f), new Vector2(600f, 70f), TextAnchor.MiddleLeft, MenuInk,
+                "ExtraLight", 52), "menu.settings");
+
+            // THE THREE ROWS, evenly spaced, label on the edge and control at one indent. Language
+            // first because it is the setting that rewrites every other label on the page, including
+            // BACK - a player who has landed here by accident should reach it before reading anything.
+            const float languageRowY = 240f;
+            const float volumeRowY = 185f;
+            const float sensitivityRowY = 130f;
+
+            MakeRowLabelInk(col, "LanguageLabel", "LANGUAGE",
+                new Vector2(SettingsLabelWidth / 2f, languageRowY),
+                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, MenuInk);
+            // **THE TWO BUTTONS ARE NEVER TRANSLATED.** "ENGLISH" and "한국어" each stay in their own
+            // language whichever is selected, which is the one convention every language picker
+            // follows and the only one that works: a player who has landed in a language they cannot
+            // read has to be able to find their way out, and "영어"/"한국어" would be two words they
+            // cannot tell apart. It is also why they are plain `MakeSettingsButton`s with no
+            // `Localize` on them.
+            Button englishButton = MakeSettingsButton(col, "LanguageEnglish", "ENGLISH",
+                new Vector2(SettingsControlX + 75f, languageRowY), new Vector2(150f, 30f), out Text englishInk);
+            Button koreanButton = MakeSettingsButton(col, "LanguageKorean", "한국어",
+                new Vector2(SettingsControlX + 240f, languageRowY), new Vector2(150f, 30f), out Text koreanInk);
+            // The Korean button has to be able to draw its own name before anything has switched, so
+            // it is the one label in the project that takes the Hangul face at build time.
+            Font koreanFace = KoreanUIFont();
+            if (koreanFace != null) koreanInk.font = koreanFace;
+
+            (Slider volumeSlider, Text volumeValue) =
+                MakeSettingsSliderRow(col, "Volume", "VOLUME", "set.volume", "80%", volumeRowY, MenuInk);
+            (Slider sensitivitySlider, Text sensitivityValue) =
+                MakeSettingsSliderRow(col, "Sensitivity", "MOUSE SENSITIVITY", "set.sensitivity",
+                                      "1.10", sensitivityRowY, MenuInk);
+
+            KeyBindingPanel bindings = BuildKeyBindings(col, settingsGroup);
+
+            // BACK sits on the same edge as everything above it, which is the whole point of the
+            // column. It anchors to the screen's left rather than to the column, because that is what
+            // MakeMenuButton does and the two edges are now the same edge.
+            Button settingsBack = Localize(MakeMenuButtonInk(settingsGO.transform, "SettingsBackButton",
+                                                 "BACK", new Vector2(0f, -355f)), "menu.back", "  ");
 
             // The loading state, built over the same middle of the screen the buttons occupy so
             // one replaces the other in place instead of the eye having to travel.
@@ -15818,12 +16347,24 @@ namespace IterationRoom.EditorTools
             mainMenu.continueButton = continueButton;
             mainMenu.ambience = menuTone;
             mainMenu.cycleSelectButton = cycleSelectButton;
+            mainMenu.recordButton = recordButton;
+            mainMenu.recordBackButton = recordBack;
+            mainMenu.recordGroup = recordGroup;
+            mainMenu.recordText = recordTable;
             mainMenu.cycleBackButton = cycleBack;
             mainMenu.cycleGroup = cycleGroup;
             mainMenu.cycleButtons = cycleButtons;
+            mainMenu.cycleEndButtons = cycleEndButtons;
             mainMenu.settingsButton = settingsButton;
             mainMenu.settingsBackButton = settingsBack;
             mainMenu.settingsGroup = settingsGroup;
+            mainMenu.sensitivitySlider = sensitivitySlider;
+            mainMenu.englishButton = englishButton;
+            mainMenu.koreanButton = koreanButton;
+            mainMenu.englishInk = englishInk;
+            mainMenu.koreanInk = koreanInk;
+            mainMenu.sensitivityValue = sensitivityValue;
+            mainMenu.bindings = bindings;
             mainMenu.volumeSlider = volumeSlider;
             mainMenu.volumeValue = volumeValue;
             mainMenu.loadingFill = fill;
@@ -16032,8 +16573,8 @@ namespace IterationRoom.EditorTools
             // because pale red on white is barely a mark.
             Color wallRed = new Color(0.74f, 0.09f, 0.09f, 1f);
 
-            MakeMenuLine(faceGO.transform, "Headline", "M O U S E   S E N S I T I V I T Y", 48,
-                wallRed, new Vector2(0f, -40f), new Vector2(1500f, 70f));
+            Localize(MakeMenuLine(faceGO.transform, "Headline", "M O U S E   S E N S I T I V I T Y", 48,
+                wallRed, new Vector2(0f, -40f), new Vector2(1500f, 70f)), "cal.title");
 
             Text value = MakeMenuLine(faceGO.transform, "Value", "1.10", 56, wallRed,
                 new Vector2(0f, -130f), new Vector2(500f, 70f));
@@ -16063,10 +16604,11 @@ namespace IterationRoom.EditorTools
             fill.raycastTarget = false;
             Stretch(fill.GetComponent<RectTransform>());
 
-            MakeMenuLine(faceGO.transform, "AdjustHint", "SCROLL TO ADJUST", 30,
-                new Color(0.62f, 0.10f, 0.10f, 0.85f), new Vector2(0f, -250f), new Vector2(1400f, 44f));
-            MakeMenuLine(faceGO.transform, "BeginHint", "PRESS [E] AT THE PANEL BEHIND YOU", 34,
-                wallRed, new Vector2(0f, -320f), new Vector2(1400f, 50f));
+            Localize(MakeMenuLine(faceGO.transform, "AdjustHint", "SCROLL TO ADJUST", 30,
+                new Color(0.62f, 0.10f, 0.10f, 0.85f), new Vector2(0f, -250f), new Vector2(1400f, 44f)),
+                "cal.scrollAdjust");
+            Localize(MakeMenuLine(faceGO.transform, "BeginHint", "PRESS [E] AT THE PANEL BEHIND YOU", 34,
+                wallRed, new Vector2(0f, -320f), new Vector2(1400f, 50f)), "cal.begin");
 
             // The two side walls: one control each, and nothing else on them.
             CanvasGroup sprintWall = MakeCalibrationSideWall(root.transform, "SprintWall", roomCenterZ,
@@ -16140,8 +16682,8 @@ namespace IterationRoom.EditorTools
             // this is the facility's own instruction and not a HUD element laid over the room.
             MakeWallIcon(labelGO.transform, "VolumeHint", VolumeIcon(), new Vector2(0f, 195f), 160f, Color.red);
 
-            MakeMenuLine(labelGO.transform, "Text", "B E G I N", 150, Color.red,
-                Vector2.zero, new Vector2(850f, 220f));
+            Localize(MakeMenuLine(labelGO.transform, "Text", "B E G I N", 150, Color.red,
+                Vector2.zero, new Vector2(850f, 220f)), "cal.beginPlate");
 
             CalibrationStartButton button = buttonRoot.AddComponent<CalibrationStartButton>();
             button.calibration = calibration;
@@ -16389,6 +16931,213 @@ namespace IterationRoom.EditorTools
         // a `Button` needs a graphic to receive a click - it is simply transparent until the pointer
         // is on it, which is the whole of the difference between a menu that looks built and one that
         // looks laid out.
+        // THE CONTROLS LIST on the settings page: every verb `InputBindings` knows about, as a label
+        // and a button showing the key it is on.
+        //
+        // TWO COLUMNS, because eleven rows in one would run past the BACK button and off a 1080-tall
+        // reference canvas. The split is computed from the count rather than written down, so adding a
+        // twelfth verb to `InputBindings.All` re-balances the page instead of overflowing it.
+        //
+        // The key buttons are authored showing the DEFAULT binding, not the current one. This runs in
+        // the Editor, where `InputBindings.Get` would read whatever the developer's own PlayerPrefs
+        // happen to hold and bake it into the shipped scene; `KeyBindingPanel.Awake` refreshes every
+        // row from the real bindings on the first frame anyway.
+        private static KeyBindingPanel BuildKeyBindings(Transform page, CanvasGroup group)
+        {
+            GameObject root = new GameObject("KeyBindings");
+            root.transform.SetParent(page, false);
+            RectTransform rootRect = root.AddComponent<RectTransform>();
+            // Zero-sized and on its parent's own origin, so the column edge stays the column edge one
+            // level down and every x below is still "how far in from the edge".
+            rootRect.anchorMin = rootRect.anchorMax = new Vector2(0.5f, 0.5f);
+            rootRect.pivot = new Vector2(0.5f, 0.5f);
+            rootRect.sizeDelta = Vector2.zero;
+            rootRect.anchoredPosition = Vector2.zero;
+
+            // A section heading one step below the page's own: Medium 26 against ExtraLight 52. The
+            // title screen sets its hierarchy with size and weight and draws no rules or boxes
+            // anywhere, so this page does the same.
+            Localize(MakeRowLabelWeight(root.transform, "ControlsHeading", "CONTROLS",
+                new Vector2(200f, 55f), new Vector2(400f, 32f), TextAnchor.MiddleLeft, MenuInk,
+                "Medium", 26), "set.controls");
+            // Paler than the labels: it is an instruction about the list rather than part of it, and
+            // it is the one line on the page that changes while the player is using it.
+            Text hint = MakeRowLabelInk(root.transform, "ControlsHint", "CLICK A KEY TO CHANGE IT",
+                new Vector2(310f, 22f), new Vector2(620f, 24f), TextAnchor.MiddleLeft,
+                new Color(MenuInk.r, MenuInk.g, MenuInk.b, 0.55f));
+
+            GameAction[] actions = InputBindings.All;
+            var rows = new KeyBindingPanel.Row[actions.Length];
+
+            const float firstRowY = -25f, rowStep = 40f, secondColumnX = 580f;
+            int perColumn = (actions.Length + 1) / 2;
+
+            for (int i = 0; i < actions.Length; i++)
+            {
+                float originX = i / perColumn == 0 ? 0f : secondColumnX;
+                float y = firstRowY - (i % perColumn) * rowStep;
+
+                // 250 wide against the longest label ("STRAFE RIGHT", 12 characters, about 130px at
+                // this size) - the 0.6 x fontSize x length check CLAUDE.md asks for, with room spare.
+                Localize(MakeRowLabelInk(root.transform, "Label_" + actions[i], InputBindings.Label(actions[i]),
+                    new Vector2(originX + 125f, y), new Vector2(250f, 26f), TextAnchor.MiddleLeft, MenuInk),
+                    "act." + actions[i]);
+
+                Button keyButton = MakeSettingsButton(root.transform, "Key_" + actions[i],
+                    InputBindings.KeyLabel(InputBindings.DefaultFor(actions[i])),
+                    new Vector2(originX + 370f, y), new Vector2(190f, 30f), out Text keyLabel);
+
+                rows[i] = new KeyBindingPanel.Row
+                {
+                    action = actions[i],
+                    button = keyButton,
+                    keyLabel = keyLabel,
+                };
+            }
+
+            // Left edge on the column like every label above it, so its centre - which is what a
+            // centre-pivot rect is positioned by - sits half its width in.
+            Button reset = Localize(MakeSettingsButton(root.transform, "ResetBindings", "RESET TO DEFAULTS",
+                new Vector2(140f, -280f), new Vector2(280f, 34f), out _), "set.resetBindings");
+
+            KeyBindingPanel panel = root.AddComponent<KeyBindingPanel>();
+            panel.rows = rows;
+            panel.resetButton = reset;
+            panel.hint = hint;
+            // So the panel can tell whether the page it is on is the one being looked at - an alpha of
+            // zero does not stop Update, and a row left listening behind a closed page would eat the
+            // title screen's next keypress.
+            panel.group = group;
+            return panel;
+        }
+
+        // A COMPACT, CENTRED BUTTON for the settings page, which `MakeMenuButton` cannot be: that one
+        // is 340x66 and anchors itself to the left margin so the title column lines up, which is right
+        // for five choices and wrong for eleven rows in a grid.
+        //
+        // **VISIBLE AT REST, unlike the title column's buttons.** Those draw nothing until the pointer
+        // is over them, on the argument that the mark should be earned rather than five of them sitting
+        // on screen. A key binding is a VALUE being displayed as well as a control, so it has to have a
+        // plate around it whether or not anything is hovering it.
+        private static Button MakeSettingsButton(Transform parent, string name, string label,
+                                                 Vector2 anchoredPosition, Vector2 size, out Text text)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            RectTransform rect = go.AddComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = size;
+            rect.anchoredPosition = anchoredPosition;
+
+            // White, with the whole look coming from the ColorBlock - a Button tints its target
+            // graphic by MULTIPLYING, so a plate that is already dark has nothing left to shade with.
+            Image background = go.AddComponent<Image>();
+            background.color = Color.white;
+
+            GameObject textGO = new GameObject("Label");
+            textGO.transform.SetParent(go.transform, false);
+            text = textGO.AddComponent<Text>();
+            text.font = UIFont("Medium");
+            text.fontSize = 18;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.color = MenuInk;
+            text.text = label;
+            text.raycastTarget = false;
+            // Overflow rather than wrap: "MIDDLE MOUSE" is the longest thing this can be asked to hold
+            // and it fits, but a rebind can put any key label in here and a silent rewrap to two lines
+            // is the failure CLAUDE.md warns about twice.
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            Stretch(text.GetComponent<RectTransform>());
+
+            Button button = go.AddComponent<Button>();
+            button.targetGraphic = background;
+
+            ColorBlock colors = button.colors;
+            colors.normalColor = new Color(0.11f, 0.11f, 0.13f, 0.07f);
+            colors.highlightedColor = new Color(0.11f, 0.11f, 0.13f, 0.16f);
+            colors.pressedColor = new Color(0.80f, 0.10f, 0.10f, 0.22f);
+            // Back to rest once the click is over. Left on `highlightedColor`, the last row clicked
+            // stays lit for the rest of the page's life and reads as still waiting for a key.
+            colors.selectedColor = colors.normalColor;
+            colors.disabledColor = new Color(0f, 0f, 0f, 0f);
+            colors.fadeDuration = 0.12f;
+            button.colors = colors;
+
+            return button;
+        }
+
+        // A CONTAINER HUNG ON THE SAME LEFT EDGE THE MENU BUTTONS USE, so a page can mix rows with
+        // buttons and have the two line up.
+        //
+        // **THIS EXISTS BECAUSE THE CANVAS SCALER MATCHES 0.5.** `MakeMenuButton` anchors to the
+        // screen's LEFT edge at `MenuLeftMargin`; `MakeRowLabel`, `MakeSlider` and everything else
+        // that takes an `anchoredPosition` anchors to the CENTRE. At exactly 16:9 those two can be
+        // made to agree by writing `132 - 960` into every row, and at any other aspect ratio they
+        // silently drift apart - the canvas's logical width changes with the aspect, so the centre
+        // moves relative to the left edge. The settings page was built that way first and it is why
+        // it read as two designs stacked: a block of rows floating in the middle with a BACK button
+        // three hundred pixels away at the margin.
+        //
+        // A zero-sized rect pinned to the left edge fixes it for good: its own centre IS that point,
+        // so children written at `x = 0` sit exactly on the button column's edge at every aspect,
+        // and every x below reads as "how far in from the edge" rather than as a screen coordinate.
+        private static Transform MakeLeftColumn(Transform parent, string name)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            RectTransform rect = go.AddComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0f, 0.5f);
+            rect.anchorMax = new Vector2(0f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = Vector2.zero;
+            // The +6 is MakeMenuButton's own nudge, repeated so the two edges are the same edge.
+            rect.anchoredPosition = new Vector2(MenuLeftMargin + 6f, 0f);
+            return go.transform;
+        }
+
+        // THE SHAPE OF ONE SETTINGS ROW, so the four of them cannot drift apart. A label on the
+        // column edge and its control at a fixed indent - the numbers are here once rather than in
+        // eight call sites.
+        private const float SettingsLabelWidth = 300f;
+        private const float SettingsControlX = 340f;
+
+        // TAG A LABEL WITH WHICH STRING IT IS. The English stays authored in the `Text` itself, so a
+        // scene built with this stripped is an English scene and nothing here can make a label blank -
+        // `LocalizedText` only overwrites what is already correct.
+        //
+        // Deliberately a call AFTER the text is made rather than a parameter threaded through
+        // `MakeRowLabel`, `MakeMenuLine`, `MakeMenuButton` and the rest: five builders would each need
+        // an extra argument that almost every caller passes as null, and the ones that are NOT
+        // localised (the facility's own signage - see `Loc`) would look like oversights instead of
+        // decisions.
+        private static Text Localize(Text text, string key)
+        {
+            if (text == null) return null;
+            LocalizedText loc = text.gameObject.AddComponent<LocalizedText>();
+            loc.target = text;
+            loc.key = key;
+            return text;
+        }
+
+        // A button's label lives on a child, and `MakeMenuButton` indents it with two spaces so the
+        // words form one column down the left edge. That padding is layout, not content, so it stays
+        // out of the string table and is re-applied here.
+        private static Button Localize(Button button, string key, string prefix = "")
+        {
+            if (button == null) return null;
+            Text text = button.GetComponentInChildren<Text>(true);
+            if (text == null) return button;
+            LocalizedText loc = text.gameObject.AddComponent<LocalizedText>();
+            loc.target = text;
+            loc.key = key;
+            loc.prefix = prefix;
+            return button;
+        }
+
         private static Button MakeMenuButton(Transform parent, string name, string label,
                                              Vector2 anchoredPosition, Color? ink = null,
                                              string weight = null)
@@ -16605,6 +17354,7 @@ namespace IterationRoom.EditorTools
             // "HOLD" states the interaction, and the key is advertised because it is the one that
             // works with the cursor locked.
             label.text = "HOLD [N] — END CYCLE";
+            Localize(label, "hud.endCycle");
             // Belt and braces with the wider rect above: a label that silently rewraps is how this
             // became unreadable in the first place, and at some resolutions the scaler will shave
             // a pixel off.

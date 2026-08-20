@@ -15,7 +15,9 @@ namespace IterationRoom
     // watching the view spin as the mouse drags to the corner.
     public class EndCycleControl : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     {
-        public KeyCode hotkey = KeyCode.N;
+        // THE KEY IS NOT NAMED HERE ANY MORE. It is `GameAction.EndIteration` in `InputBindings`,
+        // reachable from the settings page like every other verb; a serialised field would have been
+        // a second answer to "which key" that the page could not change.
         public float holdDuration = 0.6f;
 
         public Image fill;
@@ -52,7 +54,7 @@ namespace IterationRoom
         private void Update()
         {
             bool available = LoopManager.Instance != null && LoopManager.Instance.AcceptsInput;
-            bool down = pointerHeld || Input.GetKey(hotkey);
+            bool down = pointerHeld || GameInput.EndIterationHeld;
 
             if (!down)
             {

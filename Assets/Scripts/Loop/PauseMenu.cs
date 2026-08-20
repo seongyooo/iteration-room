@@ -35,6 +35,12 @@ namespace IterationRoom
         public Slider sensitivitySlider;
         public Text sensitivityValue;
 
+        // VOLUME, here as well as on the title screen. "Too loud" is a thought a player has while the
+        // PA is talking over them, and until this existed the only way to act on it was to quit the
+        // run. Both write `GameSettings.MasterVolume`, which is the single value.
+        public Slider volumeSlider;
+        public Text volumeValue;
+
         public bool IsPaused { get; private set; }
 
         // What the loop wanted control to be before the pause. Restored rather than forced true:
@@ -66,6 +72,16 @@ namespace IterationRoom
             }
             ShowSensitivity();
 
+            if (volumeSlider != null)
+            {
+                volumeSlider.minValue = 0f;
+                volumeSlider.maxValue = 1f;
+                // Seeded before the listener, for the reason the sensitivity slider above documents.
+                volumeSlider.SetValueWithoutNotify(GameSettings.MasterVolume);
+                volumeSlider.onValueChanged.AddListener(SetVolume);
+            }
+            ShowVolume();
+
             Apply(false);
         }
 
@@ -83,6 +99,29 @@ namespace IterationRoom
             if (sensitivitySlider != null)
                 sensitivitySlider.SetValueWithoutNotify(GameSettings.MouseSensitivity);
             ShowSensitivity();
+
+            // The volume with it, and for the same reason: the title screen's own slider writes this
+            // value, so a pause menu seeded once at scene load would show a stale number and snap
+            // away from it on the first drag.
+            if (volumeSlider != null)
+                volumeSlider.SetValueWithoutNotify(GameSettings.MasterVolume);
+            ShowVolume();
+        }
+
+        private void SetVolume(float value)
+        {
+            // Applied live by the setter, so a drag is audible while it is being dragged - which is
+            // the only way to judge a volume. Committed to disk with everything else by Save().
+            GameSettings.MasterVolume = value;
+            ShowVolume();
+        }
+
+        private void ShowVolume()
+        {
+            // A percentage, not 0.00: this is a loudness and nobody thinks about loudness in
+            // hundredths. Sensitivity keeps its decimals because a mouse multiplier is a ratio.
+            if (volumeValue != null)
+                volumeValue.text = Mathf.RoundToInt(GameSettings.MasterVolume * 100f) + "%";
         }
 
         private void SetSensitivity(float value)

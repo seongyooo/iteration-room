@@ -7,57 +7,51 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
 
 ## Next steps
 
-1. **Design cycle 2's first puzzle, and give it a NEW VERB.** The boundary is built (`docs/cycle-design.md`); `room2-1` is a bed in an empty room one storey down, and its `finalRoom` is null so nothing can finish it. **This is now the whole of the work, and it is a design question rather than an engineering one.** Cycle 1's four puzzles are all fetch-and-place; another corridor of the same shape makes this an elaborate way to ship the same game twice. The candidates that add a verb are accumulated workload (the tree and the axes) and simultaneous work — `Iteration — Future Ideas.md` §3 and §4, with the threshold decided as a **headcount** in `docs/decisions.md`.
-   - **Nothing has been played.** The boundary is verified in code only: it compiles, both scenes build, probes are 8/8, and the slabs cut correctly. Whether dropping through a hole into a room that gasses you reads as intended is unanswered.
-   - **Ghost crowding is still unprofiled**, and it stays worth measuring even though the boundary stops the count growing without bound: the tree room's whole payoff is N past selves working at once. Profile against a desktop target — WebGL is a prototype vehicle, not the release.
-   - Cycle 2's rooms are sealed on both walls. The switchback runs −Z, so the next room goes at `4 * RoomPitch` and `room2-1` grows a SOUTH doorway when it does.
-2. **Expand Room2: several keys, several locks.** The 2026-08-12 play-through found the thing this was speculative about: **Room2's popping does not accumulate** (the key is visible through its balloon, so it is spot-and-pop-one), and the three pins therefore have no consumer. More keys than one iteration has time to deliver is what converts popping into an errand iterations divide, and it is the same shape as the key mechanic that already works rather than a new one.
-   - **Still not first, but for a different reason than before.** The old note here said content length was "answered by the 15-iteration clear" — the opposite is true now: a practised clear is ten iterations in 4:47, and length is the open problem. It is not first because **the answer to length is cycle 2, not more locks on Room2** — another key-and-lock is the same verb the game already has four of. What is left of this item is the narrow and still-true point: the pin supply is infrastructure with nothing consuming it, and its real consumer is a tool-shaped action that is not a key.
-   - Rides on systems that exist: `ItemRegistry` is already id→supply and id→socket, `KeyLock` gates on `hand.Holding(id)`, item ids are wire values, pops carry a `balloonId`, and `signals` has 28 of its 32 bits free.
-   - **ROOM2'S WALLS ARE SPENT, so "the side doors to hang them on" no longer exists as written.** South is Room1, north is Room3 behind the GOLD key, west is the chess room behind the RED, east is the cube room behind the BLUE. More locks on Room2 means either restructuring its shell or hanging the extra keys on doors that are already there — several keys for ONE door (all of them turned before it opens) is the version that costs no geometry at all.
-   - **The one real cost is the geometry**, if a new wall opening is what it comes to. `BuildRoomShell(..., Rect southCutout, Rect northCutout)` takes openings on Z only, and `BuildDoorPocketFill` is Z-oriented too, so doors in the X walls need the shell builder extended. Contained, but not a parameter change.
-3. **Re-deploy to itch.io.** A build is ready at `Build/iteration-webgl.zip` and a new project page is being set up; the upload itself is manual (no butler on this machine).
-4. **New puzzles go in CYCLE 2, not on the end of the corridor.** Superseded by `docs/cycle-design.md`: the old plan here was to insert a room before Room4 and push Room4 out behind it. **Do not do that.** Cycle 1 is a finished game at ten iterations; lengthening its corridor adds walking, and the corridor is already the one place the clock has no slack. New rooms go on the floor below, behind the cycle boundary, where they cost iterations of their own and where their verbs can differ from cycle 1's.
-   - **Distance is still not the constraint** at `walkSpeed` 2.5 with sprint unused. The old "8 seconds to spare on the final lap" figure that argued against extending the corridor is **void** — it was measured on the hub layout and on a final lap that collected three objects in one trip, which one-object-in-the-hand made impossible. It is not evidence for anything now.
-   - `RecordedFrame.signals` is a `uint`, so **32 recorded interactables is a hard cap**; four are used. **Per cycle**, once the boundary exists — discarding the ghosts frees every bit for reuse (`cycle-design.md` §5c).
-   - The tree room (`Iteration — Future Ideas.md` §3) is the strongest candidate and is now unblocked: multiple axes needed the item pool, which shipped. Its threshold is a HEADCOUNT under the decision in `docs/decisions.md` — N simultaneous choppers cannot be met before iteration N — so pick that number against the run the game actually has — which as of 2026-08-14 is **ten iterations for a practised player**, not the fifteen this line used to say. A tree wanting N simultaneous axes cannot fall before iteration N+1, so N=5 spends half a practised run on one room. It also now has somewhere better to live than the end of the corridor: **cycle 2** (`docs/cycle-design.md`).
+1. **CYCLE 3.** `room3-1` is being built - the bed room under room2-0's hatch, with the same chest and
+   bed cycle 2 has and an empty drawer. No escape puzzle yet, by request. What the third cycle needs
+   mechanically is small and listed under "Cycle 2's hatch" below; what it needs in DESIGN is a set of
+   rooms and a verb, and cycle 2's lesson is that the verb matters more than the count.
+2. **THE ON-SCREEN KEY PROMPTS DO NOT FOLLOW THE BINDINGS** (deferred 2026-08-20, by request). Keys
+   are rebindable from the settings page now, but the six places the game NAMES a key are still
+   strings authored into `SceneBuilder`: the interact disc's "E", the "[E] — PUT DOWN" hint, "HOLD [N]
+   — END CYCLE", and the calibration room's WASD/SPACE/E keycaps plus its SHIFT and CTRL side walls.
+   Rebind INTERACT and the disc still says E, which is the game giving an instruction that does not
+   work. The fix is a small component holding a `GameAction` and a format string, plus a change event
+   on `InputBindings`; it also needs a SHORT form of each key name, because "LEFT MOUSE" does not fit
+   in a disc or on an 84px keycap. **The calibration room is the worst of the six** - it is the first
+   thing a player sees and it is entirely an explanation of the controls.
+3. **THE CHEST'S DRAWERS ARE A TOGGLE, AND IT IS THE WORSE OF TWO FAULTS** (`canClose = true`,
+   2026-08-20, by request). A ghost's ball take fails on even numbers of past-self pulls. It was
+   chosen over the alternative - a drawer that can never be shut blocks the bay below it - and the
+   third option is still unbuilt: make the PLAYER's press a toggle and a GHOST's replay open-only,
+   one line in `Drawer.SetGhostSignal`. It costs a little of "a past self does exactly what you did".
+4. **Gate the cycle picker before release.** CYCLE SELECT lists every cycle whether or not the player
+   has reached it, which is a shortcut worth having while cycle 3 is under construction and a spoiler
+   in a shipped build. One condition in `MainMenu.Awake` and one in `Start`.
+5. **CC-BY attribution is mandatory and the credits line does not do it.** Every model is CC-BY, which
+   permits commercial use - so nothing is blocked - but `SceneBuilder.CreditsLine` reads "FURNITURE
+   MODELS: CREATIVE COMMONS", which names no author, no title, no licence version and no link. Ten
+   creators are uncredited in a build that is already public. See `docs/asset-licences.md`, which has
+   every row resolved and the exact form each entry wants.
+6. **Room2-7's latch is the length lever.** Its scale re-locks every iteration, so five past-self
+   deliveries are the standing price of every trip to room2-0 - which is why two independent clears
+   came out at 22 iterations 1.2 seconds apart. If cycle 2 should be shorter, that is what to change,
+   not the number of balls.
 
-## Cycle 2 cannot be finished - it has no room0 and no shards
+## Cycle 2 lost its third leg and got a new console (2026-08-19, closed 2026-08-20)
 
-Superseded 2026-08-19 by the section below: `Room2_0` and its console are DELETED, so the cycle no
-longer declares three shard slots nothing can fill - it declares no exit at all, and `finalRoom` is
-null. `BuildRingShard` is still a builder with no call site, and `ShardA/B/C` are still ids nothing
-wears.
+The old `room2-6`, `room2-7` and `room2-0` are deleted, and the walk is room2-1, room2-2, the tree
+hall, then down the slide into the pool (room2-6), the weighing room (room2-7) and the console room
+(room2-0). What that leaves open:
 
-**What is left is a DESIGN decision, not the wiring**: which room ENDS cycle 2, and which three rooms
-pay a shard out and on what condition. Room2-1 (four switches), room2-2 (the tank), the tree hall (the
-felled tree) and room2-6 (three valves) all have rules and doors but no rewards. `RewardPlinth`
-already does "an escape object rises on this room's own condition" and takes a `RoomCondition`, so
-whichever three are chosen cost one call each.
-
-## Cycle 2 lost its third leg, and its console with it (2026-08-19)
-
-The old `room2-6`, `room2-7` and `room2-0` are deleted by request, and the pool at the bottom of the
-slide is **room2-6** now. What that leaves open:
-
-- **There is no `room2-0`, so cycle 2 cannot be finished** - `Cycle.finalRoom` is null, which every
-  consumer guards. It could not be finished before either (its console declared three shard slots and
-  nothing wore those ids), so this removes three build errors per run rather than adding a gap. To put
-  it back: a room at the end of the walk, `BuildFinalRoom` and its `BuildPlinthHousing`, the
-  `CheckCycleFinishable` call, and three carryables wearing `ShardA/B/C`.
-- **Room2-7 is behind room2-6's door now** - the weighing room - and ITS door is the capped one. That
-  is the honest end of the walk.
-- **The tree hall's north-west exit is sealed**, because the room it led to is gone. `TreeFelled` is
-  still built and still reset as a `RoomCondition` - what gates the far ledge now is the PIT, since
-  the tree is the only bridge, so felling it is still the price of leaving that room.
-- **`BuildBallPit` and `BuildBallFill` are now uncalled**, along with `ball_pit.glb`. Kept rather than
+- **`BuildBallPit` and `BuildBallFill` are uncalled**, along with `ball_pit.glb`. Kept rather than
   deleted: the pit is a good prop and the next room that wants one gets it for a line. If cycle 2 is
   ever declared final, they and the model are a clean deletion.
 - **The core is still measured off `legThreeX`/`legThreeZ`.** Those two numbers now describe where the
   building's west side was rather than where any room is; the core sits inside a ring with two sides
   missing and is not visible from anywhere the player can stand.
 
-## Room2-7's weighing puzzle is unplayed, and three things about it are guesses (2026-08-19)
+## Room2-7's weighing puzzle: what two clears did and did not settle (2026-08-19)
 
 The room, the scale and the weights are in (`docs/puzzle-design.md` has the table and the reasoning).
 **Verified in code and in the built scene; not played.** What that leaves open:
@@ -72,7 +66,9 @@ The room, the scale and the weights are in (`docs/puzzle-design.md` has the tabl
   bucket sits under a tap. A player watching the readout could dial one in to reach the target another
   way. Left alone deliberately - it takes knowing the weights, it is fiddly, and it reads as a clever
   route rather than an exploit - but it is why the room is not single-solution without the caveat.
-- **Whether 26.7 is reachable inside the loop at all.** Five objects from four rooms, one hand each -
+- ~~**Whether 26.7 is reachable inside the loop at all.**~~ **ANSWERED by two clears** (2026-08-20):
+  it is, and the room is the single biggest driver of cycle 2's length - see below. The original
+  worry, kept because the reasoning still holds for the next room like it: Five objects from four rooms, one hand each -
   so the last delivery needs four past selves to have already made theirs. That is the intended shape
   and it has never been walked, and the walk now includes a one-way slide.
 - **THE OBJECTS COME FROM ROOMS THE PLAYER HAS LEFT BEHIND.** The axe is in the tree hall, the bucket
@@ -84,12 +80,11 @@ The room, the scale and the weights are in (`docs/puzzle-design.md` has the tabl
   anchor is parented to the camera, so it should simply come along - but nothing has ever been carried
   through a scripted ride.
 
-## Room2-6 - the flooded room and its valves - is unplayed (2026-08-19)
+## Room2-6 - the flooded room and its valves (2026-08-19, played 2026-08-20)
 
 Room2-5's slide lands in 1.2m of water with 210 plastic balls, three rubber ducks and two beach balls
-floating on it (`WaterPool`, `FloatingBalls`, `SceneBuilder.BuildWaterPool`). **Verified in code
-only** - it builds, the ride path measures the room's floor at -3.71 rather than the waterline, and
-nothing about it touches the loop, the signal array or the reset.
+floating on it (`WaterPool`, `FloatingBalls`, `SceneBuilder.BuildWaterPool`). **Two clears have now
+gone through it**, so the room works; what is below is what a clear cannot answer.
 
 - **It is scenery, like room2-6 and room2-7.** No collider, no carryable, no interactable, no
   condition. Falling in is not fatal; see `docs/puzzle-design.md` for why drowning and swimming were
@@ -209,7 +204,7 @@ nothing about it touches the loop, the signal array or the reset.
    with delays needs its own design pass.
 
 
-## The tree hall (cycle 2, built 2026-08-16 - verified in code, NOT played)
+## The tree hall (cycle 2, built 2026-08-16, played 2026-08-20)
 
 - **Is 40 chops the right number?** It is a guess shaped to be out of one player's reach inside sixty
   seconds and comfortable for five. Only play answers it. One field: `trunk.chopsToFell`.

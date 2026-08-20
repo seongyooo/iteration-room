@@ -31,8 +31,8 @@ Fixture placement and ambient tuning, materials, probes, and the art rules the r
 **Albedo is flat colour everywhere and should stay that way**: the reference room is plain white panels, so realism comes from geometry and lighting, not painted-on detail.
 
 - **Surface relief is a generated normal map**, `Assets/Textures/SurfaceGrain.png` (`MakeNoiseNormalMap`) — multi-octave value noise made **tileable by wrapping the lattice** at each octave's period (`Mathf.PerlinNoise` is not tileable and seams at every repeat).
-  - **`_BumpScale` is much larger than the sub-1 that looks sane.** Central differences across a smooth field give tiny gradients, so the map is genuinely shallow: at 0.7 the surface renders *perfectly flat* even with the camera against it; at 10 it is stucco. Floor **1.8**, walls **0.2**.
-  - **Walls are a smooth glazed panel, not plaster**: `_Smoothness` **0.85** with relief kept to a whisper purely so the specular isn't a uniform sheet, which is what makes a flat surface look CG. The floor stays matte at **0.18**.
+  - **`_BumpScale` can go well past the sub-1 that looks sane.** Central differences across a smooth field give tiny gradients, so the map is genuinely shallow: at 0.7 the surface renders *perfectly flat* even with the camera against it; at 10 it is stucco. Ceiling **1.8**, floor **0.6**, walls **0.2** — and **the number that is right depends on the surface's gloss**, because relief on a matte surface only reaches the diffuse while relief on a glossy one modulates the specular. See *Wall, floor and ceiling* below for how the floor's 1.8 became visibly wrong the moment its smoothness went up.
+  - **Walls are a smooth glazed panel, not plaster**: `_Smoothness` **0.85** with relief kept to a whisper purely so the specular isn't a uniform sheet, which is what makes a flat surface look CG. Floor **0.65**, ceiling **0.30** — neither is matte any more; see below for why each moved.
   - **Tiling must be set on `_BaseMap`, not `_BumpMap`** — URP/Lit drives the normal map's UVs from `_BaseMap`'s transform, so a scale on `_BumpMap` does nothing. Per face: (5,3) for a 1.7 × 0.9m wall panel vs (26,30) for a 9 × 10.9m slab, for the same ~0.35m grain.
   - It imports as `TextureImporterType.NormalMap`; without that the shader reads raw RGB as a normal and tilts every surface. It also means you **cannot measure it by sampling `.r`/`.g`** — Unity re-encodes to DXT5nm. Judge it from a render.
 - **`BalloonPink` is premultiplied alpha, and the two halves of that have to agree.** The material
@@ -112,3 +112,107 @@ time before believing it.
 - `GhostFaint.mat` is **live again**, now on `IterationRoom/GhostFaint` rather than URP/Lit (see **What a ghost looks like**). Its GUID was kept across the shader swap rather than making a new asset, so nothing referencing it had to be found and repointed. Note that **swapping a material's shader does not drop the old keywords** — they move to `m_InvalidKeywords` and sit in the diff forever, so `GhostFaintMaterial()` clears `shaderKeywords` explicitly. The worked example of the URP *transparent* set-up that the balloons still need — all of `_Surface`/`_SrcBlend`/`_DstBlend`/`_ZWrite` **and** the `_SURFACE_TYPE_TRANSPARENT` keyword — is now `MakeTranslucentMaterial` alone.
 - **A marble floor was built and dropped** — the veining pulled the room from "cell" toward "hotel lobby". If it comes up again: turbulence marble needs `turbulenceScale` above **one full cycle** (0.55 wobbles the bands half a cycle and reads as wood grain; 2.2 makes neighbours cross and merge into something stone-like). A textured floor also **cannot carry the grain normal as well**, since URP/Lit drives every secondary map from `_BaseMap`'s single UV transform.
 - **Furniture is the remaining art gap.** Recommended CC0 sources: Sketchfab's CC0 filter, Poly Haven, ambientCG. Claude can't download these — drop them in `Assets/ArtAssets/Furniture/` and `PlaceModel` handles placement.
+
+## Wall, floor and ceiling: the six numbers, and why each is that number (2026-08-20)
+
+| surface | albedo | smoothness | `_BumpScale` |
+|---|---|---|---|
+| wall (`PanelWhite`) | 1.0 | 0.85 | 0.2 |
+| floor (`FloorWhite`) | 0.85 | 0.65 | 0.6 |
+| ceiling (`CeilingWhite`) | 1.0 | 0.30 | 1.8 |
+
+All three share one generated normal map at one physical grain size (~0.35m per repeat on every
+surface); the tiling numbers differ only because a wall panel face is 1.7×0.9m and a slab is 9×10.9m.
+
+### The floor's albedo, and why it is the lever
+
+**Albedo 1.0 is a surface that returns every photon that hits it.** Nothing does — fresh white paint
+is about 0.85 — and this building was painting every wall, floor and ceiling at exactly 1.0 with four
+spots at intensity 10.5 pointing straight down. Play reported the obvious consequence: *stand in the
+middle of a room, look at the floor, and it is too white*. It is measurable, not a matter of taste —
+the title screen's own capture had the bed room's floor at (235, **253, 255**), two channels already
+clipped.
+
+The three ways to fix it are not equivalent, and this is why the fix went where it did:
+
+| lever | what it touches |
+|---|---|
+| light intensity | darkens the **walls** with the floor — the room is supposed to be bright |
+| exposure (volume) | **every surface in the game**, including the objects |
+| **albedo** | the one surface that is wrong |
+
+The floor is 15% off clipping now and still reads white, because the eye has nothing brighter on
+screen to compare it against.
+
+### Smoothness: the floor up, the ceiling off zero
+
+A surface at smoothness 0 is a perfectly uniform field, and **the eye reads a field with no variation
+in it as blown out rather than as bright** — which was the other half of "too white". The floor at
+0.65 catches the ceiling fixtures as broad pools with the grain riding in them, so there is structure
+to read distance off.
+
+The ceiling went 0 → 0.3 for the same reason arrived at from the opposite end. The argument for 0 was
+that there is nothing above a ceiling to reflect. What that missed: the spots point down, so a
+ceiling has **no direct light at all** and ambient ground as its only term, which makes it a constant
+field across the whole slab — and the grain cannot rescue it, because trilight's ground and equator
+are only 0.075 apart and perturbing the normal moves the result by under a percent. Only the probe
+can put a gradient there, and at smoothness 0 the probe contributes nothing.
+
+### Bump: the mismatch that gloss exposed
+
+Raising the floor from 0.3 to 0.65 exposed something that had been sitting there all along. Wall and
+floor differ **only** in `_BumpScale` — 0.2 against 1.8, nine times apart. While the floor was matte
+that relief only reached the diffuse and read as the tooth of sealed concrete. Glossy, the same grain
+modulates the **specular**, and the floor stopped being the matte counterpart to a glazed wall and
+became a third finish that was neither. Play called it as *the wall and the floor don't go together*.
+
+**The floor went to 0.6 and the wall stayed at 0.2, deliberately unequal.** A wall is a grid of
+1.7×0.9m panels with near-black grooves between them and already has geometry breaking up its
+reflection; the floor is one bare slab where the grain is the only thing doing that job. Matching
+them exactly was never the goal — what had to go was the *asymmetry of visibility*, one surface's
+grain showing in the specular while the other's showed nowhere.
+
+**Taking the wall to 0 was considered and rejected.** On its own it widens the very gap being closed
+(0 against 1.8), and a perfectly flat wall at smoothness 0.85 sharpens the reflection until the 512
+probe — already chosen over 256 because the fixtures smeared — starts to show.
+
+### Why the fixtures are square but their pools are round
+
+Asked during the same pass, and the answer is that **the current rendering is close to correct.** A
+1.4m emissive panel 5.41m above the floor is 3.9× its own width away, subtending about 15°: it is
+very nearly a point source, and the illumination it lays on a parallel plane is dominated by
+inverse-square and cosine falloff, both radially symmetric. A square pool would only be visible
+within about twice the emitter's width. What *is* square on the floor is the panel's own reflection,
+baked into the probes (the fixtures are not in `MovesDuringPlay`) and sharpened by the floor's new
+gloss — and that is square because the panel really is.
+
+**A spot cookie was considered and rejected**, though it is the textbook fix for a square emitter.
+Three reasons, in order of weight: (a) the 130° cone is not a spotlight, it is what lights the room
+evenly — its radius at floor level is 11.6m against a 8.75×10.5m room, so masking it into a square
+necessarily darkens the corners, and "the room lost the clinical evenness it is supposed to have" is
+a failure this project has already had once, from the ambient pass; (b) a cookie masks flux, so
+`intensity` 10.5 would have to be re-derived, and every albedo/smoothness judgement above sits on top
+of that number; (c) see the paragraph above — there is no error to correct. If the reflected square
+is ever too loud, the lever is the fixtures' emission (3.5 in `MakeEmissiveMaterial`), which does not
+touch room brightness at all.
+
+### How the numbers were found, and the tool that is gone
+
+A rebuild-look-guess cycle is four minutes a step, so these were found at a **live dial** built into
+the calibration room for the day: three columns (wall, floor, ceiling), a slider each for albedo,
+smoothness and bump scale. It was **removed once the values were settled** — a development panel on
+the first screen every player sees is not something to ship — and `SceneBuilder` holds the numbers, as
+CLAUDE.md §2 requires. Recorded here because the technique is worth having again, along with the four
+things that made it work:
+
+- **Every write went through a `MaterialPropertyBlock`**, which is per-renderer. The calibration
+  room's walls are the same `PanelWhite` asset as every wall in the building, so driving them there
+  touched neither the asset nor any other room.
+- **Nothing was saved.** Numbers were read off the panel and typed into the builder. A tuner that
+  persisted would be a second source of truth for a value the builder owns.
+- **`_BumpScale` is drivable from a block only because `_NORMALMAP` is already compiled in** by
+  `ApplySurfaceDetail`. A property block cannot turn a shader keyword on — the same rule the wall
+  panels' emission is set up under.
+- **The cursor was the whole awkwardness.** That room keeps the pointer captured, because that is what
+  the sensitivity step measures, while a slider needs it loose. It took a TAB toggle and a hook in
+  `FirstPersonController` to stop the first click at a handle taking the lock back.

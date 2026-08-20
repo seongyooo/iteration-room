@@ -566,3 +566,30 @@ only ever be taken in.
 was recorded metres from home, so a home-based test fails exactly where the current-position test
 succeeds. A reach that covers the room is the only measure that is right in both cases.
 
+
+
+## A `.ps1` without a UTF-8 BOM silently mangles every non-ASCII string in it (2026-08-20)
+
+Windows PowerShell 5.1 — which is what `powershell.exe` is, and what the project's tools scripts run
+under — decodes a `.ps1` file as **ANSI** unless it starts with `EF BB BF`. PowerShell 7 defaults to
+UTF-8 and does not have this problem, which is exactly why it is easy to write a script that works
+for the person who wrote it and not for the repo.
+
+**The reason it is worth a section is the failure mode, not the cause.** Generating the Korean PA
+lines through `Tools/generate_narration.ps1` produced 45 files: 7 were zero-length and 38 were
+normal-looking WAVs of plausible duration. The obvious reading — "seven syllables the synthesizer
+cannot say" — is wrong twice over. Every one of those syllables synthesised perfectly when tested on
+its own, and the 38 that *looked* fine were the voice reading mojibake aloud with total confidence.
+Nothing about file size, clip count or duration distinguishes that from success.
+
+What actually diagnoses it is asking PowerShell to read the file back:
+
+```
+Get-Content Tools\generate_narration.ps1 | Where-Object { $_ -match 'digits' }
+    $digits = @{ 9 = "援?"; 8 = "??"; 7 = "移?"; ...
+```
+
+A first attempt blamed `SpeechSynthesizer` not flushing its wave file and added `SetOutputToNull()`
+before `Dispose()`. That change is still in the script and is good practice, but **it fixed nothing**
+— the same seven files came out empty. If a generated asset comes out wrong in a way that looks
+character-dependent, check the encoding of the script before the tool.

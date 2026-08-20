@@ -52,6 +52,25 @@ namespace IterationRoom
         // whole value of this page during development. See TODO.md.
         public Button cycleSelectButton;
         public Button cycleBackButton;
+
+        // ONE PER CYCLE THAT HAS A SUCCESSOR: "start cycle N with its last room already finished", so
+        // the hatch into cycle N+1 opens within seconds of the run starting. **A development
+        // shortcut**, and it goes with the picker rather than on the title screen because that whole
+        // page is one - see `cycleSelectButton`, which is unlocked for the same reason and gated the
+        // same day.
+        public Button[] cycleEndButtons;
+
+        // THE LAST RUN'S BILL, on a page of its own. The ending card shows it once and then the
+        // player clicks past it; this is where it lives afterwards, so a run that took thirty-one
+        // iterations is a thing they can go back and look at rather than a number they had to
+        // memorise off a screen that was about to close.
+        //
+        // Hidden outright when nothing has been finished - `RunReport.Load` returns null for both
+        // "never played" and "stored but unreadable", and an empty table is worse than no entry.
+        public Button recordButton;
+        public Button recordBackButton;
+        public CanvasGroup recordGroup;
+        public Text recordText;
         public CanvasGroup cycleGroup;
         public Button[] cycleButtons;
 
@@ -63,6 +82,28 @@ namespace IterationRoom
         public CanvasGroup settingsGroup;
         public Slider volumeSlider;
         public Text volumeValue;
+
+        // SENSITIVITY, ON THE TITLE SCREEN AS WELL AS IN THE PAUSE MENU AND THE CALIBRATION ROOM.
+        // Three places for one number is not duplication - they answer three different situations. The
+        // calibration room is for a player who has never played and does not know what to ask for; the
+        // pause menu is for one mid-run who has just found out; this is for one who already knows their
+        // number and wants it set before anything starts. All three write `GameSettings.MouseSensitivity`,
+        // which is the single value, so none of them can disagree with another.
+        public Slider sensitivitySlider;
+        public Text sensitivityValue;
+
+        // The controls list. Owns which key each verb is on only in the sense of asking
+        // `InputBindings`; see KeyBindingPanel.
+        public KeyBindingPanel bindings;
+
+        // LANGUAGE. Two buttons rather than a slider or a cycling toggle: with two options a toggle
+        // costs the same space and tells you only what you would get NEXT, where two buttons show
+        // both choices and which one is live. `SceneBuilder` leaves their labels untranslated on
+        // purpose - see the note where it builds them.
+        public Button englishButton;
+        public Button koreanButton;
+        public Text englishInk;
+        public Text koreanInk;
         public Image loadingFill;
         public Text loadingLabel;
 
@@ -106,6 +147,9 @@ namespace IterationRoom
                 cycleSelectButton.onClick.AddListener(() => ShowCyclePicker(true));
             if (cycleBackButton != null) cycleBackButton.onClick.AddListener(() => ShowCyclePicker(false));
 
+            if (recordButton != null) recordButton.onClick.AddListener(() => ShowRecord(true));
+            if (recordBackButton != null) recordBackButton.onClick.AddListener(() => ShowRecord(false));
+
             if (settingsButton != null) settingsButton.onClick.AddListener(() => ShowSettings(true));
             if (settingsBackButton != null) settingsBackButton.onClick.AddListener(() =>
             {
@@ -132,13 +176,38 @@ namespace IterationRoom
             }
             ShowVolumeValue();
 
-            if (cycleButtons == null) return;
-            for (int i = 0; i < cycleButtons.Length; i++)
+            if (sensitivitySlider != null)
             {
-                // Captured per iteration, or every button would close over the loop variable and
-                // start the last cycle.
+                sensitivitySlider.minValue = GameSettings.MinMouseSensitivity;
+                sensitivitySlider.maxValue = GameSettings.MaxMouseSensitivity;
+                // Seeded before the listener for the same reason the volume slider is, one block up.
+                sensitivitySlider.SetValueWithoutNotify(GameSettings.MouseSensitivity);
+                sensitivitySlider.onValueChanged.AddListener(SetSensitivity);
+            }
+            ShowSensitivityValue();
+
+            if (englishButton != null)
+                englishButton.onClick.AddListener(() => SetLanguage(GameLanguage.English));
+            if (koreanButton != null)
+                koreanButton.onClick.AddListener(() => SetLanguage(GameLanguage.Korean));
+            ShowLanguage();
+
+            if (cycleButtons != null)
+                for (int i = 0; i < cycleButtons.Length; i++)
+                {
+                    // Captured per iteration, or every button would close over the loop variable and
+                    // start the last cycle.
+                    int cycle = i + 1;
+                    if (cycleButtons[i] != null)
+                        cycleButtons[i].onClick.AddListener(() => PlayFromCycle(cycle));
+                }
+
+            if (cycleEndButtons == null) return;
+            for (int i = 0; i < cycleEndButtons.Length; i++)
+            {
                 int cycle = i + 1;
-                if (cycleButtons[i] != null) cycleButtons[i].onClick.AddListener(() => PlayFromCycle(cycle));
+                if (cycleEndButtons[i] != null)
+                    cycleEndButtons[i].onClick.AddListener(() => PlayFromCycleEnd(cycle));
             }
         }
 
@@ -153,8 +222,12 @@ namespace IterationRoom
             // SETTINGS and QUIT; the button appears the moment a run has woken in a bed.
             if (continueButton != null)
                 continueButton.gameObject.SetActive(GameSettings.SavedCycle > 0);
+            // Same rule, different fact: CONTINUE needs a run STARTED, RECORD needs one FINISHED.
+            if (recordButton != null)
+                recordButton.gameObject.SetActive(RunReport.HasRun);
 
             if (menuGroup != null) menuGroup.alpha = 1f;
+            ShowRecord(false);
             ShowCyclePicker(false);
             // Both sub-pages down, and the menu back up after them: each of these restores
             // `menuGroup`, so whichever runs last is what the player sees.
@@ -204,6 +277,13 @@ namespace IterationRoom
             // continue and the picker where there is not. Bound to the meaning rather than to a
             // button: a player pressing Enter at a title screen is asking to play, not to be shown a
             // list of cycles they have already finished.
+            // NOT WHILE ANOTHER PAGE HAS THE SCREEN. `menuGroup.blocksRaycasts` is the one flag every
+            // page already flips, so this asks "is the title column the thing being looked at" rather
+            // than naming the three pages that are not. Without it ENTER starts the game from the
+            // settings screen - and, mid-rebind, assigns ENTER to a verb and starts the game with it.
+            bool titleColumnUp = menuGroup == null || menuGroup.blocksRaycasts;
+            if (!titleColumnUp) return;
+
             if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
             {
                 if (GameSettings.SavedCycle > 0) Continue();
@@ -265,6 +345,21 @@ namespace IterationRoom
             StartCoroutine(LoadGame());
         }
 
+        // A CYCLE WITH ITS LAST ROOM ALREADY FINISHED, so the boundary into the next one runs at
+        // once. For testing the cycle BELOW: the break plays, the storey underneath wakes, the gas is
+        // repointed and the hatch opens, all on the real path - see DebugStart.FinishOnJump for why
+        // the hole is not simply forced open instead.
+        public void PlayFromCycleEnd(int cycle)
+        {
+            if (starting) return;
+            DebugStart.Clear();
+            DebugStart.StartCycle = Mathf.Max(1, cycle);
+            DebugStart.AtCycleBoundary = true;
+            DebugStart.FinishOnJump = true;
+            starting = true;
+            StartCoroutine(LoadGame());
+        }
+
         private void SetVolume(float value)
         {
             GameSettings.MasterVolume = value;
@@ -279,12 +374,77 @@ namespace IterationRoom
                 volumeValue.text = Mathf.RoundToInt(GameSettings.MasterVolume * 100f) + "%";
         }
 
+        private void SetLanguage(GameLanguage value)
+        {
+            // The setter is what raises `Loc.Changed`, so every `LocalizedText` on this page has
+            // already redrawn by the time this returns - including the BACK button under the pointer.
+            GameSettings.Language = value;
+            ShowLanguage();
+        }
+
+        // WHICH ONE IS LIVE, said with ink rather than with a plate. The buttons already carry a
+        // hover and a press state; adding a third background would make "selected" and "hovered"
+        // two shades of the same thing. Full-strength ink for the current language, faded for the
+        // other, which reads at a glance and survives the pointer being anywhere.
+        private void ShowLanguage()
+        {
+            bool korean = GameSettings.Language == GameLanguage.Korean;
+            if (englishInk != null)
+                englishInk.color = new Color(englishInk.color.r, englishInk.color.g,
+                                             englishInk.color.b, korean ? 0.35f : 1f);
+            if (koreanInk != null)
+                koreanInk.color = new Color(koreanInk.color.r, koreanInk.color.g,
+                                            koreanInk.color.b, korean ? 1f : 0.35f);
+        }
+
+        private void SetSensitivity(float value)
+        {
+            GameSettings.MouseSensitivity = value;
+            ShowSensitivityValue();
+        }
+
+        private void ShowSensitivityValue()
+        {
+            if (sensitivityValue != null)
+                sensitivityValue.text = GameSettings.MouseSensitivity.ToString("0.00");
+        }
+
         private void ShowSettings(bool show)
         {
             if (settingsGroup != null)
             {
                 settingsGroup.alpha = show ? 1f : 0f;
                 settingsGroup.blocksRaycasts = show;
+            }
+            // RE-SEEDED ON EVERY OPEN, not once in Awake. The calibration room and the pause menu both
+            // write this number behind the page's back, so a slider seeded at scene load shows a stale
+            // value and dragging it snaps away from the real one - the exact bug PauseMenu.SyncSensitivity
+            // documents, which this page would otherwise have its own copy of.
+            if (show && sensitivitySlider != null)
+                sensitivitySlider.SetValueWithoutNotify(GameSettings.MouseSensitivity);
+            if (show) ShowSensitivityValue();
+            if (!show && bindings != null) bindings.Cancel();
+            if (menuGroup != null)
+            {
+                menuGroup.alpha = show ? 0f : 1f;
+                menuGroup.blocksRaycasts = !show;
+            }
+        }
+
+        // Filled on the way IN rather than at startup, so a run finished and returned from is on the
+        // page without the menu having to be reloaded.
+        private void ShowRecord(bool show)
+        {
+            if (show && recordText != null)
+            {
+                CycleRecord[] run = RunReport.Load();
+                recordText.text = run != null ? RunReport.Table(run) : string.Empty;
+            }
+
+            if (recordGroup != null)
+            {
+                recordGroup.alpha = show ? 1f : 0f;
+                recordGroup.blocksRaycasts = show;
             }
             if (menuGroup != null)
             {
@@ -364,7 +524,11 @@ namespace IterationRoom
         private void SetProgress(float t)
         {
             if (loadingFill != null) loadingFill.fillAmount = t;
-            if (loadingLabel != null) loadingLabel.text = $"LOADING {Mathf.RoundToInt(t * 100f)}%";
+            // Formatted here rather than through a `LocalizedText`, because this is rewritten every
+            // frame of the load - a component that also writes it would be a second author of the
+            // same label, and the two would race.
+            if (loadingLabel != null)
+                loadingLabel.text = $"{Loc.Get("menu.loading")} {Mathf.RoundToInt(t * 100f)}%";
         }
 
         private IEnumerator Fade(CanvasGroup group, float target)

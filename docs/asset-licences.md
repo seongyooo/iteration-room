@@ -67,6 +67,7 @@ paged list is the same machinery, not new machinery.
 | File | Source | Licence | Verified | Notes |
 |---|---|---|---|---|
 | `Fonts/JetBrains_Mono/` | JetBrains | **SIL OFL 1.1** | `OFL.txt` in tree | Embedding and commercial use both permitted. The OFL copy must travel with the font — it is in the repo, and the credits line names the typeface. |
+| `Resources/Fonts/D2Coding.ttf` | NAVER Corporation | **SIL OFL 1.1** | `D2Coding-LICENSE.txt` beside it | The Korean UI face. Reserved Font Name "D2Coding", so a *modified* copy may not keep the name — we ship it unmodified. The licence sits inside `Resources/` deliberately: everything in that folder is included in the build, so the licence cannot be shipped without. **The credits line does not name it yet** — see "Before a paid release". |
 
 ## Audio
 

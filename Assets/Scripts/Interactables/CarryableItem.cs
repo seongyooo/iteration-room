@@ -47,8 +47,7 @@ namespace IterationRoom
 
         // Optional gate. The tool sits inside the drawer, so it cannot be taken through a shut one.
         // WHICH DRAWER HAS TO BE OPEN before this can be taken - and **only while it is still in
-        // that drawer**. `Released` is what says it is not: it means "dropped in the world", which is
-        // the one way out of a hand that leaves an object somewhere the drawer has no say over.
+        // that drawer** - see `InsideDrawer` below, which asks that by parentage.
         //
         // Without that half, an object carried out of the room and PUT DOWN became permanently
         // unreachable - the gate went on asking about a drawer a hundred metres away, so a press over
@@ -87,6 +86,19 @@ namespace IterationRoom
         // `originParent`, because the top of an iteration is exactly when it belongs in the drawer
         // again.
         public Transform dropParent;
+
+        // **STILL IN THAT DRAWER**, which is the only time `requiresOpenDrawer` has anything to say.
+        //
+        // PARENTAGE, not `Released`. `Released` was the proxy for this and it is the wrong question
+        // asked twice over: it is true only for objects DROPPED in mid-air, so an object revealed
+        // somewhere else - which is what the boundary test jump does with the escape objects - came
+        // back "still in the drawer" while sitting on a console in another room, and E did nothing at
+        // it. Parentage answers directly, and it stays right through every path in and out: `DropAt`
+        // reparents to `dropParent` (the chest, not the tray), `ReturnToOrigin` puts it back under the
+        // tray and the gate closes again with it.
+        public bool InsideDrawer => requiresOpenDrawer != null
+            && requiresOpenDrawer.drawerBody != null
+            && transform.IsChildOf(requiresOpenDrawer.drawerBody);
 
         // Resting height once this is put down, **measured from the floor this object stands on**.
         // The number is the object's own half-thickness, not a room measurement - which is why it
@@ -220,8 +232,7 @@ namespace IterationRoom
         // false for all but the handful beside the player. See PlayerLookup.InView.
         public bool WantsInteractHint =>
             IsAvailable && playerInRange && !AlreadyHaveOne
-            && (HeldByGhost != null || Released
-                || requiresOpenDrawer == null || requiresOpenDrawer.IsFullyOpen)
+            && (HeldByGhost != null || !InsideDrawer || requiresOpenDrawer.IsFullyOpen)
             && PlayerLookup.InView(HintAnchor);
 
         // The player's hands are full. PlayerHand.Take refuses outright rather than swapping, so
@@ -611,6 +622,15 @@ namespace IterationRoom
         {
             if (IsCarried) return;
             Released = false;
+
+            // OUT OF THE DRAWER IT IS NO LONGER IN. Revealing an object somewhere else and leaving it
+            // parented to a drawer tray means it rides out with that drawer the next time anything
+            // pulls it - a ball placed at room2-0's console sliding 0.22m sideways because a past
+            // self opened a chest in room2-1. `dropParent` is where a let-go object belongs, and this
+            // is the same kind of letting go.
+            if (InsideDrawer)
+                transform.SetParent(dropParent != null ? dropParent : originParent, true);
+
             transform.position = worldPosition;
             SetVisible(true);
             if (trigger != null) trigger.enabled = true;

@@ -20,11 +20,13 @@ namespace IterationRoom
         public float walkSpeed = 2.5f;
         public float sprintSpeed = 4.5f;
 
-        // SHIFT, not the Ctrl that TODO.md had pencilled in. That entry paired Ctrl-sprint with
-        // Shift-crouch and flagged itself as inverted from near-universal convention; the inversion
-        // only existed to free Shift for crouch, and there is no crouch. If one arrives it needs its
-        // own key rather than this one back.
-        public KeyCode sprintKey = KeyCode.LeftShift;
+        // WHICH KEY SPRINTS AND WHICH CROUCHES IS NOT HERE. Both are in `InputBindings`
+        // (`GameAction.Sprint`, `GameAction.Crouch`) so the settings page can change them, and this
+        // file only knows the two SPEEDS. The defaults are still Shift and Ctrl, and the reasoning
+        // that picked Shift is worth keeping: TODO.md once pencilled in Ctrl-sprint with
+        // Shift-crouch, which is inverted from near-universal convention and only existed to free
+        // Shift for a crouch that did not exist yet. It does now, and it took Ctrl rather than
+        // taking Shift back.
 
         // CROUCH is the eye and the speed, and DELIBERATELY NOT the collider.
         //
@@ -38,7 +40,6 @@ namespace IterationRoom
         // What it is for is the same thing the walk speed is for: being in the room rather than
         // crossing it. Lowering the eye by 0.6m changes what the panelling and the floor look like more
         // than any number in the renderer does.
-        public KeyCode crouchKey = KeyCode.LeftControl;
         public float crouchEyeHeight = 1.0f;
         public float crouchSpeed = 1.2f;
         // Seconds to sit down or stand up. Long enough to be a movement rather than a cut; short enough
@@ -381,9 +382,9 @@ namespace IterationRoom
             // Crouch beats sprint when both are down. Holding two speed keys is an ambiguous request,
             // and the slower one is the safe reading - a player who wanted to go fast can let go of one
             // key, where a player who gets launched at sprint speed while crouched has been lied to.
-            // `crouchKey` and `sprintKey` still name the desktop bindings; GameInput reads them and
-            // answers for the stick as well - a run is the stick pushed PAST a threshold rather than
-            // a button of its own, and there is no crouch on touch at all. See GameInput.
+            // Which key each is comes from `InputBindings` through `GameInput`, which also answers
+            // for the stick - a run is the stick pushed PAST a threshold rather than a button of its
+            // own, and there is no crouch on touch at all. See GameInput.
             bool crouching = GameInput.CrouchHeld;
             float topSpeed = (crouching ? crouchSpeed
                            : GameInput.SprintHeld ? sprintSpeed

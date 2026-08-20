@@ -121,7 +121,10 @@ namespace IterationRoom
             // will not turn has no way to guess that a click fixes it. Everything else the step has
             // to tell them is on the wall.
             bool locked = Cursor.lockState == CursorLockMode.Locked;
-            if (lockHint != null) lockHint.text = locked ? string.Empty : "CLICK TO ENABLE MOUSE LOOK";
+            // Written straight rather than through a `LocalizedText`, for the same reason the
+            // loading percentage is: this label is rewritten every frame and two authors would race.
+            if (lockHint != null)
+                lockHint.text = locked ? string.Empty : Loc.Get("cal.clickToLock");
 
             Adjust();
             Show();

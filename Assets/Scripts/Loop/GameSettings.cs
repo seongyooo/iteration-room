@@ -117,6 +117,43 @@ namespace IterationRoom
         // WRITTEN THROUGH IMMEDIATELY rather than deferred to `Save()` like the sliders. Those are
         // touched every frame of a drag and batching them is the point; this is touched once per
         // cycle, and the whole value of it is surviving a player who closes the window.
+        // WHICH LANGUAGE THE GAME TALKS IN. What that does and does not cover is `Loc`'s decision,
+        // not this one - the facility's own signage stays English in both.
+        //
+        // **ENGLISH ON A FIRST RUN, whatever the machine says** (2026-08-21, by request). Guessing
+        // from `Application.systemLanguage` was tried and dropped: this game is authored in English -
+        // the title, the facility's signage and the PA's own vocabulary all are - so English is the
+        // version that is complete and the one every screenshot and every piece of writing about it
+        // assumes. A player who wants Korean finds it in SETTINGS, which is two clicks and is
+        // labelled in their own language on the button itself (see the note where those are built).
+        //
+        // Written through immediately like `SavedCycle` and unlike the sliders. It is touched once,
+        // deliberately, and no drag can spam it.
+        private const string LanguageKey = "iteration.language";
+        private static int language = -1;
+
+        public static GameLanguage Language
+        {
+            get
+            {
+                if (language < 0)
+                    language = Mathf.Clamp(PlayerPrefs.GetInt(LanguageKey, (int)GameLanguage.English),
+                                           0, (int)GameLanguage.Korean);
+                return (GameLanguage)language;
+            }
+            set
+            {
+                if (language == (int)value) return;
+                language = (int)value;
+                PlayerPrefs.SetInt(LanguageKey, language);
+                PlayerPrefs.Save();
+                // Everything already on screen redraws itself. Only the title screen ever needs it -
+                // every other scene is loaded after the choice is made - but a language that changed
+                // behind a live page would be the same staleness bug the sensitivity slider had.
+                Loc.RaiseChanged();
+            }
+        }
+
         private const string SavedCycleKey = "iteration.savedCycle";
         private static int savedCycle = -1;
 

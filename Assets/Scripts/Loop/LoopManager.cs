@@ -556,10 +556,31 @@ namespace IterationRoom
 
             Vector3 console = room.console.transform.position;
 
-            // Standing where the doorway leaves you, facing the console. The room is entered from -Z,
-            // so this is a short walk back from where the player would actually be.
-            if (playerController != null)
-                playerController.Teleport(new Vector3(console.x, 0.05f, console.z - 2.6f), Quaternion.identity);
+            // **THE FLOOR IS THE ROOM'S, NOT ZERO.** This stood the player at y = 0.05 and got away
+            // with it for as long as there was one console: cycle 1's room4 has its floor on y = 0.
+            // Room2-0's is ELEVEN METRES DOWN, so the jump spawned the tester in the air above the
+            // building and they fell out of the room they were meant to be standing in. The sequence
+            // object is a child of its room at local zero, so its own Y is that room's floor.
+            //
+            // **AND THE WAY IN IS NOT ALWAYS -Z.** Cycle 1's room4 is entered from -Z and cycle 2's
+            // room2-0 from +Z, so a hard-coded `console.z - 2.6` put the tester standing inside
+            // room2-0's pedestal row. `arrival` is the doorway the room is entered by, so a point
+            // between it and the console is "just inside, facing in" for any room that has one.
+            float floorY = room.transform.position.y + 0.05f;
+            Vector3 doorway = room.arrival != null
+                ? room.arrival.transform.position
+                : console + Vector3.back * 4f;
+
+            Vector3 stand = Vector3.Lerp(console, doorway, 0.42f);
+            stand.y = floorY;
+
+            Vector3 facing = console - stand;
+            facing.y = 0f;
+            Quaternion look = facing.sqrMagnitude > 0.001f
+                ? Quaternion.LookRotation(facing.normalized, Vector3.up)
+                : Quaternion.identity;
+
+            if (playerController != null) playerController.Teleport(stand, look);
 
             // The console rises on arrival, and arrival is a doorway the player never came through.
             room.arrival?.ForceArrived();
@@ -580,7 +601,11 @@ namespace IterationRoom
             // out sweeps them home and hides them again. Press the button again rather than waiting.
             RewardPlinth[] plinths = UnityEngine.Object.FindObjectsByType<RewardPlinth>();
 
-            float[] offsets = { -0.7f, 0f, 0.7f };
+            // Spread across however many recesses this console has - three for cycle 1, four for
+            // cycle 2. Written as a count rather than a table, or the fourth object lands on the
+            // third: the table this replaced was three wide and clamped.
+            int declared = 0;
+            foreach (FinalSlot s in room.slots) if (s != null && s.Declared) declared++;
             int placed = 0;
 
             foreach (FinalSlot slot in room.slots)
@@ -605,10 +630,27 @@ namespace IterationRoom
                 foreach (RewardPlinth plinth in plinths)
                     if (plinth != null && plinth.key == item) plinth.key = null;
 
-                float x = console.x + offsets[Mathf.Min(placed, offsets.Length - 1)];
-                // Between the player and the console, at the object's own resting height - not
-                // dropped, so `FallingItem` leaves it exactly here.
-                item.RevealAt(new Vector3(x, item.RestingY, console.z - 1.7f));
+                // STRAIGHT INTO THE RECESS when the shortcut is being used to reach the cycle BELOW
+                // - see DebugStart.FinishOnJump. Through the same call a ghost's delivery uses, so
+                // the completion test, the break and the hatch are all the real path.
+                if (DebugStart.FinishOnJump)
+                {
+                    item.RevealAt(new Vector3(console.x, floorY + item.floorY, stand.z));
+                    if (!slot.AcceptFromGhost(item))
+                        Debug.LogWarning($"[LoopManager] Test jump could not seat "
+                                       + $"'{slot.AcceptedItemId}' - the recess refused it.");
+                    placed++;
+                    continue;
+                }
+
+                float spread = 0.7f;
+                float x = console.x + (placed - (declared - 1) * 0.5f) * spread;
+                // Between the player and the console, on THIS ROOM'S floor - not `item.RestingY`,
+                // which is `floorBaseY + floorY` and so is the height of the storey the object was
+                // BUILT on. Cycle 2's balls are built one storey above room2-0, so resting height put
+                // them 3.7m in the air - and `FallingItem` leaves them there, because a revealed
+                // object is not a dropped one (`Released` stays false, by design).
+                item.RevealAt(new Vector3(x, floorY + item.floorY, stand.z));
                 placed++;
             }
         }
@@ -876,6 +918,10 @@ namespace IterationRoom
             // Held all the way through the break and taken here, at the scrim. Ten seconds pinned in
             // place watching a room fail would be the game freezing rather than the room failing.
             if (playerController != null) playerController.ControlEnabled = false;
+
+            // BANKED BEFORE THE CARD, not after: the card now waits on a click, and a player who
+            // closes the window while it is up has still finished the run.
+            RunReport.Save(cycleRecords);
 
             if (endingSequence != null)
                 yield return endingSequence.Play(cycleRecords);

@@ -551,7 +551,16 @@ namespace IterationRoom
             // The pin lives inside the nightstand drawer, and a ghost must no more take it through
             // a shut drawer than the player can. Its own replayed pull is what opens it, so in
             // practice this passes; it is here so that stops being a coincidence.
-            if (item.requiresOpenDrawer != null && !item.requiresOpenDrawer.IsFullyOpen) return;
+            //
+            // **AND ONLY WHILE THE OBJECT IS STILL IN THAT DRAWER** - `InsideDrawer` is what says it
+            // is, and it asks by PARENTAGE rather than by `Released` (see CarryableItem). This is the same fault `CarryableItem.WantsInteractHint` was fixed for on
+            // 2026-08-20 and the ghost's copy of it was missed: a ball taken out of the chest, put
+            // down at the far end of the building and picked up again asks this question a second
+            // time, and by then the drawer's state is nothing to do with it. With the chest's bays
+            // closable the answer is the PARITY of how many past selves have pulled them
+            // (docs/gotchas.md), so the re-take failed on some iterations and not others, which is
+            // exactly how play described it.
+            if (item.InsideDrawer && !item.requiresOpenDrawer.IsFullyOpen) return;
 
             // ...AND IT HAS TO BE WHERE THIS GHOST IS. Without this the object is dragged to the
             // ghost from anywhere in the building - see takeReach. A ghost that cannot reach what it

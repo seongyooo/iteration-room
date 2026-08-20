@@ -350,3 +350,52 @@ other: the top of the frame lands at `eyeY + standoff * tan(fov/2)`.
 scrim, where charcoal would be invisible — so `ink` is optional and null keeps the red-on-dark it was
 built with, which is also the pairing the in-game HUD uses. Same for `MakeRowLabel`.
 
+
+
+## Language: what is translated, and what deliberately is not (2026-08-20)
+
+English and Korean, chosen on the title screen's SETTINGS page and persisted through
+`GameSettings.Language`. The first run guesses from `Application.systemLanguage` rather than
+defaulting to English — a Korean player should not have to navigate a settings page in a language
+they may not read to reach the setting that fixes it. Only the first run: after that the stored value
+is the player's answer, including if that answer was English on a Korean machine.
+
+**The line between what is translated and what is not is a design decision, not a coverage gap.**
+Text in this game is two different things wearing the same font:
+
+- **The game talking to the player** — menus, settings, the pause overlay, the HUD, the ending card.
+  All translated, because a player who cannot read it cannot play.
+- **The facility talking to itself** — `ROOM 2` over a doorway, the `ERROR` on room2-0's console,
+  `FIRE AXE` and `BOTTOMLESS` on its pictograms, and the title. **None of it is translated.** Those
+  are props. The building is an English-language facility, and translating its signage changes where
+  the game is set rather than what language it is played in.
+
+**The calibration room is translated, and it is the one judgement call in that split.** It is a wall
+display, so by the rule above it is signage — but its content is one hundred percent instruction, and
+a player who cannot read it cannot get out of the room. Reverting it is deleting five `cal.*` keys.
+
+Mechanically: `Loc` holds the table, `LocalizedText` tags a `Text` with a key rather than with words,
+and `SceneBuilder` still authors the English into the `Text` itself — so a scene with the component
+stripped is an English scene, and a missing Korean key falls through to English rather than showing
+the key. Two labels are written straight through `Loc.Get` instead of carrying a component, because
+they are rewritten every frame and two authors would race: the loading percentage and the calibration
+room's pointer-lock hint.
+
+- **The two language buttons are never translated.** "ENGLISH" and "한국어" each stay in their own
+  language whichever is selected. A player who has landed in a language they cannot read has to be
+  able to find the way out, and "영어"/"한국어" are two words they cannot tell apart.
+- **The Korean face is bundled, and it is a monospace on purpose.** `Resources/Fonts/D2Coding.ttf`
+  (SIL OFL, NAVER). JetBrains Mono has no Hangul at all, so the font is part of what "this text is in
+  Korean" means and `LocalizedText` swaps both together. Noto Sans KR or Pretendard would be the
+  obvious picks and both are wrong here: this UI is *measured* as monospace — `SceneBuilder` sizes
+  fixed-width labels by `0.6 x fontSize x length` — so a proportional face is a different answer to
+  how wide a string is, not just a different look. It costs 4.2MB against JetBrains Mono's 115KB,
+  which is the price of 11,172 precomposed syllables rather than an alphabet.
+- **Bundling it also covers WebGL**, which has no OS fonts to fall back on. The `Malgun Gothic`
+  fallback in `LocFont` is only for a build where the asset is missing.
+
+**Known gap**: the on-screen key prompts still name hard-coded keys — see TODO.md. Localisation moved
+the words around them ("PUT DOWN" → "내려놓기") but `[E]` and `[N]` are still literal, so they are
+wrong for anyone who has rebound them in either language.
+
+The PA announcer is translated too — see `docs/audio.md`.

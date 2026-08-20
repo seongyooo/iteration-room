@@ -692,6 +692,16 @@ the 26.7kg target, the six turns and the twenty chops all known going in - so no
 puzzle-solving, and 22 is close to a floor rather than a first-play figure. Cycle 1's comparable
 number is its third clear (10), not its first (14).
 
+**CLEARED AGAIN AT 22, 2026-08-20** - a second run, on a build carrying five bug fixes the first one
+did not have, finished cycle 2 in **22 iterations and 10:02.759** against the first clear's 22 and
+10:04. Two independent runs, the same count, 1.2 seconds apart.
+
+That is the strongest thing said about this cycle so far, and it is not about skill. **A count that
+reproduces to the iteration is a STRUCTURAL count** - it is the room2-7 latch setting the floor, not
+the player's route or their luck with the ghosts. It also means the five fixes between the two runs
+(the drawer gate, `dropParent`, the storey floor base, the null `sequence`, the duck reach) were not
+costing iterations in the first run, or not enough to show.
+
 **Still unanswered**: whether 22 iterations is enjoyable or a slog, whether the pictograms read as
 *how many of these are there* rather than *bring one of these* to somebody who was not told, and how
 many of the 22 were spent on iterations where the chest happened to be toggled shut.

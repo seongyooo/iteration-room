@@ -54,15 +54,35 @@ namespace IterationRoom
         // WHERE THE PLAYER IS ASKING TO GO, as a direction with a MAGNITUDE. The keyboard can only
         // ever answer 0 or 1 per axis; a stick answers anything in between, and the caller scales
         // its speed by it - which is the whole of analogue movement.
+        //
+        // **FOUR KEYS, NOT `GetAxisRaw`, since the bindings page existed.** The legacy Input Manager's
+        // axes are configured in `ProjectSettings/InputManager.asset` and cannot be reassigned at
+        // runtime, so an axis read is a movement key the player is not allowed to change. Polling the
+        // four bound keys is exactly equivalent for a keyboard - `GetAxisRaw` is already unsmoothed
+        // 0/±1 - and it is what makes WASD rebindable at all.
+        //
+        // What it drops: the joystick contribution the stock `Horizontal`/`Vertical` axes carry. That
+        // costs nothing today, because nothing else in this project reads a gamepad - look is
+        // `Mouse X`/`Mouse Y` and every verb below is a key. **If a gamepad is ever supported, it is
+        // a third branch here beside touch**, not a return to the axis, or movement silently stops
+        // obeying the bindings page again.
         public static Vector2 Move
         {
             get
             {
                 Pump();
                 if (TouchActive) return touch.Move;
-                return new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"));
+
+                float x = (Held(GameAction.MoveRight) ? 1f : 0f) - (Held(GameAction.MoveLeft) ? 1f : 0f);
+                float y = (Held(GameAction.MoveForward) ? 1f : 0f) - (Held(GameAction.MoveBack) ? 1f : 0f);
+                return new Vector2(x, y);
             }
         }
+
+        // The two shapes every verb below is one of. Kept here so no call site repeats the lookup and
+        // so "which key" has exactly one answer per verb.
+        private static bool Held(GameAction action) => Input.GetKey(InputBindings.Get(action));
+        private static bool Pressed(GameAction action) => Input.GetKeyDown(InputBindings.Get(action));
 
         // IN DEGREES BEFORE SENSITIVITY, which is what `GetAxis("Mouse X")` already is once the
         // caller multiplies by it. The touch side converts a drag in pixels into the same units, so
@@ -87,7 +107,7 @@ namespace IterationRoom
             {
                 Pump();
                 if (TouchActive) return touch.Sprint;
-                return Input.GetKey(KeyCode.LeftShift);
+                return Held(GameAction.Sprint);
             }
         }
 
@@ -100,7 +120,7 @@ namespace IterationRoom
             {
                 Pump();
                 if (TouchActive) return false;
-                return Input.GetKey(KeyCode.LeftControl);
+                return Held(GameAction.Crouch);
             }
         }
 
@@ -110,7 +130,7 @@ namespace IterationRoom
             {
                 Pump();
                 if (TouchActive) return touch.JumpPressed;
-                return Input.GetButtonDown("Jump");
+                return Pressed(GameAction.Jump);
             }
         }
 
@@ -123,7 +143,7 @@ namespace IterationRoom
             {
                 Pump();
                 if (TouchActive) return touch.InteractPressed;
-                return Input.GetKeyDown(KeyCode.E);
+                return Pressed(GameAction.Interact);
             }
         }
 
@@ -135,17 +155,35 @@ namespace IterationRoom
             {
                 Pump();
                 if (TouchActive) return touch.UsePressed;
-                return Input.GetMouseButtonDown(0);
+                return Pressed(GameAction.Use);
             }
         }
 
+        // **ESCAPE ALWAYS PAUSES, whatever PAUSE is bound to**, and that is a safety rail rather than
+        // an oversight. Pause is the only verb whose loss cannot be recovered from inside the game:
+        // every other one just stops working, but a player who cannot open the menu cannot get back
+        // to the page that would fix it. So the binding is honoured *in addition to* Escape, never
+        // instead of it - and `InputBindings.Listenable` correspondingly refuses to bind Escape onto
+        // anything else, so the rail can never be the key some other verb is sitting on.
         public static bool PausePressed
         {
             get
             {
                 Pump();
                 if (TouchActive && touch.PausePressed) return true;
-                return Input.GetKeyDown(KeyCode.Escape);
+                return Pressed(GameAction.Pause) || Input.GetKeyDown(KeyCode.Escape);
+            }
+        }
+
+        // THE LOOP'S OWN CONTROL, held rather than pressed - `EndCycleControl` charges while it is
+        // down. It is here for the reason everything else is: it was the last verb still naming its
+        // own key, on a serialised field that the bindings page had no way to reach.
+        public static bool EndIterationHeld
+        {
+            get
+            {
+                Pump();
+                return Held(GameAction.EndIteration);
             }
         }
 

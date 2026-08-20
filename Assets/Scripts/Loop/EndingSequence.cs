@@ -29,6 +29,9 @@ namespace IterationRoom
     {
         public CanvasGroup scrimGroup;
         public CanvasGroup cardGroup;
+        // The prompt's own group, so it can arrive after the card without the card's own fade
+        // touching it.
+        public CanvasGroup promptGroup;
         public Text headline;
         public Text detail;
         // Beneath `detail`. Added 2026-08-13, by request: the run's own clock total, folded across
@@ -44,6 +47,11 @@ namespace IterationRoom
         // One multi-line Text rather than a row per cycle, because the count is not known until the
         // run ends and building rects at that point would be laying out UI inside the ending.
         public Text breakdown;
+
+        // "CLICK TO CONTINUE", under the card. It arrives AFTER `cardHold` rather than with the card:
+        // the numbers are the last thing the run has to say and they get their moment before anything
+        // asks the player to move on.
+        public Text prompt;
 
         public float scrimFade = 2.4f;
         // A beat of pure black between the room going and the card arriving. Without it the two
@@ -87,86 +95,36 @@ namespace IterationRoom
             if (timeDetail != null)
                 timeDetail.text = several || records == null || records.Count == 0
                     ? string.Empty
-                    : $"TOTAL TIME {FormatTime(records[0].Seconds)}";
+                    : $"TOTAL TIME {RunReport.FormatTime(records[0].Seconds)}";
 
-            // SEVERAL: what each one cost, and the sum under a rule.
-            if (breakdown != null) breakdown.text = several ? Breakdown(records) : string.Empty;
+            // SEVERAL: what each one cost, and the sum under a rule. Formatted by `RunReport`, which
+            // the title screen's RECORD page reads from as well - two screens saying the same thing
+            // out of two copies of the padding is two copies that drift.
+            if (breakdown != null) breakdown.text = several ? RunReport.Table(records) : string.Empty;
 
             yield return Fade(scrimGroup, 1f, scrimFade);
             yield return Wait(blackHold);
             yield return Fade(cardGroup, 1f, cardFade);
             yield return Wait(cardHold);
 
-            // Straight back to the title. Deliberately automatic rather than waiting on a key: the
-            // player has finished, and a prompt would ask them to do one more thing in a game that
-            // has just stopped asking. The menu unlocks the cursor itself in Start.
-            SceneManager.LoadScene(menuScene);
-        }
-
-        // THE TABLE. Padded rather than laid out, because the typeface is monospaced and a space is
-        // exactly one cell - the same fact `Space` above rests on.
-        //
-        // The total is the SUM OF THE PARTS, not a clock read at the end of the run. Those are not
-        // the same number and the difference is not rounding: everything between cycles - the gas,
-        // the collapse, the walk to the hatch, the wake-up - happens with the iteration clock
-        // stopped, so a wall-clock total would include minutes the player was not being timed for.
-        // What is added up here is what each cycle was actually charged.
-        private static string Breakdown(System.Collections.Generic.IReadOnlyList<CycleRecord> records)
-        {
-            var lines = new System.Text.StringBuilder();
-            int iterations = 0;
-            float seconds = 0f;
-
-            foreach (CycleRecord record in records)
+            // **AND THEN IT WAITS, 2026-08-20, by request.** This used to load the title screen on a
+            // timer, on the reasoning that "a prompt would ask the player to do one more thing in a
+            // game that has just stopped asking". That was right when the card carried one number.
+            // It carries a TABLE now - every cycle, its iterations and its clock, and the total - and
+            // a table that takes itself away after six and a half seconds is a table nobody finishes
+            // reading. The run is over; the player can leave it up as long as they like.
+            if (prompt != null)
             {
-                iterations += record.Iterations;
-                seconds += record.Seconds;
-                lines.AppendLine(Row($"CYCLE {record.Cycle}", record.Iterations, record.Seconds));
+                prompt.text = "CLICK TO CONTINUE";
+                yield return Fade(promptGroup, 1f, 0.8f);
             }
 
-            // A blank line for the rule a monospace face cannot draw.
-            lines.AppendLine();
-            lines.Append(Row("TOTAL", iterations, seconds));
-            return lines.ToString();
-        }
+            // ANY click or key. Unscaled and polled rather than driven by an input event, like
+            // everything else in this coroutine - see the note at the top of the class.
+            while (!Input.anyKeyDown) yield return null;
 
-        // `CYCLE 1` is seven cells, so everything else is padded to it and the three columns line up
-        // whatever the numbers are. Iterations right-aligned in three, which covers a run nobody will
-        // ever have; the clock is right-aligned in ten, which fits `59:59.999` with a cell to spare.
-        private static string Row(string label, int iterations, float seconds) =>
-            $"{label,-7}  {iterations,3} ITERATIONS  {FormatTime(seconds),10}";
-
-        // `M:SS.mmm` since 2026-08-20, by request - the run's clock to the millisecond.
-        //
-        // FLOOR THE WHOLE SECONDS, ROUND THE MILLISECONDS, CLAMP THE CARRY. Three different rules for
-        // three different reasons, and each of the other combinations is wrong:
-        //   - flooring the seconds is the rule this had before and keeps: 14:59.9 read as 15:00 claims
-        //     a minute the run did not spend;
-        //   - flooring the milliseconds TOO is systematically a millisecond low, because a float never
-        //     holds the value it was written as - 287.416 is stored as 287.41598, and truncating that
-        //     prints `.415` for every run;
-        //   - rounding them without a clamp can produce 1000, which prints as `59.1000`.
-        // Clamped, the only case that is not nearest-millisecond is the top of a second, where it
-        // floors - which is exactly where flooring was wanted in the first place.
-        //
-        // WHAT THE THIRD DECIMAL IS WORTH. It is the clock the GAME actually ran on, reported at full
-        // resolution rather than a more precise measurement taken alongside: `ElapsedTime` is a float
-        // summing `Time.deltaTime` frame by frame, so over a ten-minute run the accumulated rounding
-        // is on the order of a millisecond or two. The digit is real and it is not a stopwatch.
-        //
-        // The fraction is taken as `seconds - total` rather than `seconds * 1000f` deliberately -
-        // multiplying first does the arithmetic up at 600,000, where a float's own step is already
-        // 0.07ms, and throws away precision this is trying to show.
-        //
-        // Negative-proofed only because the source is a float that has been through several thousand
-        // additions; it should never actually go below zero.
-        private static string FormatTime(float seconds)
-        {
-            int total = Mathf.Max(0, Mathf.FloorToInt(seconds));
-            int minutes = total / 60;
-            int secs = total % 60;
-            int ms = Mathf.Clamp(Mathf.RoundToInt((seconds - total) * 1000f), 0, 999);
-            return $"{minutes}:{secs:00}.{ms:000}";
+            // The menu unlocks the cursor itself in Start.
+            SceneManager.LoadScene(menuScene);
         }
 
         private static string Space(string text)
