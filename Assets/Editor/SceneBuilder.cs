@@ -1422,10 +1422,44 @@ namespace IterationRoom.EditorTools
                 const float standoff = 9.85f;                         // camera to wall
                 // Wider than the flat shot's 40 because the frame now has to reach the side walls, and
                 // still narrower than the player's 60 - a 60 here bows the grid at the corners.
-                const float shotFov = 50f;
-                // Eye height, near enough the player's own: the horizon lands on the vanishing point
-                // and the floor takes the bottom third, which is what stops it reading as a floor plan.
-                const float eyeY = 1.75f;
+                // **COMPOSED FOR THE OVERSCANNED VIEW, NOT THE RAW ONE.** `MenuBackdrop` draws this
+                // image 8% past every edge so it has room to drift, which magnifies it by 1.16 and
+                // crops that 8% off - so the picture a player actually sees is TIGHTER than the file.
+                // Play caught it as "the composition was good until it started moving".
+                //
+                // The magnification cannot be removed; an image can only be slid inside a window if it
+                // is bigger than the window. So the capture is widened by the same factor instead:
+                // 36 degrees is the framing that was wanted, tan(18) x 1.16 is what has to be captured
+                // to still see 36 of it after the crop, and that is 41.3.
+                const float shotFov = 41.3f;
+                // **THE CEILING IS FRAMED OUT ENTIRELY, and that is the fix rather than a compromise.**
+                //
+                // It is the darkest surface in the building by a wide margin - it faces away from every
+                // downlight and is lit by ambient alone - so in a shot that included it, it read as a
+                // hole in the roof rather than as a surface. Lighting it was tried and reverted: an
+                // emissive ceiling fixes the picture and makes the ROOM wrong, and the room is not the
+                // menu's to change.
+                //
+                // A surface that is not in the frame cannot be the wrong colour. What is left is what
+                // the downlights actually hit - the floor at (235,253,255) and the walls - which is
+                // also what the player looks at in play, so the menu and the game agree.
+                //
+                // A LEVEL CAMERA IS NON-NEGOTIABLE - pitching down would put more floor in frame and
+                // take the square grid with it, because the far wall only projects without convergence
+                // while it is parallel to the image plane. So the ceiling has to be excluded by HEIGHT
+                // and LENS together, and the two trade against each other: the top of the frame lands
+                // at `eyeY + standoff * tan(fov/2)`, which has to stay under the 5.41m wall.
+                //
+                // 2.00m and 41.3 degrees puts the top of the CAPTURE at 5.71m, which is 0.30m above
+                // the wall - so the file does contain a sliver of ceiling, in its top 4.1%. That is
+                // deliberate and it is safe: `MenuBackdrop` slides this image within an 8% margin and
+                // only ever spends `verticalRatio` (0.22) of the vertical one, so the top 6.2% of the
+                // file is cropped away no matter where the drift is. 4.1 sits inside 6.2 with room to
+                // spare, and what the player sees is the 36-degree framing with no ceiling in it.
+                //
+                // **The two numbers are coupled**: widen the lens or raise the camera and more ceiling
+                // enters the file; raise `MenuBackdrop.verticalRatio` and less of the top is hidden.
+                const float eyeY = 2.0f;
 
                 Vector3 eye = new Vector3(0f, eyeY, wallZ - standoff);
                 shotCam.fieldOfView = shotFov;

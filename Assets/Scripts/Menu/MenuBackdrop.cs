@@ -31,6 +31,13 @@ namespace IterationRoom
 
         // A second, much slower vertical drift at a fraction of the horizontal one. Pure sideways
         // motion reads as a slide; a little Y makes it read as a camera breathing.
+        //
+        // Kept at 0.22, and it is not free: the vertical travel is what decides how much of the top
+        // of the image is guaranteed never to reach the screen, and the menu capture hides the room's
+        // ceiling up there. At this ratio the top `overscan * (1 - verticalRatio)` = 6.2% is always
+        // cropped, against the 4.1% of ceiling the capture contains. **Raising this eats that margin**
+        // - past about 0.48 the ceiling starts appearing at the top of the drift. See SceneBuilder's
+        // menu framing for where the 4.1% comes from.
         public float verticalRatio = 0.22f;
         public float verticalPeriod = 67f;
 

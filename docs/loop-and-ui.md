@@ -319,6 +319,33 @@ else is Medium.
 needs the opposite. What it is really doing is calming the grid — a wash of the room's own white
 flattens it to a whisper under the words and leaves it at full strength on the right.
 
+### The background is composed for the OVERSCANNED view (2026-08-20)
+
+`MenuBackdrop` draws the image 8% past every edge so it has room to drift, which magnifies it by 1.16
+and crops that 8% away. **The picture a player sees is therefore tighter than the file**, and play
+caught it exactly that way: "the composition was good until it started moving."
+
+**The magnification cannot be removed.** An image can only be slid inside a window if it is bigger
+than the window. So the capture is widened by the same factor instead — 36 degrees is the framing
+that was wanted, and `tan(18) x 1.16` is what has to be captured to still see 36 of it after the crop,
+which is 41.3.
+
+**The vertical drift is off** (`verticalRatio` 0, by request — the drift is sideways only), and that
+buys the framing the one thing it needs. With no vertical travel the top 8% of the image is never
+shown at all rather than merely mostly, and the widened capture puts the room's ceiling in its top
+4.1% — inside the band that is always cropped away.
+
+**The ceiling is framed out rather than lit.** Giving it its own emissive material was tried on
+2026-08-20 and reverted the same day: it fixed the picture and made the ROOM wrong, and the room is
+not the menu's to change. It is the darkest surface in the building - it faces away from every
+downlight and is lit by ambient alone - so a shot that includes it reads as a hole in the roof. A
+surface that is not in the frame cannot be the wrong colour.
+
+**A level camera is non-negotiable.** Pitching down would put more floor in frame and take the square
+grid with it, because the far wall only projects without convergence while it is parallel to the image
+plane. So the ceiling has to be excluded by HEIGHT and LENS together, and the two trade against each
+other: the top of the frame lands at `eyeY + standoff * tan(fov/2)`.
+
 **The pause menu was deliberately left alone.** It shares `MakeMenuButton` but sits over a 0.72 black
 scrim, where charcoal would be invisible — so `ink` is optional and null keeps the red-on-dark it was
 built with, which is also the pairing the in-game HUD uses. Same for `MakeRowLabel`.
