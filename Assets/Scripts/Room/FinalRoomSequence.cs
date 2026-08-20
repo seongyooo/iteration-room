@@ -62,6 +62,17 @@ namespace IterationRoom
         // when its console is full, and what happens next is the loop's business.
         public CycleExit wayOut;
 
+        // WHETHER THE BREAK ITSELF OPENS IT. Cycle 1 says no: `LoopManager.CrossToNextCycle` opens
+        // that hatch by hand, well after the break, because the cycle below has to be woken and its
+        // gas repointed first - and the player must not be able to drop into a storey that is still
+        // asleep.
+        //
+        // ROOM2-0 SAYS YES, because there is no cycle 3 yet. Nothing wakes, nothing follows, and the
+        // last thing the room does is show the way down - which is the whole of what a cycle ending
+        // means with nothing built on the other side of it. When cycle 3 exists this goes back to
+        // false and the hatch is the boundary's business again, exactly like cycle 1's.
+        public bool opensWayOutOnBreak;
+
         // Press to scrim. A floor rather than a pause: the door takes a second to seal and the
         // panels take `glitchOnset` to fail across the building, and at the 3.4s this was first
         // built with, all of it was still arriving when the screen went black. The room has to be
@@ -139,6 +150,11 @@ namespace IterationRoom
             narration?.AnnounceCycleBroken();
 
             wallPanels?.BeginGlitch(console != null ? console.transform.position : transform.position);
+
+            // And the floor, on the cycles that have nothing after them to wait for. See
+            // `opensWayOutOnBreak` - `CycleExit.Open` is idempotent, so a cycle that sets this AND
+            // gets opened again by the boundary is not a case anyone has to reason about.
+            if (opensWayOutOnBreak) wayOut?.Open();
         }
 
         // What happens once all three are in, PACED FOR THE END OF THE GAME. Driven by LoopManager,

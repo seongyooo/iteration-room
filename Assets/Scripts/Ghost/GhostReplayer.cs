@@ -557,8 +557,12 @@ namespace IterationRoom
             // ghost from anywhere in the building - see takeReach. A ghost that cannot reach what it
             // once took simply does not take it, which is the same outcome it already gets when the
             // named object is in the player's hands.
-            if (takeReach > 0f
-             && (item.transform.position - transform.position).sqrMagnitude > takeReach * takeReach)
+            // ...unless the object names its own, which only the two floating props do. See
+            // `CarryableItem.ghostTakeReach`: a thing that drifts on its own must not have its own
+            // drift decide whether a past self's errand happens.
+            float reach = item.ghostTakeReach > 0f ? item.ghostTakeReach : takeReach;
+            if (reach > 0f
+             && (item.transform.position - transform.position).sqrMagnitude > reach * reach)
                 return;
 
             // Taking it out of another past self's hands rather than out of the world - true when

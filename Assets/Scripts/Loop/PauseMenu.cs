@@ -21,6 +21,11 @@ namespace IterationRoom
 
         public CanvasGroup group;
         public Button resumeButton;
+
+        // THIS CYCLE FROM ITERATION 1, with every past self gone. Here rather than on a control in
+        // the world because it is a thing done to the GAME rather than in it - see
+        // `LoopManager.RequestCycleRestart` for what makes it necessary at all.
+        public Button restartButton;
         public Button menuButton;
         public Button quitButton;
 
@@ -39,6 +44,7 @@ namespace IterationRoom
         private void Awake()
         {
             if (resumeButton != null) resumeButton.onClick.AddListener(Resume);
+            if (restartButton != null) restartButton.onClick.AddListener(RestartCycle);
             if (menuButton != null) menuButton.onClick.AddListener(ToMainMenu);
             if (quitButton != null) quitButton.onClick.AddListener(Quit);
 
@@ -137,6 +143,20 @@ namespace IterationRoom
 
             Apply(false);
             if (playerController != null) playerController.ControlEnabled = controlBeforePause;
+        }
+
+        // UNPAUSED FIRST, THEN ASKED. The loop has to be running to hear this: the iteration
+        // coroutine spins on `yield return null` while frozen, and everything the restart then drives
+        // - the blink, the reset, the wake-up - is on scaled time and would stand still at zero.
+        public void RestartCycle()
+        {
+            LoopManager loop = LoopManager.Instance;
+            if (loop == null) return;
+
+            Resume();
+            // Refused by the loop when there is no iteration to interrupt, which is the honest place
+            // for that test - this menu does not know what state the run is in.
+            loop.RequestCycleRestart();
         }
 
         public void ToMainMenu()

@@ -69,7 +69,16 @@ namespace IterationRoom
 
                 // The console's way out, matched by position. Left alone when nothing is supplied, so
                 // the last cycle keeps the null that is what MAKES it the last cycle.
-                if (wayOuts != null && i < wayOuts.Length && cycles[i] != null && cycles[i].finalRoom != null)
+                //
+                // A NULL ENTRY LEAVES WHATEVER IS ALREADY THERE, which is what the line above has
+                // always claimed and did not do. It mattered the moment cycle 2 grew a way out of its
+                // own: that hatch lives INSIDE room2-0 rather than on a seam between two storeys, so
+                // its `finalRoom.wayOut` is an ordinary reference within one scene - and a `wayOuts`
+                // array that arrives here with a null in that slot (because the entry it names is in
+                // another scene and Unity dropped it) would overwrite a correct reference with
+                // nothing. Assigning only what is actually supplied cannot do that.
+                if (wayOuts != null && i < wayOuts.Length && wayOuts[i] != null
+                    && cycles[i] != null && cycles[i].finalRoom != null)
                     cycles[i].finalRoom.wayOut = wayOuts[i];
             }
 
@@ -94,6 +103,16 @@ namespace IterationRoom
             {
                 final.cameraShaker = cameraShaker;
                 final.narration = narration;
+
+                // AND THE RECESSES POINT BACK AT IT. Strictly an intra-scene reference, so
+                // `SceneBuilder` wiring it is enough and this writes the same value over the top -
+                // which is this class's whole job (see the header). It is here because room2-0
+                // shipped with all four null and the symptom was a console that silently refused
+                // every press: `FinalSlot.Live` is false without it, so nothing prompts and nothing
+                // acts. A room that cannot be finished is not a thing to leave to one call site.
+                if (final.slots == null) continue;
+                foreach (FinalSlot slot in final.slots)
+                    if (slot != null) slot.sequence = final;
             }
 
             // The wall signs. Both of their references point out of the room they hang in - the PA

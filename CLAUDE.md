@@ -41,6 +41,27 @@ have already finished and carrying them to the console. **The clock runs through
 it ends nothing, and a run that gets there with two objects is pulled back to the bed like any
 other. There is no button anywhere in the game that ends it.
 
+**CYCLE 2 HAS BEEN CLEARED END TO END: ITERATION 22, 10:04, 2026-08-20** - the first time the second
+cycle has been finishable at all. Four billiard balls into four pedestals, the ERROR, and the floor
+opening. What it settles and what it does not:
+
+- **The whole chain works in a human's hands.** The chest, the nine balls, the four pedestals, the
+  refusal on a wrong ball, the break and the hatch. Everything in `docs/puzzle-design.md` that was
+  marked "verified in code, not played" now has a clear behind it.
+- **The per-iteration pace is IDENTICAL to cycle 1's** - 27.5 seconds an iteration against cycle 1's
+  28.7. What differs is the COUNT, not the tempo: `EndCycleControl` is being used just as hard, and 60
+  seconds is still not the binding constraint anywhere in the building.
+- **So cycle 2 is about twice cycle 1** - 22 against ~10 - and the whole game is now roughly 32
+  iterations and a quarter of an hour.
+- **IT IS A KNOWS-EVERYTHING RUN, and must be quoted as one.** It was played by the person who
+  designed it: the four counts, the 26.7kg target, six valve turns and twenty chops were all known
+  going in, and none of the time is puzzle-solving. Cycle 1's comparable figure is its THIRD clear
+  (10), not its first (14). A blind player will need considerably more.
+- **What it does NOT answer**: whether 22 iterations is enjoyable or a slog, whether a player who has
+  not counted anything can find the four counts, and how many of the 22 were lost to the drawer
+  parity (see `docs/gotchas.md` - the chest's bays toggle, so a ghost's ball take fails on even
+  numbers of past-self pulls).
+
 **PLAYED THROUGH TO THE THREE-OBJECT ESCAPE ON THE ONE-OBJECT DESIGN. Three clears, 2026-08-14, all
 on one build: 14 iterations in 8:29, then 12 in 7:30, then ITERATION 10 in 4:47.** The build is the
 game as it now is: Tab and the pocket gone, one object in the hand, E to put down, held objects at
@@ -211,7 +232,7 @@ so press-type interactables stretch their pulse and act on the rising edge.
 An interactable's index **is** its bit in `RecordedFrame.signals`. `PlayerRecorder.interactables` and
 `GhostReplayer` must be the same array in the same order; `SceneBuilder` builds one and hands it to
 both. `signals` is a `uint`, so **32 interactables is a hard cap** — **per cycle**, since the boundary
-destroys every ghost (cycle 1 uses 4, cycle 2 uses 12).
+destroys every ghost (cycle 1 uses 4, cycle 2 uses 15).
 
 **Overflowing it is silent** — `PlayerRecorder.SampleSignals` clamps to the mask width and drops the
 rest, so the 33rd fixture simply never records and the room it is in looks fine. Both ends now say so
@@ -273,7 +294,7 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `BucketStand` | The spot under a tap that catches the water, and the socket a ghost places into |
 | `PourPoint` | Where a pour is RECORDED. A signal, because pouring hands nothing over |
 | `RewardPlinth` | A plinth that rises carrying an escape object, on its room's own condition |
-| `FinalRoomSequence` | Room4: the console, the three-object exit condition, and the break |
+| `FinalRoomSequence` | A cycle's `-0`: its console, its exit condition, and the break. Room4 and room2-0 |
 | `Cycle` | One cycle's world: its bed, doors, rooms, signal array, panels — and **which particle systems are its gas**. Anything per-cycle a system outside needs is NAMED here, never gathered by type at runtime |
 
 **Values live in `SceneBuilder`, mechanisms live in components.** Shaders and scripts take the

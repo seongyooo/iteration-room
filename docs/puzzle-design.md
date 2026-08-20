@@ -584,3 +584,170 @@ the pool is wide, its rigidbody goes kinematic and the ordinary carryable machin
 including `FallingItem`, so its drop is scripted and lands in the same place every iteration. That is
 what the scale needs of it, and it is the no-physics rule (CLAUDE.md §4) being kept rather than bent.
 
+---
+
+## Room2-0: four pedestals, and counting what you already walked past (2026-08-20)
+
+The last room of cycle 2, and the one that breaks it. It is the `room2-8` slot in the walk - the
+naming rule is that a cycle always ends in its `-0` (`cycle-design.md` §4a), so the code name is
+`Room2_0` and the room2-8 shell it replaced is gone.
+
+**Four pedestals rise as the player comes through the last door.** Each has a round recess in the top
+and one object drawn on the side facing them: an axe, a rubber duck, a bucket, a beach ball. What goes
+in the recess is the billiard ball whose NUMBER is how many of that object cycle 2 contains -
+
+| pedestal | count | ball |
+|---|---|---|
+| beach ball | 2 on the pool | 2 |
+| rubber duck | 3 on the pool | 3 |
+| bucket | 4 in room2-2 | 4 |
+| axe | 5 in the tree hall | 5 |
+
+All four right and the cycle breaks: the way back seals, the PA says so, every panel in cycle 2 fails
+to a test card, and the floor opens in the middle of the room.
+
+### Why the answer is a count and not a clue
+
+**Nothing in the building says any of these numbers, and nothing can.** It is the player's own memory
+of four rooms they have already crossed - which is the one kind of key a time loop can ask for that a
+past self cannot fetch for them. Every other lock in this game can be opened by a ghost repeating an
+errand; this one needs somebody to have been paying attention.
+
+The row reads **5, 3, 4, 2 left to right**, deliberately. A row that read 2, 3, 4, 5 would be solvable
+by noticing that it counts.
+
+### Nine balls, in the chest of drawers
+
+The chest in room2-1 was built on 2026-08-15 with two opening bays and **nothing in them**, on the
+argument that "what goes in a drawer belongs to a puzzle that has not been designed, and the point of
+building the container now is to have somewhere for that to go". This is that puzzle. Both bays were
+wired as `GhostInteractable`s from that first build for exactly this day, because appending a signal
+bit later is the one thing `RecordedFrame.signals` makes awkward (CLAUDE.md §1.6).
+
+**Nine balls: 1-8 and the cue.** The four the puzzle wants are 2, 3, 4 and 5, so the decoys have to
+reach past 5 or the answer is "the ones that are in the drawer". 1, 6, 7, 8 and the cue do that.
+Sixteen would also be sixteen more E fixtures a square apart inside a volume the two drawer fronts
+already contest.
+
+**One id each**, which is the opposite of every other multiple object in this building. Pins, buckets,
+ducks and beach balls are SUPPLIES - an id naming several interchangeable things - because a recorded
+"took a Tool" only ever meant "a free one". Here *which one* is the entire question, so there are nine
+ids with one member each, and a pedestal's socket can never be handed a different ball than the one it
+names.
+
+**They weigh nothing on room2-7's scale, and that is deliberate rather than forgotten.** The 26.7kg
+target has exactly one solution across everything cycle 2 can carry - one duck, one beach ball, one
+full bucket, one axe, one cube - with the nearest miss 0.1kg away. A ball worth anything at all
+destroys that: at a real 0.17kg an exhaustive search finds **49** ways to make the number, and 0.16 or
+0.20 are no better, because nine small addends fill every gap the coarse weights leave. The scale's own
+sign already names the five things it accepts, so a ball reading zero is what that sign says rather
+than a lie it tells.
+
+### A wrong ball is refused, not kept - and that is a ghost decision
+
+`FinalSlot` gained a **family** (`offerItemIds`) for this room. Before it, a recess prompted only when
+the object that fits it was in hand - so the rim lighting up WAS the answer, readable by walking the
+row holding each ball in turn, without ever pressing anything or reading a pictogram. Now the prompt
+appears for any billiard ball, the press either lands or flashes red, and a wrong guess costs the walk
+back to the drawer. Counting the axes is cheaper than guessing, which is the whole design.
+
+**The pedestal refuses a wrong ball rather than keeping it**, and the reason is ghosts. A wrong ball
+that STAYED would be re-delivered by that iteration's past self for the rest of the run, blocking a
+pedestal the living player then has to clear by hand every sixty seconds - the exact "the puzzle is
+blocked by an old ghost" failure. Refused, the wrong delivery simply fails again each iteration and
+costs nothing; and a refusal is not a `CarryEvent`, so no ghost ever replays a guess in the first
+place.
+
+### How the room is actually finished
+
+The player carries **one object at a time**, so four balls is four trips down the whole length of the
+building - and room2-7's scale re-locks every iteration, so each trip needs the five weights on the
+scale first. That is the loop working as designed: past selves load the scale and deliver the balls
+they delivered, and the living player adds one more thing.
+
+**Past selves can raise the pedestals themselves.** `EscapeTrigger.TryArm` is called by
+`GhostReplayer.Tick` as well as by the living player, which is what stops a ghost's recorded delivery
+from needing the living player to independently reach this room first in the same iteration. Cycle 1's
+console needed that fix for the same reason.
+
+### Cleared: iteration 22, 10:04 (2026-08-20)
+
+The first end-to-end clear of cycle 2, on the build with the hemispherical dishes and the neutral
+rims. Everything above worked: the chest, the nine balls, the four pedestals, the refusal on a wrong
+ball, the ERROR and the floor opening.
+
+**27.5 seconds an iteration**, against cycle 1's practised 28.7. The tempo is the same and the COUNT is
+what differs, which says the extra length is errands rather than walking - the loop working as
+designed rather than a room being slow.
+
+**Why 22 and not 9.** The obvious floor is the deliveries: five objects onto the scale and four balls
+into the pedestals. But room2-7's scale **re-locks every iteration** - `ItemRegistry.ReturnAllToOrigin`
+sweeps all five objects home at the top of each one - so every single trip to room2-0 carries a
+standing cost of five past selves re-loading the scale before the door will open. Those five are not
+paid once; they are paid for the rest of the run. That, plus four light switches, two taps on one
+tank, twenty chops and six valve turns, is where the other thirteen go.
+
+**It is a knows-everything run.** Played by the person who designed the room, with the four counts,
+the 26.7kg target, the six turns and the twenty chops all known going in - so none of the time is
+puzzle-solving, and 22 is close to a floor rather than a first-play figure. Cycle 1's comparable
+number is its third clear (10), not its first (14).
+
+**Still unanswered**: whether 22 iterations is enjoyable or a slog, whether the pictograms read as
+*how many of these are there* rather than *bring one of these* to somebody who was not told, and how
+many of the 22 were spent on iterations where the chest happened to be toggled shut.
+
+### All four rims are the same colour (2026-08-20, after the first play)
+
+The first build gave each pedestal an accent of its own and play reported the obvious thing: the rim
+colour and the ball that goes in it disagree. Billiard balls are a standard set - **2 blue, 3 red, 4
+purple, 5 orange** - so there are only two ways to stop them disagreeing, and matching them is the one
+that costs the puzzle. A purple rim over a purple ball turns *how many buckets are there* into *find
+the purple one*, and the pictogram on the side becomes decoration.
+
+So the rims are **identical and neutral**. Every one of them lights the same way for every ball,
+because `offerItemIds` is the whole family - the row answers a press and never a question, and the
+only thing in the room that tells one pedestal from another is the object drawn on it.
+
+### The recess is a hemisphere cut to the ball (2026-08-20, after the first play)
+
+It was a flat disc - the same faked well cycle 1's console uses, where "what reads as depth is the
+pair: a rim standing 12mm proud and a near-black floor 4mm above it". That is enough when the recess's
+job is to say *a square/round/triangular thing goes here* and the three differ from each other. It is
+not enough here, where all four recesses take the same kind of object and the room has to say **a
+billiard ball goes in this** to a player who has never seen a ball go into anything.
+
+So it is a real cavity: a hemisphere cut to the ball's own radius plus 5mm, with the ball seated at
+the bowl's centre so it sits exactly half in. A bowl a ball drops half into is a shape that can be for
+nothing else.
+
+That needs geometry rather than a trick, because a cavity means material taken OUT of the thing above
+it and there is no CSG here. `SlotShape.Dish` generates one mesh - the pedestal's top plate, the
+circular hole in it, and the bowl hanging under the hole - and the pedestal's body is built short by
+the cap's thickness so the cap IS the top of it. The lit ring round the mouth is a separate annulus,
+because `FinalSlot` paints one renderer to say idle/ready/filled/refused and painting the whole cap
+would light a dark inset the size of the pedestal top; the mark has to be at the hole, which is what
+the player is aiming at.
+
+**Every face is double-sided.** A hand-derived triangle winding is the one kind of mistake in
+`SceneBuilder` that cannot be checked without rendering it, and here it costs nothing: of any
+coincident pair exactly one is front-facing from any camera, so the other is culled rather than
+fighting, and every back face is sealed inside the cap and the body under it.
+
+### The floor opens onto a shaft that is capped
+
+Cycle 1's way out drops through the floor of one storey into the ceiling of the next. There is nothing
+under room2-0, so cycle 2's is **one lid, and the shaft under it has a bottom**. That is the honest
+shape of "cycle 3 does not exist yet": the way down is built and not yet connected, and uncapped it
+would be a hole into nothing that a player in a broken room can walk out of the world through.
+
+It is also opened by the BREAK rather than by the boundary
+(`FinalRoomSequence.opensWayOutOnBreak`). Cycle 1's is opened by `LoopManager.CrossToNextCycle`, well
+after the break, because the storey below has to be woken and its gas repointed first. Nothing has to
+wake here. When cycle 3 is built, three things change back: the flag goes to false, the cap comes out,
+and the shaft lengthens to `ServiceVoid`.
+
+**What cycle 2 completing currently does**: `LoopManager` has no cycle after it, so it runs
+`RunEnding` - the break, ten seconds of the room failing with the hatch open, and then the game's
+ending scrim. That is the truthful state of the build rather than a placeholder: cycle 2 is the last
+cycle there is.
+

@@ -80,7 +80,7 @@ namespace IterationRoom
             glideTop = p.y;
             // The glide's floor is the same one the fall is aiming at, or the horizontal arc finishes
             // somewhere the object never reaches.
-            glideBottom = item != null ? SurfaceUnder() : 0f;
+            glideBottom = item != null ? SurfaceUnder(transform.position) : 0f;
             gliding = glideTop > glideBottom + 0.01f;
 
             if (gliding) transform.rotation = spinFrom;
@@ -104,7 +104,7 @@ namespace IterationRoom
             // ONLY EVER DOWN. A support put back underneath does not lift this off the floor again -
             // that would be an object climbing, and the only thing entitled to rebuild a tower is
             // the loop's own rewind, which sets the position outright.
-            float target = Supported ? stackedY : SurfaceUnder();
+            float target = Supported ? stackedY : SurfaceUnder(transform.position);
             Vector3 p = transform.position;
             // A target of negative infinity is "there is nothing under this" - see SurfaceUnder. The
             // comparison below would be false forever, which is exactly right, but say it out loud so
@@ -153,9 +153,13 @@ namespace IterationRoom
         // STILL DETERMINISTIC, which is the whole reason a fall is scripted at all (see the note at
         // the top): a raycast against the room is a question about geometry, not a simulation, and it
         // answers the same for a ghost's release as for the player's.
-        private float SurfaceUnder()
+        // PUBLIC AND POSITIONAL, since 2026-08-20. It used to ask only about where the object
+        // already is, which is every question this class has - but `CarryableItem.DropAt` needs the
+        // same answer about a point the object has not been moved to yet, and there is no second
+        // right way to ask "what is under here". See the clamp in `DropAt`.
+        public float SurfaceUnder(Vector3 at)
         {
-            Vector3 from = transform.position + Vector3.up * 0.05f;
+            Vector3 from = at + Vector3.up * 0.05f;
             int count = Physics.RaycastNonAlloc(from, Vector3.down, floorHits, floorProbe, ~0,
                                                 QueryTriggerInteraction.Ignore);
 

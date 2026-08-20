@@ -4,6 +4,30 @@ using UnityEngine;
 
 namespace IterationRoom
 {
+    // ONE CYCLE'S BILL: which cycle it was, how many iterations it took, and how long they lasted.
+    //
+    // Taken at the moment the cycle breaks, because that is the only moment the numbers exist -
+    // `LoopManager.EndCycleState` zeroes the iteration count and the clock behind the shut eyelids
+    // so the next cycle starts from nothing, and a run with three cycles in it would otherwise be
+    // able to report only the last one.
+    //
+    // A readonly struct rather than a class: it is three numbers that never change once written, and
+    // the list of them is the whole of a run's history.
+    public readonly struct CycleRecord
+    {
+        // 1-based, and the same number the HUD shows - see LoopManager.CycleNumber.
+        public readonly int Cycle;
+        public readonly int Iterations;
+        public readonly float Seconds;
+
+        public CycleRecord(int cycle, int iterations, float seconds)
+        {
+            Cycle = cycle;
+            Iterations = iterations;
+            Seconds = seconds;
+        }
+    }
+
     // Drives the 60-second loop: shows the "Iteration N" label, resets the player to bed on timeout,
     // and turns the just-finished recording into a new accumulating ghost.
     //
@@ -82,6 +106,29 @@ namespace IterationRoom
 
         public float ElapsedTime { get; private set; }
         public int IterationNumber { get; private set; }
+
+        // WHAT EACH CYCLE COST, one entry per cycle the player has broken, in the order they broke
+        // them. Written once per cycle and never rewritten - a run's history rather than its state.
+        //
+        // It exists because the ending had one number for a game that now has several cycles in it:
+        // "TOTAL TIME 10:04" after a run that spent 4:47 in cycle 1 and 10:04 in cycle 2 is not a
+        // total of anything, it is the last cycle's clock wearing the word TOTAL. See EndingSequence.
+        private readonly System.Collections.Generic.List<CycleRecord> cycleRecords =
+            new System.Collections.Generic.List<CycleRecord>();
+
+        public System.Collections.Generic.IReadOnlyList<CycleRecord> CycleRecords => cycleRecords;
+
+        // THE PLAYER ASKING FOR THIS CYCLE BACK FROM NOTHING. Set by the pause menu, read once by the
+        // iteration loop, and cleared the moment it is acted on.
+        //
+        // WHY IT EXISTS. A cycle is its ghosts, and a ghost cannot be undone - "you can only add,
+        // never take away" is the whole premise of the loop, and it is also the one way this game can
+        // be made unwinnable: a past self that takes an object and fumbles it holds that object for
+        // the rest of the run, and a wrong delivery a ghost repeats every sixty seconds is a room
+        // that will not open again. There is no move inside the fiction that repairs that. This is
+        // the outside-the-fiction answer, and it lives in the pause menu with QUIT rather than on a
+        // control in the world, so it reads as a thing you do to the GAME rather than in it.
+        private bool restartRequested;
 
         // 1-based, and it does NOT reset. The iteration count starts again at every bed; this is what
         // says which bed. Read by the HUD, which puts it on its own line above the iteration.
@@ -270,6 +317,12 @@ namespace IterationRoom
             {
                 CycleNumber++;
 
+                // WHERE THE RUN GOT TO, written the moment a cycle begins rather than when it ends -
+                // a player who closes the window halfway through cycle 2 has reached cycle 2, and
+                // CONTINUE should say so. See GameSettings.SavedCycle for why it is a cycle and not
+                // a moment.
+                GameSettings.SavedCycle = CycleNumber;
+
                 // The recorder samples THIS cycle's interactables. Assigned here rather than wired
                 // once, because an entry's index is its bit in RecordedFrame.signals and each cycle
                 // numbers its own from zero - the boundary teardown is what makes that safe.
@@ -370,7 +423,8 @@ namespace IterationRoom
                     // bed with nothing to carry and no way back to the state they asked for.
                     if (DebugStart.AtCycleBoundary) yield return JumpToBoundary();
 
-                    while (ElapsedTime < loopDuration && !endRequested && !CycleComplete)
+                    while (ElapsedTime < loopDuration && !endRequested && !CycleComplete
+                        && !restartRequested)
                     {
                         ElapsedTime += Time.deltaTime;
 
@@ -445,13 +499,35 @@ namespace IterationRoom
                     // And now the room goes out, with nothing to look at while it does.
                     ambience?.PlayPowerDown();
 
-                    if (timeline != null && timeline.FrameCount > 0 && ghostPrefab != null)
+                    // A RESTART LANDS HERE, BEHIND THE SHUT EYELIDS, and that placement is the whole
+                    // of why it needs no presentation of its own: everything above has already
+                    // happened - the flare, the pull-in, the blink, the panels going out - so the
+                    // teardown is invisible and the wake-up at the top of the next pass is the one the
+                    // player has seen a hundred times. What makes it a restart rather than an
+                    // iteration is only that this run does NOT become a ghost and the ones before it
+                    // are destroyed.
+                    if (restartRequested)
+                    {
+                        restartRequested = false;
+                        RestartCycleState();
+                    }
+                    else if (timeline != null && timeline.FrameCount > 0 && ghostPrefab != null)
                     {
                         GhostReplayer ghost = Instantiate(ghostPrefab, ghostParent);
                         ghost.Init(timeline, Current != null ? Current.ghostInteractables : null);
                         ghosts.Add(ghost);
                     }
                 }
+
+                // WHAT IT COST, banked before either branch below can touch the counters.
+                //
+                // The reading is taken HERE rather than at `FinalRoomSequence.BreakOpen` - which is
+                // the moment the ERROR actually goes up - because the two are numerically identical
+                // and this one cannot go wrong: the clock stopped when the inner loop broke on
+                // `CycleComplete`, nothing between here and the break moves it, and there is exactly
+                // ONE path through this line where there are two through the break. `EndCycleState`
+                // zeroes all three counters a few seconds later, so anything read after it is gone.
+                cycleRecords.Add(new CycleRecord(CycleNumber, IterationNumber, TotalElapsedTime));
 
                 // The cycle is finished. Either the game is over, or there is another bed.
                 if (!HasNextCycle)
@@ -661,6 +737,52 @@ namespace IterationRoom
             CycleBreaking = false;
         }
 
+        // Asked for from the pause menu. Refused rather than queued when there is no iteration to
+        // interrupt: during the ending the loop is gone, and across a boundary the cycle being
+        // restarted is ambiguous - the one being left or the one being entered.
+        public void RequestCycleRestart()
+        {
+            if (RunOver || CycleBreaking || !IterationRunning) return;
+            restartRequested = true;
+        }
+
+        // THIS CYCLE FROM NOTHING: every ghost gone, every object home, every room shut, the count
+        // and the clock back to zero.
+        //
+        // It is `EndCycleState` minus the two steps that are about LEAVING - the gas is not cleared
+        // because none was fired, and the cycle is not put to sleep because it is the cycle being
+        // started. `cycleRecords` is deliberately untouched: a restart is not a cycle broken, and a
+        // run that restarted cycle 2 four times should report the attempt that finished it.
+        private void RestartCycleState()
+        {
+            // GHOSTS FIRST, in the same slot and for the same reason `EndCycleState` puts them there:
+            // OnDestroy releases what a ghost was carrying and that ends in ReturnToOrigin, so a
+            // ghost destroyed AFTER the sweep would put an object back on screen behind it.
+            foreach (var ghost in ghosts)
+            {
+                if (ghost == null) continue;
+                ghost.ReleaseCarried();
+                Destroy(ghost.gameObject);
+            }
+            ghosts.Clear();
+
+            playerHand?.ReturnAll();
+            ItemRegistry.ReturnAllToOrigin();
+
+            Current?.CloseDoors();
+            Current?.ResetRooms();
+            // A cycle can be restarted after its console has been filled - the break has not been
+            // reached yet, but `Completed` latches - so this has to be forgotten with the rest.
+            Current?.finalRoom?.ForgetCompletion();
+
+            IterationNumber = 0;
+            totalElapsedTime = 0f;
+            ElapsedTime = 0f;
+            // Given back with everything else: a restart is a fresh attempt at this cycle, and the
+            // early-end allowance is part of what an attempt has.
+            endCycleControl?.ResetUseCount();
+        }
+
         // The boundary itself. Nothing here is visible, and the order is the whole of it.
         private void EndCycleState()
         {
@@ -756,7 +878,7 @@ namespace IterationRoom
             if (playerController != null) playerController.ControlEnabled = false;
 
             if (endingSequence != null)
-                yield return endingSequence.Play(IterationNumber, TotalElapsedTime);
+                yield return endingSequence.Play(cycleRecords);
         }
     }
 }

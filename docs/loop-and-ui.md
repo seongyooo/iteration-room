@@ -79,6 +79,35 @@ The wall is 370 panels. As the cycle breaks each one stops being a white surface
   - **The ghosts are left standing**, visible under the scrim, holding their pads: the last image of the run is the people it took to get out.
   - **The room tone fades and stops** (`RoomAmbience.FadeOutTone`), the only thing that ever stops it. It fades rather than cuts — a cut reads as a sound failing.
 - Timing: scrim 2.4s → 0.9s black → card 1.4s → hold 6.5s → `MainMenu`, **automatically, not on a keypress**. The card is `C Y C L E   B R O K E N` over `ESCAPED ON ITERATION N` — the iteration number is the one score the game keeps, and it is diegetic.
+
+### The per-cycle breakdown (2026-08-20)
+
+**One number stopped being enough the moment there were two cycles.** `TOTAL TIME 10:04` after a run
+that spent 4:47 in cycle 1 and 10:04 in cycle 2 is not a total of anything — it is the last cycle's
+clock wearing the word TOTAL, because `LoopManager.EndCycleState` zeroes the iteration count and the
+clock at every boundary so the next cycle starts from nothing.
+
+So each cycle is **banked as it breaks**: `LoopManager.CycleRecords`, one `CycleRecord` (cycle number,
+iterations, seconds) appended where the inner loop exits on `CycleComplete`. That point is chosen over
+`FinalRoomSequence.BreakOpen` — which is where the ERROR actually goes up — because the two are
+numerically identical (the clock has already stopped and nothing between them moves it) and there is
+exactly **one** path through the former where there are two through the latter.
+
+The card then has two shapes and never both at once:
+
+- **One cycle** — `ESCAPED ON ITERATION 10` over `TOTAL TIME 4:47`. Exactly what it has always been;
+  a one-row table would say what those two lines already say.
+- **Several** — a padded table in place of the `TOTAL TIME` line, one row per cycle and the sum under
+  a blank line. `CYCLE 1` is seven cells, so every label is padded to it and the columns line up
+  whatever the numbers are; the typeface is monospaced, which is the same fact the letter-spacing in
+  `C Y C L E   B R O K E N` rests on.
+
+**The total is the sum of the parts, not a clock read at the end of the run**, and the difference is
+not rounding: everything between cycles — the gas, the collapse, the walk to the hatch, the wake-up —
+happens with the iteration clock stopped, so a wall-clock total would bill the player for minutes they
+were not being timed for.
+
+It grows with the game: a third cycle adds a third row and needs no change here.
 - **Everything in `EndingSequence` runs on `Time.unscaledDeltaTime`.** Pausing is locked out (`RunOver`, read by `PauseMenu`), but a coroutine that can be frozen with no loop left to unfreeze it is a soft lock at the one moment the game must not have one.
 - `RunEnding` **discards the final recording** — there is no next iteration for it to haunt.
 
@@ -135,6 +164,35 @@ Before iteration 1 the run stops and asks the player to look around and set the 
 - It is seeded with `SetValueWithoutNotify` **before** the listener is attached — a `Slider` raises the event on assignment, so seeding afterwards writes its own starting value back over the saved one.
 - `MakeSlider` assembles the `Slider` by hand: Unity drives the fill's and handle's anchors itself every frame and finds their containers **through the hierarchy, not through fields**, so each must be a child of its own container rect with offsets left at zero.
 
+### RESTART CYCLE (2026-08-20)
+
+**A cycle is its ghosts, and a ghost cannot be undone.** "You can only add, never take away" is the
+premise the whole loop rests on — and it is also the one way this game can be made unwinnable: a past
+self that takes an object and fumbles it holds that object for the rest of the run, and a wrong
+delivery repeated every sixty seconds is a room that will not open again. There is no move inside the
+fiction that repairs either.
+
+So the repair is outside it, in the pause menu next to QUIT, where it reads as something done **to**
+the game rather than in it. `LoopManager.RequestCycleRestart` sets a flag; the iteration clock loop
+exits on it exactly as it does on `EndCycleControl`.
+
+**It lands behind the shut eyelids**, at the point in the iteration where a recording would become a
+ghost — so it needs no presentation of its own. The flare, the pull-in, the blink and the panels
+going out have all already happened, the teardown is invisible under them, and the wake-up at the top
+of the next pass is the one the player has seen a hundred times. What makes it a restart rather than
+an iteration is only that **this run does not become a ghost and the ones before it are destroyed**.
+
+`RestartCycleState` is `EndCycleState` minus the two steps that are about *leaving*: no gas is cleared
+because none was fired, and the cycle is not put to sleep because it is the cycle being started.
+
+- **Refused, not queued**, when there is no iteration to interrupt — during the ending there is no
+  loop left, and across a boundary "this cycle" is ambiguous between the one being left and the one
+  being entered.
+- **Unpaused before it is asked for.** The iteration coroutine spins on `yield return null` while
+  frozen, but everything the restart drives is on scaled time and would stand still at zero.
+- **`cycleRecords` is deliberately untouched.** A restart is not a cycle broken; a run that restarted
+  cycle 2 four times reports the attempt that finished it.
+
 ## The title screen (`MainMenu.unity`)
 
 A separate, near-empty scene: camera, canvas, a still of the room, `PLAY` and `QUIT`.
@@ -178,3 +236,50 @@ A separate, near-empty scene: camera, canvas, a still of the room, `PLAY` and `Q
   - `interactTargets` is typed `MonoBehaviour[]`, not the interface, because **Unity does not serialize interface fields** — the cast happens once in `Awake`.
   - Positions come from `WorldToScreenPoint` into a full-screen rect via `ScreenPointToLocalPointInRectangle` with a **null camera** (the canvas is ScreenSpaceOverlay; passing one skews it). The `z <= 0` test is load-bearing — `WorldToScreenPoint` returns a mirrored on-screen position for anything behind the eye, so without it a prompt for something at your back appears in front of you.
   - Its fade uses `Time.unscaledDeltaTime`, or a prompt caught mid-fade sits frozen under the pause overlay.
+
+## The title screen's three ways in (2026-08-20)
+
+It went through three shapes in one day. What survived:
+
+| button | does | shown |
+|---|---|---|
+| **CONTINUE** | the cycle the run last reached, no page in between | only once something has been played |
+| **PLAY** | the sensitivity room, then cycle 1 — the whole game from the start | always |
+| **CYCLE SELECT** | a page of one button per cycle | always |
+
+**PLAY must not open a menu**, and the middle shape of the day had it doing exactly that. It is the
+most universally understood button in games and the promise is that pressing it plays; a list where a
+first-time player expected a game is a stumble at the one screen that cannot afford one. It is also a
+list in which only one entry is right for them — and one of the wrong ones, CYCLE 2, is both a
+spoiler and a trap, dropping somebody who has learned nothing into the cycle that assumes they have.
+
+**The calibration room briefly had an entry in the picker, and that is the mistake worth recording**:
+it and CYCLE 1 both start cycle 1 and differ only in whether the sensitivity step runs, which no
+label can carry. PLAY is that path, and the value it sets is adjustable afterwards on SETTINGS — so
+the room needs no entry anywhere. `LoopManager` enters it exactly when no cycle has been named
+(`DebugStart.StartCycle < 0`), which is why choosing a cycle skips it and PLAY does not.
+
+**Every cycle is unlocked**, deliberately and temporarily: gating the picker to
+`GameSettings.SavedCycle` is one condition and is what a shipped build wants, but the shortcut into a
+cycle under construction is the whole value of the page while cycle 3 is being built. See `TODO.md`.
+
+**Return** is bound to the meaning rather than to a button: CONTINUE where there is something to
+continue, PLAY where there is not.
+
+### What "where you left off" can mean here
+
+**A cycle, not a moment** — and that is a statement about this game rather than a shortcut.
+`GameSettings.SavedCycle` is one int in `PlayerPrefs`, written at the top of each cycle by
+`LoopManager` (so a player who closes the window halfway through cycle 2 *has* reached cycle 2).
+
+Saving a moment is not a matter of effort. **A cycle's state is its ghosts** — the doors standing
+open, the objects already delivered, the tank half full are all things past selves are holding up —
+and a ghost is a recorded timeline of every frame a player moved through. A mid-cycle save would be
+minutes of motion capture per ghost, and restoring it would have to reproduce them exactly or the
+world it loads is not the world that was saved. So what is remembered is **the bed you last woke in**,
+and CONTINUE puts you back at it with the cycle fresh — which is where RESTART CYCLE would put you
+anyway.
+
+It is written through immediately rather than batched into `GameSettings.Save()` like the sliders:
+those are touched every frame of a drag and batching them is the point, this is touched once per
+cycle, and the whole value of it is surviving a player who closes the window.

@@ -26,12 +26,33 @@ namespace IterationRoom
         // `DebugStart.AtCycleBoundary` and the jump it drives are still in place for a developer who
         // sets the flag by hand; what is gone is the button and the handler that set it.
 
-        // THE CYCLE PICKER. One button per cycle, on a page of its own so the title screen stays two
-        // choices wide - a menu that grows a row every time the game does is a menu that stops being
-        // a title screen.
+        // CONTINUE: back to the bed the run last woke in, with no page in between. It used to open
+        // the cycle picker and PLAY used to be the only way to start - the two swapped on 2026-08-20,
+        // by request, because that had them the wrong way round: the thing a returning player wants
+        // is the run they were in, and the thing they rarely want is a list.
+        //
+        // Hidden outright when `GameSettings.SavedCycle` is 0, which is the honest state of a game
+        // nobody has played - an offer to continue nothing is worse than no offer.
         public Button continueButton;
-        public Button continueBackButton;
-        public CanvasGroup continueGroup;
+
+        // THE CYCLE PICKER, on a button of its own. It went through three shapes in one day and
+        // this is the one that survived: CONTINUE resumes, PLAY starts from the beginning, and
+        // choosing a cycle is a THIRD thing that gets its own entry rather than being hidden behind
+        // one of the first two.
+        //
+        // **PLAY MUST NOT OPEN A MENU.** It is the most universally understood button in games and
+        // the promise is that pressing it plays; a list where a first-time player expected a game is
+        // a stumble at the one screen that cannot afford one. It is also a list in which only one
+        // entry is right for them - and one of the wrong ones, CYCLE 2, is both a spoiler and a trap,
+        // dropping somebody who has learned nothing into the cycle that assumes they have.
+        //
+        // EVERY CYCLE IS UNLOCKED, 2026-08-20, deliberately and temporarily. Gating it to
+        // `GameSettings.SavedCycle` is one condition and is what a shipped build wants; it is off
+        // while cycle 3 is being built, because the shortcut into a cycle under construction is the
+        // whole value of this page during development. See TODO.md.
+        public Button cycleSelectButton;
+        public Button cycleBackButton;
+        public CanvasGroup cycleGroup;
         public Button[] cycleButtons;
 
         // SETTINGS, on a page of its own for the same reason the cycle picker is: the title screen
@@ -61,8 +82,10 @@ namespace IterationRoom
             if (playButton != null) playButton.onClick.AddListener(Play);
             if (quitButton != null) quitButton.onClick.AddListener(Quit);
 
-            if (continueButton != null) continueButton.onClick.AddListener(() => ShowContinue(true));
-            if (continueBackButton != null) continueBackButton.onClick.AddListener(() => ShowContinue(false));
+            if (continueButton != null) continueButton.onClick.AddListener(Continue);
+            if (cycleSelectButton != null)
+                cycleSelectButton.onClick.AddListener(() => ShowCyclePicker(true));
+            if (cycleBackButton != null) cycleBackButton.onClick.AddListener(() => ShowCyclePicker(false));
 
             if (settingsButton != null) settingsButton.onClick.AddListener(() => ShowSettings(true));
             if (settingsBackButton != null) settingsBackButton.onClick.AddListener(() =>
@@ -107,8 +130,13 @@ namespace IterationRoom
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
 
+            // NOTHING TO CONTINUE IS A REASON NOT TO OFFER IT. A first-time player sees PLAY,
+            // SETTINGS and QUIT; the button appears the moment a run has woken in a bed.
+            if (continueButton != null)
+                continueButton.gameObject.SetActive(GameSettings.SavedCycle > 0);
+
             if (menuGroup != null) menuGroup.alpha = 1f;
-            ShowContinue(false);
+            ShowCyclePicker(false);
             // Both sub-pages down, and the menu back up after them: each of these restores
             // `menuGroup`, so whichever runs last is what the player sees.
             ShowSettings(false);
@@ -125,33 +153,67 @@ namespace IterationRoom
         private void Update()
         {
             if (starting) return;
-            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter)) Play();
-            // Return starts the game; the shortcut is deliberately click-only, so it cannot be
-            // reached by the key somebody presses to start playing.
+            // RETURN DOES THE OBVIOUS THING, which is now CONTINUE where there is something to
+            // continue and the picker where there is not. Bound to the meaning rather than to a
+            // button: a player pressing Enter at a title screen is asking to play, not to be shown a
+            // list of cycles they have already finished.
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+            {
+                if (GameSettings.SavedCycle > 0) Continue();
+                else Play();
+            }
         }
 
+        // PLAY STARTS THE GAME. The whole of it, from the beginning: the sensitivity room and then
+        // cycle 1, which is the one path a first-time player should ever be on.
+        //
+        // `DebugStart.Clear` leaves `StartCycle` at -1, and that is the whole of what runs the
+        // calibration step - `LoopManager` enters it exactly when no cycle has been named (and never
+        // on a touch device, where every input it needs is a mouse). So the sensitivity room needs no
+        // entry of its own anywhere: this IS its entry, and the value it sets is adjustable
+        // afterwards on SETTINGS.
+        //
+        // Cleared on the normal route as well as set on the others: these are statics, so a run
+        // started from the picker followed by PLAY without leaving the editor would otherwise inherit
+        // whichever cycle was chosen last.
         public void Play()
         {
             if (starting) return;
-            // Cleared on the normal route as well as set on the others: these are statics, so a test
-            // run followed by PLAY without leaving the editor would otherwise inherit whichever
-            // shortcut was used last.
             DebugStart.Clear();
             starting = true;
             StartCoroutine(LoadGame());
+        }
+
+        // CONTINUE: straight into the cycle the run last reached, no page in between. What "the
+        // point they left off" can mean here is a whole cycle rather than a moment inside one - see
+        // GameSettings.SavedCycle, which is a paragraph about ghosts and not about save files.
+        //
+        // Falls back to cycle 1 rather than refusing, so a stored value from a build with more cycles
+        // in it than this one has cannot strand the button. `PlayFromCycle` clamps nothing, but
+        // `LoopManager` does (`Mathf.Clamp(DebugStart.StartCycle - 1, 0, cycles.Length - 1)`).
+        public void Continue()
+        {
+            if (starting) return;
+            PlayFromCycle(Mathf.Max(1, GameSettings.SavedCycle));
         }
 
         // `PlayFromBoundary` went with the TEST button it was the handler for. `LoopManager` still
         // honours `DebugStart.AtCycleBoundary`, so the jump is reachable by setting that static; there
         // is simply nothing on the title screen that sets it.
 
-        // Cycle 1 goes through the ordinary route rather than the picker's, so choosing it is exactly
-        // the same run as pressing PLAY - including the sensitivity step.
+        // A CYCLE, FROM ITS OWN BED, WITHOUT THE SENSITIVITY STEP - including cycle 1, which is the
+        // one thing that changed here on 2026-08-20. It used to fall through to the ordinary route
+        // (`if (cycle > 1)`), so CYCLE 1 and PLAY were the same run; with the calibration room now an
+        // entry of its own, that made two of the three buttons do the same thing.
+        //
+        // Naming the cycle is what skips the step, so this is one guard removed rather than a flag
+        // added. `LoopManager` reads `StartCycle > 1` for which cycle to wake, so 1 selects cycle 1
+        // by falling through exactly as -1 did.
         public void PlayFromCycle(int cycle)
         {
             if (starting) return;
             DebugStart.Clear();
-            if (cycle > 1) DebugStart.StartCycle = cycle;
+            DebugStart.StartCycle = Mathf.Max(1, cycle);
             starting = true;
             StartCoroutine(LoadGame());
         }
@@ -184,12 +246,12 @@ namespace IterationRoom
             }
         }
 
-        private void ShowContinue(bool show)
+        private void ShowCyclePicker(bool show)
         {
-            if (continueGroup != null)
+            if (cycleGroup != null)
             {
-                continueGroup.alpha = show ? 1f : 0f;
-                continueGroup.blocksRaycasts = show;
+                cycleGroup.alpha = show ? 1f : 0f;
+                cycleGroup.blocksRaycasts = show;
             }
             if (menuGroup != null)
             {

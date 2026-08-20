@@ -11,7 +11,8 @@ file itself carries no record. So the record is here.
 **The rule: nothing ships in a paid build with `UNKNOWN` in its row.** Either the source is found
 again and written down, or the asset is replaced.
 
-Status as of 2026-08-14. **Six rows are unresolved** and every one of them is a model.
+Status as of 2026-08-20. **Every model row is resolved.** The one that was not — `weigh_scale.glb` —
+was closed on 2026-08-20 from the source pages pasted into the raw notes at the bottom of this file.
 
 ---
 
@@ -26,9 +27,10 @@ Status as of 2026-08-14. **Six rows are unresolved** and every one of them is a 
 | `ArtAssets/Furniture/gold_key.glb` | **JeremyW** | [Sketchfab — *Gold Key*](https://sketchfab.com/3d-models/gold-key-34998df98cac4fa4a3a1ac395df5f708) | **CC-BY** | 4.2k tris. |
 | `ArtAssets/Play/seesaw.glb` | **IronEqual** (ie-niels) | [Sketchfab — *Seesaw from Poly by Google*](https://sketchfab.com/3d-models/seesaw-from-poly-by-google-b518b55b56f249ee902205775d2d0cdd) | **CC-BY** | 3.2k tris. A Poly backup. Scenery on room2-5's ledge. |
 | `ArtAssets/Play/rubber_duck.glb` | **Ikki_3d** | [Sketchfab — *Rubber duck*](https://sketchfab.com/3d-models/rubber-duck-f1de4fc390db4266a509b9739350512a) | **CC-BY** | 3.5k tris. Three of them float on room2-5's pool. |
-| `ArtAssets/Play/weigh_scale.glb` | *(unrecorded)* | Sketchfab — *Digital weight scale* | **CC-BY (assumed)** | Room2-7's platform scale, scaled up ~6x. **The source page has not been written down** — find it or replace the model before a paid build. |
+| `ArtAssets/Play/weigh_scale.glb` | **Dimitri** (dimitri_blender) | [Sketchfab — *Digital Weight Scale*](https://sketchfab.com/3d-models/digital-weight-scale-1b1b2ad2f06640528e67c1c37e0359b0) | **CC-BY** | 2.4k tris. Room2-7's platform scale, scaled up ~6x. Its green display is embossed geometry with no texture — `SceneBuilder.FlatPanelMesh` replaces that submesh with a quad so `PanelDigits` can paint the readout onto the model itself. Carries a **NoAI** notice. |
 | `ArtAssets/Play/industrial_valve.glb` | **Miguel Angel Jimenez** (Mangel Tekila) | [Sketchfab — *Industrial valve*](https://sketchfab.com/3d-models/industrial-valve-cea67369ae50485c9f06ea44cb608b92) | **CC-BY** | 3.2k tris. Three of them on room2-6's walls. Its textures are 175MB as imported — `ShrinkModelTextures` takes them to 5MB. |
 | `ArtAssets/Play/beach_ball.glb` | **MaggaModels** | [Sketchfab — *Beach Ball*](https://sketchfab.com/3d-models/beach-ball-25e1816c0e22444bb62816d3999d1b0b) | **CC-BY** | 3.6k tris. Two of them, the biggest things on that pool. |
+| `ArtAssets/Play/billiard_balls.glb` | **Yanez Designs** | [Sketchfab — *Billiard Balls*](https://sketchfab.com/3d-models/billiard-balls-523ac862d2154a7e8c96b964fb7cb11f) | **CC-BY** | 15.4k tris, sixteen balls as sixteen nodes each with its own 512x256 texture. Nine of them are room2-0's keys; the set is instantiated once and robbed, like `chess.glb`. Textures are small enough that `ShrinkModelTextures` is not called on it. |
 | ~~`ArtAssets/Furniture/nightstand.glb`~~ | — | — | — | **DELETED 2026-08-14, unused.** Nothing loaded it — the nightstand is built from primitives. It was 8.5 MB of LFS and a CC-BY attribution obligation for a model not in the game. |
 
 ### The good news, and the obligation that comes with it
@@ -833,3 +835,40 @@ Learn more
 Published 4 years agoJun 19th 2022
 NoAI: This model may not be used in datasets for, in the development of, or as inputs to generative AI programs.
 https://sketchfab.com/3d-models/digital-weight-scale-1b1b2ad2f06640528e67c1c37e0359b0
+
+Billiard Balls
+3D Model
+Avatar of Yanez-Designs
+Yanez Designs
+
+Follow
+2.8k
+2842 Downloads
+6.2k
+6246 Views
+58
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 15.4k
+Vertices: 7.7k
+More model information
+A billiard ball is a small, hard ball used in cue sports, such as carom billiards, pool, and snooker. The number, type, diameter, color, and pattern of the balls differ depending upon the specific game being played. Various particular ball properties such as hardness, friction coefficient and resilience are important to accuracy.’
+
+Info Link: https://en.wikipedia.org/wiki/Billiard_ball
+
+I have a Patreon Join now! :https://www.patreon.com/user?u=14434838
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 8 years ago
+https://sketchfab.com/3d-models/billiard-balls-523ac862d2154a7e8c96b964fb7cb11f

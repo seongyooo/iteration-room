@@ -62,6 +62,14 @@ namespace IterationRoom.EditorTools
         private const string DuckItemId = "Duck2";
         private const string BeachBallItemId = "BeachBall2";
 
+        // ROOM2-0'S KEYS: nine billiard balls in the chest of drawers, and each one is its own id.
+        //
+        // NOT A SUPPLY, unlike the pins, the buckets, the ducks and the beach balls - and that is the
+        // whole point of them. A supply says "any of these will do"; here WHICH ONE is the answer to
+        // the puzzle, so every ball is a distinct object with a distinct socket that will take it and
+        // nothing else. Nine ids, nine one-member pools, four of which a pedestal wants.
+        private const string BilliardIdPrefix = "Billiard";
+
         private const string ShardAItemId = "Shard2A";
         private const string ShardBItemId = "Shard2B";
         private const string ShardCItemId = "Shard2C";
@@ -521,6 +529,60 @@ namespace IterationRoom.EditorTools
         // a sphere half under reads as a heavy one, which is a different object.
         private const float PoolBallFloat = 0.72f;
 
+        // ROOM2-0: THE END OF CYCLE 2, and the four pedestals that break it.
+        //
+        // THE SHAPE OF THE PUZZLE. Four pedestals rise as the player comes through the last door, each
+        // with a recess in its top and one object drawn on the side facing them. What goes in the
+        // recess is the billiard ball whose NUMBER is how many of that object cycle 2 contains - four
+        // buckets, five axes, two beach balls, three rubber ducks - so the answer is not written
+        // anywhere and cannot be, it is a count of rooms the player has already walked through. All
+        // four right and the cycle breaks, exactly as cycle 1's console breaks cycle 1.
+        //
+        // WHY A ROW AND NOT A SQUARE ROUND THE HATCH, which was the first arrangement tried on paper:
+        // a square puts two of the four pictograms facing AWAY from a player walking in, and the
+        // pictogram is the only thing that says which pedestal is which. A row facing the door shows
+        // all four at once from the threshold.
+        private const float PedestalWidth = 1.10f;
+        private const float PedestalDepth = 0.80f;
+        // Waist height, like cycle 1's console and for the same reason: the recess in the top is
+        // looked DOWN into from a 1.6m eye rather than squared up to.
+        private const float PedestalHeight = 1.05f;
+        // 1.95 apart spans 5.85 of the room's 8.75, which leaves a stride between neighbours - enough
+        // that standing at one is unambiguously standing at one, and `BuildFinalSlot`'s reach volumes
+        // (1.3 wide) cannot overlap.
+        private const float PedestalPitch = 1.95f;
+        // South of centre, with the hatch at the room's middle in FRONT of the row: the way down opens
+        // between the player and the door they came in by, which is where they are looking anyway.
+        private const float PedestalRowZ = -2.80f;
+
+        // THE BOWL IN THE TOP OF A PEDESTAL, cut to the ball's own radius with 5mm of daylight round
+        // it - enough that the ball drops in rather than being pressed into a shell of its exact size,
+        // and little enough that nothing else in the game would sit in it.
+        private const float SocketBowlRadius = BilliardBallSize / 2f + 0.005f;
+        // How thick the cap the bowl is cut out of has to be. The bowl's own depth is its radius; the
+        // rest is material under the pole, so the cap is a solid thing with a hole in it rather than a
+        // shell that meets itself at a point.
+        private const float SocketCapThickness = SocketBowlRadius + 0.006f;
+
+        // HOW FAR A GHOST MAY REACH FOR A DUCK OR A BEACH BALL. The pool room is 8.75 x 10.5, and the
+        // drain that drags them all to its middle is at most 6.8m from any corner of it - so this
+        // covers every way one of them can have moved since the recording was made, and stops well
+        // short of being able to reach a neighbouring room. See `CarryableItem.ghostTakeReach`.
+        private const float PoolPropTakeReach = 9f;
+
+        // A BILLIARD BALL, at more than twice life size (57mm). Every object in this building is
+        // oversized - a 220mm ball-pit ball, a 160mm Rubik's cube, a 13m tree - and a ball has to be
+        // read by its NUMBER from across a drawer, which a 57mm sphere at arm's length is not.
+        private const float BilliardBallSize = 0.13f;
+
+        // THE WAY DOWN OUT OF CYCLE 2, one grid cell in the middle of room2-0's floor. Centred on the
+        // room rather than offset like cycle 1's `CycleExitHole`, which sits 2m behind that console
+        // because the console is in the middle of ITS room; here the pedestals are the thing that is
+        // off-centre and the hole is what "the floor opens in the middle" means.
+        private static readonly Rect CycleTwoExitHole = Rect.MinMaxRect(
+            -GridCellWidth / 2f, -GridCellWidth / 2f,
+             GridCellWidth / 2f,  GridCellWidth / 2f);
+
         // Where the tree stands: 0.85m back from the lip, which is what it takes to keep the stump's
         // own collider off the pit - `AssertNotWalkable` caught 0.45m on the first build, which is
         // what that assert is for.
@@ -625,11 +687,12 @@ namespace IterationRoom.EditorTools
 
             (Transform root, Transform bedSpawn, ParticleSystem[] gas,
              Door[] doors, RoomCondition[] conditions,
-             GhostInteractable[] signals, Transform[] rooms) =
+             GhostInteractable[] signals, Transform[] rooms, Transform[] loweredRooms,
+             FinalRoomSequence finalRoom, CycleExit _wayOut) =
                 BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat, null);
 
             (Cycle cycle, _) = AssembleCycleTwo(
-                root, bedSpawn, doors, conditions, signals, gas, rooms,
+                root, bedSpawn, doors, conditions, signals, gas, rooms, loweredRooms, finalRoom,
                 floorMat, propMat, MakeTestCardTexture("TvTestCard"), MakeStaticTexture("TvStatic", 64),
                 null, null, null);
 
@@ -732,7 +795,9 @@ namespace IterationRoom.EditorTools
             // the panel gather below is the reason.
             (Transform cycleTwoRoot, Transform cycleTwoBedSpawn, ParticleSystem[] cycleTwoGas,
              Door[] cycleTwoDoors, RoomCondition[] cycleTwoConditions,
-             GhostInteractable[] cycleTwoSignals, Transform[] cycleTwoRooms) =
+             GhostInteractable[] cycleTwoSignals, Transform[] cycleTwoRooms,
+             Transform[] cycleTwoLoweredRooms,
+             FinalRoomSequence cycleTwoFinalRoom, CycleExit cycleTwoExit) =
                 BuildCycleTwoShell(floorMat, grooveMat, panelMat, propMat, ghostParent.transform);
 
             // Every wall panel, gathered by parent name rather than threaded back out through
@@ -1065,6 +1130,10 @@ namespace IterationRoom.EditorTools
             // Inactive included: the cycle starts asleep.
             hintTargets.AddRange(cycleTwoRoot.GetComponentsInChildren<LightSwitch>(true));
             hintTargets.AddRange(cycleTwoRoot.GetComponentsInChildren<WaterTap>(true));
+            // Room2-0's four recesses, and room2-6's three valves, on the same footing. Gathered by
+            // type off the root for the reason stated above rather than named one by one.
+            hintTargets.AddRange(cycleTwoRoot.GetComponentsInChildren<FinalSlot>(true));
+            hintTargets.AddRange(cycleTwoRoot.GetComponentsInChildren<Valve>(true));
             hints.interactTargets = hintTargets.ToArray();
             hints.calibration = calibration;
             // "The player got through the last door", which arms Room4's console. Wired after the
@@ -1147,14 +1216,13 @@ namespace IterationRoom.EditorTools
             // CYCLE 2. A bed, a room and nothing else yet - which is exactly what the boundary needs
             // to be exercised, and no more.
             //
-            // Its `finalRoom` is null, so `Cycle.Complete` is false forever and the loop simply keeps
-            // iterating there. That is the honest state of a cycle with no puzzles in it rather than a
-            // gap: there is nothing to finish, so nothing finishes. Wiring a console is what will end
-            // it, the same way cycle 1 ends.
+            // AND IT ENDS THE SAME WAY CYCLE 1 DOES, since 2026-08-20: room2-0's four pedestals are
+            // its console, four billiard balls are its objects, and `Cycle.Complete` is a real
+            // question again.
             (Cycle cycleTwo, WallPanelDisplay cycleTwoDisplay) = AssembleCycleTwo(
                 cycleTwoRoot, cycleTwoBedSpawn, cycleTwoDoors, cycleTwoConditions, cycleTwoSignals,
-                cycleTwoGas, cycleTwoRooms, floorMat, propMat, testCard, staticNoise, shaker, hand,
-                narration);
+                cycleTwoGas, cycleTwoRooms, cycleTwoLoweredRooms, cycleTwoFinalRoom, floorMat,
+                propMat, testCard, staticNoise, shaker, hand, narration);
 
 
             GameObject loopGO = new GameObject("LoopManager");
@@ -1207,7 +1275,12 @@ namespace IterationRoom.EditorTools
             binding.swingTool = player.GetComponent<BalloonTool>();
             // One per cycle, in cycle order. Cycle 2's is null, and that null is what says it is the
             // last cycle - see LoopManager, which derives "last" from having no successor.
-            binding.wayOuts = new[] { cycleOneExit, null };
+            // BOTH CYCLES HAVE ONE NOW. Cycle 1's sits on the JOIN between the two storeys, outside
+            // either cycle root, because it is a hole through both of them; cycle 2's is inside
+            // room2-0, because there is nothing under that floor for it to join TO - it is a hatch in
+            // the last room rather than a seam between two. When cycle 3 exists, it becomes a seam and
+            // moves out here with cycle 1's.
+            binding.wayOuts = new[] { cycleOneExit, cycleTwoExit };
             // The one E fixture that belongs to no cycle: the calibration room runs before the first
             // iteration, so its button cannot be gathered off a cycle root.
             binding.coreHintTargets = new MonoBehaviour[] { startButton };
@@ -3105,6 +3178,7 @@ namespace IterationRoom.EditorTools
         private static (Cycle cycle, WallPanelDisplay display) AssembleCycleTwo(
             Transform cycleTwoRoot, Transform bedSpawn, Door[] doors, RoomCondition[] conditions,
             GhostInteractable[] signals, ParticleSystem[] gasEmitters, Transform[] rooms,
+            Transform[] loweredRooms, FinalRoomSequence finalRoom,
             Material floorMat, Material propMat, Texture2D testCard, Texture2D staticNoise,
             CameraShaker shaker, PlayerHand hand, NarrationDirector narration)
         {
@@ -3142,22 +3216,33 @@ namespace IterationRoom.EditorTools
             cycleTwo.ghostInteractables = signals;
             cycleTwo.conditions = conditions;
 
-            // NO ROOM0, AND THEREFORE NO CONSOLE - 2026-08-19, with the request that deleted the old
-            // room2-6, room2-7 and room2-0. The `-0` of a cycle is the room its walk ENDS at, and
-            // cycle 2 no longer has one: the walk currently stops at room2-6's door, which opens onto
-            // a capped pocket.
+            // AND CYCLE 2 CAN BE FINISHED AGAIN. It shipped with `finalRoom` null for a day - a
+            // supported state that `Cycle.Complete`, `LoopManager` and `CycleBinding` all guard, and
+            // an honest way to say "this cycle has no end yet". room2-0 is that end: four pedestals,
+            // four billiard balls, and the same break cycle 1 has.
             //
-            // **`finalRoom` NULL IS A SUPPORTED STATE, not a hole left by this change.** `Cycle.Complete`,
-            // `LoopManager` and `CycleBinding` all guard it - cycle 2 shipped that way before the
-            // console was built, and it means exactly what it says: this cycle cannot be finished. It
-            // could not be finished before this either, for a different reason the build used to shout
-            // about three times per run (the console declared three shard slots and nothing in the
-            // cycle wore those ids). One honest null replaces three errors describing a console that
-            // nothing could ever fill.
-            //
-            // What has to come back with a room0: `BuildFinalRoom`, its `BuildPlinthHousing`, the
-            // `CheckCycleFinishable` call, and three carryables wearing ShardA/B/C.
-            cycleTwo.finalRoom = null;
+            // The three things it needed are all here now, which is what the old comment listed as
+            // outstanding: a room0, a console in it, and carryables wearing the ids its recesses
+            // declare. The ids are the nine billiard balls rather than the ShardA/B/C the old console
+            // asked for and nothing ever wore.
+            cycleTwo.finalRoom = finalRoom;
+            if (finalRoom != null)
+            {
+                // THIS CYCLE'S PANELS, not the building's. The ERROR spreading out from a console
+                // means *this bed's cycle is over*, and the display gathered above is the one built
+                // from this root's own panel groups.
+                finalRoom.wallPanels = display;
+                // Both may be null on the cycle-2-only rebuild path, where there is no player and no
+                // PA to point at - `CycleBinding` re-establishes them at runtime, which is the whole
+                // reason that path is allowed to pass null for them at all.
+                finalRoom.cameraShaker = shaker;
+                finalRoom.narration = narration;
+                if (finalRoom.slots != null)
+                    foreach (FinalSlot slot in finalRoom.slots)
+                        if (slot != null) slot.hand = hand;
+
+                CheckCycleFinishable("Cycle 2", cycleTwoRoot, finalRoom);
+            }
 
             cycleTwo.worldRoot = cycleTwoRoot;
             cycleTwo.wallPanels = display;
@@ -3165,6 +3250,19 @@ namespace IterationRoom.EditorTools
             // Everything down there stands on a floor one storey below zero, and every carryable has to
             // be told so or it falls through it.
             SetFloorBase(cycleTwoRoot, -StoreyDrop);
+
+            // ...EXCEPT THE THREE THE SLIDE LANDS IN, which are a further `SlideRoomFloorY` down again.
+            // A second pass rather than a smarter first one: the sweep above is a statement about the
+            // CYCLE and this is a statement about three rooms inside it, and running them in this
+            // order is what lets the second overwrite the first for exactly the objects it names.
+            //
+            // Left unsaid, `floorBaseY` is 3.7m too high for anything living down there - which is a
+            // value that is simply untrue in the scene, whether or not anything currently reads it.
+            // What used to read it was every drop (see `CarryableItem.DropAt`), and the symptom was a
+            // duck put down on the water hopping 3.7m into the air first.
+            if (loweredRooms != null)
+                foreach (Transform room in loweredRooms)
+                    SetFloorBase(room, -StoreyDrop + SlideRoomFloorY);
 
             return (cycleTwo, display);
         }
@@ -5140,7 +5238,7 @@ namespace IterationRoom.EditorTools
         private static Transform BuildEmptyRoom(Transform parent, string name, Vector3 at,
                                                 Material floorMat, Material grooveMat,
                                                 Material panelMat, Material fixtureMat,
-                                                bool doorwayNorth)
+                                                bool doorwayNorth, Rect floorHole = default)
         {
             GameObject rootGO = new GameObject(name + "_Root");
             rootGO.transform.SetParent(parent, false);
@@ -5152,7 +5250,7 @@ namespace IterationRoom.EditorTools
 
             Rect doorway = new Rect(-DoorWidth / 2f, 0f, DoorWidth, DoorHeight);
 
-            BuildSlab(t, "Floor", -WallThickness / 2f, 0f, floorMat, default);
+            BuildSlab(t, "Floor", -WallThickness / 2f, 0f, floorMat, floorHole);
             BuildSlab(t, "Ceiling", RoomHeight + WallThickness / 2f, 0f, floorMat, default);
 
             BuildPanelWall(t, "Wall_North", new Vector3(0f, 0f, RoomDepth / 2f),
@@ -5168,6 +5266,240 @@ namespace IterationRoom.EditorTools
             BuildCeilingLights(t, name, 0f, fixtureMat, castShadows: false);
             BuildReflectionProbe(t, name, 0f);
             return t;
+        }
+
+        // ROOM2-0: THE LAST ROOM OF CYCLE 2, AND THE ONE THAT BREAKS IT.
+        //
+        // The same white cell as every other, and the same argument cycle 1's room4 makes for that:
+        // the room the player finally gets out into looks exactly like the ones they have been trying
+        // to get out of. What makes it the end is that nothing is in it until they walk in.
+        //
+        // FOUR PEDESTALS ON ONE MOVER, not four movers. `RewardPlinth` raises a single Transform, and
+        // the four are children of it - so they come up together as one machine rather than as four
+        // props that happen to agree, and `MovesDuringPlay` (which walks UP from each renderer) finds
+        // the plinth above all of them without any of them being named.
+        //
+        // WHAT EACH ONE WANTS is the count of the object drawn on its side: five axes, three ducks,
+        // four buckets, two beach balls. The number is never written down anywhere in the building
+        // and cannot be - it is the player's own memory of four rooms they have already crossed, which
+        // is the only kind of key a time loop can ask for that a past self cannot fetch for them.
+        //
+        // THE ORDER OF THE ROW IS NOT THE ORDER OF THE ANSWERS (5, 3, 4, 2 left to right). A row that
+        // read 2, 3, 4, 5 would be solvable by noticing that it counts.
+        private static (Transform room, FinalRoomSequence final, CycleExit exit) BuildBreakRoom(
+            Transform parent, Vector3 at, Material floorMat, Material grooveMat, Material panelMat,
+            Material propMat, Material fixtureMat)
+        {
+            Transform t = BuildEmptyRoom(parent, "Room2_0", at, floorMat, grooveMat, panelMat,
+                                         fixtureMat, doorwayNorth: true, floorHole: CycleTwoExitHole);
+
+            // --- the four pedestals -----------------------------------------------------------------
+            GameObject rack = new GameObject("Room2_0_Pedestals");
+            rack.transform.SetParent(t, false);
+
+            // AUTHORED RAISED and sunk in `RewardPlinth.Awake`, like every other plinth in the game:
+            // a scene whose only props are invisible cannot be checked without pressing Play.
+            RewardPlinth risen = rack.AddComponent<RewardPlinth>();
+            risen.plinth = rack.transform;
+            risen.riseHeight = PedestalHeight + 0.06f;
+            risen.riseSeconds = 2.4f;
+
+            // ALL FOUR RIMS ARE THE SAME COLOUR, and that is the design rather than an omission.
+            //
+            // The first build gave each pedestal an accent of its own, and play reported the obvious
+            // thing: the rim colour and the ball that goes in it disagree. Billiard balls are a
+            // standard set - 2 blue, 3 red, 4 purple, 5 orange - so there are only two ways to stop
+            // them disagreeing, and MATCHING them is the one that costs the puzzle. A purple rim over
+            // a purple ball turns "how many buckets are there" into "find the purple one", and the
+            // pictogram on the side becomes decoration.
+            //
+            // Identical neutral rims say nothing instead. Every one of them lights the same way for
+            // every ball, because `offerItemIds` is the whole family - so the row answers a press and
+            // never a question, and the only thing in the room that distinguishes one pedestal from
+            // another is the object drawn on it.
+            Color rim = new Color(0.78f, 0.79f, 0.82f);
+
+            var wants = new (string name, string ball, Sprite icon)[]
+            {
+                ("Axe",       BilliardIdPrefix + "5", AxeIcon()),
+                ("Duck",      BilliardIdPrefix + "3", DuckIcon()),
+                ("Bucket",    BilliardIdPrefix + "4", FullBucketIcon()),
+                ("BeachBall", BilliardIdPrefix + "2", BeachBallIcon()),
+            };
+
+            string[] family = BilliardIds();
+            var slots = new FinalSlot[wants.Length];
+
+            for (int i = 0; i < wants.Length; i++)
+            {
+                float x = (i - (wants.Length - 1) / 2f) * PedestalPitch;
+
+                GameObject unit = new GameObject("Pedestal_" + wants[i].name);
+                unit.transform.SetParent(rack.transform, false);
+                unit.transform.localPosition = new Vector3(x, 0f, PedestalRowZ);
+
+                // THE BODY STOPS SHORT OF THE TOP, and the socket cap makes up the difference. The
+                // cap is where the bowl is cut, so the material the bowl is cut OUT of has to be the
+                // cap and not the body - a box primitive cannot have a hole in it.
+                //
+                // Its collider goes on the unit instead, at full height, so the pedestal is still one
+                // solid object to walk into. Rising through somebody standing exactly on it is not
+                // reachable: the rise starts as they clear a doorway eight metres away.
+                Prim(PrimitiveType.Cube, "Body", unit.transform,
+                     new Vector3(0f, (PedestalHeight - SocketCapThickness) / 2f, 0f),
+                     new Vector3(PedestalWidth, PedestalHeight - SocketCapThickness, PedestalDepth),
+                     propMat, removeCollider: true);
+
+                BoxCollider solid = unit.AddComponent<BoxCollider>();
+                solid.center = new Vector3(0f, PedestalHeight / 2f, 0f);
+                solid.size = new Vector3(PedestalWidth, PedestalHeight, PedestalDepth);
+
+                // A HEMISPHERE CUT TO THE BALL'S OWN RADIUS, 2026-08-20 by request. It was a flat
+                // disc, and a flat disc says "something round belongs here" where this room has to
+                // say "a BILLIARD BALL belongs here" - a bowl a ball drops half into is a shape that
+                // can be for nothing else. `SlotShape.Dish` builds the cap, the bowl and the lit ring
+                // round its mouth as one thing; see BallSocketMesh.
+                //
+                // All four are identical, which is exactly right: they take the same KIND of object
+                // and differ only in WHICH one, and that difference is carried by the pictogram on
+                // the side and by nothing else in the room (see `rim` above).
+                slots[i] = BuildFinalSlot(unit.transform, "Slot", SlotShape.Dish,
+                    new Vector3(0f, PedestalHeight, 0f), SocketBowlRadius * 2f, rim,
+                    reachCentre: new Vector3(0f, -0.55f, 0.42f),
+                    reachSize: new Vector3(1.30f, 2.60f, 2.00f),
+                    dishPlateHalf: new Vector2(PedestalWidth / 2f, PedestalDepth / 2f));
+                slots[i].acceptedItemId = wants[i].ball;
+                // ...AND IT WILL TAKE A PRESS FOR ANY OF THEM. Without this the rim would light for
+                // the right ball and stay dark for the other eight, which hands the player the answer
+                // for the cost of carrying each ball past each pedestal. See FinalSlot.offerItemIds.
+                slots[i].offerItemIds = family;
+                // The sound of no. Nothing in this project is a buzzer, so the switch's off-click is
+                // borrowed - short, mechanical, and audibly not the sound an object landing makes.
+                slots[i].refuseClip = LoadClip(SfxDir, "sfx_switch_off");
+
+                BuildPedestalSign(unit.transform, wants[i].name, wants[i].icon);
+            }
+
+            // --- the way in, and the way down --------------------------------------------------------
+            //
+            // "The player got through the last door", which is what raises the rack. A latch, cleared
+            // by the loop at the top of an iteration, so each run has to arrive for itself. Its
+            // `door` is wired at the call site - the door is room2-7's and is built later.
+            GameObject escapeGO = new GameObject("EscapeTrigger_Cycle2");
+            escapeGO.transform.SetParent(t, false);
+            escapeGO.transform.localPosition = new Vector3(0f, 0f, RoomDepth / 2f);
+            EscapeTrigger escape = escapeGO.AddComponent<EscapeTrigger>();
+            escape.halfWidth = DoorWidth / 2f + 0.05f;
+
+            CycleExit exit = BuildCycleTwoExit(t, floorMat, propMat);
+
+            GameObject seqGO = new GameObject("BreakSequence");
+            seqGO.transform.SetParent(t, false);
+            FinalRoomSequence sequence = seqGO.AddComponent<FinalRoomSequence>();
+            sequence.console = risen;
+            sequence.slots = slots;
+            // AND EACH RECESS POINTS BACK, which it did not for the first two builds of this room.
+            // `FinalSlot.Live` is `sequence != null && sequence.Active`, so four null sequences meant
+            // four recesses that were never live: no prompt, and E did nothing at any of them. The
+            // room looked finished and could not be finished. Cycle 1's builder has always had this
+            // line; this one was written without it, which is why `CycleBinding` now re-establishes
+            // it at runtime as well.
+            foreach (FinalSlot slot in slots) if (slot != null) slot.sequence = sequence;
+            sequence.arrival = escape;
+            sequence.wayOut = exit;
+            // THE BREAK OPENS THE FLOOR ITSELF, because there is no cycle 3 to wait for. See
+            // FinalRoomSequence.opensWayOutOnBreak - this goes back to false the day one exists.
+            sequence.opensWayOutOnBreak = true;
+            sequence.breakDuration = 10f;
+
+            return (t, sequence, exit);
+        }
+
+        // ONE OBJECT DRAWN ON THE FRONT OF A PEDESTAL, and it is the whole of what the pedestal says.
+        //
+        // No word, no number, no rim colour that means anything - the four accents differ so the row
+        // is four objects rather than one repeated, and none of them is a clue. A pictogram is the
+        // only instrument in this building that can ask "how many of these are there" without also
+        // answering it.
+        //
+        // FACING THE DOOR. A canvas's forward must match the direction the VIEWER is looking rather
+        // than point at them (see MakeWallFace), and a player reading this is walking south - so yaw
+        // 180, the same as the sign over room2-7's south door.
+        private static void BuildPedestalSign(Transform unit, string name, Sprite icon)
+        {
+            CanvasGroup face = MakeWallFace(unit, "Sign",
+                new Vector3(0f, PedestalHeight * 0.55f, PedestalDepth / 2f + 0.02f),
+                Quaternion.Euler(0f, 180f, 0f),
+                f => MakeWallIcon(f, name, icon, Vector2.zero, 1280f,
+                                  new Color(0.20f, 0.20f, 0.23f, 0.88f)),
+                worldWidth: 0.78f, withPlate: false, authoredHeight: 1600f);
+
+            // MakeWallFace authors every sign at alpha 0, because the ones it was built for are faded
+            // in and retired by `PanelMessage`. These never go: they are true for as long as the room
+            // is unsolved.
+            if (face != null) face.alpha = 1f;
+        }
+
+        // THE HOLE IN ROOM2-0'S FLOOR, and the shaft under it.
+        //
+        // ONE LID, WHERE CYCLE 1'S HAS TWO. That pair exists because cycle 1's opening goes through
+        // the floor of one storey and the CEILING of the next, with a service void between them -
+        // plug only the top and the room below gets a square recess in its ceiling with the shaft
+        // visible up inside it. There is no room below this one, so there is one lid.
+        //
+        // AND THE SHAFT IS CAPPED, which cycle 1's is not, and that is the honest shape of "cycle 3
+        // does not exist yet": the floor opens onto a way down that is built and not yet connected.
+        // Uncapped it would be a hole into nothing that a player standing in a broken room can walk
+        // into and fall out of the world. When cycle 3 is built, the cap comes out and the shaft
+        // lengthens to `ServiceVoid` like cycle 1's.
+        private static CycleExit BuildCycleTwoExit(Transform room, Material floorMat, Material propMat)
+        {
+            const float shaftDepth = 3.2f;
+
+            GameObject go = new GameObject("CycleExit_Cycle2");
+            go.transform.SetParent(room, false);
+            // At the floor plane, which is what `throughDrop` is measured from.
+            go.transform.localPosition = Vector3.zero;
+
+            // Flush with the floor it fills, and it retracts OUT of the slab as it slides - sideways
+            // alone would leave a face coplanar with the one on show, which z-fights across the whole
+            // square. Cycle 1's lid learned that the expensive way.
+            GameObject lid = Prim(PrimitiveType.Cube, "Cover_Floor", go.transform,
+                new Vector3(0f, -WallThickness / 2f, 0f),
+                new Vector3(GridCellWidth, WallThickness, GridCellWidth), floorMat);
+
+            CycleExit exit = go.AddComponent<CycleExit>();
+            exit.covers = new[] { lid.transform };
+            exit.openOffsets = new[] { new Vector3(GridCellWidth, -0.16f, 0f) };
+            exit.audioSource = MakeSource(go.transform, "ExitAudio", spatialBlend: 1f, volume: 0.9f);
+            exit.openClip = LoadClip(SfxDir, "sfx_door_open");
+            exit.sealClip = LoadClip(SfxDir, "sfx_power_down");
+
+            // Four walls and a floor: without them the opening looks out into the void the building
+            // stands in, and the drop reads as falling out of the level rather than as going down.
+            GameObject shaft = new GameObject("ExitShaft_Cycle2");
+            shaft.transform.SetParent(room, false);
+            shaft.transform.localPosition = new Vector3(0f, -WallThickness, 0f);
+
+            float half = GridCellWidth / 2f;
+            float outer = GridCellWidth + 2f * WallThickness;
+            Prim(PrimitiveType.Cube, "Shaft_West", shaft.transform,
+                new Vector3(-half - WallThickness / 2f, -shaftDepth / 2f, 0f),
+                new Vector3(WallThickness, shaftDepth, outer), propMat);
+            Prim(PrimitiveType.Cube, "Shaft_East", shaft.transform,
+                new Vector3(half + WallThickness / 2f, -shaftDepth / 2f, 0f),
+                new Vector3(WallThickness, shaftDepth, outer), propMat);
+            Prim(PrimitiveType.Cube, "Shaft_South", shaft.transform,
+                new Vector3(0f, -shaftDepth / 2f, -half - WallThickness / 2f),
+                new Vector3(GridCellWidth, shaftDepth, WallThickness), propMat);
+            Prim(PrimitiveType.Cube, "Shaft_North", shaft.transform,
+                new Vector3(0f, -shaftDepth / 2f, half + WallThickness / 2f),
+                new Vector3(GridCellWidth, shaftDepth, WallThickness), propMat);
+            Prim(PrimitiveType.Cube, "Shaft_Cap", shaft.transform,
+                new Vector3(0f, -shaftDepth - WallThickness / 2f, 0f),
+                new Vector3(outer, WallThickness, outer), propMat);
+
+            return exit;
         }
 
         private static (Transform room, WeighScale scale)
@@ -5915,6 +6247,10 @@ namespace IterationRoom.EditorTools
                 item.handLocalScale = Vector3.one;
                 item.audioSource = MakeSource(holder.transform, "PickupAudio", 1f, 0.8f);
                 item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+                // THE ONLY CARRYABLES IN THE GAME THAT ARE NOT WHERE THEY WERE PUT - they drift, the
+                // plastic balls shove them, and the drain's vortex drags every one of them to the
+                // middle of the room. See PoolPropTakeReach and CarryableItem.ghostTakeReach.
+                item.ghostTakeReach = PoolPropTakeReach;
                 MakeWeighable(item, kilograms);
                 carriedItems[i] = item;
             }
@@ -6869,7 +7205,8 @@ namespace IterationRoom.EditorTools
         // already works in for this leg - so both openings land in the walls their neighbours meet.
         private static (Transform root, TreeTrunk trunk, TreeFelled felled,
                         Transform poolRoom, Door poolDoor, PoolDrain poolDrain, Valve[] poolValves,
-                        Transform weighRoom, WeighScale weighScale, Transform emptyRoom)
+                        Transform weighRoom, WeighScale weighScale,
+                        Transform breakRoom, FinalRoomSequence breakSequence, CycleExit cycleTwoExit)
             BuildTreeHall(Transform parent, float z0, Material floorMat, Material grooveMat,
                           Material panelMat, Material propMat, Material fixtureMat)
         {
@@ -7063,10 +7400,13 @@ namespace IterationRoom.EditorTools
                 BuildPoolRoom(rootGO.transform, floorMat, grooveMat, panelMat, propMat, fixtureMat);
             (Transform weighRoom, WeighScale weighScale) =
                 BuildWeighRoom(rootGO.transform, floorMat, grooveMat, panelMat, propMat, fixtureMat);
-            // ROOM2-8, one further south again, so room2-7's door leads somewhere.
-            Transform emptyRoom = BuildEmptyRoom(rootGO.transform, "Room2_8",
-                new Vector3(SlideRoomCentreX, SlideRoomFloorY, SlideRoomCentreZ - 2f * RoomPitch),
-                floorMat, grooveMat, panelMat, fixtureMat, doorwayNorth: true);
+            // ROOM2-0, one further south again - the last room of the walk, and the `-0` of the
+            // cycle by the naming rule: a cycle always ends in its -0 (docs/cycle-design.md SS4a).
+            // It was a bare shell for one day; it is the console room now.
+            (Transform breakRoom, FinalRoomSequence breakSequence, CycleExit cycleTwoExit) =
+                BuildBreakRoom(rootGO.transform,
+                    new Vector3(SlideRoomCentreX, SlideRoomFloorY, SlideRoomCentreZ - 2f * RoomPitch),
+                    floorMat, grooveMat, panelMat, propMat, fixtureMat);
             BuildSeesaw(t);
             BuildSlide(t);
 
@@ -7075,7 +7415,7 @@ namespace IterationRoom.EditorTools
             // clock, which is what every room in this game does to somebody who is not finished.
 
             return (rootGO.transform, trunk, felled, poolRoom, poolDoor, poolDrain, poolValves,
-                    weighRoom, weighScale, emptyRoom);
+                    weighRoom, weighScale, breakRoom, breakSequence, cycleTwoExit);
         }
 
         // ROOM2-5: THE SEESAW, and the only thing on the far ledge that IS scenery. A child's thing
@@ -7969,7 +8309,9 @@ namespace IterationRoom.EditorTools
         // ordering honest rather than shuffling half of `Build` around it.
         private static (Transform root, Transform bedSpawn, ParticleSystem[] gas,
                         Door[] doors, RoomCondition[] conditions, GhostInteractable[] signals,
-                        Transform[] rooms) BuildCycleTwoShell(
+                        Transform[] rooms, Transform[] loweredRooms,
+                        FinalRoomSequence finalRoom, CycleExit wayOut)
+            BuildCycleTwoShell(
             Material floorMat, Material grooveMat, Material panelMat, Material propMat,
             Transform ghostParent)
         {
@@ -8015,7 +8357,7 @@ namespace IterationRoom.EditorTools
             // room is free to sit wherever its own door needs it to.
             // LEG 3 IS GONE, 2026-08-19 by request: the old room2-6, room2-7 and room2-0 are deleted
             // and the SLIDE'S LANDING ROOM is room2-6 now, with the weighing room behind it as room2-7
-            // and an empty shell as room2-8. The walk is room2-1, room2-2, the tree hall - and then
+            // and the console room as room2-0. The walk is room2-1, room2-2, the tree hall - and then
             // down the chute into the pool, which is a way on that no door provides.
             //
             // The two numbers survive because the CORE is still measured off them (below): the shaft
@@ -8026,7 +8368,7 @@ namespace IterationRoom.EditorTools
 
             // TWO SHELLS AND A HALL. The hall is not in this list because it is not a shell - it
             // builds its own floor, walls, lights and probes at two different ceiling heights - and
-            // neither are room2-6, room2-7 and room2-8, which are built with the hall (the slide has
+            // neither are room2-6, room2-7 and room2-0, which are built with the hall (the slide has
             // to be measured against room2-6's floor) and light and probe themselves for the same
             // reason.
             var rooms = new[] { r1, r2 };
@@ -8095,7 +8437,8 @@ namespace IterationRoom.EditorTools
             // - see BuildTreeHall - which is why it sits outside the loop above rather than in it.
             (Transform hall, TreeTrunk treeTrunk, TreeFelled treeFelled,
              Transform poolRoom, Door poolDoor, PoolDrain poolDrain, Valve[] poolValves,
-             Transform weighRoom, WeighScale weighScale, Transform emptyRoom) =
+             Transform weighRoom, WeighScale weighScale,
+             Transform breakRoom, FinalRoomSequence breakSequence, CycleExit cycleTwoExit) =
                 BuildTreeHall(root.transform, legTwoZ, floorMat, grooveMat, panelMat, propMat,
                               fixtureMat);
 
@@ -8222,12 +8565,17 @@ namespace IterationRoom.EditorTools
 
             // ~~BuildNightstand~~ REPLACED 2026-08-15 by the chest of drawers, which is what this
             // bedside was asked for in the first place. The nightstand brought THREE pins with it and
-            // cycle 2 has nothing to use a pin on; the chest is empty on purpose and says so.
+            // cycle 2 has nothing to use a pin on.
+            //
+            // AND IT IS NO LONGER EMPTY, 2026-08-19: nine billiard balls across the two trays, which
+            // are room2-0's keys. That is why the chest was built with two OPENING bays rather than
+            // one and a shelf - see BuildDresser - and why both were wired as `GhostInteractable`s
+            // from the first build, before there was anything to open them for.
             //
             // Cycle 1's own nightstand position, unchanged, now that the frame above makes it mean
             // the same thing here.
             Drawer[] dresserDrawers = BuildDresser(bedFrame.transform, "Dresser2_1",
-                new Vector3(-0.95f, 0f, 1.35f), yaw: 0f, withLamp: true);
+                new Vector3(-0.95f, 0f, 1.35f), yaw: 0f, withLamp: true, withBilliards: true);
 
             // The last couple of metres up to each opening, from inside the room. Short on purpose:
             // see AssertWalkable for why this is not a path across the room.
@@ -8245,7 +8593,7 @@ namespace IterationRoom.EditorTools
             AssertWalkable(poolRoom, "room2-6 south door", sIn, sOut);
             AssertWalkable(weighRoom, "room2-7 north door", nIn, nOut);
             AssertWalkable(weighRoom, "room2-7 south door", sIn, sOut);
-            AssertWalkable(emptyRoom, "room2-8 north door", nIn, nOut);
+            AssertWalkable(breakRoom, "room2-0 north door", nIn, nOut);
 
             // THE HALL'S OWN CHECKS, in its own frame rather than a room's: both openings are in
             // the north wall now, one at x=0 and one at x=-20.825, twenty metres apart.
@@ -8315,25 +8663,44 @@ namespace IterationRoom.EditorTools
             // ROOM2-7'S DOOR, ONTO ROOM2-8. **NOT capped** - there is a room through it, and
             // `capFarSide` puts a solid wall across the pocket, which is exactly how room2-7 came to
             // be invisible behind room2-6's door for a build. The flag is a statement about where the
-            // WALK ENDS, and the walk ends at room2-8 now.
+            // WALK ENDS, and the walk ends at room2-0 now - the room that breaks the cycle.
             Door weighDoor = BuildPadDoor(weighRoom, "Door2_7", 0f, new FloorButton[0], propMat,
                                           yaw: 180f);
             weighDoor.condition = weighScale;
             BuildDoorPocketFill(weighRoom, "Pocket2_7", 0f, grooveMat, capFarSide: false, yaw: 180f);
 
             // FOUR DOORS. The hall's own exit is gone with leg 3 - the tree opens no door, it opens
-            // the only bridge across the pit (see BuildTreeHall) - and room2-7's is the last, which is
-            // the one a final room would seal if this cycle had one.
+            // the only bridge across the pit (see BuildTreeHall) - and room2-7's is the LAST, which
+            // makes it the one room2-0 seals at the break. That ordering is load-bearing and silently
+            // so: `Cycle` shuts every door it is handed, and the break shuts this one in the player's
+            // view. Appending anything after it would put the wrong door on that line.
             var doors = new[] { ringDoors[0], ringDoors[1], poolDoor, weighDoor };
+
+            // ROOM2-0'S TWO REFERENCES BACK UP THE WALK, wired here because the room is built with
+            // the hall and the door it hangs on is built with the ring. The trigger sits on room2-0's
+            // own threshold and only counts a player who came through an OPEN door - so walking up to
+            // a shut one arms nothing, and the scale is what opens it.
+            if (breakSequence != null)
+            {
+                breakSequence.doorBehind = weighDoor;
+                if (breakSequence.arrival != null) breakSequence.arrival.door = weighDoor;
+            }
 
             // AND THE NEW ROOMS ARE IN THE ROOM LIST, appended rather than built into it: the loop
             // above lights and probes the shells, and these three did both for themselves when the
             // hall built them.
-            var allRooms = new[] { r1, r2, poolRoom, weighRoom, emptyRoom };
+            var allRooms = new[] { r1, r2, poolRoom, weighRoom, breakRoom };
+
+            // THE THREE HUNG A FURTHER STOREY DOWN. Named here, where the names still mean something,
+            // rather than found by string at the far end: `AssembleCycleTwo` sets one floor base over
+            // the whole cycle and these three do not share it - their floors are `SlideRoomFloorY`
+            // below the rest of it, because the slide has to arrive somewhere lower than it leaves.
+            var loweredRooms = new[] { poolRoom, weighRoom, breakRoom };
 
             return (root.transform, spawn, gas, doors,
                     new RoomCondition[] { allLightsOn, tank, treeFelled, poolDrain, weighScale },
-                    cycleTwoSignalList.ToArray(), allRooms);
+                    cycleTwoSignalList.ToArray(), allRooms, loweredRooms, breakSequence,
+                    cycleTwoExit);
         }
 
         // WHAT A RETRACTED PLINTH RETRACTS INTO.
@@ -10584,7 +10951,8 @@ namespace IterationRoom.EditorTools
         // is not a style choice: the same code written against world positions is what put cycle 2's
         // nightstand drawer fifty metres from its own carcass.
         private static Drawer[] BuildDresser(Transform parent, string name, Vector3 localPosition,
-                                             float yaw, bool withLamp = false)
+                                             float yaw, bool withLamp = false,
+                                             bool withBilliards = false)
         {
             const float w = 0.82f, d = 0.44f, h = 0.86f;
             const float panel = 0.018f;     // carcass stock
@@ -10637,6 +11005,14 @@ namespace IterationRoom.EditorTools
                 caseTop - bayH, caseTop, w, d, panel, wood, brass);
             Drawer lower = BuildDresserBay(unit.transform, name + "_DrawerLower",
                 caseBottom, caseBottom + bayH, w, d, panel, wood, brass);
+
+            // AND NOW THERE IS SOMETHING IN IT. The comment above about both bays being empty on
+            // purpose stood for four days; room2-0 is the puzzle that was waiting for them. The tray
+            // geometry is recomputed rather than handed back out of `BuildDresserBay`, because it is
+            // three lines of arithmetic off numbers this method already owns and returning a fourth
+            // thing from a bay builder to describe the inside of a drawer would be worse.
+            if (withBilliards)
+                BuildBilliardBalls(upper, lower, w - panel * 2f - 0.01f, bayH - 0.01f, d * 0.76f);
 
             // AND SOMETHING ON TOP THE PLAYER CAN PICK UP. The nightstand's cube is scenery - a model
             // placed with no collider, which cannot be taken - and this is the opposite: a carryable
@@ -10707,6 +11083,24 @@ namespace IterationRoom.EditorTools
             //
             // No close clip exists, so `Drawer` pitches the open one down for the return - the same
             // runners in the same carcass, which is the one case where pitching a clip is honest.
+            // **CLOSABLE AGAIN, 2026-08-20, BY EXPLICIT REQUEST, AND THE COST IS KNOWN AND ACCEPTED.**
+            //
+            // It was turned off earlier the same day because the bays stopped being empty. A closable
+            // drawer makes E a TOGGLE, `Drawer.SetGhostSignal` reproduces the PULL rather than the
+            // resulting state, and so the drawer's openness is the PARITY of how many past selves
+            // have reached for it - one ghost opens it, two leave it shut, three open it again. Every
+            // ball inside gates on `IsFullyOpen`, so on even iterations a ghost's take, and with it
+            // that ghost's whole delivery, silently does not happen.
+            //
+            // WHAT BUYS THAT BACK: a drawer that cannot be shut is open FOREVER, and it stands
+            // between the player and the other bay. `Drawer.WantsInteractHint` keeps an OPEN closable
+            // drawer in the aim contest, and its front has slid 0.23m nearer the eye, so it wins the
+            // press from in front of the bay below it - play reported the lower bay as unopenable.
+            // Being able to shut it is the only way out of that from inside the game.
+            //
+            // The trade was made deliberately and stated: a drawer found shut is an errand that
+            // FAILS, which is a legible outcome the player can see and undo by pulling it open,
+            // where a bay that can never be opened is not.
             drawerComp.canClose = true;
             // Two thirds out, like the nightstand's: leaving a third of the tray inside the carcass is
             // what reads as a drawer rather than as a tray hanging in mid-air.
@@ -10788,6 +11182,278 @@ namespace IterationRoom.EditorTools
             item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
             // The heaviest thing one hand can carry to room2-7, and the only one of its kind.
             MakeWeighable(item, WeightCube);
+        }
+
+        // NINE BILLIARD BALLS, SPILLED ACROSS BOTH TRAYS OF THE CHEST - and four of them are the
+        // keys to room2-0.
+        //
+        // WHY NINE AND NOT SIXTEEN. The four the puzzle wants are 2, 3, 4 and 5, so the decoys have to
+        // reach past 5 or the answer is "the ones that are there"; 1 and 6, 7, 8 and the cue ball do
+        // that, and a drawer that has to be searched for a number is a drawer with a handful in it
+        // rather than a rack. Sixteen would also be sixteen more E fixtures a square apart in a volume
+        // the two drawer fronts already contest.
+        //
+        // ONE ID EACH, which is the opposite of every other multiple object in this building. Pins,
+        // buckets, ducks and beach balls are SUPPLIES - an id naming several interchangeable things -
+        // because a recorded "took a Tool" only ever meant "a free one". Here which one is the entire
+        // question, so nine ids with one member each: a pedestal's socket names the ball it wants and
+        // `ItemRegistry` can never hand it a different one.
+        //
+        // NO `Weighable`, AND THAT IS DELIBERATE RATHER THAN FORGOTTEN. Room2-7's target of 26.7kg has
+        // exactly one solution across everything cycle 2 can carry - one duck, one beach ball, one
+        // full bucket, one axe, one cube - with the nearest miss 0.1kg away. A ball worth anything at
+        // all destroys that: at a real 0.17kg the search finds FORTY-NINE ways to make the number, and
+        // at 0.16 or 0.20 it is much the same, because nine small addends fill every gap the coarse
+        // weights leave. The scale's own sign already names the five things it accepts, so a ball
+        // reading zero is what that sign says rather than a lie it tells.
+        private static CarryableItem[] BuildBilliardBalls(Drawer upper, Drawer lower,
+                                                          float frontW, float frontH, float trayD)
+        {
+            string path = PlayDir + "/billiard_balls.glb";
+            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (source == null)
+            {
+                Debug.LogError($"[SceneBuilder] {path} is missing - room2-0 has no keys and cannot "
+                             + "be finished.");
+                return new CarryableItem[0];
+            }
+
+            // INSTANTIATED ONCE AND ROBBED, like the chess set. Every ball in this file is a separate
+            // node with its own textured material sitting at the origin on top of all the others, so
+            // "one ball" is one child pulled out of the set - and pulling a child out of a prefab
+            // instance is exactly the restructuring Unity refuses, hence the unpack.
+            GameObject set = (GameObject)PrefabUtility.InstantiatePrefab(source);
+            PrefabUtility.UnpackPrefabInstance(set, PrefabUnpackMode.Completely,
+                                               InteractionMode.AutomatedAction);
+
+            float y = -frontH / 2f + 0.016f + BilliardBallSize / 2f;
+
+            Sprite icon = BilliardIcon();
+            var built = new System.Collections.Generic.List<CarryableItem>();
+
+            foreach (var spec in BilliardPlan)
+            {
+                Transform node = FindChildByName(set.transform, spec.node);
+                if (node == null)
+                {
+                    Debug.LogError($"[SceneBuilder] billiard_balls.glb has no node '{spec.node}' - "
+                                 + "a re-export has renamed the balls.");
+                    continue;
+                }
+
+                Drawer drawer = spec.top ? upper : lower;
+                built.Add(MakeBilliardBall(node, drawer, spec.id,
+                    new Vector3(spec.x, y, spec.z), spec.yaw, icon));
+            }
+
+            Object.DestroyImmediate(set);
+            Debug.Log($"[SceneBuilder] Billiards: {built.Count} balls of {BilliardBallSize:0.000}m "
+                    + "across both bays of Dresser2_1");
+            return built.ToArray();
+        }
+
+        // WHICH NINE, AND WHERE EACH ONE LIES. Positions are in the drawer BODY's frame, so the balls
+        // ride out with the tray instead of hanging in the air in front of a shut drawer - the same
+        // parenting the pins have.
+        //
+        // Two staggered rows rather than a line, and no two centres closer than 0.17 against a 0.13
+        // ball: a drawer somebody tipped balls into rather than a rack, and it still has to be
+        // possible to aim at one of them.
+        //
+        // A FIELD RATHER THAN A LOCAL, because room2-0 reads it too: its four recesses will take a
+        // press for any ball in the game (`FinalSlot.offerItemIds`), and that list has to BE this one.
+        // Two hand-kept lists of the same nine ids is how a pedestal ends up silently refusing to
+        // prompt for a ball that exists.
+        private static readonly (string node, string id, bool top, float x, float z, float yaw)[]
+            BilliardPlan =
+        {
+            ("Ball1",      "1",   true,  -0.245f, 0.095f,   24f),
+            ("Ball2",      "2",   true,  -0.105f, 0.235f,  -63f),
+            ("Ball5",      "5",   true,   0.045f, 0.105f,  141f),
+            ("Ball7",      "7",   true,   0.185f, 0.245f,  -17f),
+            ("Ball Clube", "Cue", true,   0.295f, 0.115f,   88f),
+            ("Ball3",      "3",   false, -0.230f, 0.230f,  -38f),
+            ("Ball4",      "4",   false, -0.075f, 0.105f,  112f),
+            ("Ball6",      "6",   false,  0.115f, 0.240f,   -9f),
+            ("Ball8",      "8",   false,  0.265f, 0.120f,   57f),
+        };
+
+        // Every ball id in the game, in the order above. What a room2-0 pedestal entertains a press
+        // for - see FinalSlot.offerItemIds.
+        private static string[] BilliardIds()
+        {
+            var ids = new string[BilliardPlan.Length];
+            for (int i = 0; i < ids.Length; i++) ids[i] = BilliardIdPrefix + BilliardPlan[i].id;
+            return ids;
+        }
+
+        // One ball, out of the set and into a drawer.
+        private static CarryableItem MakeBilliardBall(Transform node, Drawer drawer, string id,
+                                                      Vector3 localPos, float yaw, Sprite icon)
+        {
+            GameObject root = new GameObject("Billiard_" + id);
+            root.transform.SetParent(drawer.drawerBody, false);
+            root.transform.localPosition = localPos;
+
+            node.SetParent(root.transform, false);
+            node.localPosition = Vector3.zero;
+            node.name = "Visual";
+            GameObject model = node.gameObject;
+
+            // THE NUMBER UP, AND THE BALL SIZED - both MEASURED off the mesh rather than written
+            // down, and in one pass because both answers come from the same vertex list.
+            //
+            // **NOT `ModelBounds`**, which is what every other model here is sized by and is wrong for
+            // this one. That helper transforms the eight CORNERS OF THE MESH'S BOX into the target
+            // frame, which is exact for a box and an over-estimate for anything else - and the
+            // over-estimate depends on the ROTATION. Scattering nine balls through nine different
+            // orientations therefore measured nine different "widths": the first build came out with
+            // radii spread 23% apart, which is a drawer of visibly mismatched balls. A sphere has to
+            // be measured as a sphere, so this takes the extent of the actual vertices.
+            (Vector3 centre, float radius) = OrientBilliardBall(root.transform, model, yaw, -22f);
+
+            float modelScale = radius > 0.0001f ? BilliardBallSize / (2f * radius) : 1f;
+            model.transform.localScale = Vector3.one * modelScale;
+            // Centred on the root, because `floorY` below is half the ball's height - which is only
+            // true if the root sits at the middle of it.
+            model.transform.localPosition = -centre * modelScale;
+
+            // The pin's volume, because this is the pin's problem: a small object lying in a drawer
+            // that has to be reachable from where a player stands at the chest. Nine of these overlap
+            // heavily and that is fine and expected - `ItemRegistry.AimedTakeable` hands the press to
+            // whichever ball is nearest the crosshair, which is the same arbitration thirty-two chess
+            // pieces a square apart already run on.
+            BoxCollider trigger = root.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            trigger.size = Vector3.one * 0.7f;
+
+            CarryableItem item = root.AddComponent<CarryableItem>();
+            item.itemId = BilliardIdPrefix + id;
+            item.displayName = "BALL " + (id == "Cue" ? "-" : id);
+            item.icon = icon;
+            item.floorY = BilliardBallSize / 2f;
+            item.handLocalPosition = HandPoseFor(BilliardBallSize);
+            // The root is unscaled and so is the drawer body, so this only says "do not change it".
+            item.handLocalScale = Vector3.one;
+            item.requiresOpenDrawer = drawer;
+            // AND A DROP LEAVES THE DRAWER BEHIND. The chest itself, which does not move - the tray
+            // does. See CarryableItem.dropParent: a ball put down in room2-0 must not slide 0.22m
+            // sideways every time a past self opens a drawer at the other end of the building.
+            item.dropParent = drawer.transform.parent;
+            item.audioSource = MakeSource(root.transform, "PickupAudio", 1f, 0.8f);
+            item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+            // NO MakeWeighable - see BuildBilliardBalls.
+            return item;
+        }
+
+        // WHICH WAY THE PRINTED NUMBER FACES, AND HOW BIG THE BALL IS. Both off the mesh, and in one
+        // pass because they read the same vertices.
+        //
+        // THE NUMBER. It sits at the middle of this model's texture, so the vertex whose UV is nearest
+        // (0.5, 0.5) is the point it is printed on - and the sphere being centred on its own origin,
+        // that vertex's position IS the outward direction. A written euler would be a guess about the
+        // product of the export's axis convention and Unity's import correction, and a ball with its
+        // number underneath is indistinguishable from a bug in the drawer.
+        //
+        // `tilt` leans the ball over once the number is upright, and `yaw` spins it about the room's
+        // up afterwards - so the number ends up `tilt` degrees off vertical in a direction `yaw`
+        // chooses. That is the scatter: a negative tilt leans it toward the front of the drawer, which
+        // is the side the player is standing on.
+        //
+        // The spin also makes the digit's own upright IRRELEVANT, which is why it is not measured:
+        // whatever in-plane rotation it lands at reads as one more ball tipped into a drawer.
+        //
+        // Returns the ball's centre and radius IN THE ROOT'S FRAME, before scaling. Rotation-invariant
+        // by construction, which `ModelBounds` is not - see the call site.
+        private static (Vector3 centre, float radius) OrientBilliardBall(
+            Transform root, GameObject model, float yaw, float tilt)
+        {
+            MeshFilter filter = model.GetComponentInChildren<MeshFilter>();
+            Mesh mesh = filter != null ? filter.sharedMesh : null;
+            Vector3[] verts = mesh != null ? mesh.vertices : null;
+            Vector2[] uvs = mesh != null ? mesh.uv : null;
+
+            if (verts == null || verts.Length == 0)
+            {
+                Debug.LogError($"[SceneBuilder] {model.name}: no readable mesh, so the ball is "
+                             + "unmeasured and unoriented.");
+                return (Vector3.zero, 0f);
+            }
+
+            if (uvs == null || uvs.Length != verts.Length)
+            {
+                Debug.LogWarning($"[SceneBuilder] {model.name}: no readable UVs, so the number is "
+                               + "wherever the export left it. Scatter only.");
+                model.transform.localRotation = Quaternion.AngleAxis(yaw, Vector3.up)
+                                              * model.transform.localRotation;
+            }
+            else
+            {
+                int best = -1;
+                float bestSqr = float.MaxValue;
+                Vector2 middle = new Vector2(0.5f, 0.5f);
+                for (int i = 0; i < uvs.Length; i++)
+                {
+                    float d = (uvs[i] - middle).sqrMagnitude;
+                    if (d >= bestSqr) continue;
+                    bestSqr = d;
+                    best = i;
+                }
+
+                Vector3 outward = filter.transform.TransformPoint(verts[best]) - filter.transform.position;
+                Vector3 inRoot = root.InverseTransformDirection(outward);
+                if (inRoot.sqrMagnitude > 1e-8f)
+                    model.transform.localRotation =
+                          Quaternion.AngleAxis(yaw, Vector3.up)
+                        * Quaternion.AngleAxis(tilt, Vector3.right)
+                        * Quaternion.FromToRotation(inRoot.normalized, Vector3.up)
+                        * model.transform.localRotation;
+            }
+
+            // MEASURED AFTER THE ROTATION, which costs nothing to say and is free to be true: a
+            // radius about a centre does not care how the thing is turned. Stated this way round so
+            // the pair is unambiguously the pose that is kept.
+            Vector3 min = root.InverseTransformPoint(filter.transform.TransformPoint(verts[0]));
+            Vector3 max = min;
+            for (int i = 1; i < verts.Length; i++)
+            {
+                Vector3 v = root.InverseTransformPoint(filter.transform.TransformPoint(verts[i]));
+                min = Vector3.Min(min, v);
+                max = Vector3.Max(max, v);
+            }
+
+            Vector3 centre = (min + max) * 0.5f;
+            float radius = 0f;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                Vector3 v = root.InverseTransformPoint(filter.transform.TransformPoint(verts[i]));
+                radius = Mathf.Max(radius, (v - centre).magnitude);
+            }
+
+            return (centre, radius);
+        }
+
+        // Depth-first by exact name. `Transform.Find` walks a PATH and these nodes are two levels down
+        // under a machine-generated root, so the path would be a second thing to keep in step with the
+        // export.
+        private static Transform FindChildByName(Transform root, string name)
+        {
+            foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
+                if (t.name == name) return t;
+
+            return null;
+        }
+
+        // A BALL WITH A NUMBER SPOT ON IT, for the HUD line that says what is in the hand. A plain
+        // disc would be the beach ball's icon at a different size; the white circle bitten out of the
+        // middle is the one mark that separates a billiard ball from every other sphere in this game.
+        private static Sprite BilliardIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 mid = new Vector2(0.5f, 0.5f);
+            icon.Disc(mid, 0.40f);
+            icon.Disc(mid, 0.155f, -1f);
+            return SaveSprite(icon, "icon_billiard");
         }
 
         private static (Drawer, CarryableItem[]) BuildNightstand(Transform parent, string pinItemId = ToolItemId)
@@ -10979,6 +11645,10 @@ namespace IterationRoom.EditorTools
             // better: past about 25 degrees the handle turns broadside and becomes a black slab.
             toolItem.handLocalPosition = new Vector3(0.14f, -0.125f, 0.32f);
             toolItem.requiresOpenDrawer = drawer;
+            // The nightstand's carcass, for the reason the billiard balls' is the chest's - see
+            // CarryableItem.dropParent. A pin is normally used in the room it lives in, so this has
+            // never visibly mattered; it is still the same latent fault.
+            toolItem.dropParent = drawer.transform.parent;
             toolItem.audioSource = MakeSource(toolRoot.transform, "PickupAudio", 1f, 0.8f);
             toolItem.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
 
@@ -13158,13 +13828,18 @@ namespace IterationRoom.EditorTools
             titleRect.sizeDelta = new Vector2(1000f, 100f);
             titleRect.anchoredPosition = new Vector2(0f, 170f);
 
-            Button resume = MakeMenuButton(root.transform, "ResumeButton", "RESUME", new Vector2(0f, 40f));
-            Button toMenu = MakeMenuButton(root.transform, "MenuButton", "MAIN MENU", new Vector2(0f, -40f));
-            Button quit = MakeMenuButton(root.transform, "QuitButton", "QUIT", new Vector2(0f, -120f));
+            // FOUR ROWS NOW, at the same 80 pitch the three had. RESTART CYCLE sits SECOND rather
+            // than last: it is an action on the run like RESUME, where MAIN MENU and QUIT are ways
+            // out of the game - and putting a destructive one at the bottom of a column is how it
+            // gets clicked by somebody reaching for QUIT.
+            Button resume = MakeMenuButton(root.transform, "ResumeButton", "RESUME", new Vector2(0f, 80f));
+            Button restart = MakeMenuButton(root.transform, "RestartButton", "RESTART CYCLE", new Vector2(0f, 0f));
+            Button toMenu = MakeMenuButton(root.transform, "MenuButton", "MAIN MENU", new Vector2(0f, -80f));
+            Button quit = MakeMenuButton(root.transform, "QuitButton", "QUIT", new Vector2(0f, -160f));
 
             // Below the buttons rather than above them: this is a setting, not an action, and the
-            // three things a paused player most often wants stay where they were.
-            const float settingsY = -200f;
+            // things a paused player most often wants stay at the top.
+            const float settingsY = -240f;
             MakeRowLabel(root.transform, "SensitivityLabel", "MOUSE SENSITIVITY",
                 new Vector2(-150f, settingsY), new Vector2(260f, 30f), TextAnchor.MiddleLeft);
             Slider sensitivity = MakeSlider(root.transform, "SensitivitySlider",
@@ -13185,12 +13860,13 @@ namespace IterationRoom.EditorTools
             hintRect.anchorMin = new Vector2(0.5f, 0.5f);
             hintRect.anchorMax = new Vector2(0.5f, 0.5f);
             hintRect.sizeDelta = new Vector2(600f, 36f);
-            hintRect.anchoredPosition = new Vector2(0f, -262f);
+            hintRect.anchoredPosition = new Vector2(0f, -302f);
 
             PauseMenu pause = root.AddComponent<PauseMenu>();
             pause.playerController = playerController;
             pause.group = group;
             pause.resumeButton = resume;
+            pause.restartButton = restart;
             pause.menuButton = toMenu;
             pause.quitButton = quit;
             pause.sensitivitySlider = sensitivity;
@@ -13293,12 +13969,42 @@ namespace IterationRoom.EditorTools
             timeDetailRect.sizeDelta = new Vector2(1000f, 34f);
             timeDetailRect.anchoredPosition = new Vector2(0f, -72f);
 
+            // THE PER-CYCLE BREAKDOWN, in the same place `timeDetail` sits and taller. The two are
+            // never on screen together - a one-cycle run gets the single TOTAL TIME line this card
+            // has always had, and a run through several gets the table instead - so they can share
+            // the space rather than one of them leaving a gap in the layout of the other.
+            //
+            // ANCHORED AT ITS TOP, which is what lets it grow downward as cycles are added without
+            // anything above it moving: the rect is centred at -166 and 200 tall, so its first line
+            // starts at -66 whether there are two cycles in it or five.
+            GameObject breakdownGO = new GameObject("Breakdown");
+            breakdownGO.transform.SetParent(cardGO.transform, false);
+            Text breakdown = breakdownGO.AddComponent<Text>();
+            breakdown.font = UIFont();
+            breakdown.fontSize = 18;
+            breakdown.alignment = TextAnchor.UpperCenter;
+            // The same dim red as `timeDetail`, because it IS `timeDetail` when there is more than
+            // one cycle to report - a record, not a verdict.
+            breakdown.color = new Color(1f, 0.35f, 0.35f, 0.6f);
+            // Padded columns need a monospace cell, which UIFont() is - see EndingSequence.Row.
+            breakdown.lineSpacing = 1.25f;
+            breakdown.text = string.Empty;
+            breakdown.horizontalOverflow = HorizontalWrapMode.Overflow;
+            breakdown.verticalOverflow = VerticalWrapMode.Overflow;
+            breakdown.raycastTarget = false;
+            RectTransform breakdownRect = breakdown.GetComponent<RectTransform>();
+            breakdownRect.anchorMin = new Vector2(0.5f, 0.5f);
+            breakdownRect.anchorMax = new Vector2(0.5f, 0.5f);
+            breakdownRect.sizeDelta = new Vector2(1000f, 200f);
+            breakdownRect.anchoredPosition = new Vector2(0f, -166f);
+
             EndingSequence ending = root.AddComponent<EndingSequence>();
             ending.scrimGroup = scrimGroup;
             ending.cardGroup = cardGroup;
             ending.headline = headline;
             ending.detail = detail;
             ending.timeDetail = timeDetail;
+            ending.breakdown = breakdown;
             ending.menuScene = "MainMenu";
 
             return ending;
@@ -13484,7 +14190,12 @@ namespace IterationRoom.EditorTools
         // Which silhouette a recess is cut to. Named rather than passed as a mesh, because the
         // caller is stating what the hole IS for, and where that mesh comes from is this file's
         // problem - two of the three are Unity primitives and the third has to be built.
-        private enum SlotShape { Square, Round, Triangle }
+        // `Dish` is the odd one out and says so: the other three are FLAT SILHOUETTES faked into
+        // reading as wells, and this is a real hemispherical cavity with real geometry. Room2-0 needed
+        // it because a flat disc says "something round belongs here" and the room has to say
+        // "a BILLIARD BALL belongs here" - a bowl cut to the ball's own radius is the only shape that
+        // can only be for a ball.
+        private enum SlotShape { Square, Round, Triangle, Dish }
 
         // One recess: a coloured rim with a darker hole inside it, and a seat at the bottom for
         // whatever goes in.
@@ -13493,8 +14204,19 @@ namespace IterationRoom.EditorTools
         // depth is the pair: a rim standing 12mm proud of the plate and a near-black floor 4mm above
         // it, so the eye takes the dark shape as the inside of a well. That is the same trick the
         // plinth's own TopPlate already plays - near-black among white surfaces reads as a cavity.
+        // `reachCentre` / `reachSize` default to cycle 1's console, which is a 1.15m-deep block
+        // approached from -Z. Room2-0's pedestals are 0.80 deep and approached from +Z, so the volume
+        // has to lean the other way - a reach biased toward the side the player is NOT on is the exact
+        // fault that made this recess unreachable on its first build.
+        // `dishPlateHalf` is the cap's footprint, and only `SlotShape.Dish` uses it: that shape
+        // replaces the caller's top plate rather than sitting on one, because a cavity has to have
+        // material taken OUT of the thing above it and this project has no CSG. Everything else
+        // ignores it.
         private static FinalSlot BuildFinalSlot(Transform parent, string name, SlotShape shape,
-                                                Vector3 localTop, float size, Color accent)
+                                                Vector3 localTop, float size, Color accent,
+                                                Vector3 reachCentre = default,
+                                                Vector3 reachSize = default,
+                                                Vector2 dishPlateHalf = default)
         {
             const float rimProud = 0.012f;
             const float floorProud = 0.004f;
@@ -13509,17 +14231,59 @@ namespace IterationRoom.EditorTools
             Material rimMat = MakeEmissiveMaterial("FinalSlotRim", Color.white, 1f);
             Material holeMat = MakeColorMaterial("FinalSlotHole", new Color(0.03f, 0.03f, 0.035f));
 
-            GameObject rim = ShapePrim(shape, "Rim", root.transform,
-                new Vector3(0f, rimProud / 2f, 0f), new Vector3(size, rimProud, size), rimMat);
-            ShapePrim(shape, "Hole", root.transform,
-                new Vector3(0f, floorProud / 2f + rimProud * 0.35f, 0f),
-                new Vector3(size * rimInset, floorProud, size * rimInset), holeMat);
-
-            // Where the object lands. At the floor of the well rather than on the plate, so an
-            // inserted object sits IN the recess - the seat is the socket CarryableItem parents to.
+            GameObject rim;
             GameObject seat = new GameObject("Seat");
             seat.transform.SetParent(root.transform, false);
-            seat.transform.localPosition = new Vector3(0f, rimProud * 0.35f + floorProud, 0f);
+
+            if (shape == SlotShape.Dish)
+            {
+                float bowl = size / 2f;
+                // Enough material under the pole that the cap is a solid thing with a hole in it
+                // rather than a shell that meets itself at a point.
+                float thickness = bowl + 0.006f;
+
+                // THE CAP: the top of the pedestal, with the bowl taken out of the middle of it. One
+                // mesh, because the plate's top face and the bowl's inside are the same surface -
+                // a hole is not a separate object, it is the absence of one.
+                GameObject cap = new GameObject("Cap");
+                cap.transform.SetParent(root.transform, false);
+                cap.AddComponent<MeshFilter>().sharedMesh = BallSocketMesh(
+                    $"BallSocket_{Mathf.RoundToInt(bowl * 1000f)}"
+                    + $"_{Mathf.RoundToInt(dishPlateHalf.x * 1000f)}"
+                    + $"x{Mathf.RoundToInt(dishPlateHalf.y * 1000f)}",
+                    dishPlateHalf.x, dishPlateHalf.y, bowl, thickness);
+                cap.AddComponent<MeshRenderer>().sharedMaterial = holeMat;
+
+                // THE RING ROUND THE MOUTH, and it is the lit part. `FinalSlot` paints one renderer
+                // to say idle / ready / filled / refused, and painting the whole cap would light a
+                // dark inset the size of the pedestal top - the mark has to be AT the hole, which is
+                // the thing the player is aiming at.
+                GameObject ringGO = new GameObject("Rim");
+                ringGO.transform.SetParent(root.transform, false);
+                // A hair proud, or it z-fights the cap's top face along the whole ring.
+                ringGO.transform.localPosition = new Vector3(0f, 0.0015f, 0f);
+                ringGO.AddComponent<MeshFilter>().sharedMesh = AnnulusMesh(
+                    $"BallSocketRing_{Mathf.RoundToInt(bowl * 1000f)}", bowl, bowl + 0.026f);
+                ringGO.AddComponent<MeshRenderer>().sharedMaterial = rimMat;
+                rim = ringGO;
+
+                // AT THE MOUTH, WHICH IS THE BOWL'S OWN CENTRE - so a ball seated here sits exactly
+                // half in and half out, the way a ball rests in a dish cut to its own radius. That is
+                // the whole reason the bowl is a hemisphere and not a cup.
+                seat.transform.localPosition = Vector3.zero;
+            }
+            else
+            {
+                rim = ShapePrim(shape, "Rim", root.transform,
+                    new Vector3(0f, rimProud / 2f, 0f), new Vector3(size, rimProud, size), rimMat);
+                ShapePrim(shape, "Hole", root.transform,
+                    new Vector3(0f, floorProud / 2f + rimProud * 0.35f, 0f),
+                    new Vector3(size * rimInset, floorProud, size * rimInset), holeMat);
+
+                // Where the object lands. At the floor of the well rather than on the plate, so an
+                // inserted object sits IN the recess - the seat is the socket CarryableItem parents to.
+                seat.transform.localPosition = new Vector3(0f, rimProud * 0.35f + floorProud, 0f);
+            }
 
             // THE REACH, and it has to reach past the console rather than sit over it. The recesses
             // are in the TOP of a 1.15m-deep block, so a volume centred on a recess is inside the
@@ -13532,8 +14296,8 @@ namespace IterationRoom.EditorTools
             // recesses, and which one answers is decided by what is in their hand.
             BoxCollider reach = root.AddComponent<BoxCollider>();
             reach.isTrigger = true;
-            reach.center = new Vector3(0f, -0.55f, -0.45f);
-            reach.size = new Vector3(1.5f, 2.6f, 2.7f);
+            reach.center = reachCentre == Vector3.zero ? new Vector3(0f, -0.55f, -0.45f) : reachCentre;
+            reach.size = reachSize == Vector3.zero ? new Vector3(1.5f, 2.6f, 2.7f) : reachSize;
 
             FinalSlot slot = root.AddComponent<FinalSlot>();
             slot.seat = seat.transform;
@@ -13547,6 +14311,165 @@ namespace IterationRoom.EditorTools
             // a carryable yet, and a slot that names an id nothing wears would prompt for a press
             // that cannot succeed. See TODO.md.
             return slot;
+        }
+
+        // A BALL SOCKET: a rectangular cap with a hemispherical bowl sunk into the middle of it.
+        //
+        // Its origin is the BOWL'S CENTRE, which is also the plate's top plane - so the caller places
+        // it at the height the pedestal's top surface should be and everything else follows.
+        //
+        // **EVERY FACE IS DOUBLE-SIDED**, wound both ways with opposite normals, which is the same
+        // thing `FlatPanelMesh` does and for a better reason here: a hand-derived winding is the one
+        // kind of mistake in this file that cannot be checked without rendering it, and the cost is
+        // nothing. Nothing is lost to z-fighting either - of any coincident pair exactly one is
+        // front-facing from any camera, so the other is culled rather than fighting. The back faces
+        // are all inside a sealed box (the cap's own walls and the pedestal body under it) and are
+        // never seen.
+        private static Mesh BallSocketMesh(string assetName, float halfX, float halfZ,
+                                           float bowlRadius, float thickness)
+        {
+            return SaveGeneratedMesh(assetName, () =>
+            {
+                const int segments = 48;
+                const int rings = 10;
+
+                var verts = new System.Collections.Generic.List<Vector3>();
+                var norms = new System.Collections.Generic.List<Vector3>();
+                var tris = new System.Collections.Generic.List<int>();
+
+                void Face(Vector3[] corners, Vector3 n)
+                {
+                    for (int side = 0; side < 2; side++)
+                    {
+                        int o = verts.Count;
+                        foreach (Vector3 c in corners) { verts.Add(c); norms.Add(side == 0 ? n : -n); }
+                        for (int i = 1; i + 1 < corners.Length; i++)
+                        {
+                            if (side == 0) { tris.Add(o); tris.Add(o + i); tris.Add(o + i + 1); }
+                            else { tris.Add(o); tris.Add(o + i + 1); tris.Add(o + i); }
+                        }
+                    }
+                }
+
+                // THE ANGLES ROUND THE CAP, and the four CORNERS are in the list on purpose: without
+                // them a segment can straddle a corner, and the side wall built on it is a single
+                // non-planar quad bridging two faces of the box.
+                var angles = new System.Collections.Generic.List<float>();
+                for (int i = 0; i < segments; i++) angles.Add(i / (float)segments * Mathf.PI * 2f);
+                angles.Add(Mathf.Atan2(halfZ, halfX));
+                angles.Add(Mathf.Atan2(halfZ, -halfX));
+                angles.Add(Mathf.Atan2(-halfZ, -halfX) + Mathf.PI * 2f);
+                angles.Add(Mathf.Atan2(-halfZ, halfX) + Mathf.PI * 2f);
+                angles.Sort();
+
+                // Where a ray at this angle leaves the rectangle.
+                Vector3 OnEdge(float a)
+                {
+                    float c = Mathf.Cos(a), s = Mathf.Sin(a);
+                    float t = Mathf.Min(halfX / Mathf.Max(0.0001f, Mathf.Abs(c)),
+                                        halfZ / Mathf.Max(0.0001f, Mathf.Abs(s)));
+                    return new Vector3(c * t, 0f, s * t);
+                }
+                Vector3 OnMouth(float a) =>
+                    new Vector3(Mathf.Cos(a) * bowlRadius, 0f, Mathf.Sin(a) * bowlRadius);
+
+                for (int i = 0; i < angles.Count; i++)
+                {
+                    float a0 = angles[i], a1 = angles[(i + 1) % angles.Count];
+                    Vector3 e0 = OnEdge(a0), e1 = OnEdge(a1);
+                    Vector3 m0 = OnMouth(a0), m1 = OnMouth(a1);
+
+                    // The top face: the strip between the mouth of the bowl and the edge of the cap.
+                    Face(new[] { m0, m1, e1, e0 }, Vector3.up);
+
+                    // The side wall under that strip. Its normal is the BOX face it lies on, decided
+                    // from the midpoint - which is unambiguous because the corners are vertices.
+                    Vector3 mid = (e0 + e1) * 0.5f;
+                    Vector3 outward = Mathf.Abs(Mathf.Abs(mid.x) - halfX) < 0.0005f
+                        ? new Vector3(Mathf.Sign(mid.x), 0f, 0f)
+                        : new Vector3(0f, 0f, Mathf.Sign(mid.z));
+                    Vector3 down = Vector3.down * thickness;
+                    Face(new[] { e0, e1, e1 + down, e0 + down }, outward);
+                }
+
+                // THE BOWL. Latitude bands from the mouth down to the pole, on the sphere centred on
+                // this mesh's own origin - so a vertex's position IS its outward direction and the
+                // face the player sees, which is the INSIDE, takes the negative of it.
+                for (int r = 0; r < rings; r++)
+                {
+                    float lat0 = r / (float)rings * Mathf.PI * 0.5f;
+                    float lat1 = (r + 1) / (float)rings * Mathf.PI * 0.5f;
+                    float r0 = Mathf.Cos(lat0) * bowlRadius, y0 = -Mathf.Sin(lat0) * bowlRadius;
+                    float r1 = Mathf.Cos(lat1) * bowlRadius, y1 = -Mathf.Sin(lat1) * bowlRadius;
+
+                    for (int i = 0; i < angles.Count; i++)
+                    {
+                        float a0 = angles[i], a1 = angles[(i + 1) % angles.Count];
+                        Vector3 p00 = new Vector3(Mathf.Cos(a0) * r0, y0, Mathf.Sin(a0) * r0);
+                        Vector3 p01 = new Vector3(Mathf.Cos(a1) * r0, y0, Mathf.Sin(a1) * r0);
+                        Vector3 p10 = new Vector3(Mathf.Cos(a0) * r1, y1, Mathf.Sin(a0) * r1);
+                        Vector3 p11 = new Vector3(Mathf.Cos(a1) * r1, y1, Mathf.Sin(a1) * r1);
+
+                        // The last band closes on the pole, where both inner points are the same
+                        // vertex - a triangle rather than a quad, so no zero-area faces are emitted.
+                        Vector3 n = -((p00 + p01 + p10 + p11) * 0.25f).normalized;
+                        if (r1 < 0.0001f) Face(new[] { p00, p01, new Vector3(0f, y1, 0f) }, n);
+                        else Face(new[] { p00, p01, p11, p10 }, n);
+                    }
+                }
+
+                var mesh = new Mesh { name = assetName };
+                mesh.indexFormat = verts.Count > 65000
+                    ? UnityEngine.Rendering.IndexFormat.UInt32
+                    : UnityEngine.Rendering.IndexFormat.UInt16;
+                mesh.SetVertices(verts);
+                mesh.SetNormals(norms);
+                mesh.SetTriangles(tris, 0);
+                mesh.RecalculateBounds();
+                return mesh;
+            });
+        }
+
+        // A FLAT RING, lying in the XZ plane about its own origin. The lit mark round the mouth of a
+        // ball socket, and double-sided for the reason the socket is.
+        private static Mesh AnnulusMesh(string assetName, float inner, float outer)
+        {
+            return SaveGeneratedMesh(assetName, () =>
+            {
+                const int segments = 48;
+                var verts = new System.Collections.Generic.List<Vector3>();
+                var norms = new System.Collections.Generic.List<Vector3>();
+                var tris = new System.Collections.Generic.List<int>();
+
+                for (int i = 0; i < segments; i++)
+                {
+                    float a0 = i / (float)segments * Mathf.PI * 2f;
+                    float a1 = (i + 1) / (float)segments * Mathf.PI * 2f;
+                    Vector3 i0 = new Vector3(Mathf.Cos(a0) * inner, 0f, Mathf.Sin(a0) * inner);
+                    Vector3 i1 = new Vector3(Mathf.Cos(a1) * inner, 0f, Mathf.Sin(a1) * inner);
+                    Vector3 o0 = new Vector3(Mathf.Cos(a0) * outer, 0f, Mathf.Sin(a0) * outer);
+                    Vector3 o1 = new Vector3(Mathf.Cos(a1) * outer, 0f, Mathf.Sin(a1) * outer);
+
+                    for (int side = 0; side < 2; side++)
+                    {
+                        int o = verts.Count;
+                        foreach (Vector3 c in new[] { i0, i1, o1, o0 })
+                        {
+                            verts.Add(c);
+                            norms.Add(side == 0 ? Vector3.up : Vector3.down);
+                        }
+                        if (side == 0) { tris.Add(o); tris.Add(o + 1); tris.Add(o + 2); tris.Add(o); tris.Add(o + 2); tris.Add(o + 3); }
+                        else { tris.Add(o); tris.Add(o + 2); tris.Add(o + 1); tris.Add(o); tris.Add(o + 3); tris.Add(o + 2); }
+                    }
+                }
+
+                var mesh = new Mesh { name = assetName };
+                mesh.SetVertices(verts);
+                mesh.SetNormals(norms);
+                mesh.SetTriangles(tris, 0);
+                mesh.RecalculateBounds();
+                return mesh;
+            });
         }
 
         // `bevelled` swaps the primitive for a generated chamfered version of the same silhouette.
@@ -14598,9 +15521,20 @@ namespace IterationRoom.EditorTools
             subtitleRect.sizeDelta = new Vector2(1400f, 90f);
             subtitleRect.anchoredPosition = new Vector2(0f, 190f);
 
-            Button playButton = MakeMenuButton(menuGO.transform, "PlayButton", "PLAY", new Vector2(0f, -30f));
+            // CONTINUE FIRST, since 2026-08-20. It is the entry a returning player wants and the one
+            // that needs no decision; PLAY under it opens the cycle picker, which is a decision. The
+            // two swapped meanings on the same day - see MainMenu.Play and MainMenu.Continue.
+            //
+            // CONTINUE is HIDDEN by `MainMenu.Start` when nothing has been played, so a first-time
+            // title screen is PLAY / SETTINGS / QUIT with a gap where this is. The gap is deliberate:
+            // shuffling the column up would move PLAY under the player's cursor between sessions.
+            // THREE WAYS IN, AND EACH MEANS ONE THING: resume, start from the beginning, jump to a
+            // cycle. The two a player uses have no page in between; only the rare one does.
             Button continueButton = MakeMenuButton(menuGO.transform, "ContinueButton",
-                                                   "CONTINUE", new Vector2(0f, -118f));
+                                                   "CONTINUE", new Vector2(0f, -30f));
+            Button playButton = MakeMenuButton(menuGO.transform, "PlayButton", "PLAY", new Vector2(0f, -118f));
+            Button cycleSelectButton = MakeMenuButton(menuGO.transform, "CycleSelectButton",
+                                                      "CYCLE SELECT", new Vector2(0f, -206f));
             // ~~TEST: CYCLE BOUNDARY~~ REMOVED 2026-08-15, by request. It was a development shortcut
             // into the cycle boundary with cycle 1 already finished, sitting on the title screen
             // between CONTINUE and QUIT and labelled loudly so it could not be mistaken for content.
@@ -14612,28 +15546,32 @@ namespace IterationRoom.EditorTools
             //
             // QUIT moves up into the gap rather than leaving a hole in the column.
             Button settingsButton = MakeMenuButton(menuGO.transform, "SettingsButton",
-                                                   "SETTINGS", new Vector2(0f, -206f));
-            Button quitButton = MakeMenuButton(menuGO.transform, "QuitButton", "QUIT", new Vector2(0f, -294f));
+                                                   "SETTINGS", new Vector2(0f, -294f));
+            Button quitButton = MakeMenuButton(menuGO.transform, "QuitButton", "QUIT", new Vector2(0f, -382f));
 
             // THE CYCLE PICKER, on a page of its own over the same background. A title screen that
             // grows a row every time the game grows a cycle stops being a title screen.
-            GameObject continueGO = new GameObject("Continue");
-            continueGO.transform.SetParent(canvasGO.transform, false);
-            CanvasGroup continueGroup = continueGO.AddComponent<CanvasGroup>();
-            continueGroup.alpha = 0f;
-            continueGroup.blocksRaycasts = false;
-            Stretch(continueGO.AddComponent<RectTransform>());
+            GameObject cycleGO = new GameObject("CyclePicker");
+            cycleGO.transform.SetParent(canvasGO.transform, false);
+            CanvasGroup cycleGroup = cycleGO.AddComponent<CanvasGroup>();
+            cycleGroup.alpha = 0f;
+            cycleGroup.blocksRaycasts = false;
+            Stretch(cycleGO.AddComponent<RectTransform>());
 
-            // One per cycle. The count is read from the cycle list rather than written here, so
-            // adding a cycle adds its button - the same rule LoopManager follows for deciding which
-            // cycle is the last.
+            // ONE PER CYCLE AND NOTHING ELSE. The calibration room had an entry here for one build
+            // and it was a mistake worth recording: it and CYCLE 1 both start cycle 1 and differ only
+            // in whether the sensitivity step runs, which no label can carry. PLAY is that path now,
+            // and the sensitivity is adjustable on SETTINGS either way.
+            //
+            // The count is read from the cycle list rather than written here, so adding a cycle adds
+            // its button - the same rule LoopManager follows for deciding which cycle is the last.
             var cycleButtons = new Button[CycleCount];
             for (int i = 0; i < CycleCount; i++)
-                cycleButtons[i] = MakeMenuButton(continueGO.transform, $"CycleButton_{i + 1}",
+                cycleButtons[i] = MakeMenuButton(cycleGO.transform, $"CycleButton_{i + 1}",
                                                  $"CYCLE {i + 1}", new Vector2(0f, -30f - i * 88f));
 
-            Button continueBack = MakeMenuButton(continueGO.transform, "ContinueBackButton",
-                                                 "BACK", new Vector2(0f, -30f - CycleCount * 88f));
+            Button cycleBack = MakeMenuButton(cycleGO.transform, "CycleBackButton",
+                                              "BACK", new Vector2(0f, -30f - CycleCount * 88f));
 
             // SETTINGS, on its own page over the same background as the cycle picker. One setting so
             // far: how loud the game is. It belongs on the TITLE screen rather than only in the pause
@@ -14732,8 +15670,9 @@ namespace IterationRoom.EditorTools
             mainMenu.playButton = playButton;
             mainMenu.quitButton = quitButton;
             mainMenu.continueButton = continueButton;
-            mainMenu.continueBackButton = continueBack;
-            mainMenu.continueGroup = continueGroup;
+            mainMenu.cycleSelectButton = cycleSelectButton;
+            mainMenu.cycleBackButton = cycleBack;
+            mainMenu.cycleGroup = cycleGroup;
             mainMenu.cycleButtons = cycleButtons;
             mainMenu.settingsButton = settingsButton;
             mainMenu.settingsBackButton = settingsBack;

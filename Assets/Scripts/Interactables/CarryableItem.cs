@@ -46,7 +46,47 @@ namespace IterationRoom
         public GhostReplayer HeldByGhost { get; private set; }
 
         // Optional gate. The tool sits inside the drawer, so it cannot be taken through a shut one.
+        // WHICH DRAWER HAS TO BE OPEN before this can be taken - and **only while it is still in
+        // that drawer**. `Released` is what says it is not: it means "dropped in the world", which is
+        // the one way out of a hand that leaves an object somewhere the drawer has no say over.
+        //
+        // Without that half, an object carried out of the room and PUT DOWN became permanently
+        // unreachable - the gate went on asking about a drawer a hundred metres away, so a press over
+        // an object lying in plain sight did nothing, forever. Play found it on the billiard balls,
+        // which are the first thing in the game carried the length of the building and set down
+        // somewhere else; the pins have always had the same hole and it never showed, because a pin
+        // is used in the room its drawer is in.
         public Drawer requiresOpenDrawer;
+
+        // HOW CLOSE A GHOST HAS TO BE to take this, overriding `GhostReplayer.takeReach`. Zero - which
+        // is everything in the game but two - means "use the ghost's own 2m".
+        //
+        // IT EXISTS FOR THE THINGS THAT MOVE BY THEMSELVES. The reach test is there to stop an object
+        // being dragged to a ghost from across the building, and against an object that sits exactly
+        // where the builder left it that is all it does. Room2-6's ducks and beach balls are the only
+        // carryables in the game on real rigidbodies: they bob, they drift, 210 plastic balls shove
+        // them about, and when the pool drains the vortex pulls every one of them to the middle of the
+        // room. So where a duck IS at any given second is not reproducible between iterations, and a
+        // 2m test against it is CLAUDE.md §1.4 exactly - "replaying the player acted *here* against a
+        // world that has moved makes a ghost's contribution luck". Play found it as a past self
+        // fetching a duck one iteration and not the next, with nobody touching anything.
+        //
+        // The number is the room, not the building: a ghost with a recorded duck-take is standing in
+        // room2-6 when it makes it, so this only ever has to cover the pool.
+        public float ghostTakeReach;
+
+        // WHERE A DROPPED OBJECT IS PARENTED, when its origin is somewhere that MOVES.
+        //
+        // `DropAt` re-parents to `originParent` so a let-go object stays inside its own cycle, which
+        // is right for everything that starts on a floor and wrong for anything that starts in a
+        // drawer: the tray slides, so a ball dropped at the far end of the building would slide with
+        // it every time a past self opened that drawer. Null means "use originParent", which is every
+        // object but the ones in the chest.
+        //
+        // Only the DROP path uses it. `ReturnToOrigin` still puts the object back under
+        // `originParent`, because the top of an iteration is exactly when it belongs in the drawer
+        // again.
+        public Transform dropParent;
 
         // Resting height once this is put down, **measured from the floor this object stands on**.
         // The number is the object's own half-thickness, not a room measurement - which is why it
@@ -180,7 +220,8 @@ namespace IterationRoom
         // false for all but the handful beside the player. See PlayerLookup.InView.
         public bool WantsInteractHint =>
             IsAvailable && playerInRange && !AlreadyHaveOne
-            && (HeldByGhost != null || requiresOpenDrawer == null || requiresOpenDrawer.IsFullyOpen)
+            && (HeldByGhost != null || Released
+                || requiresOpenDrawer == null || requiresOpenDrawer.IsFullyOpen)
             && PlayerLookup.InView(HintAnchor);
 
         // The player's hands are full. PlayerHand.Take refuses outright rather than swapping, so
@@ -206,6 +247,10 @@ namespace IterationRoom
         public Transform HintAnchor => hintAnchor != null ? hintAnchor : transform;
 
         private PlayerHand hand;
+        // The fall, which owns the one question `DropAt` cannot answer for itself: what is actually
+        // under a point. Cached rather than fetched per drop - `AddFallingToEveryCarryable` puts one
+        // on every carryable at build time, so it is there before Awake runs.
+        private FallingItem falling;
         private Collider trigger;
         // ALMOST NOTHING HERE HAS ONE, and the two that do are room2-6's ducks and beach balls: they
         // float on real water on real rigidbodies and can also be picked up, which nothing else in
@@ -224,6 +269,7 @@ namespace IterationRoom
         {
             trigger = GetComponent<Collider>();
             body = GetComponent<Rigidbody>();
+            falling = GetComponent<FallingItem>();
             originParent = transform.parent;
             originLocalPosition = transform.localPosition;
             originLocalRotation = transform.localRotation;
@@ -384,7 +430,7 @@ namespace IterationRoom
         // deterministic in a way physics cannot be here. So this keeps the height it is given and
         // lets the fall be seen.
         //
-        // Clamped at RestingY rather than trusted, because the callers are not all above the floor: a
+        // Clamped rather than trusted, because the callers are not all above the floor: a
         // ghost's timeline ending passes the item's own position, which is fine, and the player's
         // own put-down passes a point ahead of them, which could be below the object's resting
         // height on a floor recess.
@@ -424,9 +470,30 @@ namespace IterationRoom
             Freeze(false);
             Released = true;
 
-            transform.SetParent(originParent, true);
+            transform.SetParent(dropParent != null ? dropParent : originParent, true);
+
+            // NEVER BELOW WHAT IS UNDER IT - and **what is under it, not `RestingY`**.
+            //
+            // The clamp exists because the callers are not all above the floor: `ChessPlacer` passes
+            // a raycast hit ON the board and `SymbolSlot` passes a recess in a wall, and an object
+            // left exactly at a surface is an object sunk into it. `RestingY` was the proxy for that
+            // surface, and it is `floorBaseY + floorY` - ONE height for the whole cycle.
+            //
+            // That proxy broke when room2-6, room2-7 and room2-0 were hung a further 3.7m below the
+            // rest of cycle 2. An object put down in any of them was clamped UP to the floor height of
+            // the storey above, so every drop down there popped 2.4m into the air and then fell back -
+            // landing correctly, and looking like the object had been thrown. `FallingItem` had
+            // already learned this lesson once, for the fall itself (see `SurfaceUnder`); the drop's
+            // own clamp had not.
+            //
+            // NOTHING UNDERNEATH MEANS NO CLAMP, which is the same answer `SurfaceUnder` gives the
+            // fall: an object let go of over the tree hall's pit is meant to go down the hole, and
+            // lifting it to a floor height first would be inventing a floor to lift it to.
+            float floor = falling != null
+                ? falling.SurfaceUnder(worldPosition)
+                : RestingY;
             transform.position = new Vector3(worldPosition.x,
-                                             Mathf.Max(worldPosition.y, RestingY),
+                                             Mathf.Max(worldPosition.y, floor),
                                              worldPosition.z);
             // Whichever way it was already facing, so a dropped thing points where the player was
             // looking - it fell out of their hand, it did not turn itself to north on the way down.

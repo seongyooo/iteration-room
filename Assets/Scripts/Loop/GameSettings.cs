@@ -103,6 +103,40 @@ namespace IterationRoom
         // for us, and a run started straight from the Editor never passes through the menu.
         public static void ApplyAudio() => AudioListener.volume = MasterVolume;
 
+        // HOW FAR THE RUN GOT, as a cycle number. Zero means "never played", which is what makes
+        // CONTINUE something the title screen can offer or withhold.
+        //
+        // A CYCLE AND NOT A MOMENT, and that is a statement about this game rather than a shortcut.
+        // A cycle's state IS its ghosts - the doors that are open, the objects already delivered, the
+        // tank half full are all things past selves are holding up - and a ghost is a recorded
+        // timeline of every frame a player moved through. Saving mid-cycle would mean serialising all
+        // of them, and loading it would mean a save file that is minutes of motion capture. So what is
+        // remembered is the bed you last woke in, and CONTINUE puts you back at it with the cycle
+        // fresh - which is exactly where a restart of that cycle would put you anyway.
+        //
+        // WRITTEN THROUGH IMMEDIATELY rather than deferred to `Save()` like the sliders. Those are
+        // touched every frame of a drag and batching them is the point; this is touched once per
+        // cycle, and the whole value of it is surviving a player who closes the window.
+        private const string SavedCycleKey = "iteration.savedCycle";
+        private static int savedCycle = -1;
+
+        public static int SavedCycle
+        {
+            get
+            {
+                if (savedCycle < 0) savedCycle = Mathf.Max(0, PlayerPrefs.GetInt(SavedCycleKey, 0));
+                return savedCycle;
+            }
+            set
+            {
+                int clamped = Mathf.Max(0, value);
+                if (clamped == savedCycle) return;
+                savedCycle = clamped;
+                PlayerPrefs.SetInt(SavedCycleKey, clamped);
+                PlayerPrefs.Save();
+            }
+        }
+
         // Negative means "not read from disk yet". A nullable float would say the same thing, but
         // this is read once per frame by HandleLook and a plain float avoids the boxing.
         private static float mouseSensitivity = -1f;

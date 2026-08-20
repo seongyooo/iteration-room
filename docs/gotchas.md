@@ -414,3 +414,155 @@ texture lands on it square.
 **Check a model's UVs before planning to draw on it.** Reading `TEXCOORD_0`'s min/max from the glb is
 one script and answers it; correlating `u` against vertex position answers whether it is usable, which
 the bounding box alone does not.
+
+## `ModelBounds` MEASURES A BOX, SO ROTATING A ROUND THING RESIZES IT (2026-08-20)
+
+Nine billiard balls, scattered through nine different orientations, came out of the first build at
+**nine different sizes** - radii spread 23% apart in one drawer.
+
+`SceneBuilder.ModelBounds` transforms the **eight corners of each mesh's own AABB** into the target
+frame and takes the extent of those. That is exact for a box and an over-estimate for anything else -
+and *the size of the over-estimate depends on the rotation*, up to sqrt(3) for a cube corner-on. Every
+model in this project had been sized by it and none had noticed, because every one of them is either
+box-ish or placed at a single fixed rotation. A ball at a random yaw is the first case where both
+halves of that stopped being true at once.
+
+**Anything scattered through rotations has to be measured by its vertices, not its box.** For a
+sphere that is one pass: transform the vertices into the frame, take the midpoint of min/max as the
+centre and the largest distance from it as the radius. Both are rotation-invariant by construction.
+See `SceneBuilder.OrientBilliardBall`, which reads the mesh once and answers "which way does the
+number face" and "how big is it" together.
+
+**And the symptom is not obviously a measuring bug.** Mismatched balls read as a bad model or a bad
+import long before they read as an AABB of a rotated box - which is why this is written down.
+
+## THE TEXTURE ON A SPHERE IS MIRRORED, AND SO ARE THE DIGITS ON IT (2026-08-20)
+
+Every number in `billiard_balls.glb` is drawn **backwards** in its own texture file. That is correct:
+the sphere's UVs run the other way, so the two mirrors cancel and the ball reads right way round.
+Checked before use rather than after, by taking the triangle nearest UV (0.5, 0.5) and testing the
+sign of `cross(dU, dV) . normal` - positive means the texture appears mirrored on the surface.
+
+Worth the check because the same session had already shipped a mirrored readout on the weigh scale
+and fixed it by flipping the source; doing that here would have flipped a number that was already
+correct, and a texture that looks wrong when opened is exactly the invitation to do it.
+
+## A GATE ON WHERE A THING CAME FROM MUST STOP APPLYING ONCE IT LEAVES (2026-08-20)
+
+`CarryableItem.requiresOpenDrawer` says "this cannot be taken unless that drawer is open", which is
+right for exactly as long as the object is still in the drawer. It was asked unconditionally, so an
+object carried out of the room and PUT DOWN became **permanently unreachable**: the gate went on
+asking about a drawer a hundred metres away, and E over an object lying in plain sight did nothing,
+for the rest of the run.
+
+Play found it on the billiard balls, which are the first thing in this game carried the length of the
+building and set down somewhere else. **The pins have always had the same hole** and it never showed,
+because a pin is used in the room its drawer is in - which is the shape of this class of bug: a
+condition that is true by accident for every existing caller, until one caller stops being local.
+
+The fix is `Released` - "let go of in the world", set by `DropAt` and by nothing else. It is the one
+flag that already means "this is not where it started".
+
+## `DropAt` RE-PARENTS TO THE ORIGIN, AND SOME ORIGINS MOVE (2026-08-20)
+
+Dropping an object parents it back to `originParent` so it stays inside its own cycle. For everything
+that starts on a floor that is free; for anything that starts **in a drawer** it is not, because the
+tray slides. A ball dropped at the far end of the building jumped 0.22m sideways every time a past
+self opened that drawer in room2-1.
+
+`CarryableItem.dropParent` is the fix - the drop's parent, defaulting to `originParent`, set by
+`SceneBuilder` to the CHEST rather than the tray. `ReturnToOrigin` still uses `originParent`, because
+the top of an iteration is exactly when the object belongs back in the drawer.
+
+**Worth checking whenever a new carryable starts life on something that moves**: a plinth, a drawer, a
+door, a felled tree.
+
+## A CLAMP IS A FLOOR, AND "THE FLOOR" IS NOT ONE NUMBER PER CYCLE (2026-08-20)
+
+`CarryableItem.DropAt` clamped a drop to `RestingY` - `floorBaseY + floorY`, where `floorBaseY` is ONE
+height for a whole cycle. The clamp is there because the callers are not all above the floor:
+`ChessPlacer` passes a raycast hit *on* the board and `SymbolSlot` passes a recess in a wall, and an
+object left exactly at a surface is an object sunk into it.
+
+Room2-6, room2-7 and room2-0 hang 3.7m below the rest of cycle 2, so down there the clamp lifted every
+drop to the floor height of the storey ABOVE. The object then fell back and landed correctly - which
+is why it read as a cosmetic "why did that duck jump" rather than as a bug in a clamp.
+
+**`FallingItem` had already learned this exact lesson a day earlier**, for the fall itself, and the
+fix is the same one: ask what is actually under the point (`FallingItem.SurfaceUnder`, now public and
+positional) instead of remembering one height. The pattern worth taking away is that **the second
+fix was needed because the first one only covered one of the two readers.** When a remembered value
+turns out to be a lie, grep for every reader of it before calling it fixed - `RestingY` had four.
+
+## A TOGGLE REPLAYED BY GHOSTS IS A PARITY, NOT A STATE (2026-08-20)
+
+Cycle 2's chest of drawers shipped with `Drawer.canClose = true`, and the comment that turned it on
+said why it was safe: *"these bays are EMPTY, so a past self's replayed pull closing one costs
+nothing"*. Nine billiard balls went into them the day room2-0 was built, and nobody turned it back off.
+
+`Drawer.SetGhostSignal` reproduces the **pull**, not the resulting state - which is the correct
+reading of "record the attempt, re-evaluate the condition" for a toggle. So the drawer's openness at
+any moment is the **parity of how many past selves have reached for it**: one ghost opens it, two
+leave it shut, three open it again. Everything inside gates on `IsFullyOpen`, so a ghost's take - and
+with it that ghost's entire delivery - worked on odd iterations and silently did nothing on even ones.
+
+Play reported it as *"a past self brought the ball last time and did not this time, and I did
+nothing"*, which is a very hard symptom to trace back to a drawer.
+
+**An idempotent action is the only kind a crowd of ghosts can all perform.** `Open()` is idempotent;
+`Toggle()` is not. That is the whole of why cycle 1's nightstand has always been open-only.
+
+**And the comment had already said so.** It named the exact precondition ("these bays are empty") and
+the exact consequence of breaking it ("a ghost can close it on another ghost's errand"). What was
+missing was anyone re-reading it while putting something in the drawer - so when a comment states a
+precondition, changing the thing it is about is the moment to go and find it.
+
+**IT WAS PUT BACK THE SAME DAY, BY REQUEST, AND THE OTHER HALF IS WHY.** A drawer that cannot be shut
+is open forever, and an open one stands between the player and the other bay: `WantsInteractHint`
+keeps an open *closable* drawer in the aim contest, and its front has slid 0.23m nearer the eye, so it
+wins the press from in front of the bay below it. Play reported the lower bay as unopenable.
+
+So the chest has both faults available and one of them chosen. **The trade taken: a drawer found shut
+is an errand that fails, which the player can see and undo by pulling it; a bay that can never be
+opened is neither.** If the parity failures become the worse of the two, the third option is to make
+the PLAYER's press a toggle and a GHOST's replay open-only - which costs a little of "a past self does
+exactly what you did" and buys back both.
+
+## A FIXTURE WIRED TO NOTHING IS SILENT, NOT BROKEN (2026-08-20)
+
+Room2-0's four recesses shipped with `FinalSlot.sequence` null, because `BuildBreakRoom` was written
+from `BuildFinalRoom` without its `slot.sequence = sequence` line. `FinalSlot.Live` is
+`sequence != null && sequence.Active`, so all four were dead: **no prompt, and E did nothing**, at a
+console that otherwise looked completely finished.
+
+There is no error for this and there cannot easily be one - a null reference that is *checked* is a
+legal state everywhere else in this project (`Cycle.finalRoom` null is a supported answer). What
+catches it is the shape of the symptom: **a fixture that is invisible to E rather than misbehaving is
+almost always a null in its eligibility test, not a bug in its action.**
+
+`CycleBinding.Bind` now re-establishes it for every cycle, alongside `hand`, so a second call site
+cannot repeat it.
+
+## THE ONE OBJECT THAT MOVES BY ITSELF BREAKS A POSITION TEST (2026-08-20)
+
+`GhostReplayer.takeReach` is 2m: a ghost may only take something it is standing next to, or the object
+is dragged to it from across the building. That is exactly right for the thirty-odd carryables that
+are put back at an exact origin every iteration and stay there.
+
+**Room2-6's three ducks and two beach balls are not those.** They are the only carryables in the game
+on real rigidbodies - they bob, they drift, 210 plastic balls shove them, and when the pool drains the
+vortex pulls every one of them to the middle of the room. So where a duck is at second 34 is different
+in every iteration, and a 2m test against its CURRENT position is CLAUDE.md §1.4 in miniature:
+*replaying "the player acted here" against a world that has moved makes a ghost's contribution luck.*
+
+The symptom is the worst kind: **intermittent, silent, and looks like nothing at all.** A past self
+fetched a duck last iteration and does not this one, with the player having touched nothing.
+
+`CarryableItem.ghostTakeReach` overrides it per object - 9m for those five, which covers the whole
+pool (the drain is at most 6.8m from any corner of it) and reaches no further than the room they can
+only ever be taken in.
+
+**Measuring to the object's HOME instead was considered and is wrong**: a duck taken *after* the drain
+was recorded metres from home, so a home-based test fails exactly where the current-position test
+succeeds. A reach that covers the room is the only measure that is right in both cases.
+

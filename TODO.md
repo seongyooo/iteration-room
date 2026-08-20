@@ -102,8 +102,37 @@ nothing about it touches the loop, the signal array or the reset.
 - Play questions: whether the arc off the chute reads as the slide finishing or as being thrown off
   it, whether 0.45 speed in water is heavy or annoying, whether the wade clips sit right at walking
   cadence, and whether the hole shows enough of the room from the hall to earn its geometry.
-- **`room2-8` is an empty shell** built only so room2-7's door leads somewhere. Its own door is the
-  capped end of the walk now.
+- **THE CHEST'S DRAWERS ARE A TOGGLE AGAIN** (`canClose = true`, 2026-08-20, by request), so a
+  ghost's take of a billiard ball works on odd numbers of past-self pulls and silently fails on even
+  ones. It was chosen over the alternative fault - a drawer that can never be shut blocks the bay
+  below it - and both are written up in `docs/gotchas.md`. **The third option, if this turns out to be
+  the worse half: make the player's press a toggle and a ghost's replay open-only.** One line in
+  `Drawer.SetGhostSignal`; it costs a little of "a past self does exactly what you did".
+- **`room2-0` IS CLEARED** - iteration 22, 10:04, 2026-08-20 - so the machinery is answered and only
+  the judgement questions are left. What a clear cannot say: whether 22 iterations is enjoyable or a
+  slog, whether the pictograms read as *how many of these are there* rather than *bring one of these*
+  to somebody who was not told the answer, and whether the refusal flash reads as an answer rather
+  than as a fixture that did nothing. **All three need a player who did not build it.**
+- **The standing cost of room2-7 is the single biggest driver of cycle 2's length**, and it has never
+  been weighed against anything. Its scale re-locks every iteration, so five past selves must re-load
+  it before the door to room2-0 will open - every trip, for the rest of the run. If cycle 2 wants to
+  be shorter, that latch is the lever, not the number of balls.
+- **THE CYCLE PICKER IS UNLOCKED ON PURPOSE, AND A SHIPPED BUILD WANTS IT GATED.** CYCLE SELECT
+  currently lists every cycle whether or not the player has reached it, because the shortcut into a
+  cycle under construction is the whole value of the page while cycle 3 is being built. For release:
+  show only cycles up to `GameSettings.SavedCycle`, and hide the button entirely at 1. That is one
+  condition in `MainMenu.Awake` and one in `Start`; leaving it as it is ships a title screen that
+  spoils cycle 2 and lets a new player start there knowing nothing.
+- **CYCLE 3 IS PLANNED AND NOT STARTED.** What already handles an arbitrary number of cycles and needs
+  nothing doing: `LoopManager.CycleRecords` and the ending's breakdown table (a third cycle is a third
+  row), `CycleBinding` (gathers per cycle), the gas repointing, and the signal-bit reset at the
+  boundary. What does NOT: the three things listed below, all of which assume cycle 2 is last.
+- **Cycle 2's hatch is capped and cycle 3 does not exist.** Completing room2-0 currently runs
+  `LoopManager.RunEnding` - the break, ten seconds, then the game's ending scrim - because there is no
+  cycle after it. Three things change the day there is one: `FinalRoomSequence.opensWayOutOnBreak`
+  goes to false, `BuildCycleTwoExit`'s `Shaft_Cap` comes out and its `shaftDepth` becomes
+  `ServiceVoid`, and cycle 2's `CycleExit` moves out of room2-0 onto the join between the storeys
+  where cycle 1's already sits.
 - **The valve puzzle's pacing is a guess.** Two turns of 1.4s each on three wheels, in a room 8.75 x
   10.5 crossed at 1.125 m/s (walking, slowed by the water). That is roughly 30 seconds of work for a
   player who already knows where the wheels are - so whether "six turns is more than one iteration
@@ -115,11 +144,20 @@ nothing about it touches the loop, the signal array or the reset.
   the whole reason the count is affordable. If that room ever costs frames, check that they are
   actually asleep before blaming the count: anything that writes to them every frame (a bob, a drift,
   a stray `AddForce`) silently keeps all 210 awake.
-- **`FallingItem` now RAYCASTS for the floor** instead of trusting `floorBaseY`, because room2-6 and
-  room2-7 sit a storey below the rest of cycle 2 and anything dropped in them stopped 3.7m in the air.
-  It also lets objects land on the scale's platform, which the old arithmetic put them inside of. The
-  probe reaches 9m; an object released over a hole deeper than that would find whatever is at the
-  bottom of it, which is the tree hall's pit and is correct there.
+- **THE SECOND STOREY INSIDE CYCLE 2 IS NOW ANSWERED IN THREE PLACES**, and all three had to be:
+  room2-6, room2-7 and room2-0 sit `SlideRoomFloorY` (3.7m) below the rest of the cycle.
+  1. `FallingItem` RAYCASTS for the floor instead of trusting `floorBaseY` - anything dropped down
+     there used to stop 3.7m in the air, and anything put on the scale used to end up inside it. The
+     probe reaches 32m, deep enough for the tree hall's pit.
+  2. `CarryableItem.DropAt` clamps to that same raycast rather than to `RestingY` (2026-08-20). The
+     clamp is what stops a drop landing *below* a surface, and against a cycle-wide height it was
+     lifting every drop in those three rooms 2.4m into the air first.
+  3. `SceneBuilder` sets `floorBaseY` for those rooms in a **second pass**, so the value in the scene
+     is true rather than 3.7m out for the five props that live down there.
+
+  **A fourth storey-sensitive reader would be a fourth bug.** `RestingY` is still consulted by
+  `BalloonField` and `LoopManager`'s test jump; both are cycle-1-only today, and both would be wrong
+  if a lowered room ever grew a balloon or a console.
 - `FirstPersonController.PushOverlapping` collects at most **24** colliders. Standing in the pool with
   the balls packed around the player is the first place in the game that can plausibly exceed it; the
   overflow is silent and simply means some balls are not pushed.

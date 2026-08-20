@@ -44,6 +44,36 @@ namespace IterationRoom
         // slot accepts nothing, prompts for nothing and counts for nothing.
         public string acceptedItemId = string.Empty;
 
+        // WHAT IT WILL TAKE A PRESS FOR, which is not the same question. Empty - every recess built
+        // before room2-0 - means the two are the same and the recess is only interested in the one
+        // object that fits it.
+        //
+        // ROOM2-0 IS WHY THIS EXISTS. Its four pedestals all want a billiard ball and each wants a
+        // DIFFERENT one, and which is which is the puzzle: the ball's number has to match how many of
+        // the object drawn on the pedestal's side cycle 2 contains. Left as it was, this fixture gave
+        // that away for free - `WantsInteractHint` requires the right object in hand, so the rim
+        // lighting up WAS the answer, readable by walking the row holding each ball in turn without
+        // ever pressing anything or reading a pictogram.
+        //
+        // Naming the whole family instead makes every ball a question the player has to ASK. The
+        // prompt appears for any of them, the press either lands or is refused, and a refusal costs
+        // the walk back to the drawer - which is what makes counting the axes cheaper than guessing.
+        //
+        // A REFUSAL IS NOT A DEAD END, and that is why this rather than "the pedestal keeps whatever
+        // it is given". A wrong ball that STAYED would be reproduced by that iteration's ghost for
+        // the rest of the run, blocking a pedestal the living player then has to clear by hand every
+        // sixty seconds. Refused, the wrong delivery simply fails again each time and costs nothing.
+        // See docs/puzzle-design.md.
+        public string[] offerItemIds;
+
+        // The colour of no. Held for `refusedSeconds`, after which the rim goes back to saying
+        // whatever is true - the same instrument `KeyLock` answers a wrong key with, for the same
+        // reason: the player asked this fixture a question and it owes them an answer.
+        public Color refusedColor = new Color(0.88f, 0.11f, 0.11f);
+        public float refusedEmission = 1.8f;
+        public float refusedSeconds = 0.45f;
+        public AudioClip refuseClip;
+
         // The run is over by the time this room exists, so this is the liveness test - there is no
         // iteration to ask.
         public FinalRoomSequence sequence;
@@ -80,19 +110,36 @@ namespace IterationRoom
 
         private Collider trigger;
         private bool playerInRange;
+        private float refusedUntil;
         private readonly LitRendererPainter painter = new LitRendererPainter();
 
         private bool Live => sequence != null && sequence.Active
             && (LoopManager.Instance == null || LoopManager.Instance.AcceptsInput);
 
-        // E here would put the held object in. Everything is required: the room has to be live, the
-        // object has to be the RIGHT one and IN HAND rather than merely carried, and the recess has
-        // to be empty.
+        // E here would OFFER the held object. Everything is required: the room has to be live, the
+        // object has to be one this recess entertains and IN HAND rather than merely carried, and the
+        // recess has to be empty.
         // ...and it has to be ON SCREEN, like every other E fixture - see PlayerLookup.InView.
+        //
+        // OFFERED, NOT ACCEPTED. With no family declared the two are the same test and this reads
+        // exactly as it always did; with one, the press is a question and the answer is below.
         public bool WantsInteractHint =>
             Live && Declared && !Filled && playerInRange
-            && hand != null && hand.Holding(acceptedItemId)
+            && hand != null && hand.Held != null && Offers(hand.Held.itemId)
             && PlayerLookup.InView(HintAnchor);
+
+        // "Would this recess take a press for that object?" An empty family means only the accepted
+        // one, which is what every recess outside room2-0 wants.
+        public bool Offers(string itemId)
+        {
+            if (string.IsNullOrEmpty(itemId)) return false;
+            if (offerItemIds == null || offerItemIds.Length == 0) return itemId == acceptedItemId;
+
+            for (int i = 0; i < offerItemIds.Length; i++)
+                if (offerItemIds[i] == itemId) return true;
+
+            return false;
+        }
 
         public Transform HintAnchor => seat != null ? seat : transform;
 
@@ -148,7 +195,8 @@ namespace IterationRoom
 
         private void Update()
         {
-            if (Filled) ApplyRim(filledColor, filledEmission);
+            if (Time.time < refusedUntil) ApplyRim(refusedColor, refusedEmission);
+            else if (Filled) ApplyRim(filledColor, filledEmission);
             else if (WantsInteractHint) ApplyRim(readyColor, readyEmission);
             else ApplyRim(idleColor, idleEmission);
 
@@ -162,7 +210,14 @@ namespace IterationRoom
             // Checked as well as claimed - see PlayerLookup.InteractTaken.
             if (PlayerLookup.InteractTaken) return;
 
+            // CLAIMED HERE, and claimed for a refusal as much as for an acceptance. That is the
+            // narrow case CLAUDE.md SS1.2 allows: "only when it actually acts" is about presses this
+            // fixture was never offered, and `WantsInteractHint` has just said this one was. Reading
+            // the same press as "put the ball down" on top of a red flash would be two answers to one
+            // question - which is the argument `KeyLock` already makes for a wrong key.
             hand.MarkInteract();
+
+            if (hand.Held.itemId != acceptedItemId) { Refuse(); return; }
 
             // Surrendered rather than taken straight out of the hand: PlayerHand owns `carried`,
             // `carriedItems` and which item is out, and CarryableItem knows about none of it.
@@ -170,6 +225,16 @@ namespace IterationRoom
             if (given == null) return;
 
             Accept(given);
+        }
+
+        // The wrong ball. Nothing changes hands and nothing is recorded - a refusal is not a
+        // `CarryEvent`, so no ghost ever replays a guess, which is the other half of why a wrong
+        // answer here cannot accumulate across a run.
+        private void Refuse()
+        {
+            refusedUntil = Time.time + refusedSeconds;
+            painter.ForceNextRepaint();
+            if (audioSource != null && refuseClip != null) audioSource.PlayOneShot(refuseClip);
         }
 
         // A past self's own delivery, replaying the same errand the player performs above. Refuses
@@ -211,6 +276,7 @@ namespace IterationRoom
         public void Clear()
         {
             Filled = false;
+            refusedUntil = 0f;
             painter.ForceNextRepaint();
         }
 
