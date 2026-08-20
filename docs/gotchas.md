@@ -593,3 +593,35 @@ A first attempt blamed `SpeechSynthesizer` not flushing its wave file and added 
 before `Dispose()`. That change is still in the script and is good practice, but **it fixed nothing**
 — the same seven files came out empty. If a generated asset comes out wrong in a way that looks
 character-dependent, check the encoding of the script before the tool.
+
+
+## A panel wall overruns its own length, and where that overrun lands is your problem (2026-08-21)
+
+`BuildPanelWall` extends its backing and its collision by `WallDepth` (0.125m) past **each end of the
+wall along its own axis**. That is deliberate and its own comment explains why: two perpendicular
+walls sized to the interior meet along a line and leave a `WallDepth`-square column that neither
+covers, which shows as pinhole cracks at grazing angles. The overrun buries the corner.
+
+**It is only correct when there is another wall for the overrun to be buried in.** Every wall in the
+room chain has one. Room3-1's north corridor did not: its side walls run along Z and were built flush
+to the two rooms' inner faces, so each overrun stood 12.5cm out into a room — a near-black slab, the
+full height of the wall, one at each jamb.
+
+**It does not look like a geometry bug. It looks like a texture.** On camera the two of them read as
+two very thick black vertical lines in the panel grid, and the first three attempts at it all treated
+it as one: the groove is too wide, the block overlaps the wall, the slot behind the groove is open to
+an unlit corridor. All three were plausible, all three were wrong, and the arithmetic that would have
+settled it — where does `zStart - WallDepth` actually fall — was never done because the symptom did
+not look dimensional. What settled it was a screenshot: the left-hand bar had a visible SIDE FACE, and
+a groove painted on a wall does not have one.
+
+The fix is to inset the wall by `WallDepth` at each end and let the floor and ceiling span the full
+run, so the overrun lands inside the neighbouring wall's build-up. **If a wall is ever built between
+two things that are not walls, work out where its overrun goes before building it.**
+
+Related, and the same shape of mistake one scale down: **nothing may be exactly the size of the hole
+it sits in.** The corridor's block was exactly the corridor's width, so its sides were coplanar with
+the wall panels and its base with the floor, and both flickered. Two coplanar faces fight for every
+pixel from every angle. Clearances have to be asymmetric, though — the block's face backing is only
+1mm narrower than the opening, because a wider gap there lets the lit wall behind show through the
+groove as a bright edge.

@@ -48,6 +48,16 @@ namespace IterationRoom
         public float crouchTransition = 0.18f;
 
         public float gravity = -20f;
+
+        // ~~RAISED TO 7.9 TO CLEAR A GRID-ROW STEP~~ **PUT BACK, 2026-08-21.** A jump reaches
+        // `jumpForce^2 / (2 * |gravity|)`, so 7.9 was 1.56m against this 0.90m - enough for the step,
+        // and play called it awkward. It is: a person who jumps a metre and a half is floating, and
+        // every room in the game would have inherited it to solve a problem in one of them.
+        //
+        // Cycle 3's stairs come down to half a grid row instead and are WALKED up, on the
+        // controller's `stepOffset` (`SceneBuilder.PlayerStepOffset`). That number is deliberately
+        // kept under this one, so nothing anywhere becomes reachable that a jump could not already
+        // reach - which is the guarantee the taller jump could not make.
         public float jumpForce = 6f;
 
         // WALKING IS HELD, LOOKING IS NOT, while an action the player started plays out - see

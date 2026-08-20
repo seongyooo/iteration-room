@@ -281,6 +281,48 @@ namespace IterationRoom.EditorTools
         // sideways into it, so when it's open both walls hide it - a pocket door.
         private const float DoorPocketDepth = 0.1f;
 
+        // How high a step the player walks up without jumping. See where it is applied for why it is
+        // this and not higher: it has to clear half a grid row and stay under the jump.
+        private const float PlayerStepOffset = 0.72f;
+
+        // ROOM3-1'S GATES ARE PANELS, NOT DOORS. An ordinary door in this building is 1.3 x 2.5 and
+        // reads as a door; a gate is TWO CELLS of the wall's own grid wide and TWO ROWS tall, cut on
+        // the grid lines, so what opens is a piece of the wall rather than a thing set into it.
+        //
+        // Only the HEIGHT is a constant. The width and where along the wall it sits are `GateSpan`'s
+        // to answer, because they depend on whether that wall's cell count is even - and a constant
+        // here would be a second answer that happens to agree.
+        private const float GateHeight = 2f * GridCellHeight;    // 2.7038
+
+
+        // Where room3-2N's CENTRE sits, and the corridor's far end is derived from it. Its own south
+        // face is half of its doubled depth back from here, which is not `RoomDepth / 2` any more -
+        // getting that wrong leaves the corridor ending inside the room or short of it, and neither
+        // announces itself.
+        // **EVERY CORRIDOR DIMENSION IS AN EXACT MULTIPLE OF THE GRID, and the first version was not.**
+        // `BuildPanelWall` divides a wall's width by its ROUNDED cell count, so a 22.05m corridor came
+        // out in cells of 1.696 where every other wall in the building is 1.75 - a different rhythm,
+        // and visible the moment you look down it from room3-1. Its height did the same thing one axis
+        // over: corridor plus shaft came to 5.5076, which is four rows of 1.3519 plus a 0.1m SLIVER,
+        // and a cut-off panel against the top is the exact fault play called out on the tree hall.
+        //
+        // Thirteen cells and four rows. The room beyond is placed FROM the corridor rather than the
+        // corridor being measured between the rooms, because only one of the two can be the multiple.
+        private const float CorridorRun = 13f * GridCellWidth;          // 22.75
+        private const float CorridorShaftHeight = 2f * GridCellHeight;  // 2.7038 - shaft top is row 4
+
+        // Room3-2N's centre: past the corridor AND the two wall build-ups it is bracketed by, then
+        // half of its own doubled depth. The `2 * WallDepth` is not padding - see the corridor's own
+        // note on where a panel wall's overrun has to land.
+        private const float NorthRoomZ =
+            RoomDepth / 2f + 2f * WallDepth + CorridorRun + RoomDepth;
+
+        // The east-west equivalent of `RoomPitch`. Rooms are 8.75 across and 10.5 deep, so a
+        // neighbour to the side sits at a different remove from one in front - and the term that is
+        // NOT the room's own size is identical, which is the point: the two walls meet with the same
+        // build-up and the same pocket a door slides into, so a gate works on any of the four.
+        private const float RoomPitchX = RoomWidth + 2f * WallDepth + DoorPocketDepth;
+
         // Total build-up of a wall from the room surface outwards: recess + backing slab.
         private const float WallDepth = GrooveDepth + WallThickness;
         // Centre-to-centre spacing of adjacent rooms: one room, both sides of the divider, and the
@@ -1324,7 +1366,8 @@ namespace IterationRoom.EditorTools
             // What cycle 2 was on the day it was started, and for the same reason - the boundary is
             // the thing being exercised, and a puzzle would be in the way of testing it.
             (Transform cycleThreeRoot, Transform cycleThreeBedSpawn, ParticleSystem[] cycleThreeGas,
-             Transform cycleThreeRoom, GhostInteractable[] cycleThreeSignals) =
+             Transform cycleThreeRoom, GhostInteractable[] cycleThreeSignals,
+             CrushingBarrier cycleThreeBarrier) =
                 BuildCycleThreeShell(floorMat, grooveMat, panelMat, propMat);
 
             // THE JOIN BETWEEN CYCLE 2 AND CYCLE 3, and it is in the CORE scene for the reason
@@ -1347,7 +1390,7 @@ namespace IterationRoom.EditorTools
 
             (Cycle cycleThree, WallPanelDisplay cycleThreeDisplay) = AssembleCycleThree(
                 cycleThreeRoot, cycleThreeBedSpawn, cycleThreeGas, cycleThreeSignals,
-                testCard, staticNoise);
+                testCard, staticNoise, cycleThreeBarrier);
 
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
@@ -3475,7 +3518,8 @@ namespace IterationRoom.EditorTools
         // iterating.
         private static (Cycle cycle, WallPanelDisplay display) AssembleCycleThree(
             Transform root, Transform bedSpawn, ParticleSystem[] gasEmitters,
-            GhostInteractable[] signals, Texture2D testCard, Texture2D staticNoise)
+            GhostInteractable[] signals, Texture2D testCard, Texture2D staticNoise,
+            CrushingBarrier northBarrier)
         {
             // ONE DISPLAY PER CYCLE, gathered by parent name exactly as cycle 2's is: the ERROR
             // spreading from a console means *this bed's cycle is over*, so a panel in a cycle the
@@ -3492,7 +3536,12 @@ namespace IterationRoom.EditorTools
             GameObject go = new GameObject("Cycle3");
             Cycle cycle = go.AddComponent<Cycle>();
             cycle.bedSpawnPoint = bedSpawn;
-            cycle.doors = new Door[0];
+            // FOUR GATES, EIGHT LEAVES, TWO `Door`s EACH SIDE OF EACH WALL - gathered rather than
+            // listed, because a gate is built as a pair of calls and naming sixteen of them here is
+            // sixteen chances to miss one. They all have to be shut by the loop like any other door:
+            // a leaf left open is a wall with a hole in it at the top of the next iteration.
+            cycle.doors = root.GetComponentsInChildren<Door>(true);
+            cycle.barriers = northBarrier != null ? new[] { northBarrier } : new CrushingBarrier[0];
             cycle.drawers = root.GetComponentsInChildren<Drawer>(true);
             cycle.gasEmitters = gasEmitters;
             CheckGhostSignals("Cycle 3", signals);
@@ -3633,6 +3682,10 @@ namespace IterationRoom.EditorTools
         {
             while (t != null)
             {
+                // BEFORE the Door test, because a gate leaf carries both and this is the exception
+                // to that rule rather than a separate case - see WallWhileShut for the argument.
+                if (t.GetComponent<WallWhileShut>() != null) return false;
+
                 if (t.GetComponent<CarryableItem>() != null) return true;
                 if (t.GetComponent<Door>() != null) return true;
                 if (t.GetComponent<RewardPlinth>() != null) return true;
@@ -5513,11 +5566,17 @@ namespace IterationRoom.EditorTools
         // A PLAIN SHELL, one room further on, so room2-7's door has somewhere to lead. Empty by
         // design and by admission: it is where cycle 2 continues, and what goes in it is the next
         // decision rather than something to guess at now. Its own door is the capped end of the walk.
+        // `doorwayNorth` is the original one-doorway form and stays for every caller that has one.
+        // The four explicit cutouts are for a room whose openings are not doorways at all - room3-1
+        // has a gate in all four walls (see BuildPanelGate) - and they are separate arguments rather
+        // than a replacement so that a room asking for the ordinary thing still says so in one word.
         private static Transform BuildEmptyRoom(Transform parent, string name, Vector3 at,
                                                 Material floorMat, Material grooveMat,
                                                 Material panelMat, Material fixtureMat,
                                                 bool doorwayNorth, Rect floorHole = default,
-                                                Rect ceilingHole = default)
+                                                Rect ceilingHole = default,
+                                                Rect northCutout = default, Rect southCutout = default,
+                                                Rect westCutout = default, Rect eastCutout = default)
         {
             GameObject rootGO = new GameObject(name + "_Root");
             rootGO.transform.SetParent(parent, false);
@@ -5534,13 +5593,13 @@ namespace IterationRoom.EditorTools
 
             BuildPanelWall(t, "Wall_North", new Vector3(0f, 0f, RoomDepth / 2f),
                 Vector3.right, Vector3.back, RoomWidth, grooveMat, panelMat,
-                doorwayNorth ? doorway : Rect.zero);
+                doorwayNorth ? doorway : northCutout);
             BuildPanelWall(t, "Wall_South", new Vector3(0f, 0f, -RoomDepth / 2f),
-                Vector3.right, Vector3.forward, RoomWidth, grooveMat, panelMat, Rect.zero);
+                Vector3.right, Vector3.forward, RoomWidth, grooveMat, panelMat, southCutout);
             BuildPanelWall(t, "Wall_West", new Vector3(-RoomWidth / 2f, 0f, 0f),
-                Vector3.forward, Vector3.right, RoomDepth, grooveMat, panelMat, Rect.zero);
+                Vector3.forward, Vector3.right, RoomDepth, grooveMat, panelMat, westCutout);
             BuildPanelWall(t, "Wall_East", new Vector3(RoomWidth / 2f, 0f, 0f),
-                Vector3.forward, Vector3.left, RoomDepth, grooveMat, panelMat, Rect.zero);
+                Vector3.forward, Vector3.left, RoomDepth, grooveMat, panelMat, eastCutout);
 
             BuildCeilingLights(t, name, 0f, fixtureMat, castShadows: false);
             BuildReflectionProbe(t, name, 0f);
@@ -5578,7 +5637,7 @@ namespace IterationRoom.EditorTools
         // (see `AssembleCycleTwo`). The loop simply keeps iterating here, which is the honest state of
         // a cycle with no puzzles in it.
         private static (Transform root, Transform bedSpawn, ParticleSystem[] gas, Transform room,
-                        GhostInteractable[] signals)
+                        GhostInteractable[] signals, CrushingBarrier northBarrier)
             BuildCycleThreeShell(Material floorMat, Material grooveMat, Material panelMat,
                                  Material propMat)
         {
@@ -5598,9 +5657,66 @@ namespace IterationRoom.EditorTools
             // core scene with the floor lid above it, exactly as cycle 1's does, because one
             // `CycleExit` drives both and a reference across a scene boundary comes back null. What
             // this room owns is the absence.
+            // A GATE IN ALL FOUR WALLS, and no door anywhere in the room.
+            //
+            // A gate is measured off the wall's own grid rather than off the room - see `GateSpan`.
+            // TWO CUTOUTS, NOT ONE. The north and south walls are 8.75 across and the east and west
+            // 10.5, which is five cells against six - and `GateSpan` places the opening on the grid,
+            // so the two are not the same rect. Both sides of a shared wall take the SAME one, which
+            // is why it is computed from the wall's width rather than written twice.
+            Rect gateNS = GateCutout(RoomWidth);
+            Rect gateEW = GateCutout(RoomDepth);
+
             Transform r1 = BuildEmptyRoom(root.transform, "Room3_1", Vector3.zero,
                                           floorMat, grooveMat, panelMat, fixtureMat,
-                                          doorwayNorth: false, ceilingHole: CycleTwoExitHole);
+                                          doorwayNorth: false, ceilingHole: CycleTwoExitHole,
+                                          northCutout: gateNS, southCutout: gateNS,
+                                          westCutout: gateEW, eastCutout: gateEW);
+
+            // THE FOUR ROOMS THE GATES OPEN ONTO. Empty shells for now - what goes in them is the
+            // puzzle, and this is the way in.
+            //
+            // Each carries the matching cutout on the wall it shares with room3-1 and nothing else,
+            // so a room is sealed except through its own gate. Their walls run the same way room3-1's
+            // do (they are not turned to face it): a room to the east is still 8.75 across and 10.5
+            // deep, which is what makes `RoomPitchX` the room's WIDTH plus the shared build-up.
+            // TWICE ACROSS, TWICE DEEP, THREE TIMES TALL - ten cells, twelve cells, twelve rows,
+            // every one an exact multiple of the grid the rest of the building uses.
+            //
+            const float bigWidth = 2f * RoomWidth;      // 17.5, ten cells
+            const float bigDepth = 2f * RoomDepth;      // 21.0, twelve cells
+            const float bigHeight = 3f * RoomHeight;    // 16.2234, twelve rows
+
+            // **THE ROOM IS OFFSET HALF A CELL, and the corridor is not.** Room3-1's north wall has an
+            // ODD cell count, so its middle cell is centred on the building's axis and the corridor
+            // sits on it exactly. This room's south wall has an EVEN one - ten cells - so that axis
+            // falls on a cell BOUNDARY here, and a centred opening straddled two cells and left a
+            // half-panel either side. Play saw it immediately.
+            //
+            // Moving the ROOM rather than the corridor is what fixes it: shifted by half a cell, the
+            // building's axis lands on the middle of one of this wall's cells and the mouth is exactly
+            // one whole panel. A full cell would have changed nothing - the parity is what matters,
+            // not the distance. The corridor stays where it is, so it is still centred in room3-1 and
+            // merely enters this room half a cell off its centreline, which nothing can see.
+            const float bigOffsetX = GridCellWidth / 2f;
+            float mouthLocalX = -bigOffsetX;
+            float halfMouth = gateNS.width / 2f;
+            Rect corridorMouth = Rect.MinMaxRect(mouthLocalX - halfMouth, 0f,
+                                                  mouthLocalX + halfMouth, GateHeight);
+
+            Transform rN = BuildBigRoom(root.transform, "Room3_2N",
+                           new Vector3(bigOffsetX, 0f, NorthRoomZ),
+                           bigWidth, bigDepth, bigHeight,
+                           floorMat, grooveMat, panelMat, fixtureMat, corridorMouth);
+            Transform rS = BuildEmptyRoom(root.transform, "Room3_2S", new Vector3(0f, 0f, -RoomPitch),
+                           floorMat, grooveMat, panelMat, fixtureMat,
+                           doorwayNorth: false, northCutout: gateNS);
+            Transform rE = BuildEmptyRoom(root.transform, "Room3_2E", new Vector3(RoomPitchX, 0f, 0f),
+                           floorMat, grooveMat, panelMat, fixtureMat,
+                           doorwayNorth: false, westCutout: gateEW);
+            Transform rW = BuildEmptyRoom(root.transform, "Room3_2W", new Vector3(-RoomPitchX, 0f, 0f),
+                           floorMat, grooveMat, panelMat, fixtureMat,
+                           doorwayNorth: false, eastCutout: gateEW);
 
             // THE BED, and the point the loop teleports to at the top of every iteration.
             (_, Transform spawn) = BuildBed(r1, propMat, floorY: CycleThreeFloorY, zCentre: CycleThreeZ,
@@ -5615,17 +5731,100 @@ namespace IterationRoom.EditorTools
 
             ParticleSystem[] gas = BuildGasEmitters(r1, "Room3_1_Gas", 0f);
 
+            // ONE PAD PER DIRECTION, each on the axis of the wall it opens and 3.2m out from the
+            // centre - clear of the bed, which sits in the middle of the room, and near enough to its
+            // own gate that stepping on it and watching that wall open is one glance rather than a
+            // hunt. The pads are otherwise identical and unlabelled: which one opens which wall is
+            // meant to be learned by standing on one.
+            Material padMat = MakeColorMaterial("Room3PadWhite", new Color(0.85f, 0.85f, 0.86f));
+            const float padOut = 3.2f;
+            var pads = new[]
+            {
+                BuildFloorButton(r1, padMat, "Pad3_1_North", new Vector3(0f, 0f, padOut)),
+                BuildFloorButton(r1, padMat, "Pad3_1_South", new Vector3(0f, 0f, -padOut)),
+                BuildFloorButton(r1, padMat, "Pad3_1_East", new Vector3(padOut, 0f, 0f)),
+                BuildFloorButton(r1, padMat, "Pad3_1_West", new Vector3(-padOut, 0f, 0f)),
+            };
+
+            // EACH GATE TAKES ONE PAD, not all four. `Door.requiredFloorButtons` wants EVERY pad in
+            // the array held at once - which is Room3's puzzle - and here the four walls are four
+            // separate offers, so each array is one pad long.
+            // **NORTH HAS NO GATE.** Its cutout is a permanent opening - the mouth of the corridor -
+            // and pad 0 drives the slab partway down it instead. The other three walls are gates that
+            // are not meant to be found; this one is a hole you can see down, with a mechanism in it
+            // you are meant to see coming.
+            CrushingBarrier northBarrier =
+                BuildNorthCorridor(root.transform, floorMat, grooveMat, panelMat, pads[0]);
+
+            // ROOM3-1'S FACE OF EACH GATE, and then the far room's face of the same gate. Both take
+            // the same pad, so one wall opens; the far side skips the cavity liner because the near
+            // side has already built it.
+            BuildPanelGate(r1, "Gate3_1_South", new Vector3(0f, 0f, -RoomDepth / 2f),
+                           Vector3.right, Vector3.forward, RoomWidth, panelMat, grooveMat,
+                           new[] { pads[1] });
+            BuildPanelGate(rS, "Gate3_2S_North", new Vector3(0f, 0f, RoomDepth / 2f),
+                           Vector3.right, Vector3.back, RoomWidth, panelMat, grooveMat,
+                           new[] { pads[1] }, withCavityLiner: false);
+
+            BuildPanelGate(r1, "Gate3_1_East", new Vector3(RoomWidth / 2f, 0f, 0f),
+                           Vector3.forward, Vector3.left, RoomDepth, panelMat, grooveMat,
+                           new[] { pads[2] });
+            BuildPanelGate(rE, "Gate3_2E_West", new Vector3(-RoomWidth / 2f, 0f, 0f),
+                           Vector3.forward, Vector3.right, RoomDepth, panelMat, grooveMat,
+                           new[] { pads[2] }, withCavityLiner: false);
+
+            BuildPanelGate(r1, "Gate3_1_West", new Vector3(-RoomWidth / 2f, 0f, 0f),
+                           Vector3.forward, Vector3.right, RoomDepth, panelMat, grooveMat,
+                           new[] { pads[3] });
+            BuildPanelGate(rW, "Gate3_2W_East", new Vector3(RoomWidth / 2f, 0f, 0f),
+                           Vector3.forward, Vector3.left, RoomDepth, panelMat, grooveMat,
+                           new[] { pads[3] }, withCavityLiner: false);
+
+            // EVERY GATE PROVED CLEAR, which is the one thing this room can get silently wrong. The
+            // opening is cut out of two walls' collision and two liners are built into the cavity
+            // beside it, and any of the four rects being a hair off leaves a gate you can see through
+            // and not walk through. `AssertWalkable` ignores the leaves themselves (they carry
+            // `Door`), so what it is really testing is everything AROUND them.
+            // THROUGH THE OPENING, WHICH IS NOT THE MIDDLE OF THE WALL on the five-cell north and
+            // south - a probe down the wall's centreline there would sweep half a metre of solid
+            // panel and report a blockage that is the wall doing its job.
+            float nsCentre = gateNS.center.x, ewCentre = gateEW.center.x;
+            // The corridor end to end, which also proves its mouth and its far doorway. The slab is
+            // ignored like any `Door`-shaped obstruction would not be - it is NOT a Door, so it has to
+            // be authored raised for this to pass, and it is authored SHUT. Probing the two halves
+            // separately is what tests the geometry rather than the mechanism.
+            AssertWalkable(r1, "room3-1 north corridor mouth",
+                new Vector3(nsCentre, 0f, RoomDepth / 2f - 1.2f), new Vector3(nsCentre, 0f, RoomDepth / 2f + 4f));
+            AssertWalkable(r1, "room3-1 south gate",
+                new Vector3(nsCentre, 0f, -RoomDepth / 2f + 1.2f), new Vector3(nsCentre, 0f, -RoomDepth / 2f - 1.2f));
+            AssertWalkable(r1, "room3-1 east gate",
+                new Vector3(RoomWidth / 2f - 1.2f, 0f, ewCentre), new Vector3(RoomWidth / 2f + 1.2f, 0f, ewCentre));
+            AssertWalkable(r1, "room3-1 west gate",
+                new Vector3(-RoomWidth / 2f + 1.2f, 0f, ewCentre), new Vector3(-RoomWidth / 2f - 1.2f, 0f, ewCentre));
+
             Debug.Log($"[SceneBuilder] Cycle 3: Room3_1 at ({CycleThreeX:0.##}, {CycleThreeFloorY:0.###}, "
-                    + $"{CycleThreeZ:0.##}), sealed, no puzzle yet");
+                    + $"{CycleThreeZ:0.##}), 4 pads: 3 gates ({gateEW.width:0.##} E/W, "
+                    + $"{gateNS.width:0.##} S) and a {CorridorRun:0.##}m "
+                    + $"filled corridor north into Room3_2N ({2f * RoomWidth:0.##}x{2f * RoomDepth:0.##}"
+                    + $"x{3f * RoomHeight:0.###})");
             // THE TWO DRAWER BAYS ARE THE WHOLE SIGNAL ARRAY, and they are in it before anything is
             // in THEM - the same order cycle 2's chest was wired in, and for the reason CLAUDE.md
             // SS1.6 gives: an entry's index IS its bit, so appending one later is the one change this
             // array makes awkward. Numbered from zero, which is legal because every ghost is destroyed
             // at a cycle boundary and no surviving timeline refers to another cycle's bits.
-            var signals = new GhostInteractable[drawers.Length];
+            // THE DRAWERS FIRST, THEN THE FOUR PADS, and the order is the wire format. An entry's
+            // index IS its bit in `RecordedFrame.signals` (CLAUDE.md SS1.6), so this array is
+            // append-only - a pad inserted ahead of the drawers would make every timeline recorded
+            // before it replay the wrong fixture. Six of the thirty-two bits are spent.
+            //
+            // The pads MUST be in here or the whole room does not work: a `FloorButton` outside the
+            // signal array is a pad no past self ever stands on, and every gate in this room is
+            // opened by a past self.
+            var signals = new GhostInteractable[drawers.Length + pads.Length];
             for (int i = 0; i < drawers.Length; i++) signals[i] = drawers[i];
+            for (int i = 0; i < pads.Length; i++) signals[drawers.Length + i] = pads[i];
 
-            return (root.transform, spawn, gas, r1, signals);
+            return (root.transform, spawn, gas, r1, signals, northBarrier);
         }
 
         // THE BED A PLAYER FALLS INTO HAS TO BE UNDER THE HATCH THEY FELL THROUGH, and nothing else in
@@ -12400,6 +12599,566 @@ namespace IterationRoom.EditorTools
             return (field, keyItems);
         }
 
+        // A GATE: TWO LEAVES OF WALL THAT SLIDE APART WHILE A PAD IS HELD.
+        //
+        // Mechanically this is two `Door`s. That is not a shortcut - `Door` already TRACKS its pads
+        // rather than latching (see its own note on why Room1's door works that way), which is
+        // exactly the behaviour asked for here: step on, the wall opens; step off, it shuts. Writing
+        // a second component for it would be a second answer to "is this open" for the same reason.
+        //
+        // **SO NOBODY WALKS THROUGH THEIR OWN GATE.** The pad is in this room and the opening is in
+        // its wall, and one person cannot be on both. Every one of the four rooms around room3-1 is
+        // reachable only while a PAST SELF is standing on the pad - which is the cycle's premise
+        // stated in its first room, the way Room3's two pads state cycle 1's.
+        //
+        // The leaves live in the pocket between this room's wall and the next room's, the same
+        // 0.1m cavity an ordinary door slides in, and each slides outward by its own width so the
+        // opening clears completely. The cavity is capped by a liner everywhere the leaves do not
+        // sweep - without it the gap between the two rooms' walls is open to the skybox at both
+        // ends, which is the fault `BuildDoorPocketFill` exists to fix for the ordinary doors.
+        // WHERE A WALL'S GATE IS, and both rooms that share the wall have to agree - the opening is
+        // cut out of each of their walls separately, so this is the one place the answer lives.
+        //
+        // **THE GATE IS ALWAYS WHOLE CELLS AND ALWAYS CENTRED; ONLY HOW MANY DEPENDS ON THE WALL.**
+        // Room3-1's east and west walls are 10.5 across, six cells, so the middle PAIR straddles the
+        // centre and the gate is two leaves opening to their own sides. The north and south walls are
+        // 8.75, FIVE cells - there is no middle pair, so the gate is the middle CELL, one leaf, and it
+        // slides one way. A two-cell gate on an odd wall was built first and is what this replaces:
+        // it could only sit half a cell off centre, which read as a mistake rather than as a wall.
+        //
+        // A leaf is never part of a cell. A half-width panel would carry a groove down the middle of
+        // a cell where the wall has none, which is the one thing that would give a shut gate away.
+        private static void GateSpan(float wallWidth, out float openMin, out float openMax,
+                                     out float leafTravel, out int leaves)
+        {
+            // The same rounding `BuildPanelWall` does, so the cells this lands on are the cells that
+            // are actually built.
+            int cols = Mathf.Max(2, Mathf.RoundToInt(wallWidth / GridCellWidth));
+            float cellWidth = wallWidth / cols;
+
+            leaves = cols % 2 == 0 ? 2 : 1;
+            float halfSpan = leaves * cellWidth / 2f;
+            openMin = -halfSpan;
+            openMax = halfSpan;
+            // One cell either way. A split pair only has to clear its own half; a single leaf only
+            // has its own width to vacate. Both park exactly over the cell next door.
+            leafTravel = cellWidth;
+        }
+
+        private static Rect GateCutout(float wallWidth)
+        {
+            GateSpan(wallWidth, out float openMin, out float openMax, out _, out _);
+            return Rect.MinMaxRect(openMin, 0f, openMax, GateHeight);
+        }
+
+        // A GATE: A PIECE OF THE WALL THAT LEAVES WHILE A PAD IS HELD.
+        //
+        // **THE LEAVES ARE WALL, not door slabs, and that is the whole specification.** Same material,
+        // same 0.025 thickness, same depth off the face, same groove inset, and split into one quad
+        // per grid cell so the row line across the opening lands where the wall's own does. Shut,
+        // there is nothing to see: no frame, no reveal, no lamp. A player who has not stood on the pad
+        // has no way to know a gate is there.
+        //
+        // **EACH LEAF CARRIES ITS OWN BACKING, and leaving it out is what made the first version show
+        // the room next door.** The cutout takes the wall's backing away along with its panels - so
+        // the 0.05 groove around a leaf had nothing behind it, and the sightline ran groove, cavity,
+        // the neighbour's own cutout, daylight. A panel is not a wall; a panel PLUS the dark plate
+        // behind its grooves is. So the plate travels with it, sized to the full cell with no groove
+        // inset, which is exactly the area the grooves expose.
+        //
+        // Mechanically it is one `Door` per leaf. `Door` already TRACKS its pads rather than latching
+        // (see its note on Room1); what it did not have was the push-in phase a flush panel needs
+        // before it can travel sideways, and that is a field on `Door` now rather than a second
+        // component, so "is this open" still has one answer.
+        // **BUILT ONCE PER SIDE OF THE WALL, and both sides are needed.** A gate lives in a wall two
+        // rooms share, and each of them has its own panelled face - so a gate built on one side only
+        // leaves the OTHER room looking at a bare hole where its grid should be. Play found it exactly
+        // that way. The two calls take the same pads, so the two faces move as one wall.
+        //
+        // They fit because a leaf is thin. Each retracts to its OWN side of the 0.1m cavity rather
+        // than to the middle of it: near leaf 0.129-0.169 back from its face, far leaf the mirror of
+        // that, 12mm between them.
+        //
+        // `withCavityLiner` belongs to the first call only. The liner fills one volume and building it
+        // twice is two coincident slabs fighting for the same pixels.
+        private static Door[] BuildPanelGate(Transform parent, string name,
+                                             Vector3 wallCentreAtBase, Vector3 rightDir, Vector3 inward,
+                                             float wallWidth, Material panelMat, Material grooveMat,
+                                             FloorButton[] pads, bool withCavityLiner = true)
+        {
+            GateSpan(wallWidth, out float openMin, out float openMax, out float leafTravel, out int leaves);
+
+            float leafWidth = (openMax - openMin) / leaves;
+            float openCentre = (openMin + openMax) / 2f;
+            float groove = GridLineThickness;
+
+            Vector3 outward = -inward;
+            Vector3 depthAxis = new Vector3(Mathf.Abs(inward.x), Mathf.Abs(inward.y), Mathf.Abs(inward.z));
+            Vector3 widthAxis = new Vector3(Mathf.Abs(rightDir.x), Mathf.Abs(rightDir.y), Mathf.Abs(rightDir.z));
+
+            // THE WHOLE LEAF HAS TO FIT IN THE CAVITY, which is 0.1 deep, so its backing is a thin
+            // plate rather than the wall's own 0.1 slab. It only has to stop a sightline down a 0.05
+            // groove, not hold a building up.
+            const float leafBackingDepth = 0.015f;
+            // JUST INSIDE THE CAVITY, not centred in it. Centred was right while only one side had a
+            // gate; with a leaf coming from each face they have to pass each other, and the cavity is
+            // 0.1 deep against two leaves of 0.04. 4mm past the wall's own backing puts this one at
+            // 0.129-0.169 and its opposite number at 0.181-0.221.
+            float pushDistance = WallDepth + 0.004f;
+
+            GameObject root = new GameObject(name);
+            root.transform.SetParent(parent, false);
+
+            AudioSource audio = MakeSource(root.transform, "GateAudio", spatialBlend: 1f, volume: 0.7f);
+            audio.transform.localPosition = wallCentreAtBase + rightDir * openCentre
+                                          + Vector3.up * (GateHeight / 2f);
+            AudioClip openClip = LoadClip(SfxDir, "sfx_door_open");
+
+            var doors = new Door[leaves];
+            for (int i = 0; i < leaves; i++)
+            {
+                float cellAlong = openMin + i * leafWidth;
+                float cellEnd = cellAlong + leafWidth;
+                float cellCentre = (cellAlong + cellEnd) / 2f;
+                // Two leaves open to their own sides; a single leaf has only one way to go.
+                float direction = leaves == 2 ? (i == 0 ? -1f : 1f) : 1f;
+
+                GameObject leafRoot = new GameObject($"Leaf_{i}");
+                leafRoot.transform.SetParent(root.transform, false);
+                // On the opening's centre, so `Door.doorwayCentre` - read off this, and what decides
+                // whether the player is standing in the way - lands in the gap rather than on a leaf.
+                leafRoot.transform.localPosition = wallCentreAtBase + rightDir * openCentre
+                                                 + Vector3.up * (GateHeight / 2f);
+
+                // ONE QUAD PER GRID CELL, laid out exactly as `BuildPanelWall` does it.
+                for (int row = 0; row * GridCellHeight < GateHeight - 0.001f; row++)
+                {
+                    float bottom = row * GridCellHeight;
+                    float top = Mathf.Min(bottom + GridCellHeight, GateHeight);
+                    float upCentre = (bottom + top) / 2f;
+
+                    Prim(PrimitiveType.Cube, $"Panel_{row}", leafRoot.transform,
+                        rightDir * (cellCentre - openCentre)
+                            + Vector3.up * (upCentre - GateHeight / 2f)
+                            - inward * (GrooveDepth / 2f),
+                        widthAxis * (leafWidth - groove) + Vector3.up * (top - bottom - groove)
+                            + depthAxis * GrooveDepth,
+                        panelMat, removeCollider: true);
+                }
+
+                // THE BACKING, which is what a groove has at the bottom of it everywhere else in the
+                // building. Full cell, no inset, so every slot around and between this leaf's panels
+                // has the same near-black behind it that the rest of the wall does.
+                Prim(PrimitiveType.Cube, "Backing", leafRoot.transform,
+                    rightDir * (cellCentre - openCentre)
+                        - inward * (GrooveDepth + leafBackingDepth / 2f),
+                    widthAxis * leafWidth + Vector3.up * GateHeight + depthAxis * leafBackingDepth,
+                    grooveMat, removeCollider: true);
+
+                // COLLISION IS ONE BOX, THICKER THAN THE PANELS ARE. The opening is cut out of both
+                // rooms' wall collision, so a shut gate is the only thing between them - and a 25mm
+                // collider is a thin thing to trust a CharacterController against. Built without the
+                // groove inset too, so there is no 50mm slot to squeeze through at the seam.
+                GameObject block = new GameObject("Solid");
+                block.transform.SetParent(leafRoot.transform, false);
+                block.transform.localPosition = rightDir * (cellCentre - openCentre)
+                                              - inward * ((GrooveDepth + leafBackingDepth) / 2f);
+                BoxCollider blockCollider = block.AddComponent<BoxCollider>();
+                // As deep as the leaf assembly rather than a door slab's 0.06, so the two sides'
+                // colliders do not overlap in the cavity. There are two of them in series anyway, and
+                // `CharacterController.Move` sweeps rather than teleports, so neither can be tunnelled.
+                blockCollider.size = widthAxis * leafWidth + Vector3.up * GateHeight
+                                   + depthAxis * (GrooveDepth + leafBackingDepth);
+
+                // Baked into the probes despite moving, because shut it is wall - see WallWhileShut.
+                leafRoot.AddComponent<WallWhileShut>();
+
+                Door door = leafRoot.AddComponent<Door>();
+                door.doorPanel = leafRoot.transform;
+                door.pushInOffset = outward * pushDistance;
+                door.openLocalOffset = rightDir * (direction * leafTravel);
+                door.requiredFloorButtons = pads;
+                door.openDuration = 1.4f;
+                door.audioSource = audio;
+                // One clip for the pair - two copies of the same slide half a frame apart is a flam.
+                door.openClip = i == 0 ? openClip : null;
+                door.doorwayClearance = (openMax - openMin) / 2f + 0.6f;
+                doors[i] = door;
+            }
+
+            // THE CAVITY LINER. Without it the 0.1m gap between the two rooms' walls is open to the
+            // skybox at both ends - the fault `BuildDoorPocketFill` fixes for the ordinary doors. It
+            // fills everywhere the leaves do NOT go; where they park it has to stay clear.
+            if (!withCavityLiner) return doors;
+
+            float clearMin = leaves == 2 ? openMin - leafTravel : openMin;
+            float clearMax = openMax + leafTravel;
+            Rect cavity = Rect.MinMaxRect(-wallWidth / 2f - WallDepth, 0f,
+                                           wallWidth / 2f + WallDepth, RoomHeight);
+            Rect swept = Rect.MinMaxRect(clearMin, 0f, clearMax, GateHeight);
+
+            GameObject liner = new GameObject(name + "_CavityLiner");
+            liner.transform.SetParent(root.transform, false);
+            int part = 0;
+            foreach (Rect piece in SubtractRect(cavity, swept))
+            {
+                if (piece.width <= 0.001f || piece.height <= 0.001f) continue;
+                Prim(PrimitiveType.Cube, $"Fill_{part++}", liner.transform,
+                    wallCentreAtBase + rightDir * piece.center.x + Vector3.up * piece.center.y
+                        + outward * (WallDepth + DoorPocketDepth / 2f),
+                    widthAxis * piece.width + Vector3.up * piece.height
+                        + depthAxis * DoorPocketDepth,
+                    grooveMat, removeCollider: true);
+            }
+
+            return doors;
+        }
+
+        // THE CORRIDOR NORTH OUT OF ROOM3-1, AND THE SLAB THAT COMES DOWN IN IT.
+        //
+        // Not a gate. The other three walls of room3-1 open as panels and are meant not to be found;
+        // this one is a hole you can see down, with a mechanism in it you are meant to see coming.
+        // Both walls it passes through keep the gate-sized cutout and neither gets leaves - the
+        // barrier partway along is the only thing that ever blocks the way.
+        //
+        // **THE CORRIDOR IS ONE CELL WIDE**, the same 1.75 the north wall's gate span is, so its mouth
+        // lands on the wall grid exactly and there are no sliver panels beside it. Twenty-two metres
+        // of it at that width is a tube, which is the intention: it is somewhere you commit to.
+        //
+        // The pad that holds the slab up is in room3-1, at the near end. **One person cannot hold it
+        // and walk this**, which is the whole of the room - and unlike the gates, being wrong about it
+        // is not merely inconvenient. See `CrushingBarrier`.
+        // A ROOM THAT IS NOT THE STANDARD SHELL. Room3-2N is twice as wide, twice as deep and THREE
+        // times as tall as every other room in the building - the climbing puzzle needs the height and
+        // the panel stairs need the floor.
+        //
+        // **THE GRID CELL DOES NOT CHANGE, ONLY THE COUNT.** 17.5 across is ten cells of 1.75 where a
+        // normal wall is five, 21 deep is twelve where a normal one is six, and 16.2234 tall is twelve
+        // rows of 1.3519 where a normal wall is four. Every number is an exact multiple, so the
+        // panelling reads as the same wall continued rather than as a different wall - which is the
+        // whole reason the size is a multiple in the first place.
+        //
+        // Written as its own builder rather than as parameters on `BuildEmptyRoom`, because that one
+        // is not merely sized by constants - `BuildSlab` lays its floor across a whole `RoomPitch` so
+        // neighbouring rooms meet under their shared divider, which is a rule about the CHAIN and not
+        // about this room. Threading a size through it would put a room-sized hole in that rule.
+        private static Transform BuildBigRoom(Transform parent, string name, Vector3 at,
+                                              float width, float depth, float height,
+                                              Material floorMat, Material grooveMat,
+                                              Material panelMat, Material fixtureMat,
+                                              Rect southCutout)
+        {
+            GameObject rootGO = new GameObject(name + "_Root");
+            rootGO.transform.SetParent(parent, false);
+            rootGO.transform.localPosition = at;
+
+            GameObject roomGO = new GameObject(name);
+            roomGO.transform.SetParent(rootGO.transform, false);
+            Transform t = roomGO.transform;
+
+            // Overrunning the interior by the wall build-up at every edge, the same reason
+            // `BuildPanelWall` overruns its structure: two slabs that merely abut leave a hairline the
+            // grazing angles find.
+            float slabX = width + 2f * WallDepth;
+            float slabZ = depth + 2f * WallDepth;
+            Prim(PrimitiveType.Cube, "Floor", t, new Vector3(0f, -WallThickness / 2f, 0f),
+                new Vector3(slabX, WallThickness, slabZ), floorMat);
+            Prim(PrimitiveType.Cube, "Ceiling", t, new Vector3(0f, height + WallThickness / 2f, 0f),
+                new Vector3(slabX, WallThickness, slabZ), CeilingMaterial());
+
+            BuildPanelWall(t, "Wall_North", new Vector3(0f, 0f, depth / 2f),
+                Vector3.right, Vector3.back, width, grooveMat, panelMat, Rect.zero, height);
+            BuildPanelWall(t, "Wall_South", new Vector3(0f, 0f, -depth / 2f),
+                Vector3.right, Vector3.forward, width, grooveMat, panelMat, southCutout, height);
+            BuildPanelWall(t, "Wall_West", new Vector3(-width / 2f, 0f, 0f),
+                Vector3.forward, Vector3.right, depth, grooveMat, panelMat, Rect.zero, height);
+            BuildPanelWall(t, "Wall_East", new Vector3(width / 2f, 0f, 0f),
+                Vector3.forward, Vector3.left, depth, grooveMat, panelMat, Rect.zero, height);
+
+            BuildTallRoomLights(t, name, width, depth, height, fixtureMat);
+
+            // A SINGLE PANEL PUSHED OUT OF THE WEST WALL, to be stood on (2026-08-21, by request).
+            //
+            // **HALF A ROW, AND IT IS MEANT TO BE WALKED ONTO RATHER THAN JUMPED.** A whole row was
+            // tried first and play confirmed the arithmetic: 1.327m against a 0.9m jump is out of
+            // reach. Raising the jump to clear it was tried too and read as wrong - the player floats.
+            //
+            // So the step comes down instead of the jump going up. Half a row is 0.676 and the panel's
+            // top lands at 0.651, which is under the controller's `stepOffset` - the player walks up
+            // it without leaving the ground. Stairs you walk up read as stairs; stairs you jump up
+            // read as an obstacle course, and this room is going to be twenty-four of them.
+            const float testPanelOut = 0.6f;
+            float testTop = GridCellHeight / 2f - GridLineThickness / 2f;
+            Prim(PrimitiveType.Cube, "TestStep_West", t,
+                new Vector3(-width / 2f + testPanelOut / 2f,
+                            (GridLineThickness / 2f + testTop) / 2f, 0f),
+                new Vector3(testPanelOut, testTop - GridLineThickness / 2f,
+                            GridCellWidth - GridLineThickness),
+                panelMat);
+            Debug.Log($"[SceneBuilder] {name}: test step protrudes {testPanelOut:0.##}m from the west "
+                    + $"wall, top at {testTop:0.###}m (half a grid row; step offset {PlayerStepOffset:0.##}m)");
+
+            // Sized to the room rather than to `RoomWidth`/`RoomDepth`, and centred at half its own
+            // height. A probe left at the standard size would capture a box a fraction of this one and
+            // reflect it onto every surface in here.
+            BuildReflectionProbe(t, name, 0f, sizeOverride: new Vector3(width, height, depth),
+                                 yCenter: height * 0.5f);
+
+            return t;
+        }
+
+        // LIGHTING A ROOM THREE STOREYS TALL, which the standard fixture grid cannot do.
+        //
+        // `BuildCeilingLights` puts four spots at fixed offsets with `range` 11 and `intensity` 10.5,
+        // derived for a 5.4m ceiling. At 16.2m the range does not even REACH the floor, and inverse
+        // square says the floor would get a ninth of the light if it did. So this scales both: the
+        // grid spreads with the room, the range covers the diagonal, and the intensity goes up by the
+        // square of the height ratio - which is the same derivation the 10.5 itself came from.
+        //
+        // **These numbers are derived, not seen.** The 10.5 was found by eye and then re-derived once
+        // when the ceiling moved; this re-derives it again over a much bigger jump, and a jump that
+        // big is exactly where an inverse-square approximation stops being one. Expect to retune.
+        private static void BuildTallRoomLights(Transform parent, string roomName,
+                                                float width, float depth, float height,
+                                                Material emissiveMat)
+        {
+            GameObject root = new GameObject(roomName + "_CeilingLights");
+            root.transform.SetParent(parent, false);
+
+            // A 3x3 rather than the standard 2x2: four fixtures over four times the floor area would
+            // be four pools with dark between them, and this is a room the player has to read a route
+            // across from the far end of a CCTV feed.
+            float[] xs = { -width / 3f, 0f, width / 3f };
+            float[] zs = { -depth / 3f, 0f, depth / 3f };
+
+            const float panelSize = 1.4f, panelThickness = 0.04f;
+            float heightRatio = height / RoomHeight;
+
+            int index = 0;
+            foreach (float x in xs)
+                foreach (float z in zs)
+                {
+                    GameObject fixture = new GameObject($"Fixture_{index++}");
+                    fixture.transform.SetParent(root.transform, false);
+                    fixture.transform.localPosition = new Vector3(x, height, z);
+
+                    Prim(PrimitiveType.Cube, "Panel", fixture.transform,
+                        new Vector3(0f, -panelThickness / 2f, 0f),
+                        new Vector3(panelSize, panelThickness, panelSize),
+                        emissiveMat, removeCollider: true);
+
+                    GameObject lightGO = new GameObject("Light");
+                    lightGO.transform.SetParent(fixture.transform, false);
+                    lightGO.transform.localPosition = new Vector3(0f, -panelThickness, 0f);
+                    lightGO.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+                    Light light = lightGO.AddComponent<Light>();
+                    light.type = LightType.Spot;
+                    light.spotAngle = 130f;
+                    light.innerSpotAngle = 45f;
+                    // Far enough to reach the floor with the cone's edge, not just its axis.
+                    light.range = Mathf.Sqrt(height * height + (width / 3f) * (width / 3f)) * 1.15f;
+                    // The same inverse-square move that took 9 to 10.5 when the ceiling rose 8%.
+                    light.intensity = 10.5f * heightRatio * heightRatio;
+                    light.color = new Color(0.99f, 0.99f, 1f);
+                    // NO SHADOWS AT ALL in here. Every additional light's shadow shares one atlas, and
+                    // nine casters in one room would take the whole of it from the rest of the cycle.
+                    light.shadows = LightShadows.None;
+                    light.renderMode = LightRenderMode.ForcePixel;
+                }
+        }
+
+        private static CrushingBarrier BuildNorthCorridor(Transform parent, Material floorMat,
+                                                          Material grooveMat, Material panelMat,
+                                                          FloorButton pad)
+        {
+            GateSpan(RoomWidth, out float openMin, out float openMax, out _, out _);
+            float halfWidth = (openMax - openMin) / 2f;
+
+            // Between the two rooms' inner faces. Both ends are derived, so moving either room moves
+            // the corridor with it rather than leaving a gap nobody notices until they fall through.
+            // **A PANEL WALL OVERRUNS ITS OWN LENGTH BY `WallDepth` AT EACH END, and where that
+            // overrun lands is the whole of a bug play found in a screenshot.** `BuildPanelWall`
+            // extends its backing and collision past the wall so perpendicular walls interpenetrate
+            // at corners instead of leaving a hairline. The corridor's side walls run along Z, so
+            // their overrun goes north and SOUTH - and built flush to room3-1's inner face, the south
+            // end poked 12.5cm INTO the room: two near-black slabs, full height, standing proud of
+            // the north wall. On camera they read as two thick black pillars with visible side faces.
+            //
+            // So the walls are inset by `WallDepth` at each end and the corridor's floor, ceiling and
+            // shaft span the whole way. Each overrun then lands exactly inside a room's own wall
+            // build-up, which is where a corner overrun is supposed to be.
+            float zStart = RoomDepth / 2f;                       // room3-1's inner face
+            float wallStart = zStart + WallDepth;
+            float wallEnd = wallStart + CorridorRun;
+            float zEnd = wallEnd + WallDepth;                    // room3-2N's inner face
+            float zMid = (zStart + zEnd) / 2f;                   // also the walls' midpoint
+            float run = zEnd - zStart;
+
+            GameObject root = new GameObject("Room3_1_NorthCorridor");
+            root.transform.SetParent(parent, false);
+
+            // Floor and ceiling run the full width including the wall build-up, so the side walls sit
+            // ON them rather than beside them.
+            float slabWidth = 2f * halfWidth + 2f * WallDepth;
+            Prim(PrimitiveType.Cube, "Floor", root.transform,
+                new Vector3(0f, -WallThickness / 2f, zMid),
+                new Vector3(slabWidth, WallThickness, run), floorMat);
+
+            // NO CEILING OVER THE CORRIDOR. The block that fills it IS the ceiling while it is down,
+            // and while it is up the underside of that block is what the player walks beneath - which
+            // is the whole image. A slab here would be a lid over a lift shaft and the block would
+            // have nowhere to go; the void's own top, built with the barrier below, closes it in.
+
+            // Panelled like every other wall in the building, at the corridor's own height so the grid
+            // reads as the same grid one row shorter.
+            // **PANELLED THE FULL HEIGHT OF THE SHAFT, not just of the walk.** The corridor has no
+            // ceiling of its own - the block is its ceiling - so anyone standing in it with the block
+            // raised is looking up past the walking height into the space the block came out of. Built
+            // only as high as the corridor, those walls stopped at 2.70 and the shaft's own structure
+            // showed above them as a black band down both sides. Play saw it exactly that way.
+            //
+            // Panelling all the way up also means the shaft needs no separate sides: the wall's own
+            // backing and collision are the enclosure, so there is nothing behind the panels to see.
+            float shaftTop = GateHeight + CorridorShaftHeight;
+            BuildPanelWall(root.transform, "Wall_West", new Vector3(-halfWidth, 0f, zMid),
+                Vector3.forward, Vector3.right, CorridorRun, grooveMat, panelMat, Rect.zero, shaftTop);
+            BuildPanelWall(root.transform, "Wall_East", new Vector3(halfWidth, 0f, zMid),
+                Vector3.forward, Vector3.left, CorridorRun, grooveMat, panelMat, Rect.zero, shaftTop);
+
+            // ~~JAMB TRIM~~ REMOVED. Thin dark fillers were added here on the theory that the dark
+            // beside the mouth was a slot opening onto an unlit corridor. It was not - it was the wall
+            // overrun above, standing in the room. With that inset, the 25mm either side of the
+            // opening is room3-1's OWN groove, backed by its own wall backing 25mm behind, exactly
+            // like every other groove on that wall. Nothing to fill.
+
+            // --- the fill ----------------------------------------------------------------------
+            //
+            // **THE CORRIDOR IS SOLID, AND THE PAD HOLLOWS IT OUT.** Not a slab partway along - the
+            // whole twenty-two metres is one block, and holding the pad lifts the entire thing into a
+            // void of exactly its own height above. What the player walks through is the hole it
+            // leaves; what is over their head the whole way is the block, held up by a foot at the
+            // near end that is not theirs.
+            //
+            // Letting go does not close a door. It fills the corridor back in, everywhere at once,
+            // and anywhere inside it is inside the block.
+            //
+            // The lift is `GateHeight`, so the corridor and the void above it stack to 5.42 - within
+            // 2mm of `RoomHeight`, which is not a coincidence worth engineering around but is worth
+            // knowing: this whole assembly is one storey tall, like everything else here.
+            float lift = GateHeight + 0.02f;
+
+            GameObject barrierRoot = new GameObject("NorthBarrier");
+            barrierRoot.transform.SetParent(root.transform, false);
+            barrierRoot.transform.localPosition = new Vector3(0f, 0f, zMid);
+
+            // JUST THE TOP OF THE SHAFT. Its sides are the corridor's own panelled walls, which run
+            // the full height, and **its two ENDS are the rooms' own walls** - the cutout at each end
+            // stops at `GateHeight`, so above the corridor's mouth both walls are intact and already
+            // close the shaft.
+            //
+            // **END CAPS WERE BUILT HERE AND WERE A BUG.** They were placed half the run plus half a
+            // wall from the corridor's midpoint, which lands 5cm PAST each room's inner face - so each
+            // one was a 2m x 2.7m white slab stuck to the INSIDE of a room's wall, above the corridor
+            // mouth, with no grid on it. Play saw it exactly: the panels above the opening did not line
+            // up and the dark edging round it was the wrong thickness, because none of it was the wall.
+            //
+            // White, not the near-black every other cavity in this building is: a groove or a door
+            // pocket is meant to read as a dark line, and this is a surface the player looks straight
+            // up at from inside the corridor. It is a ceiling and takes the ceiling's material.
+            Prim(PrimitiveType.Cube, "Shaft_Top", barrierRoot.transform,
+                new Vector3(0f, GateHeight + CorridorShaftHeight + WallThickness / 2f, 0f),
+                new Vector3(slabWidth, WallThickness, run), CeilingMaterial());
+
+            // AUTHORED FILLED, which is the pose it rests in - every plinth and lid in this project is
+            // authored in its resting pose so the scene can be read without pressing Play.
+            //
+            // **AND WHAT IT LOOKS LIKE FILLED IS THE NORTH WALL.** The block is white, not the
+            // near-black the void around it is, and its south end carries the wall's own panel grid on
+            // the wall's own plane - one cell wide, two rows, inset half a groove, with the dark
+            // backing plate behind them that every groove in this building has. Stand in room3-1 with
+            // the pad untouched and there is no corridor: there is a wall, and it is the same wall as
+            // the other three. The same specification the gates are built to, on a leaf that happens
+            // to be twenty-two metres deep.
+            GameObject slab = new GameObject("Fill");
+            slab.transform.SetParent(barrierRoot.transform, false);
+            slab.transform.localPosition = Vector3.zero;
+
+            const float faceBackingDepth = 0.015f;
+            // **NOTHING ON THIS BLOCK IS EXACTLY AS WIDE AS THE CORRIDOR, and that is what stopped the
+            // flicker.** At exactly 1.75 its sides were the same plane as the corridor's wall panels,
+            // and two coplanar faces fight for the same pixels from every angle. The clearances are
+            // asymmetric on purpose: the body is 2mm clear each side and the face backing only 1mm, so
+            // no slot is ever left uncovered wide enough to see the lit wall behind the groove - which
+            // is what read as a thicker black border with a bright edge to it.
+            const float bodyClearance = 0.004f;   // 2mm each side
+            const float faceClearance = 0.002f;   // 1mm each side
+            // Sunk below the floor rather than resting on it, for the same reason: a bottom face at
+            // y=0 is the floor slab's top face. Buried, there is no shared plane and no gap either.
+            const float sink = 0.02f;
+            float faceZ = zStart - zMid;                       // the block's south end, in its own frame
+            float grooveGap = GridLineThickness;
+
+            for (int row = 0; row * GridCellHeight < GateHeight - 0.001f; row++)
+            {
+                float bottom = row * GridCellHeight;
+                float top = Mathf.Min(bottom + GridCellHeight, GateHeight);
+                // THE ONE THING THAT IS EXACTLY ON THE GRID. These are what room3-1 sees when the
+                // corridor is shut, so they are the wall's own panels - cell width less one groove,
+                // row height less one groove - and no clearance is applied to them.
+                Prim(PrimitiveType.Cube, $"FacePanel_{row}", slab.transform,
+                    new Vector3(0f, (bottom + top) / 2f, faceZ + GrooveDepth / 2f),
+                    new Vector3(2f * halfWidth - grooveGap, top - bottom - grooveGap, GrooveDepth),
+                    panelMat, removeCollider: true);
+            }
+
+            Prim(PrimitiveType.Cube, "FaceBacking", slab.transform,
+                new Vector3(0f, (GateHeight - sink) / 2f, faceZ + GrooveDepth + faceBackingDepth / 2f),
+                new Vector3(2f * halfWidth - faceClearance, GateHeight + sink, faceBackingDepth),
+                grooveMat, removeCollider: true);
+
+            // The mass itself, starting where the face finishes so nothing is coplanar with anything.
+            float bodyStart = faceZ + GrooveDepth + faceBackingDepth;
+            float bodyEnd = zEnd - zMid;
+            Prim(PrimitiveType.Cube, "Body", slab.transform,
+                new Vector3(0f, (GateHeight - sink) / 2f, (bodyStart + bodyEnd) / 2f),
+                new Vector3(2f * halfWidth - bodyClearance, GateHeight + sink, bodyEnd - bodyStart),
+                panelMat);
+
+            AudioSource audio = MakeSource(barrierRoot.transform, "BarrierAudio",
+                                           spatialBlend: 1f, volume: 0.95f);
+            audio.transform.localPosition = new Vector3(0f, GateHeight / 2f, 0f);
+
+            // BAKED INTO THE PROBES, and said out loud rather than left to luck. `MovesDuringPlay`
+            // happens not to list `CrushingBarrier`, so this would be baked anyway - but its face IS
+            // room3-1's north wall while it is down, and a wall missing from the reflections is the
+            // mark that gives a concealed opening away (see WallWhileShut). Marking it means adding
+            // `CrushingBarrier` to that list later cannot quietly undo this.
+            slab.AddComponent<WallWhileShut>();
+
+            CrushingBarrier barrier = barrierRoot.AddComponent<CrushingBarrier>();
+            barrier.slab = slab.transform;
+            barrier.openLocalOffset = new Vector3(0f, lift, 0f);
+            barrier.pads = new[] { pad };
+            barrier.audioSource = audio;
+            // **SLOW UP, FAST DOWN, and the asymmetry is the whole feel of it.** 0.9s read as the
+            // block being flicked aside; twenty-two metres of it should look like it weighs what it
+            // weighs, and 2.6s is a lift rather than a flinch. The fall stays at 0.45 on purpose - it
+            // is not closing, it is being let go of, and the thing you spent nine seconds earning
+            // should take half a second to lose.
+            barrier.openDuration = 2.6f;
+            barrier.closeDuration = 0.45f;
+            barrier.moveClip = LoadClip(SfxDir, "sfx_door_open");
+            // The heaviest thing in the SFX folder. There is no crunch in it and there does not need
+            // to be - the room is a facility, and what it does to you is switch you off.
+            barrier.crushClip = LoadClip(SfxDir, "sfx_power_down");
+            // THE WHOLE CORRIDOR IS THE KILL VOLUME, because the whole corridor is the block. There is
+            // no safe corner to stand in: the only safe place is out of it at one end or the other.
+            barrier.killHalfExtents = new Vector3(halfWidth, GateHeight, run / 2f);
+
+            return barrier;
+        }
+
         private static FloorButton BuildFloorButton(Transform parent, Material mat, string name, Vector3 position)
         {
             // Root at unit scale so the activation volume is defined in clean world units;
@@ -12620,6 +13379,20 @@ namespace IterationRoom.EditorTools
             cc.height = 1.8f;
             cc.radius = 0.3f;
             cc.center = new Vector3(0f, 0.9f, 0f);
+            // **RAISED FROM UNITY'S 0.3 SO CYCLE 3'S STAIRS ARE WALKED UP, NOT JUMPED** (2026-08-21).
+            //
+            // The first attempt at making a grid-row step climbable was a bigger jump - 6 to 7.9,
+            // 0.90m to 1.56m - and play called it awkward, which it is: the player floats, and every
+            // room in the game inherits it. This does the opposite. The step comes down to half a row
+            // (0.651m to its top) and the controller simply walks up it.
+            //
+            // **AND IT CANNOT REACH ANYTHING A JUMP COULD NOT ALREADY.** 0.72 is below the 0.90m the
+            // jump has always cleared, so nothing in cycles 1 and 2 becomes reachable that was not
+            // reachable before - which is exactly what the 1.56m jump could not promise. The two
+            // existing things that lean on this value both still hold: the chess board is thinner than
+            // this and is still walked over, and balloons are excluded from the controller entirely
+            // (see `excludeLayers` below) so nobody rides one to the ceiling.
+            cc.stepOffset = PlayerStepOffset;
 
             // ~~THE PLAYER CAST A SHADOW~~ REMOVED 2026-08-17, by request.
             //
@@ -15140,6 +15913,11 @@ namespace IterationRoom.EditorTools
                     // the name over without a compile error. The check has been doing nothing since.
                     if (hit.GetComponentInParent<Door>() != null) continue;
                     if (hit.GetComponentInParent<CycleExit>() != null) continue;
+                    // Room3-1's north corridor is SOLID until a pad is held - that is the room, not a
+                    // fault. What this check is for there is the geometry around the block: the two
+                    // wall cutouts, the corridor floor and its side walls. Exactly the same reason a
+                    // door slab is skipped.
+                    if (hit.GetComponentInParent<CrushingBarrier>() != null) continue;
                     if (hit.GetComponentInParent<TreeTrunk>() != null) continue;
                     Debug.LogError($"[SceneBuilder] {label}: '{hit.name}' blocks the way through "
                                  + $"(swept at {at}).");

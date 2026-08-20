@@ -873,3 +873,111 @@ CC AttributionCreative Commons Attribution
 Learn more
 Published 8 years ago
 https://sketchfab.com/3d-models/billiard-balls-523ac862d2154a7e8c96b964fb7cb11f
+
+CCTV Camera
+3D Model
+Avatar of fairlight51
+Jako
+
+Follow
+2.8k
+2750 Downloads
+7.8k
+7754 Views
+129
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 3.7k
+Vertices: 2.1k
+More model information
+cctv camera lowpoly 3d model free to download
+
+License:
+CC Attribution-NonCommercialCreative Commons Attribution-NonCommercial
+
+Learn more
+Published 3 years ago
+https://sketchfab.com/3d-models/cctv-camera-22ca80ef73034cb69597ef247816bbb3
+
+TV CCTV Monitor
+3D Model
+Avatar of Simon_M2099
+Simon_M2099
+
+Follow
+5.2k
+5170 Downloads
+11.9k
+11894 Views
+223
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 13.2k
+Vertices: 7k
+More model information
+CCTV monitor from the monitoring system from the 80’s 90’s
+
+PBR textures: one set for case 2K one set for screen 2K, you can also very easily make your texture on screen
+
+Make for game Urbex Night Security.
+
+You can easily reduce the number of triangles (to ~6k) by removing some of the plugs and sockets on the back.
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 4 years ago
+https://sketchfab.com/3d-models/tv-cctv-monitor-2273be0837bc453b982dfb19d82c9cc0
+
+Hanging Monitor
+3D Model
+Avatar of MaX3Dd
+MaX3Dd
+
+Follow
+3.8k
+3797 Downloads
+6.2k
+6238 Views
+63
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 2.4k
+Vertices: 1.3k
+More model information
+Hanging Monitor
+
+Low-poly Ready to use in Games AR/VR (2370 tris)
+Textures are in PNG format 2048x2048 PBR metalness 1 set
+screen is a separate mesh
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 2 years ago
+https://sketchfab.com/3d-models/hanging-monitor-1bcb147db4914410a02e4a134f9bf870

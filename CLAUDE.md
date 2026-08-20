@@ -358,6 +358,13 @@ Script-by-script detail: `docs/architecture.md`.
   the wrapper sits after the object's own rotation and scale either way — and the object's own
   transform, which is what colliders and hand poses are read off, is positively scaled again.
 - **Adding a renderer feature is not idempotent** — reconcile, don't append.
+- **`BuildPanelWall` OVERRUNS ITS OWN LENGTH by `WallDepth` at each end**, so perpendicular walls
+  bury each other's corners. Build one between two things that are NOT walls and that overrun stands
+  out in the open — it cost three wrong diagnoses in room3-1 because it reads as a texture, not as
+  geometry. Work out where the overrun lands before building. `docs/gotchas.md`.
+- **Nothing may be exactly the size of the hole it sits in.** Coplanar faces flicker. Clearances are
+  asymmetric on purpose: too little and it z-fights, too much and the lit surface behind shows
+  through the groove as a bright edge.
 - **A `.ps1` in `Tools/` MUST keep its UTF-8 BOM.** Windows PowerShell 5.1 reads one without as
   ANSI, and every non-ASCII string in the script arrives at whatever it drives as mojibake. It fails
   almost silently — see `docs/gotchas.md`.
@@ -440,6 +447,16 @@ player less to do.** Do not damage that when adding rooms.
     one instead. Raising the count is one number in `SceneBuilder`. Revert the gate itself with
     `requirePopTool = false`.
 
+- **DYING IS `LoopManager.EndCycleEarly`, AND THE RECORDING IS KEPT.** Room3-1's corridor is the
+  only thing in the game that kills (`CrushingBarrier`); everywhere else a fall just leaves you at
+  the bottom of something until the clock runs out. A death is not a discarded run — the timeline up
+  to that moment becomes a ghost like any other, so the death replays every iteration afterwards.
+  **Anything else that ever kills must go through the same call**, or a run vanishes and the loop
+  stops being a record of what happened.
+- **STEPS ARE WALKED, NOT JUMPED, and `PlayerStepOffset` must stay under the jump.** The jump clears
+  0.90m and the controller steps 0.72m. Raising the JUMP to reach something is what makes a player
+  float and it changes every room at once; lowering the step and raising `stepOffset` does not, and
+  while the offset stays below 0.90 nothing becomes reachable that a jump could not already reach.
 - **Carryables have NO Rigidbody, and a fall is scripted** (`FallingItem`, on every carryable). The
   loop must put every object back exactly, and a simulated settle lands somewhere different every
   time. PhysX is reproducible in principle and cannot be here: it solves in islands, so where a

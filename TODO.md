@@ -7,11 +7,38 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
 
 ## Next steps
 
-1. **CYCLE 3.** `room3-1` is being built - the bed room under room2-0's hatch, with the same chest and
-   bed cycle 2 has and an empty drawer. No escape puzzle yet, by request. What the third cycle needs
-   mechanically is small and listed under "Cycle 2's hatch" below; what it needs in DESIGN is a set of
-   rooms and a verb, and cycle 2's lesson is that the verb matters more than the count.
-2. **THE ON-SCREEN KEY PROMPTS DO NOT FOLLOW THE BINDINGS** (deferred 2026-08-20, by request). Keys
+1. **CYCLE 3: FOUR EMPTY ROOMS AND NO PUZZLE IN ANY OF THEM.** `room3-1` is the bed room under
+   room2-0's hatch, and it now has a **gate in each of its four walls** onto `Room3_2N/S/E/W` - see
+   `docs/room-geometry.md`. The way in is a floor pad that a PAST SELF has to hold, so the room
+   already states the cycle's premise; what it does not have is anything to do once you are through.
+   The shape is in and the puzzles are not. `docs/Room3 구조 변경 및 레버 기반 퍼즐 기믹 구현
+   프롬프트.md` is the spec; §1 and §2 of it are built and §3-§9 are not.
+   - **§3-§7: THE COLOURED STAIRS.** Red, blue and yellow panels in room3-2N, each colour driven by a
+     hold-to-activate lever in one of the other three rooms (S=red, E=blue, W=yellow). The step
+     geometry is settled - half a grid row, 0.651 to the top, walked up on `stepOffset` - and nothing
+     else is. **The lever must be a `GhostInteractable` with hold semantics**, exactly like
+     `FloorButton`, or a past self cannot hold it and the room cannot be solved by one person.
+     Signal budget is fine: three levers takes cycle 3 from 6 of 32 to 9, and the panels themselves
+     are driven by the levers so they cost nothing.
+   - **§7 is the actual puzzle and is undesigned.** "Raising one colour blocks a route the others
+     opened" is what stops the room being one lever held down. Panel count and placement are
+     deliberately left open in the spec for play to settle, so build them as data.
+   - **§8: CCTV.** Models are in (`cctv_camera.glb`, `hanging_monitor.glb`). Each monitor is a camera
+     rendering to a target, so it is a whole extra scene render per feed - decide whether they run
+     always or only while looked at.
+   - **A ghost with no panel under it should fall** (by request). Ghosts have no colliders and replay
+     recorded positions exactly, so this is a real change to `GhostReplayer`: a downward probe, and a
+     rule for what a ghost does once it has fallen off its own recording.
+   - **The room names are placeholders.** `Room3_2N/S/E/W` does not fit the `room<cycle>-<n>` scheme
+     in `docs/cycle-design.md` §4a, and cannot until the puzzle order is decided.
+   - **The pads are unlabelled**, and whether that reads as discovery or as fumbling is a play
+     question. So is whether 22.75m of corridor is the right length to be caught in.
+   - **Room3-2N's lighting is derived, not seen** - a 3x3 grid with intensity scaled by the square of
+     a 3x height jump. Expect to retune. See `docs/room-geometry.md`.
+2. **CYCLE 2'S ROOM2-6 SOUTH DOOR IS BLOCKED**, and the build has been saying so on every run:
+   `room2-6 south door: 'Solid' blocks the way through (swept at 21.70, -9.97, 89.15)`. `AssertWalkable`
+   caught it; nobody was reading the output. A wall collision block is standing in the doorway.
+3. **THE ON-SCREEN KEY PROMPTS DO NOT FOLLOW THE BINDINGS** (deferred 2026-08-20, by request). Keys
    are rebindable from the settings page now, but the six places the game NAMES a key are still
    strings authored into `SceneBuilder`: the interact disc's "E", the "[E] — PUT DOWN" hint, "HOLD [N]
    — END CYCLE", and the calibration room's WASD/SPACE/E keycaps plus its SHIFT and CTRL side walls.
@@ -20,20 +47,20 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
    on `InputBindings`; it also needs a SHORT form of each key name, because "LEFT MOUSE" does not fit
    in a disc or on an 84px keycap. **The calibration room is the worst of the six** - it is the first
    thing a player sees and it is entirely an explanation of the controls.
-3. **THE CHEST'S DRAWERS ARE A TOGGLE, AND IT IS THE WORSE OF TWO FAULTS** (`canClose = true`,
+4. **THE CHEST'S DRAWERS ARE A TOGGLE, AND IT IS THE WORSE OF TWO FAULTS** (`canClose = true`,
    2026-08-20, by request). A ghost's ball take fails on even numbers of past-self pulls. It was
    chosen over the alternative - a drawer that can never be shut blocks the bay below it - and the
    third option is still unbuilt: make the PLAYER's press a toggle and a GHOST's replay open-only,
    one line in `Drawer.SetGhostSignal`. It costs a little of "a past self does exactly what you did".
-4. **Gate the cycle picker before release.** CYCLE SELECT lists every cycle whether or not the player
+5. **Gate the cycle picker before release.** CYCLE SELECT lists every cycle whether or not the player
    has reached it, which is a shortcut worth having while cycle 3 is under construction and a spoiler
    in a shipped build. One condition in `MainMenu.Awake` and one in `Start`.
-5. **CC-BY attribution is mandatory and the credits line does not do it.** Every model is CC-BY, which
+6. **CC-BY attribution is mandatory and the credits line does not do it.** Every model is CC-BY, which
    permits commercial use - so nothing is blocked - but `SceneBuilder.CreditsLine` reads "FURNITURE
    MODELS: CREATIVE COMMONS", which names no author, no title, no licence version and no link. Ten
    creators are uncredited in a build that is already public. See `docs/asset-licences.md`, which has
    every row resolved and the exact form each entry wants.
-6. **Room2-7's latch is the length lever.** Its scale re-locks every iteration, so five past-self
+7. **Room2-7's latch is the length lever.** Its scale re-locks every iteration, so five past-self
    deliveries are the standing price of every trip to room2-0 - which is why two independent clears
    came out at 22 iterations 1.2 seconds apart. If cycle 2 should be shorter, that is what to change,
    not the number of balls.

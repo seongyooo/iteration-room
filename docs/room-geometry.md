@@ -45,3 +45,129 @@ DoorPocketDepth 0.1`.
   - `capFarSide: true` adds `FarCap`, which **keeps its collider**: it is the end of the world and the player must not walk out. Exactly one exists at a time, on the last room.
 - `BuildDoorShell` (slab, pocket, lamp) is shared; `BuildPadDoor` / `BuildKeyDoor` differ only in what unlocks them. The shell's root carries the room's Z offset so measurements inside stay in the frame they were tuned in.
 - **The player camera's near clip is 0.05, not Unity's 0.3** (far 100, not 1000). At 0.3 you could stand against a wall, turn sideways and see through to the far side. What pokes through is the near plane's **corner**: at fov 60 it reaches **0.463m** (0.532m ultrawide) while the CharacterController only stops the camera 0.220m away, against a total wall build-up of 0.125m. At 0.05 the corner reaches 0.077m — 2.8× margin at 16:9, 1.9× at 32:9. **Re-check this if the fov is ever raised**; the corner scales with `tan(fov/2)`.
+
+## Cycle 3's first room: three gates and a corridor (2026-08-21)
+
+Room3-1 has **no door in it**. Three of its walls carry a **gate** — a piece of the wall that leaves
+while a floor pad is held — and the fourth, north, is the mouth of a corridor whose entire length is
+solid until a pad lifts it.
+
+**The pad is in room3-1 and the opening is in its wall, so nobody goes through their own.** Step off
+to walk through and it shuts behind you. Every room beyond is reachable only while a PAST SELF stands
+on the pad — the cycle's premise stated in its first room, the way Room3's two pads state cycle 1's.
+That is also why the pads are in the cycle's `signals` array: a `FloorButton` outside it is a pad no
+ghost ever stands on, which would make every opening in the room dead.
+
+### Shut, it is wall
+
+This is the specification, not a finish. Leaves and the corridor's face alike are built the way
+`BuildPanelWall` builds panels — same material, same 0.025 thickness, same depth off the face, same
+groove inset — and are **split into one quad per grid cell** so the row line across an opening lands
+where the wall's own does. No frame, no reveal, no indicator lamp.
+
+Four things had to be got right, and three of them were got wrong first:
+
+- **A leaf carries its own backing.** The cutout takes the wall's backing away along with its panels,
+  so the 0.05 groove around a leaf had nothing behind it and the sightline ran *groove, cavity, the
+  neighbour's own cutout, the room next door*. Play saw straight through a shut gate. **A panel is
+  not a wall; a panel plus the dark plate behind its grooves is.**
+- **Both sides of a shared wall get leaves.** A gate built on one face only leaves the OTHER room
+  looking at a bare hole. The two calls take the same pads, and the leaves fit because each retracts
+  to its own side of the 0.1m cavity — near leaf 0.129 to 0.169 back from its face, far leaf the
+  mirror of that, 12mm between them. `withCavityLiner` belongs to the first call only.
+- **The leaves are baked into the reflection probes** (`WallWhileShut`), against the general rule that
+  movers are not. Left out, a rectangle is missing from the wall in every reflection, and at 0.85
+  smoothness a wall is almost entirely what it reflects — a permanent mark saying *the door is here*.
+- **It pushes in before it slides.** A panel flush with its neighbours has nowhere to go sideways.
+  `Door.pushInOffset` runs that first phase (zero on every ordinary door). **A single diagonal move
+  does not work**: the gap between panels is one groove, 0.05, and a linear diagonal has receded only
+  0.002 by the time it has used that up — it clips its neighbour on the way out.
+
+### Whole cells, always centred
+
+`GateSpan` places every opening and both rooms sharing a wall call it, so their cutouts cannot
+disagree. How many cells depends on whether the wall's count is even:
+
+| wall | width | cells | opening | leaves |
+| --- | --- | --- | --- | --- |
+| east / west | 10.5 | 6 | the middle **pair**, 3.5 wide | 2, opening to their own sides |
+| south | 8.75 | 5 | the middle **cell**, 1.75 wide | 1, sliding one cell to one side |
+| north | 8.75 | 5 | the middle **cell** — the corridor mouth | none; the corridor's own block |
+
+**A leaf is never part of a cell.** A two-cell gate on the odd wall was built first and could only sit
+half a cell off centre, which read as a mistake; splitting a single cell into two half-width leaves
+would put a vertical groove down the middle of a cell where the wall has none, which is precisely
+what gives a shut gate away.
+
+`RoomPitchX` is the east-west counterpart to `RoomPitch` — the term that is not the room's own size is
+identical, so two walls meet with the same build-up and the same cavity on any side.
+
+### The north corridor, and the block that fills it
+
+22.75m long and one cell wide, from room3-1's north face to room3-2N's. **The whole of it is one solid
+block**, and holding the pad lifts the entire thing straight up into a shaft of its own height above.
+What the player walks through is the hole it leaves; what is over their head the whole way is the
+block. Letting go does not close a door — it fills the corridor back in, everywhere at once, and there
+is no safe corner inside it. See `CrushingBarrier`.
+
+Its south end carries the wall's grid on the wall's plane, so with the pad untouched room3-1 has four
+walls and no corridor.
+
+**Every dimension is an exact multiple of the grid, and the first version's were not.**
+`BuildPanelWall` divides a wall by its ROUNDED cell count, so a 22.05m corridor came out in cells of
+1.696 against the building's 1.75 — a different rhythm, visible down its length — and corridor plus
+shaft came to 5.5076, which is four rows plus a 0.1m sliver. Thirteen cells and four rows now, with
+the room beyond placed FROM the corridor rather than the corridor measured between the rooms, because
+only one of the two can be the multiple.
+
+**Room3-2N is offset half a cell.** Its south wall has ten cells where room3-1's north has five, so
+the building's axis falls on a cell boundary there and a centred mouth straddled two cells. Moving the
+ROOM by half a cell puts that axis on a cell's middle; a full cell would have changed nothing, because
+the parity is what matters and not the distance.
+
+### Nothing may be exactly the size of the hole it sits in
+
+Two flickers came from coplanar faces and one black artefact from an overrun, and all three are the
+same lesson:
+
+- The block was exactly 1.75 wide, so its sides shared a plane with the corridor's wall panels, and
+  its base shared one with the floor. It is 2mm narrower now and sunk 20mm.
+- Its face backing is only 1mm narrower — wider clearance leaves a slot the lit wall shows through,
+  which reads as a black border with a bright edge.
+- **The corridor's side walls overran into the room.** `BuildPanelWall` extends its backing and
+  collision `WallDepth` past each end so perpendicular walls interpenetrate at corners. The corridor
+  runs along Z, so that overrun went 12.5cm INTO room3-1: two near-black slabs, full height, standing
+  proud of the north wall and reading on camera as thick black pillars with visible side faces. The
+  walls are inset by `WallDepth` at each end now, so each overrun lands inside a room's own wall
+  build-up. See `docs/gotchas.md`.
+
+Every opening is covered by `AssertWalkable`, probing through the **opening's** centre — not the
+wall's, which on the five-cell walls is not the same point. `CrushingBarrier` is skipped by that check
+the way `Door` is: the corridor being solid is the room, not a fault.
+
+### Room3-2N
+
+Twice as wide, twice as deep and **three times as tall** as a standard shell — 17.5 x 21 x 16.2234,
+which is ten cells, twelve cells and twelve rows. The grid cell does not change, only the count, so the
+panelling reads as the same wall continued. `BuildBigRoom` rather than parameters on `BuildEmptyRoom`,
+because that one lays its floor across a whole `RoomPitch` so neighbours meet under their shared
+divider — a rule about the chain, not about this room.
+
+**Its lighting is derived and has not been looked at.** `BuildCeilingLights` is tuned for a 5.4m
+ceiling; at 16.2 its range does not reach the floor and inverse square says the floor gets a ninth of
+the light. `BuildTallRoomLights` spreads a 3x3 grid, sizes the range to the diagonal and squares the
+intensity by the height ratio — but 10.5 was found by eye in the first place, and this is a far bigger
+jump than the one it was re-derived across. Expect to retune.
+
+### Climbing it: steps are walked, not jumped
+
+A grid row is 1.3519 and a panel's top lands at 1.327; the jump clears 0.90. Raising the jump to 7.9
+(1.56m) was tried and play called it awkward — a person who jumps a metre and a half floats, and every
+room in the game would inherit it to solve a problem in one of them.
+
+So the step came down instead. **Half a row, 0.651 to its top, walked up on the controller's
+`stepOffset`** (`SceneBuilder.PlayerStepOffset`, 0.72). Stairs you walk up read as stairs. And the
+number is deliberately kept **under the 0.90m jump**, so nothing anywhere becomes reachable that a jump
+could not already reach — the guarantee a taller jump could not make. The two existing things that lean
+on `stepOffset` both still hold: the chess board is thinner than this and is still walked over, and
+balloons are excluded from the controller entirely.

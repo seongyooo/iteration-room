@@ -57,6 +57,21 @@ namespace IterationRoom
         public Transform doorPanel;
         public Vector3 openLocalOffset = new Vector3(0f, 2.2f, 0f);
         public float openDuration = 1.0f;
+
+        // A FIRST PHASE, RUN BEFORE THE SLIDE, and it exists for room3-1's gates.
+        //
+        // Those are not doors set into a wall - they ARE the wall, built as the same panels at the
+        // same depth out of the same material, so that a shut gate is indistinguishable from the
+        // panelling beside it. The cost of that is they cannot simply slide: a panel flush with its
+        // neighbours has nowhere to go sideways. It has to push back into the cavity first and
+        // travel behind them, which is what a concealed panel does in the real world too.
+        //
+        // ZERO BY DEFAULT, so every ordinary door in the building is untouched - the whole travel is
+        // the slide and `Apply` reduces to the single line it was.
+        public Vector3 pushInOffset;
+        // How much of the open/close travel the push spends. It is a much shorter distance than the
+        // slide, so an equal split would look like a shove; a third reads as a latch letting go.
+        [Range(0.05f, 0.9f)] public float pushFraction = 0.3f;
         // The lamp above the door is not driven from here - see DoorIndicator, which tracks the
         // floor-button condition rather than this door's state, so it can go green before anything
         // at this end of the room has moved.
@@ -197,10 +212,24 @@ namespace IterationRoom
             }
         }
 
+        // TWO PHASES IN SEQUENCE, not two motions blended. A single diagonal move would start
+        // travelling sideways while still flush and clip through the neighbouring panel for the
+        // first few centimetres - the gap between panels is one groove, 0.05, and a linear diagonal
+        // has only receded 0.002 by the time it has used that up.
         private void Apply()
         {
-            if (doorPanel != null)
+            if (doorPanel == null) return;
+
+            if (pushInOffset == Vector3.zero)
+            {
                 doorPanel.localPosition = closedLocalPos + openLocalOffset * openAmount;
+                return;
+            }
+
+            float split = Mathf.Clamp(pushFraction, 0.01f, 0.99f);
+            float push = Mathf.Clamp01(openAmount / split);
+            float slide = Mathf.Clamp01((openAmount - split) / (1f - split));
+            doorPanel.localPosition = closedLocalPos + pushInOffset * push + openLocalOffset * slide;
         }
 
         private bool PlayerInDoorway()

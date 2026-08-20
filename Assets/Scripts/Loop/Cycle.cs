@@ -38,6 +38,11 @@ namespace IterationRoom
         // World state the loop rewinds. Doors close right after the teleport, drawers after the item
         // sweep; the two are separate calls below because that ordering is load-bearing.
         public Door[] doors;
+        // Reset alongside the doors, and for the same reason at the same moment: it is a slab that
+        // holds a position, and one left up is world state the loop forgot to rewind. Snapping it is
+        // also what stops the reset being HEARD - it tracks its pads, so left alone it would slam
+        // shut on its own a fraction after the ghosts are released, behind the closed eyelids.
+        public CrushingBarrier[] barriers;
         public Drawer[] drawers;
         // Taps left running are world state exactly like an open drawer, and a good deal more visible:
         // a tap not shut here floods the next iteration on top of the last one's puddle.
@@ -91,6 +96,9 @@ namespace IterationRoom
         // in a doorway has to be back at the bed already, or the slab closes through them.
         public void CloseDoors()
         {
+            if (barriers != null)
+                foreach (CrushingBarrier b in barriers) b?.ResetBarrier();
+
             if (doors == null) return;
             foreach (Door d in doors) d?.Close();
         }
