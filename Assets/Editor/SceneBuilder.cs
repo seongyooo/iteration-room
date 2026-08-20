@@ -1367,9 +1367,16 @@ namespace IterationRoom.EditorTools
             // flat grey panel grid filling the frame with the bright part of the room - the floor,
             // the ceiling fixtures, the bed - all outside it.
             //
-            // So the camera is placed for the picture instead. Standing in a back corner looking
-            // across and slightly down puts two walls, the floor, the lit ceiling and the bed in
-            // frame at once, which is the "the whole room, and it is bright" the menu wants.
+            // **AND THEN IT WAS FRAMED AGAIN, 2026-08-20, SQUARE TO ONE WALL.** The corner shot did
+            // put the whole room in frame and that turned out to be the problem: two wall grids
+            // running in different directions with the ceiling in a third, converging on a vanishing
+            // point in the middle of the picture. There is no calm area anywhere in it, and the menu
+            // sets its type over near-black grooves on white at full contrast.
+            //
+            // A wall parallel to the image plane does not converge AT ALL - every groove projects
+            // perfectly horizontal or perfectly vertical - so the same room, shot square, reads as a
+            // designed surface rather than as a screenshot. That is the whole change: the room is
+            // just as bright and just as white, and the geometry stops arguing with the words.
             //
             // Safe to move both the player and the camera here: the scene has already been saved
             // above, and this in-memory edit is discarded when the room is reopened from disk at the
@@ -1387,11 +1394,43 @@ namespace IterationRoom.EditorTools
             {
                 // Room1 is centred on the origin: 8.75 across, 10.5 deep, 5.41 to the ceiling. These
                 // are world coordinates because that is the frame the room is built in.
-                Vector3 eye = new Vector3(3.05f, 2.45f, -4.10f);
-                Vector3 lookAt = new Vector3(-1.30f, 1.05f, 3.90f);
-                shotCam.transform.SetPositionAndRotation(
-                    eye, Quaternion.LookRotation((lookAt - eye).normalized, Vector3.up));
-                Debug.Log($"[SceneBuilder] Menu background framed from {eye} toward {lookAt}");
+                //
+                // THE SOUTH WALL, AND IT IS CHOSEN FOR WHAT IT DOES NOT HAVE. Room1 is built with
+                // `Rect.zero` for its south cutout, so that wall is the one unbroken panel grid in the
+                // building - no doorway, no pocket, no fixture. And every piece of furniture in the
+                // room is in the +Z half (the nightstand is at z=1.35 and the bed beside it), so a
+                // camera at z=+0.5 facing -Z has all of it BEHIND the lens rather than in the shot.
+                //
+                // Dead centre in X on purpose. A grid is symmetrical and a picture of one that is
+                // nearly-but-not-quite centred reads as a mistake; the asymmetry on this screen is the
+                // menu column, which is where asymmetry belongs.
+                // **SQUARE TO THE FAR WALL, FROM THE BACK OF THE ROOM.** The first square shot filled
+                // the frame with the wall alone and it came back as wallpaper: fifteen cells, no
+                // depth, and a surface that is in shade at that angle so the room stopped being
+                // bright - which is the one thing the picture had going for it.
+                //
+                // Standing back instead puts the floor, the ceiling and both side walls in frame with
+                // the far wall small in the middle. **The front wall's grid still does not converge**
+                // - that is what "square" buys and it is kept - while everything else runs to a single
+                // vanishing point dead centre. One-point perspective is the most deliberate-looking
+                // thing a room can do, and it costs nothing but where the camera stands.
+                //
+                // Facing the NORTH wall, which is the one with the doorway: the shot gets a subject
+                // (a door in a white wall, which is the whole game) and the bed in the middle
+                // distance, without either being the corner-shot clutter this replaced.
+                const float wallZ = RoomDepth / 2f;                   // +5.25
+                const float standoff = 9.85f;                         // camera to wall
+                // Wider than the flat shot's 40 because the frame now has to reach the side walls, and
+                // still narrower than the player's 60 - a 60 here bows the grid at the corners.
+                const float shotFov = 50f;
+                // Eye height, near enough the player's own: the horizon lands on the vanishing point
+                // and the floor takes the bottom third, which is what stops it reading as a floor plan.
+                const float eyeY = 1.75f;
+
+                Vector3 eye = new Vector3(0f, eyeY, wallZ - standoff);
+                shotCam.fieldOfView = shotFov;
+                shotCam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(Vector3.forward, Vector3.up));
+                Debug.Log($"[SceneBuilder] Menu background: square to the north wall from {eye}, fov {shotFov}");
             }
 
             CaptureMenuBackground(shotCam);
@@ -13282,6 +13321,25 @@ namespace IterationRoom.EditorTools
         // NOTE ON LICENSING: Consolas is Microsoft's, copied out of C:/Windows/Fonts. Fine for a
         // prototype that never leaves this machine, NOT fine to ship. Swapping it is one file and
         // this path - JetBrains Mono or IBM Plex Mono are both SIL OFL and drop straight in.
+        // THE INK ON A BRIGHT SURFACE. Near-black rather than the red everything on this screen used
+        // to be: red is this game's ALARM - the ERROR test card, the last ten seconds, the collapse -
+        // and spending it on five button labels leaves nothing to say anything with. It is the same
+        // charcoal the grooves in every wall are painted, so the type reads as printed ON the room.
+        private static readonly Color MenuInk = new Color(0.11f, 0.11f, 0.13f, 1f);
+        // The one accent, and there is exactly one on the screen at rest.
+        private static readonly Color MenuAccent = new Color(0.80f, 0.10f, 0.10f, 1f);
+
+        // WEIGHTS, and the whole family is on disk - sixteen faces, of which this project used one.
+        // A hierarchy built from SIZE alone is what four sizes with no ratio between them looks like;
+        // one built from weight needs only two sizes. ExtraLight at 86 is a different instrument from
+        // Regular at 86, and it is the one a title wants.
+        private static Font UIFont(string weight)
+        {
+            Font font = AssetDatabase.LoadAssetAtPath<Font>(
+                $"{FontsDir}/JetBrains_Mono/static/JetBrainsMono-{weight}.ttf");
+            return font != null ? font : UIFont();
+        }
+
         private static Font UIFont()
         {
             // The STATIC Regular, not the variable font that ships alongside it: uGUI's legacy
@@ -15266,6 +15324,23 @@ namespace IterationRoom.EditorTools
             rect.anchoredPosition = anchoredPosition;
         }
 
+        // `ink` null keeps the pale red this was built with, which is right over the pause menu's
+        // black scrim and wrong over the title screen's white wall - the same split MakeMenuButton
+        // makes, for the same reason.
+        private static Text MakeRowLabelInk(Transform parent, string name, string content,
+                                            Vector2 anchoredPosition, Vector2 size,
+                                            TextAnchor alignment, Color ink)
+        {
+            Text text = MakeRowLabel(parent, name, content, anchoredPosition, size, alignment);
+            if (text != null) { text.color = ink; text.font = UIFont("Medium"); }
+            return text;
+        }
+
+        // Same shape, one line: a menu button that has already been told what surface it is on.
+        private static Button MakeMenuButtonInk(Transform parent, string name, string label,
+                                                Vector2 anchoredPosition) =>
+            MakeMenuButton(parent, name, label, anchoredPosition, MenuInk, "Medium");
+
         private static Text MakeRowLabel(Transform parent, string name, string content,
                                          Vector2 anchoredPosition, Vector2 size, TextAnchor alignment)
         {
@@ -15451,7 +15526,7 @@ namespace IterationRoom.EditorTools
             // its colour, so white-plus-no-sprite is a white sheet over the whole title screen -
             // which is what a failed import produced. The fallback is the flat wash this replaced,
             // lightened, so a menu that loses its gradient is still a menu.
-            scrim.color = scrimSprite != null ? Color.white : new Color(0f, 0f, 0f, 0.42f);
+            scrim.color = scrimSprite != null ? Color.white : new Color(1f, 1f, 1f, 0.55f);
             if (scrimSprite == null)
                 Debug.LogWarning("[SceneBuilder] menu scrim gradient failed to import; using a flat wash.");
             scrim.raycastTarget = false;
@@ -15466,6 +15541,12 @@ namespace IterationRoom.EditorTools
             titleGO.transform.SetParent(menuGO.transform, false);
             Text title = titleGO.AddComponent<Text>();
             title.font = UIFont();
+            // EXTRALIGHT AT 86. The whole family has been on disk since the font was added and this
+            // project used Regular for every word in the game - so the hierarchy was four SIZES with
+            // no ratio between them, which is what a screen looks like when nothing has a voice. A
+            // title is the one place a face this large can be thin, and thin at 86 is the difference
+            // between a heading and a logotype.
+            title.font = UIFont("ExtraLight");
             title.fontSize = 86;
             // CENTRED, while the buttons stay down the left edge. The two were moved together and
             // that was one step too far: a left-hung title over a left-hung column leaves the whole
@@ -15473,7 +15554,9 @@ namespace IterationRoom.EditorTools
             // menu is the arrangement that reads - the name of the game belongs to the picture, the
             // buttons belong to the edge.
             title.alignment = TextAnchor.MiddleCenter;
-            title.color = Color.red;
+            // CHARCOAL, not red. See MenuInk: red is the alarm this game rings, and a title screen
+            // that rings it before anything has happened has nothing left to ring it with.
+            title.color = MenuInk;
             // Spaced out in the string, exactly as IterationLabel does it and for the same reason:
             // uGUI's Text has no tracking control at all, and in a monospace face a space is one
             // cell. The in-game label and the title then read as the same typeface doing the same
@@ -15503,13 +15586,21 @@ namespace IterationRoom.EditorTools
             GameObject subtitleGO = new GameObject("TitleRoom");
             subtitleGO.transform.SetParent(menuGO.transform, false);
             Text subtitle = subtitleGO.AddComponent<Text>();
-            subtitle.font = UIFont();
+            // MEDIUM against the title's ExtraLight, which is what makes the smaller word hold its
+            // own beneath the larger one without being set any larger.
+            subtitle.font = UIFont("Medium");
             // Smaller, and spaced WIDER, so the shorter word spans a similar width to the one above
             // it. Letter-spaced in the string for the reason IterationLabel is: uGUI's Text has no
             // tracking control, and in a monospace face a space is exactly one cell.
             subtitle.fontSize = 52;
             subtitle.alignment = TextAnchor.MiddleCenter;
-            subtitle.color = Color.red;
+            // **THE ONE RED THING ON THE SCREEN AT REST**, and it is one word of the game's own name.
+            // Everything else - title, five labels - is charcoal, so this is the only place the eye is
+            // sent, and the colour still means what it means everywhere else in the building.
+            //
+            // At 52 it is large enough that red on white does not vibrate the way a 26pt label would,
+            // which is the other half of why the accent is HERE and not on the buttons.
+            subtitle.color = MenuAccent;
             subtitle.text = "R  O  O  M";
             subtitle.horizontalOverflow = HorizontalWrapMode.Overflow;
             subtitle.verticalOverflow = VerticalWrapMode.Overflow;
@@ -15530,11 +15621,15 @@ namespace IterationRoom.EditorTools
             // shuffling the column up would move PLAY under the player's cursor between sessions.
             // THREE WAYS IN, AND EACH MEANS ONE THING: resume, start from the beginning, jump to a
             // cycle. The two a player uses have no page in between; only the rare one does.
+            // CHARCOAL, AND MEDIUM. The plate under each of these is transparent until the pointer
+            // is on it (see MakeMenuButton), so what the player sees at rest is five words printed on
+            // a white wall - which is what the room is, and what this screen was not.
             Button continueButton = MakeMenuButton(menuGO.transform, "ContinueButton",
-                                                   "CONTINUE", new Vector2(0f, -30f));
-            Button playButton = MakeMenuButton(menuGO.transform, "PlayButton", "PLAY", new Vector2(0f, -118f));
+                                                   "CONTINUE", new Vector2(0f, -30f), MenuInk, "Medium");
+            Button playButton = MakeMenuButton(menuGO.transform, "PlayButton", "PLAY",
+                                               new Vector2(0f, -118f), MenuInk, "Medium");
             Button cycleSelectButton = MakeMenuButton(menuGO.transform, "CycleSelectButton",
-                                                      "CYCLE SELECT", new Vector2(0f, -206f));
+                                                      "CYCLE SELECT", new Vector2(0f, -206f), MenuInk, "Medium");
             // ~~TEST: CYCLE BOUNDARY~~ REMOVED 2026-08-15, by request. It was a development shortcut
             // into the cycle boundary with cycle 1 already finished, sitting on the title screen
             // between CONTINUE and QUIT and labelled loudly so it could not be mistaken for content.
@@ -15546,8 +15641,9 @@ namespace IterationRoom.EditorTools
             //
             // QUIT moves up into the gap rather than leaving a hole in the column.
             Button settingsButton = MakeMenuButton(menuGO.transform, "SettingsButton",
-                                                   "SETTINGS", new Vector2(0f, -294f));
-            Button quitButton = MakeMenuButton(menuGO.transform, "QuitButton", "QUIT", new Vector2(0f, -382f));
+                                                   "SETTINGS", new Vector2(0f, -294f), MenuInk, "Medium");
+            Button quitButton = MakeMenuButton(menuGO.transform, "QuitButton", "QUIT",
+                                               new Vector2(0f, -382f), MenuInk, "Medium");
 
             // THE CYCLE PICKER, on a page of its own over the same background. A title screen that
             // grows a row every time the game grows a cycle stops being a title screen.
@@ -15568,10 +15664,12 @@ namespace IterationRoom.EditorTools
             var cycleButtons = new Button[CycleCount];
             for (int i = 0; i < CycleCount; i++)
                 cycleButtons[i] = MakeMenuButton(cycleGO.transform, $"CycleButton_{i + 1}",
-                                                 $"CYCLE {i + 1}", new Vector2(0f, -30f - i * 88f));
+                                                 $"CYCLE {i + 1}", new Vector2(0f, -30f - i * 88f),
+                                                 MenuInk, "Medium");
 
             Button cycleBack = MakeMenuButton(cycleGO.transform, "CycleBackButton",
-                                              "BACK", new Vector2(0f, -30f - CycleCount * 88f));
+                                              "BACK", new Vector2(0f, -30f - CycleCount * 88f),
+                                              MenuInk, "Medium");
 
             // SETTINGS, on its own page over the same background as the cycle picker. One setting so
             // far: how loud the game is. It belongs on the TITLE screen rather than only in the pause
@@ -15587,14 +15685,14 @@ namespace IterationRoom.EditorTools
             // Laid out on one row like the pause menu's sensitivity, and with the same three parts in
             // the same order, so the two pages read as the same control rather than as two designs.
             const float volumeRowY = -40f;
-            MakeRowLabel(settingsGO.transform, "VolumeLabel", "VOLUME",
-                new Vector2(-150f, volumeRowY), new Vector2(260f, 30f), TextAnchor.MiddleLeft);
+            MakeRowLabelInk(settingsGO.transform, "VolumeLabel", "VOLUME",
+                new Vector2(-150f, volumeRowY), new Vector2(260f, 30f), TextAnchor.MiddleLeft, MenuInk);
             Slider volumeSlider = MakeSlider(settingsGO.transform, "VolumeSlider",
                 new Vector2(80f, volumeRowY), new Vector2(200f, 26f));
-            Text volumeValue = MakeRowLabel(settingsGO.transform, "VolumeValue", "80%",
-                new Vector2(225f, volumeRowY), new Vector2(80f, 30f), TextAnchor.MiddleLeft);
+            Text volumeValue = MakeRowLabelInk(settingsGO.transform, "VolumeValue", "80%",
+                new Vector2(225f, volumeRowY), new Vector2(80f, 30f), TextAnchor.MiddleLeft, MenuInk);
 
-            Button settingsBack = MakeMenuButton(settingsGO.transform, "SettingsBackButton",
+            Button settingsBack = MakeMenuButtonInk(settingsGO.transform, "SettingsBackButton",
                                                  "BACK", new Vector2(0f, -150f));
 
             // The loading state, built over the same middle of the screen the buttons occupy so
@@ -15612,7 +15710,10 @@ namespace IterationRoom.EditorTools
             loadingLabel.font = UIFont();
             loadingLabel.fontSize = 22;
             loadingLabel.alignment = TextAnchor.MiddleCenter;
-            loadingLabel.color = Color.red;
+            // Charcoal like everything else on this surface - the loading page has no backdrop of
+            // its own, it is the same photograph of a white room with a bar drawn over it.
+            loadingLabel.font = UIFont("Medium");
+            loadingLabel.color = MenuInk;
             loadingLabel.text = "LOADING 0%";
             loadingLabel.raycastTarget = false;
             RectTransform loadingLabelRect = loadingLabel.GetComponent<RectTransform>();
@@ -15664,12 +15765,24 @@ namespace IterationRoom.EditorTools
             creditsRect.sizeDelta = new Vector2(1600f, 30f);
             creditsRect.anchoredPosition = new Vector2(0f, 22f);
 
+            // THE ROOM TONE, ON THE TITLE SCREEN. The same clip `RoomAmbience` runs in the game, at
+            // less than half the level - see MainMenu.ambienceVolume. 2D, looping, and started at
+            // zero so `MainMenu.Start` can ride it up instead of the loop's first sample clicking in.
+            //
+            // The menu scene already has the one AudioListener it is allowed (on its camera), so this
+            // needs nothing else to be heard - and `GameSettings.ApplyAudio` in MainMenu.Awake has
+            // already put the player's saved master volume on that listener by the time it fades in.
+            AudioSource menuTone = MakeSource(canvasGO.transform, "Ambience", 0f, 0f, loop: true);
+            menuTone.clip = LoadClip(SfxDir, "sfx_ominous_loop");
+            menuTone.playOnAwake = true;
+
             MainMenu mainMenu = canvasGO.AddComponent<MainMenu>();
             mainMenu.menuGroup = menuGroup;
             mainMenu.loadingGroup = loadingGroup;
             mainMenu.playButton = playButton;
             mainMenu.quitButton = quitButton;
             mainMenu.continueButton = continueButton;
+            mainMenu.ambience = menuTone;
             mainMenu.cycleSelectButton = cycleSelectButton;
             mainMenu.cycleBackButton = cycleBack;
             mainMenu.cycleGroup = cycleGroup;
@@ -16196,13 +16309,20 @@ namespace IterationRoom.EditorTools
             tex.wrapMode = TextureWrapMode.Clamp;
             tex.filterMode = FilterMode.Bilinear;
 
+            // **WHITE, NOT BLACK, SINCE 2026-08-20.** It was a dark ramp because the type was red and
+            // red needs darkening to read; the type is charcoal now and charcoal needs the opposite.
+            //
+            // What it is really doing is CALMING THE GRID. The wall behind the column is near-black
+            // grooves on white at full contrast, which is the worst possible field to set type in -
+            // a wash of the room's own white flattens it to a whisper under the words and leaves it
+            // at full strength on the right, where the eye is meant to go.
             for (int x = 0; x < w; x++)
             {
                 float u = x / (float)(w - 1);
                 // Full strength at the very edge, gone by 55% across.
                 float k = 1f - Mathf.Clamp01(u / 0.55f);
-                float a = k * k * 0.78f;
-                Color c = new Color(0f, 0f, 0f, a);
+                float a = k * k * 0.86f;
+                Color c = new Color(1f, 1f, 1f, a);
                 for (int y = 0; y < h; y++) tex.SetPixel(x, y, c);
             }
             tex.Apply();
@@ -16226,7 +16346,18 @@ namespace IterationRoom.EditorTools
             return AssetDatabase.LoadAssetAtPath<Sprite>(path);
         }
 
-        private static Button MakeMenuButton(Transform parent, string name, string label, Vector2 anchoredPosition)
+        // `ink` null keeps the red-on-dark this was built with, which is what the PAUSE menu wants -
+        // it sits over a 0.72 black scrim, where charcoal would be invisible. The title screen passes
+        // `MenuInk`, because it sits over a bright white room.
+        //
+        // THE WHITE SLAB IS GONE, and it was the single loudest thing on the title screen: five filled
+        // rectangles stacked down the edge of a photograph of a white room. The plate is still THERE -
+        // a `Button` needs a graphic to receive a click - it is simply transparent until the pointer
+        // is on it, which is the whole of the difference between a menu that looks built and one that
+        // looks laid out.
+        private static Button MakeMenuButton(Transform parent, string name, string label,
+                                             Vector2 anchoredPosition, Color? ink = null,
+                                             string weight = null)
         {
             GameObject go = new GameObject(name);
             go.transform.SetParent(parent, false);
@@ -16251,12 +16382,12 @@ namespace IterationRoom.EditorTools
             GameObject textGO = new GameObject("Label");
             textGO.transform.SetParent(go.transform, false);
             Text text = textGO.AddComponent<Text>();
-            text.font = UIFont();
+            text.font = weight != null ? UIFont(weight) : UIFont();
             text.fontSize = 26;
             // Left inside the plate too, so the words form one column down the edge rather than a
             // ragged one centred inside boxes of a single width.
             text.alignment = TextAnchor.MiddleLeft;
-            text.color = Color.red;
+            text.color = ink ?? Color.red;
             text.text = "  " + label;
             text.raycastTarget = false;
             Stretch(text.GetComponent<RectTransform>());
@@ -16265,11 +16396,25 @@ namespace IterationRoom.EditorTools
             button.targetGraphic = background;
 
             ColorBlock colors = button.colors;
-            colors.normalColor = new Color(0f, 0f, 0f, 0.55f);
-            colors.highlightedColor = new Color(0.34f, 0.04f, 0.04f, 0.8f);
-            colors.pressedColor = new Color(0.6f, 0.08f, 0.08f, 0.9f);
-            colors.selectedColor = colors.highlightedColor;
-            colors.disabledColor = new Color(0f, 0f, 0f, 0.3f);
+            if (ink.HasValue)
+            {
+                // ON A BRIGHT SURFACE: nothing at rest, and the plate is only ever a HOVER. The
+                // pointer earns the mark rather than five of them being on screen permanently.
+                colors.normalColor = new Color(0f, 0f, 0f, 0f);
+                colors.highlightedColor = new Color(0.11f, 0.11f, 0.13f, 0.09f);
+                // Red only on the press, which is the one moment it means something here.
+                colors.pressedColor = new Color(0.80f, 0.10f, 0.10f, 0.20f);
+                colors.selectedColor = colors.highlightedColor;
+                colors.disabledColor = new Color(0f, 0f, 0f, 0f);
+            }
+            else
+            {
+                colors.normalColor = new Color(0f, 0f, 0f, 0.55f);
+                colors.highlightedColor = new Color(0.34f, 0.04f, 0.04f, 0.8f);
+                colors.pressedColor = new Color(0.6f, 0.08f, 0.08f, 0.9f);
+                colors.selectedColor = colors.highlightedColor;
+                colors.disabledColor = new Color(0f, 0f, 0f, 0.3f);
+            }
             colors.fadeDuration = 0.12f;
             button.colors = colors;
 

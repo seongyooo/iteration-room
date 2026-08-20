@@ -67,3 +67,28 @@ A diegetic PA announcer, taken from the reference film. The schedule is the whol
   - A third cue, `sfx_glass_rattle`, was removed — high-Q pings off the nightstand props read as a doorbell going off every 60 seconds.
 - `Door.Close()` is **deliberately silent** — the loop rewinding world state behind a black screen, not a door being shut. A sound there draws attention to the seam.
 - Exactly **one `AudioListener`**, on the player camera. A second is a Unity warning and breaks positional audio.
+
+## The title screen has the room's own tone (2026-08-20)
+
+The menu plays `sfx_ominous_loop` — **the same clip that runs under every second of every iteration**,
+at 0.22 against the room's 0.5.
+
+**Not menu music, and the distinction is the point.** This game has no music anywhere; giving the
+title screen some would make PLAY the moment a track stops rather than the moment a door opens. The
+screen is a photograph of that room, so it sounds like that room, and what the player crosses when
+they press PLAY is not silence into sound — it is a place they were already standing in.
+
+- **Faded at both ends**, for the reason `RoomAmbience.FadeOutTone` gives: a cut reads as a sound
+  failing, a fade reads as a room being switched on or off around you. The source is authored at
+  volume 0 with `playOnAwake`, so `MainMenu.Start` rides it up rather than calling `Play()` — which is
+  what stops the loop's first sample landing as a click.
+- **It goes out across the load**, and it has to. The room scene starts its OWN copy of the same loop,
+  so carrying the menu's through the switch would be heard as the tone restarting from its first
+  sample under a room that is already toning.
+- The menu scene already has the one `AudioListener` the game is allowed (on its camera), and
+  `GameSettings.ApplyAudio` in `MainMenu.Awake` has put the saved master volume on it before the fade
+  starts — so the slider on the SETTINGS page governs this like everything else.
+
+**Level is a guess.** 0.22 is "present, not announced" on one pair of headphones and has not been
+checked anywhere else. It is one field (`MainMenu.ambienceVolume`).
+

@@ -73,6 +73,25 @@ namespace IterationRoom
         public float minimumLoadingTime = 0.9f;
         public float fadeSpeed = 3f;
 
+        // THE ROOM'S OWN TONE, UNDER THE TITLE SCREEN. The same `sfx_ominous_loop` that runs beneath
+        // every second of every iteration, and deliberately not a piece of menu music: this game has
+        // no music anywhere, and giving the title screen some would make PLAY the moment a track
+        // stops rather than the moment a door opens.
+        //
+        // The screen is a photograph of that room. It should sound like that room - so what the
+        // player crosses when they press PLAY is not silence into sound, it is a place they were
+        // already standing in.
+        public AudioSource ambience;
+
+        // WELL UNDER THE 0.5 THE ROOM ITSELF RUNS AT. A title screen is a place somebody sits with
+        // the window open while they do something else, and a hum that has to be turned down is a hum
+        // that gets turned off. Present, not announced.
+        public float ambienceVolume = 0.22f;
+
+        // Faded rather than cut at BOTH ends, for the reason `RoomAmbience.FadeOutTone` gives: a cut
+        // reads as a sound failing, a fade reads as a room being switched on or off around you.
+        public float ambienceFade = 1.6f;
+
         private bool starting;
 
         private void Awake()
@@ -148,6 +167,34 @@ namespace IterationRoom
             }
 
             SetProgress(0f);
+
+            // FROM SILENCE, over the same beat the menu itself arrives on. The scene loads with the
+            // source already playing at zero, so this is a level ride rather than a Play() - which
+            // is what stops the loop's first sample landing as a click.
+            if (ambience != null)
+            {
+                ambience.volume = 0f;
+                if (!ambience.isPlaying) ambience.Play();
+                StartCoroutine(FadeAmbience(ambienceVolume, ambienceFade));
+            }
+        }
+
+        // Shared by the arrival and the departure. Unscaled, because nothing here is allowed to
+        // depend on a time scale the menu does not own.
+        private IEnumerator FadeAmbience(float target, float seconds)
+        {
+            if (ambience == null) yield break;
+
+            float from = ambience.volume;
+            float t = 0f;
+            while (t < seconds)
+            {
+                t += Time.unscaledDeltaTime;
+                ambience.volume = Mathf.Lerp(from, target, seconds > 0f ? t / seconds : 1f);
+                yield return null;
+            }
+            ambience.volume = target;
+            if (target <= 0f) ambience.Stop();
         }
 
         private void Update()
@@ -272,6 +319,12 @@ namespace IterationRoom
         private IEnumerator LoadGame()
         {
             if (menuGroup != null) menuGroup.blocksRaycasts = false;
+
+            // OUT ACROSS THE LOAD, and it has to go out rather than be left running: the room scene
+            // starts its OWN copy of this same loop, so carrying the menu's into the switch would be
+            // heard as the tone restarting from its first sample under a room that is already toning.
+            // Gone by the time the bar fills, and the room brings it back.
+            if (ambience != null) StartCoroutine(FadeAmbience(0f, ambienceFade));
 
             // The title and the buttons go, the background stays: the last thing on screen before
             // the room loads is the room, which is also the first thing after. What greets the

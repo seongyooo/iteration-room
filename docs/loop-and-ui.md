@@ -283,3 +283,43 @@ anyway.
 It is written through immediately rather than batched into `GameSettings.Save()` like the sliders:
 those are touched every frame of a drag and batching them is the point, this is touched once per
 cycle, and the whole value of it is surviving a player who closes the window.
+
+## The title screen's look (2026-08-20)
+
+Four things were wrong with it and the font was not one of them.
+
+**1. The background was a corner shot.** Two wall grids running in different directions with the
+ceiling in a third, converging on a vanishing point in the middle — no calm area anywhere, and the
+menu set its type over near-black grooves on white at full contrast.
+
+It is shot **square** now. The first attempt filled the frame with one wall and came back as
+wallpaper: fifteen cells, no depth, and a surface in shade so the room stopped being bright. Standing
+back instead gives one-point perspective — the far wall's grid still does not converge, which is what
+"square" buys, while the floor, ceiling and side walls run to a single vanishing point dead centre.
+The doorway is the subject and the bed sits in the middle distance. See
+`SceneBuilder`'s framing block for the numbers.
+
+**2. Everything was red.** Title, five labels, the settings rows, the loading line. Red is this
+game's ALARM — the ERROR test card, the last ten seconds, the collapse — and spending it on furniture
+leaves nothing to ring it with. The ink is `MenuInk`, the same charcoal every groove in the building
+is painted, and there is now **exactly one red thing on the screen at rest**: the word `ROOM`. At 52pt
+it is large enough not to vibrate on white, which is the other half of why the accent is there and not
+on the buttons.
+
+**3. Every button was a filled plate.** Black at 55% alpha, five of them stacked down the edge of a
+photograph of a white room. The plate is still there — a `Button` needs a graphic to receive a click —
+but it is transparent until the pointer is on it. At rest the screen is five words printed on a wall.
+
+**4. The hierarchy was four sizes with no ratio.** The whole JetBrains Mono family has been on disk
+since the font was added and the project used **Regular for every word in the game**. The title is
+ExtraLight at 86 (thin at that size is the difference between a heading and a logotype) and everything
+else is Medium.
+
+**The scrim inverted with the ink.** It was a black ramp because red needs darkening to read; charcoal
+needs the opposite. What it is really doing is calming the grid — a wash of the room's own white
+flattens it to a whisper under the words and leaves it at full strength on the right.
+
+**The pause menu was deliberately left alone.** It shares `MakeMenuButton` but sits over a 0.72 black
+scrim, where charcoal would be invisible — so `ink` is optional and null keeps the red-on-dark it was
+built with, which is also the pairing the in-game HUD uses. Same for `MakeRowLabel`.
+
