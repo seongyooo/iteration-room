@@ -625,3 +625,48 @@ the wall panels and its base with the floor, and both flickered. Two coplanar fa
 pixel from every angle. Clearances have to be asymmetric, though — the block's face backing is only
 1mm narrower than the opening, because a wider gap there lets the lit wall behind show through the
 groove as a bright edge.
+
+## Reduce an overlap and you chase the symptom; remove it and the symptom is gone (2026-08-21)
+
+Room3-1's corridor flickered through **five** builds. Each fix was a real coincident-face pair, each
+one was measured or reasoned correctly, and each time a different pair took over:
+
+1. the block was exactly the corridor's width, so its sides shared a plane with the wall panels
+2. the block's base was exactly on the floor's top face
+3. two 23m faces 2mm apart, which is inside the depth buffer's resolution at that distance
+4. the corridor wall's backing plane landing on the wall panel's edge, because
+   `GridLineThickness / 2` and `GrooveDepth` are both 0.025
+5. the corridor wall's overrun reaching the plane of room3-1's panels
+
+**Four of those five were the same mistake: making an overlap smaller.** The corridor's side walls
+overlapped room3-1's wall the whole time, and every fix nudged a face out of one plane and into
+another arrangement of the same overlap. What ended it was not a better clearance - it was inseting
+the walls by two `WallDepth`s so the two structures ABUT and share no volume at all. Play said so
+first: *stop the structures overlapping.*
+
+**The rule: if two things must not fight for pixels, do not make them nearly-not-overlap. Make them
+not overlap.** Abutting is safe - it is how `BuildSlab` lays the floors of adjacent rooms - and it is
+checkable, which nearly-not is not.
+
+`CycleThreeDiagnostics` is the tool that should have been written before the first attempt rather
+than after the fourth. It opens the built scene and reports pairs of renderers that overlap AND share
+a bounding plane, which is exactly the condition; it took the count from 12 to 0.
+
+## A world-space placer called with `Vector3.zero` puts things at the world origin (2026-08-21)
+
+`SceneBuilder.PlaceModel` takes WORLD coordinates - `targetXZCenter` and `floorY` are compared
+against world-space renderer bounds. That is right for what it was written for, props that stand on
+a floor somewhere in a room.
+
+Called for something MOUNTED on a parent that already carries the position, `Vector3.zero, 0f` does
+not mean "where the parent is". It means the world origin, and in this project the world origin is
+the middle of Room1. Nine monitors and three camera housings for cycle 3 all landed in cycle 1's bed
+room, in a heap, in front of the camera that captures the title screen's photograph.
+
+**The symptom appeared nowhere near the cause.** The report was "the main menu has gone strange" -
+and the main menu is built from a render of a room three cycles away from anything that had been
+edited. What found it was opening `Assets/Textures/MenuBackground.png` and seeing a CCTV lens.
+
+`PlaceModelLocal` is the mounted version: everything in the parent's frame, centred rather than
+based, sized by its longest side. **Check which space a placement helper works in before using it -
+the two read identically at the call site and fail nothing at build time.**

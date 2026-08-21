@@ -147,6 +147,23 @@ namespace IterationRoom
             }
         }
 
+        // E HELD RATHER THAN E PRESSED, for the one fixture that is not a press: room3-2N's levers
+        // are pulled and KEPT pulled, and the panels they raise follow that state frame by frame.
+        //
+        // **A HOLD IS NOT A SECOND KIND OF PRESS.** Which fixture a press belongs to is arbitrated
+        // once, on the rising edge, through `PlayerLookup.PressGoesTo` - see CLAUDE.md SS1.2. This
+        // answers only "is that key still down", and a fixture that grabbed the press is the only one
+        // entitled to ask. Nothing may use this to START an interaction.
+        public static bool InteractHeld
+        {
+            get
+            {
+                Pump();
+                if (TouchActive) return touch.InteractPressed;
+                return Held(GameAction.Interact);
+            }
+        }
+
         // "Do the thing this object is FOR" - swing the pin, place a piece, stand a bucket down. The
         // left button on a desktop.
         public static bool UsePressed
