@@ -27,34 +27,81 @@ namespace IterationRoom
         // point at it rather than a list of things to render.
         public Renderer[] screens;
 
-        public int textureWidth = 512;
-        public int textureHeight = 288;
+        // **BIG ENOUGH TO READ, AND SHAPED LIKE THE GLASS IT IS DRAWN ON** (2026-08-21: play called
+        // the picture unreadable). Two separate faults, and 512x288 was only the first of them.
+        //
+        // 1. RESOLUTION. 512 across was chosen for a 0.72m monitor. The screens are 2.6m now, so the
+        //    same texture is stretched over thirteen times the area and every edge in the room came
+        //    apart into stairsteps. `SceneBuilder` sets this from the monitor's size.
+        // 2. ASPECT. The model's glass is 2.04:1 and the texture was 16:9, so the picture was
+        //    squeezed 13% horizontally - which reads as "bad quality" long before anyone works out
+        //    that it is the wrong shape. The height is derived from the measured mesh rather than
+        //    written down, so a different monitor model cannot reintroduce it.
+        public int textureWidth = 1024;
+        public int textureHeight = 502;
+        // **SUPERSAMPLING RATHER THAN MSAA, and that is a deliberate choice of the cheaper risk.** A
+        // CCTV picture is mostly long straight edges - panel grooves, stair treads, the corner of a
+        // mezzanine - and those are what aliases. MSAA on a render texture is the direct answer, but
+        // URP takes its sample count from the pipeline asset and not from the target, so a target
+        // asking for 4 is at best ignored and at worst a mismatch. 1600 across is already about twice
+        // the pixels the screen occupies on a 1080p display, and a bilinear tap over four samples is
+        // an antialiased one. Set this to 2/4/8 to try the other way; it is wired.
+        public int antiAliasing = 1;
 
-        // How close a player has to be to a screen for the feed to be worth drawing. Generous enough
-        // that walking into the room starts it before anyone is reading it.
-        public float viewerRange = 6f;
+        // How close a player has to be to a screen for the feed to be worth drawing. **Bigger than
+        // the room's own diagonal on purpose**: the whole point of a 2.6m screen is that it can be
+        // read from wherever you are standing, and a range that stopped short of that would leave the
+        // player looking at the last frame it drew before they backed away.
+        public float viewerRange = 14f;
         // Frames per second for the feed itself. Deliberately not the game's rate: this is a security
         // monitor, and a slightly steppy one reads as the right thing rather than as a window.
-        public float refreshRate = 12f;
+        public float refreshRate = 10f;
 
         private RenderTexture target;
         private float nextRender;
+
+        // **NO TWO FEEDS RENDER ON THE SAME FRAME, EVER.** Three cameras in one room, all in range of
+        // the player at once, all due at the same instant because they were all created in the same
+        // frame - so a third of the time the game paid for three whole extra renders of the room
+        // between two of its own. Play called it "cycle 3 has started stuttering".
+        //
+        // A frame stamp shared by every feed in the game is the cheapest possible fix and it caps the
+        // worst case rather than improving the average: whatever else is going on, at most ONE extra
+        // scene render happens per frame. A feed that loses the race simply tries again next frame,
+        // which costs it a fraction of a refresh interval nobody can see at 10fps.
+        private static int lastRenderFrame = -1;
 
         private void Awake()
         {
             if (feedCamera == null) return;
 
             // BUILT AT RUNTIME, not saved as an asset. A `RenderTexture` asset would be one more
-            // generated file for `SceneBuilder` to keep in step, and this one has no settings worth
-            // persisting - it is a size and a depth buffer.
-            target = new RenderTexture(textureWidth, textureHeight, 16, RenderTextureFormat.ARGB32)
+            // generated file for `SceneBuilder` to keep in step, and every setting on it is derived
+            // from the monitor it is drawn on rather than authored.
+            //
+            // 24-bit depth rather than 16. The room is 21m deep and the camera looks the length of it
+            // from a corner, and at 16 bits the coloured steps and the wall they sit in were close
+            // enough in depth to swap places as the camera resolved - the same shimmer the corridor
+            // had, arriving second-hand through a monitor.
+            target = new RenderTexture(textureWidth, textureHeight, 24, RenderTextureFormat.ARGB32)
             {
                 name = "CctvFeed",
                 filterMode = FilterMode.Bilinear,
+                // Clamped, or the bilinear tap at the very edge of the picture wraps round and puts a
+                // sliver of the opposite wall along the frame.
+                wrapMode = TextureWrapMode.Clamp,
+                // No mips. The screen is looked at very nearly head on and at roughly one size, so a
+                // mip chain would only ever cost memory and hand back a blurrier frame at an angle.
+                useMipMap = false,
+                autoGenerateMips = false,
+                antiAliasing = Mathf.Clamp(Mathf.ClosestPowerOfTwo(Mathf.Max(1, antiAliasing)), 1, 8),
             };
             target.Create();
 
             feedCamera.targetTexture = target;
+            // Has to be allowed on the camera as well, or the target's samples are resolved from a
+            // single-sampled render and the setting above buys nothing.
+            feedCamera.allowMSAA = target.antiAliasing > 1;
             // Driven by hand below. Left enabled it would render every frame whether or not anyone
             // was in the building to see it.
             feedCamera.enabled = false;
@@ -84,15 +131,27 @@ namespace IterationRoom
         {
             if (feedCamera == null || target == null) return;
             if (Time.unscaledTime < nextRender) return;
-            if (!ViewerNear()) return;
+            if (lastRenderFrame == Time.frameCount) return;
+            if (!ViewerWatching()) return;
 
+            lastRenderFrame = Time.frameCount;
             nextRender = Time.unscaledTime + 1f / Mathf.Max(1f, refreshRate);
             // `Render` rather than enabling the camera, so the cost lands exactly on the frames that
             // asked for it and the rate above means something.
             feedCamera.Render();
         }
 
-        private bool ViewerNear()
+        // **NEAR IS NOT ENOUGH - IT HAS TO BE ON SCREEN.** Range alone kept all three feeds of a lever
+        // room alive the whole time the player was in it, including while they stood with their back
+        // to every one of them. `PlayerLookup.OnScreen` is the same frustum test every E prompt in the
+        // building is gated on, so "the feed is running" and "you can see the feed" are the same
+        // question asked once - and a player who turns round gets a fresh frame within a tenth of a
+        // second, which is one refresh interval and is not something anyone can catch.
+        //
+        // `OnScreen` rather than `InView`: the occlusion half of `InView` is a `RaycastAll` per call,
+        // and this is asked of up to nine screens every frame. A feed drawn for a screen that turns
+        // out to be behind a wall costs one render; nine rays a frame costs every frame.
+        private bool ViewerWatching()
         {
             Collider player = PlayerLookup.Collider;
             if (player == null || !player.enabled || screens == null) return false;
@@ -101,7 +160,8 @@ namespace IterationRoom
             foreach (Renderer screen in screens)
             {
                 if (screen == null) continue;
-                if ((screen.transform.position - at).sqrMagnitude < viewerRange * viewerRange) return true;
+                if ((screen.transform.position - at).sqrMagnitude >= viewerRange * viewerRange) continue;
+                if (PlayerLookup.OnScreen(screen.transform.position)) return true;
             }
             return false;
         }

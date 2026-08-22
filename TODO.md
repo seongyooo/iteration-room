@@ -13,32 +13,63 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
    already states the cycle's premise; what it does not have is anything to do once you are through.
    The shape is in and the puzzles are not. `docs/Room3 구조 변경 및 레버 기반 퍼즐 기믹 구현
    프롬프트.md` is the spec; §1 and §2 of it are built and §3-§9 are not.
-   - **§3-§7: THE COLOURED STAIRS.** Red, blue and yellow panels in room3-2N, each colour driven by a
-     hold-to-activate lever in one of the other three rooms (S=red, E=blue, W=yellow). The step
-     geometry is settled - half a grid row, 0.651 to the top, walked up on `stepOffset` - and nothing
-     else is. **The lever must be a `GhostInteractable` with hold semantics**, exactly like
-     `FloorButton`, or a past self cannot hold it and the room cannot be solved by one person.
-     Signal budget is fine: three levers takes cycle 3 from 6 of 32 to 9, and the panels themselves
-     are driven by the levers so they cost nothing.
-   - **§7 is the actual puzzle and is undesigned.** "Raising one colour blocks a route the others
-     opened" is what stops the room being one lever held down. Panel count and placement are
-     deliberately left open in the spec for play to settle, so build them as data.
-   - **§8: CCTV.** Models are in (`cctv_camera.glb`, `hanging_monitor.glb`). Each monitor is a camera
-     rendering to a target, so it is a whole extra scene render per feed - decide whether they run
-     always or only while looked at.
-   - **A ghost with no panel under it should fall** (by request). Ghosts have no colliders and replay
+   - **THE BEAM IS BUILT AND WHAT IT DOES IS NOT.** A laser leaves room3-2E, five mirrors on a rack
+     in room3-2W bend it, and a receiver on room3-2N's west wall lights when it arrives.
+     `LaserReceiver.Lit` drives **nothing**: whether the light runs a machine or opens the way out of
+     the cycle is undecided, and it should stay undecided until somebody has stood in the room and
+     bounced the beam by hand. Verified in code only - nobody has seen the beam.
+   - **The route is two mirrors long and there are five.** The shortest solution is one turn in
+     room3-1 and one inside the big room; the other three mirrors have nothing to do. Lengthening it
+     is level design - move the receiver, or put something in the way - and it wants play first,
+     because "how many bounces is fun" is not answerable from a plan.
+   - **Nobody can get onto either mezzanine.** The coloured staircase went with the levers, so
+     room3-2N's two decks and its five columns are unreachable architecture. Whether the room wants a
+     climb at all any more is part of the redesign.
+   - **The mirrors have no HUD icon.** Every other carryable has one; `BuildMirror` passes none.
+   - **Reflections are the next rendering step, and deliberately after the puzzle.** A mirror that
+     shows the room and the player needs a planar reflection camera per VISIBLE mirror - the same cost
+     the CCTV feeds were cut for, and affordable under the same discipline (one render per frame
+     globally, shadows and post off, resolution by screen size). It also needs **a player body**:
+     `BuildPlayer` makes a controller and a camera and no mesh at all, so today a mirror pointed at
+     the player reflects an empty room. A body fixes the CCTV too, which shows ghosts and not you.
+     Recursion is to be left to fall off on its own - tinted reflectance, each nested image dimmer and
+     smaller - rather than hard-capped, by request: "like a real mirror".
+   - **The gates no longer stand off for the player** (`Door.standsOffForPlayer = false`) and shut in
+     0.3s. Two things to watch: whether a leaf closing THROUGH the player reads as a bug rather than
+     as your own fault, and whether the room still lets a determined player through their own east or
+     west gate - that run is only 1.18m.
+   - **A ghost with no floor under it should fall** (by request). Ghosts have no colliders and replay
      recorded positions exactly, so this is a real change to `GhostReplayer`: a downward probe, and a
-     rule for what a ghost does once it has fallen off its own recording.
+     rule for what a ghost does once it has fallen off its own recording. It was asked for when the
+     room had panels that came and went under people; with those gone it is no longer urgent, and it
+     is still the right behaviour.
    - **The room names are placeholders.** `Room3_2N/S/E/W` does not fit the `room<cycle>-<n>` scheme
      in `docs/cycle-design.md` §4a, and cannot until the puzzle order is decided.
    - **The pads are unlabelled**, and whether that reads as discovery or as fumbling is a play
      question. So is whether 22.75m of corridor is the right length to be caught in.
    - **Room3-2N's lighting is derived, not seen** - a 3x3 grid with intensity scaled by the square of
-     a 3x height jump. Expect to retune. See `docs/room-geometry.md`.
-2. **CYCLE 2'S ROOM2-6 SOUTH DOOR IS BLOCKED**, and the build has been saying so on every run:
+     a 3x height jump, plus four spots under the two decks at a flat 6 because a deck is a ceiling for
+     whatever is beneath it. None of the seven numbers has been looked at. See `docs/room-geometry.md`.
+   - **The CCTV picture has been fixed three times without being seen once.** Upside down (the model's
+     glass runs top-to-bottom along its -Z), then the wrong aspect and too few pixels, then too
+     expensive. It is now 1024 across at 10fps, on screen only, one feed per frame, shadows and post
+     off. If the picture comes out MIRRORED rather than right way up, the fault is the glass's UVs and
+     not its rotation. **And what the feeds are FOR has changed**: they were watching a staircase that
+     no longer exists. The honest job left is seeing where the beam currently stops, in a room that
+     costs an iteration to walk to.
+2. **`PlayerLookup.Occluded` DOES NOTHING INSIDE CYCLES 2 AND 3.** It forgives any hit whose
+   `transform.root` matches the thing being looked at - which is exact and right when each room is its
+   own scene root, as cycle 1's are. Cycles 2 and 3 build every room under ONE root
+   (`Room_Cycle2` / `Room_Cycle3`), so every collider in the cycle shares a root with every fixture in
+   it and nothing can ever occlude anything. `InView` is frustum-only there, which is the state the
+   2026-08-14 fix was written to end: an E prompt hanging in mid-air through a wall. Found while
+   costing `CctvFeed`, not by play, so how bad it looks is unmeasured. The fix is to compare against
+   the fixture rather than against `root`; it changes prompt behaviour across two whole cycles, so it
+   wants a playthrough rather than a quiet edit.
+3. **CYCLE 2'S ROOM2-6 SOUTH DOOR IS BLOCKED**, and the build has been saying so on every run:
    `room2-6 south door: 'Solid' blocks the way through (swept at 21.70, -9.97, 89.15)`. `AssertWalkable`
    caught it; nobody was reading the output. A wall collision block is standing in the doorway.
-3. **THE ON-SCREEN KEY PROMPTS DO NOT FOLLOW THE BINDINGS** (deferred 2026-08-20, by request). Keys
+4. **THE ON-SCREEN KEY PROMPTS DO NOT FOLLOW THE BINDINGS** (deferred 2026-08-20, by request). Keys
    are rebindable from the settings page now, but the six places the game NAMES a key are still
    strings authored into `SceneBuilder`: the interact disc's "E", the "[E] — PUT DOWN" hint, "HOLD [N]
    — END CYCLE", and the calibration room's WASD/SPACE/E keycaps plus its SHIFT and CTRL side walls.
@@ -47,20 +78,20 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
    on `InputBindings`; it also needs a SHORT form of each key name, because "LEFT MOUSE" does not fit
    in a disc or on an 84px keycap. **The calibration room is the worst of the six** - it is the first
    thing a player sees and it is entirely an explanation of the controls.
-4. **THE CHEST'S DRAWERS ARE A TOGGLE, AND IT IS THE WORSE OF TWO FAULTS** (`canClose = true`,
+5. **THE CHEST'S DRAWERS ARE A TOGGLE, AND IT IS THE WORSE OF TWO FAULTS** (`canClose = true`,
    2026-08-20, by request). A ghost's ball take fails on even numbers of past-self pulls. It was
    chosen over the alternative - a drawer that can never be shut blocks the bay below it - and the
    third option is still unbuilt: make the PLAYER's press a toggle and a GHOST's replay open-only,
    one line in `Drawer.SetGhostSignal`. It costs a little of "a past self does exactly what you did".
-5. **Gate the cycle picker before release.** CYCLE SELECT lists every cycle whether or not the player
+6. **Gate the cycle picker before release.** CYCLE SELECT lists every cycle whether or not the player
    has reached it, which is a shortcut worth having while cycle 3 is under construction and a spoiler
    in a shipped build. One condition in `MainMenu.Awake` and one in `Start`.
-6. **CC-BY attribution is mandatory and the credits line does not do it.** Every model is CC-BY, which
+7. **CC-BY attribution is mandatory and the credits line does not do it.** Every model is CC-BY, which
    permits commercial use - so nothing is blocked - but `SceneBuilder.CreditsLine` reads "FURNITURE
    MODELS: CREATIVE COMMONS", which names no author, no title, no licence version and no link. Ten
    creators are uncredited in a build that is already public. See `docs/asset-licences.md`, which has
    every row resolved and the exact form each entry wants.
-7. **Room2-7's latch is the length lever.** Its scale re-locks every iteration, so five past-self
+8. **Room2-7's latch is the length lever.** Its scale re-locks every iteration, so five past-self
    deliveries are the standing price of every trip to room2-0 - which is why two independent clears
    came out at 22 iterations 1.2 seconds apart. If cycle 2 should be shorter, that is what to change,
    not the number of balls.

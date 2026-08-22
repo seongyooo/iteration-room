@@ -71,7 +71,37 @@ namespace IterationRoom
         public int Version { get; private set; }
 
         // THE OBJECT IN THE HAND, or null. This is the whole of what the player carries.
-        public CarryableItem Held { get; private set; }
+        // **ONE WRITE POINT, because four call sites is four chances to forget.** `Held` changes in
+        // Take, Drop, Surrender and ReturnAll; anything that has to follow what is in the hand hangs
+        // off the setter rather than off those four.
+        private CarryableItem held;
+
+        public CarryableItem Held
+        {
+            get => held;
+            private set
+            {
+                if (held == value) return;
+                held = value;
+                ApplySteadyHand();
+            }
+        }
+
+        // How much look sensitivity is left while a mirror is in the hand. Halved cancels the law of
+        // reflection exactly - see `FirstPersonController.steadyHandScale`, which is where the
+        // argument lives. 1 would restore the old behaviour for anyone who wants to feel why not.
+        public float mirrorLookScale = 0.5f;
+
+        private FirstPersonController controllerForLook;
+
+        private void ApplySteadyHand()
+        {
+            if (controllerForLook == null) controllerForLook = GetComponent<FirstPersonController>();
+            if (controllerForLook == null) return;
+
+            bool mirror = held != null && held.GetComponent<Mirror>() != null;
+            controllerForLook.steadyHandScale = mirror ? Mathf.Max(0.05f, mirrorLookScale) : 1f;
+        }
 
         // In hand right now. `Has` is gone with the pocket: it meant "carried but possibly stowed",
         // and there is no longer anywhere to stow anything. Every old call site wanted this one.

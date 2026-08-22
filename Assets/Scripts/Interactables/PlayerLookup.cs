@@ -327,6 +327,12 @@ namespace IterationRoom
         public static bool InView(Vector3 worldPoint) =>
             InFrustum(worldPoint) && !Occluded(worldPoint, null);
 
+        // FRUSTUM ONLY, NO RAY. For callers that need "is this on screen" many times a frame and
+        // cannot pay for a `RaycastAll` per candidate - `CctvFeed` asks it of every screen it drives,
+        // every frame, to decide whether the feed is worth rendering at all. An interaction prompt
+        // must use `InView`; a cost decision must not.
+        public static bool OnScreen(Vector3 worldPoint) => InFrustum(worldPoint);
+
         private static bool InFrustum(Vector3 worldPoint)
         {
             Camera cam = Eye;

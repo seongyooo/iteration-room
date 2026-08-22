@@ -76,6 +76,20 @@ namespace IterationRoom
         // frame, see its own note); it simply takes no input.
         public bool LookLocked { get; set; }
 
+        // **A MULTIPLIER ON LOOK SENSITIVITY, and cycle 3's mirrors are the only thing that sets it.**
+        //
+        // A mirror is aimed by turning your body, and the law of reflection doubles the result: turn
+        // the glass one degree and the far end of the beam moves two. Twenty metres away that is 70cm
+        // of travel for one degree of hand, which is not something anybody can hold steady.
+        //
+        // Halved, the two cancel exactly - **aiming the BEAM feels like aiming your eyes**, which is
+        // the only version of this that is not a fight. It reads as the right thing too: you are
+        // holding a pane of glass in both hands.
+        //
+        // Set by `PlayerHand` as it picks up and puts down, so nothing has to poll what is in the
+        // hand every frame. 1 means normal, and every other room in the building leaves it there.
+        public float steadyHandScale = 1f;
+
         // How long it takes to reach full speed, and to come back to a stop. SECONDS rather than
         // m/s^2 because this is a number tuned by feel, in the Inspector, while playing - and "a
         // seventh of a second to top speed" is a sentence a person can hold, where "32 m/s^2" is not.
@@ -343,7 +357,7 @@ namespace IterationRoom
         {
             // Both axes, not just yaw: a pour that let the player keep looking up and down would
             // still be a pour they could aim away from the tank.
-            float sensitivity = GameSettings.MouseSensitivity;
+            float sensitivity = GameSettings.MouseSensitivity * steadyHandScale;
             // Whichever device is driving, in the same units: `GameInput.Look` hands over degrees
             // before sensitivity, which is what the mouse axis already was. A touch drag is
             // converted to match rather than this having to know which it is reading.

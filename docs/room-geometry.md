@@ -132,6 +132,14 @@ same lesson:
 
 - The block was exactly 1.75 wide, so its sides shared a plane with the corridor's wall panels, and
   its base shared one with the floor. It is 2mm narrower now and sunk 20mm.
+- **The corridor's walls stood 20mm wider than its mouth for one day, and are back to flush.** That
+  was the first fix for eight of the twelve pairs; the Z inset below is what actually separates them
+  from room3-1's panelling. It was then costing something at the other end: room3-2N's wall steps have
+  a metre of tail behind them, and the step in the cell beside the mouth reaches 25mm past the mouth's
+  edge into the back of this corridor's west wall. Every millimetre of clearance buried a millimetre
+  more of that wall inside a blue step — at 25mm the step would have shown through into the corridor.
+  Flush, the wall's face hides the step by exactly the step's own groove. **Two fixes pulling on one
+  number, and the scan is the only thing that could have said which way.**
 - Its face backing is only 1mm narrower — wider clearance leaves a slot the lit wall shows through,
   which reads as a black border with a bright edge.
 - **The corridor's side walls overran into the room.** `BuildPanelWall` extends its backing and
@@ -153,21 +161,115 @@ panelling reads as the same wall continued. `BuildBigRoom` rather than parameter
 because that one lays its floor across a whole `RoomPitch` so neighbours meet under their shared
 divider — a rule about the chain, not about this room.
 
+**Its floor is not one slab.** Seven coloured blocks come up through it, so it is built as
+rectangles with their shafts cut out — see the deck section below. Four extra spot fixtures hang under
+the two decks, because a deck is a ceiling for whatever is beneath it and the nine overhead cannot
+reach through one.
+
 **Its lighting is derived and has not been looked at.** `BuildCeilingLights` is tuned for a 5.4m
 ceiling; at 16.2 its range does not reach the floor and inverse square says the floor gets a ninth of
 the light. `BuildTallRoomLights` spreads a 3x3 grid, sizes the range to the diagonal and squares the
 intensity by the height ratio — but 10.5 was found by eye in the first place, and this is a far bigger
 jump than the one it was re-derived across. Expect to retune.
 
-### Climbing it: steps are walked, not jumped
+### The reach the room was climbed with: the jump and the step offset COMPOSE
 
-A grid row is 1.3519 and a panel's top lands at 1.327; the jump clears 0.90. Raising the jump to 7.9
-(1.56m) was tried and play called it awkward — a person who jumps a metre and a half floats, and every
-room in the game would inherit it to solve a problem in one of them.
+**Kept although the staircase it was written for is gone**, because it is a fact about the CONTROLLER
+rather than about that room, and the next thing anybody builds in here will need it.
 
-So the step came down instead. **Half a row, 0.651 to its top, walked up on the controller's
-`stepOffset`** (`SceneBuilder.PlayerStepOffset`, 0.72). Stairs you walk up read as stairs. And the
-number is deliberately kept **under the 0.90m jump**, so nothing anywhere becomes reachable that a jump
-could not already reach — the guarantee a taller jump could not make. The two existing things that lean
-on `stepOffset` both still hold: the chess board is thinner than this and is still walked over, and
-balloons are excluded from the controller entirely.
+A grid row is 1.3519. A rise of that looked impossible on the numbers — the jump clears 0.90 and `PlayerStepOffset` is 0.72,
+and neither of those is 1.35. **That reading was wrong, and play had already disproved it before it was
+noticed.** They are not alternatives: the controller steps up from wherever its feet are, so a jump
+puts the feet at 0.90 and the offset carries them 0.72 further. **Effective reach is 1.62.**
+
+Nothing had to move as a result, and both of the things that could have moved are worth not moving:
+
+- Raising the jump to 7.9 (1.56m) was tried and play called it awkward — a person who jumps a metre and
+  a half floats, and every room in the game inherits it to solve a problem in one of them.
+- `PlayerStepOffset` is deliberately kept **under** the 0.90m jump, so nothing anywhere becomes
+  reachable that a jump could not already reach. That is a guarantee a taller jump could not make. The
+  two existing things that lean on it both still hold: the chess board is thinner than this and is
+  still walked over, and balloons are excluded from the controller entirely.
+
+### Two decks, and a room whose puzzle is light (2026-08-21)
+
+Room3-2N has two partial floors, five columns and four fixtures under them. Deck A's surface is row 4
+(5.408) and runs as an L down the west wall and along the north; deck B is row 8 (10.816) over the
+north-west quarter with a 1.75 x 3.5 hole cut clean out of it. Everything is authored off the grid the
+walls are: a deck's surface is a whole number of ROWS.
+
+**No parapet anywhere, and that is deliberate rather than unfinished.** Deck B's hole is the same
+argument taken further: standing on it you look through onto deck A and past deck A's open side to the
+floor, which is three storeys in one glance and the only place in the building you get one.
+
+**~~The coloured stairs, the rising blocks and the three levers that drove them~~ GONE 2026-08-21.**
+They were a set of switches, and a switch remembers a decision — so a past self who threw one wrongly
+went on throwing it wrongly for the rest of the cycle, and no version of the lever made that both
+meaningful and harmless. What replaced them is `docs/architecture.md`'s `Mirror`: a beam that crosses
+the whole building, bent only by mirrors that somebody has to be holding.
+
+**There is currently no way up to either deck.** That is honest rather than broken — the room is being
+redesigned around the beam and the climb was part of the thing that went.
+
+### The beam, and why it needs the same people the player does
+
+A laser leaves room3-2E and has to arrive in room3-2N. Everything about it lives in one horizontal
+plane at 1.2m, and that is forced by the recording format rather than chosen for looks: a timeline
+holds `position`, `yaw` and `signals` and **no pitch anywhere**, so a mirror that could tilt would
+replay at the wrong angle in a ghost's hands. Level, a ghost's recorded yaw is exactly enough.
+
+| | |
+| --- | --- |
+| Emitter | room3-2E's **south** wall, centred, firing **north** up its own room |
+| Mirrors | five, scattered on room3-2W's floor. 0.47m of glass, single-sided |
+| Receiver | room3-2N's west wall, 0.7m target radius |
+| Shortest route | **three** mirrors — one in room3-2E, one in room3-1, one in the big room |
+
+**Each of the four rooms has one job**, which is what the south wall bought:
+
+| | | | |
+| --- | --- | --- | --- |
+| room3-2E | the source | room3-2W | the mirrors |
+| room3-2S | the control room | room3-2N | where the light has to arrive |
+
+**The gates and the corridor are part of the optics.** A gate is only open while a past self stands on
+its pad, so the light needs exactly the people the player does; and letting go of the north pad does
+not close a door on the beam, it fills twenty-three metres of corridor in front of it. The one
+mechanism this cycle already had turns out to be a shutter.
+
+**Firing north rather than west is what makes room3-2E a room.** The gate is in its WEST wall, so a
+beam fired north stops at its own far wall until somebody stands in it and turns the light — the first
+mirror of the route now lives in the room the light comes from. It also hands the player the LANE:
+the west-bound leg can leave at any z the gate's opening allows, which is the middle pair of cells,
+±1.75 of the wall's centre.
+
+**And that choice is narrower than it looks, because of the bed.** The beam clears it on its own — 0.89
+tall against a 1.2 lane — but the corner mirror in room3-1 has to be **stood at**, on the corridor's
+axis, and a person holding a mirror half a metre in front of them needs rather more room than a beam.
+The bed is 1.26 x 2.05 and sits 0.70 north of room3-1's centre, so it reaches z +1.72 and eats the
+northern half of the band outright. What is left is roughly **z -1.75 to -0.7**: about a metre of
+usable lane, on the south side, with the bed visibly explaining why.
+
+**Single-sided is a rule you can see.** A beam that arrives at the back of a mirror stops dead, so a
+mirror turned the wrong way does not merely fail to help — it blocks, and you can see exactly where.
+It also means the mirror in your own hands shows you nothing, because its face points away from you:
+**you only ever see yourself in somebody else's mirror.**
+
+**What the receiver DOES is undecided, on purpose.** `Lit` is the whole interface. Building the answer
+before the question is what put a CCTV system in this cycle before there was a puzzle for it to watch.
+
+### The gates do not wait for you
+
+Everywhere else in the building a door refuses to shut on the player (`Door.PlayerInDoorway`), and
+that kindness is a hole here: play found that standing near an open gate kept it open with nobody on
+the pad, so you could back off, step in again before it shut, and ride it open indefinitely — and
+that a pad plus an immediate jump was enough to get through your own gate.
+
+Room3-1's gates set `Door.standsOffForPlayer = false` and `closeDuration = 0.3` against an
+`openDuration` of 1.4. Slow open, snap shut: the gate is not being closed, it is being let go of. The
+0.3 is not taste — the run from a pad to the wall it opens is 2.05m north-south and **1.18m east-west**,
+about a quarter of a second at sprint, so anything slower is a gate you can walk through yourself.
+
+The cost is that a leaf can close through the player. A `CharacterController` is not pushed by a
+moving transform, so what happens is a frame inside the panel and then being squeezed out to one side.
+Unlike the corridor it does not kill.

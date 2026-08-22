@@ -528,6 +528,16 @@ opened is neither.** If the parity failures become the worse of the two, the thi
 the PLAYER's press a toggle and a GHOST's replay open-only - which costs a little of "a past self does
 exactly what you did" and buys back both.
 
+**`ColourLever` IS THE SAME SHAPE AND DOES NOT HAVE THE FAULT, which is worth saying out loud.** It
+became a two-position latch on 2026-08-21 - a toggle in every sense the drawer is one - and a crowd of
+ghosts throwing it cannot produce a parity, because what is recorded is `PlayerSignal => PlayerOn`:
+the **level**, like a `FloorButton`'s, not the press that changed it. A ghost reproduces the position
+the lever was IN at each frame of its recording. The drawer's fault is not that it toggles; it is that
+its signal is the pull. **When you make something a toggle, record its state and not its press.**
+
+**And then it had the OTHER fault instead - see the next section.** Recording the level is right and
+is not sufficient.
+
 ## A FIXTURE WIRED TO NOTHING IS SILENT, NOT BROKEN (2026-08-20)
 
 Room2-0's four recesses shipped with `FinalSlot.sequence` null, because `BuildBreakRoom` was written
@@ -670,3 +680,180 @@ edited. What found it was opening `Assets/Textures/MenuBackground.png` and seein
 `PlaceModelLocal` is the mounted version: everything in the parent's frame, centred rather than
 based, sized by its longest side. **Check which space a placement helper works in before using it -
 the two read identically at the call site and fail nothing at build time.**
+
+## A downloaded model's screen has a top, and it is not the one you assume (2026-08-21)
+
+`hanging_monitor.glb` is authored face-DOWN - it is a monitor slung under a ceiling - so mounting it on
+a wall is a `LookRotation` that turns its glass into the room. The one written was
+`LookRotation(Vector3.up, -inward)`, and every CCTV feed in cycle 3 came out **upside down**.
+
+The half turn between right and wrong is `LookRotation(Vector3.**down**, -inward)`, and the reason it
+is safe to make blindly is worth keeping: the two differ by 180 degrees **about `inward`**, which is a
+rotation IN the screen's own plane. The glass still faces the room and the model's bracket - its +Y -
+is still buried in the wall either way. The only thing that changes is which end of the picture is the
+top. So there is exactly one bit of freedom here and it cannot be reasoned out of the model's
+dimensions; it has to be looked at.
+
+**If a picture on a model comes out MIRRORED rather than inverted, this is not the fix** - that is the
+mesh's UVs, and the answer is `mainTextureScale`, not a rotation.
+
+## A texture stretched to the wrong shape reads as a blurry one (2026-08-21)
+
+The same monitors were reported as "very bad quality". Two separate faults, and only one of them was
+resolution:
+
+- **512 x 288 on a 2.6m screen.** The number was chosen when the monitors were 0.72m across; they were
+  made 3.6x wider the same week and nobody re-derived it.
+- **16:9 on a 2.04:1 piece of glass.** The picture was squeezed 13% horizontally, and a squeezed
+  picture reads as a badly made one long before anyone works out that nothing is actually out of focus.
+
+The second is the one worth remembering, because it survives any amount of resolution. **Derive the
+render texture's shape from the mesh it will be drawn on rather than writing an aspect down** - the
+screen's mesh bounds are right there, and `BuildCctvMonitor` now measures them and hands the ratio to
+the feed. A different monitor model cannot reintroduce the fault.
+
+## A signal recorded as a LEVEL still dies with the ghost that recorded it (2026-08-21)
+
+> **`ColourLever` NO LONGER EXISTS** - cycle 3's levers were replaced by carried mirrors the same
+> week, for the reason the section below is about to demonstrate. The class is gone and the fix it
+> forced is not: `GhostInteractable.ReleaseGhostSignal` is still there, still the difference between
+> "the recording said off" and "the recording ran out", and still what the next held-state fixture
+> will need.
+
+The section above ends "when you make something a toggle, record its state and not its press", and
+`ColourLever` did exactly that. Play found the other half of the problem the same day:
+
+> *I turn it on, then the ghost disappears and the blocks switch off with it.*
+
+Correct, and the code said so plainly: `IsActive => PlayerOn || ghostsOn.Count > 0`. A ghost
+contributes its recorded level **for as long as it is replaying**, and not one frame longer. When a
+past self's timeline runs out, its `true` goes with it — so a staircase raised at second 12 of a
+40-second recording folded itself up at second 40, under whoever was standing on it.
+
+**The two failure modes are opposite ends of one axis, and neither end is where a lever belongs:**
+
+| what the ghost re-applies | what goes wrong |
+| --- | --- |
+| the **press** (drawer) | several ghosts reaching for one fixture leave its state as a *parity* |
+| the **level** (lever, as written) | the state is only as alive as the recording that set it |
+| the level, **latching a world flag** | nothing, for anything meant to stay put |
+
+So the fix is not to change what is recorded. `PlayerSignal` is still the level, because that is what
+tells a ghost *when* it threw the lever and is what keeps the parity fault away. What changed is
+`GhostReplayer`: **"the recording said off" and "the recording ran out" used to be the same event**,
+and they are now two — `SetGhostSignal` for a genuine transition, `ReleaseGhostSignal` for a ghost
+that is simply done. The default for the second is still a falling edge, so a `FloorButton` behaves
+exactly as it always has (a ghost that has left is not standing on anything); `ColourLever` overrides
+it to do nothing at all.
+
+That distinction is what let the lever go back to being switchable both ways a day later without
+bringing the fault back: a past self that threw the lever *back* still throws it back, and a past self
+that merely stopped existing no longer does.
+
+**The test to apply to any new signal-driven fixture: is its effect meant to outlive the moment?** A
+`FloorButton` is not — a pad you are not standing on is not held, and every gate in cycle 3 depends on
+that being true. A lever is. Anything in the second class needs a latch of its own, and asking the
+question is cheaper than finding out from a player standing on a step that vanished.
+
+**It also turned out to be the better design.** A one-way lever means a colour you did not mean to
+raise cannot be lowered, so the order you throw three levers in is a decision with a cost — and the
+way to take it back is to let the clock run out. **The iteration is the undo.** That is the game, and
+the bug fix arrived at it before the design did.
+
+## A space between two rooms belongs to neither room's reflection probe (2026-08-21)
+
+Play, on room3-1's north corridor once the block was fully raised: *"the ceiling flickers, and worse
+the more I move."* No coincident faces anywhere near it — the scan said zero.
+
+**The corridor had no reflection probe.** Every other space in the building has one; this one is
+neither room3-1 nor room3-2N and fell between them. Twenty-three metres of white panelling at 0.85
+smoothness is *almost entirely what it reflects*, so the only question was which cubemap it was
+getting, and the answer was room3-1's.
+
+**Box projection does not politely give up outside its box — it extrapolates.** Surfaces up to twenty
+metres past where the cubemap was captured were being handed a reflection re-projected from it, which
+smears, and which slides around as the camera moves. On a surface with no texture of its own to anchor
+the eye, that reads exactly as flicker.
+
+Two things worth keeping from it:
+
+- **"Flickering" is not a synonym for z-fighting.** Three of the four flickers in this cycle were
+  coplanar faces and the fourth was shading, and the tool built to find the first kind confidently
+  reported nothing for the second. A measuring tool answers the question it was built to ask.
+- **The rule for probes is per SPACE, not per room.** Anywhere the player can stand and see a wall is
+  somewhere that needs a probe of its own, and a corridor is a room for this purpose even though
+  nothing in the builder calls it one.
+
+## A scan of the authored pose measures half the states the player sees (2026-08-21)
+
+`CycleThreeDiagnostics` had been run four times and reported zero coincident faces, and play kept
+finding flicker. Everything in this project is **authored in its resting pose** — the corridor full,
+every gate shut, every coloured panel in — because that is what makes a scene readable without
+pressing Play. It also means a scan of the built scene had never once looked at the corridor *open*,
+which is the only state anybody is ever inside it in.
+
+Moving the movers by their own offsets and scanning again found five pairs in one run, including the
+one play had been describing: the block's underside came to rest at exactly `GateHeight`, and
+`GateHeight` is where the wall's cutout stops, so the wall backing's own bottom face was on that plane
+too — a 25mm strip of near-black against white, full width, right at the top edge of the opening you
+walk under and look up at.
+
+Two follow-ons, both of which cost a run to notice:
+
+- **Reproduce what the runtime DOES, not just where things are.** The block's face grid is switched
+  off the moment it moves; a scan that only moved transforms kept reporting it against the panels it
+  lands on. A false positive is how a measuring tool stops being believed.
+- **A group is only as good as its edges.** The two scan groups met exactly at the two rooms' walls,
+  and a pair that straddled them fell between both.
+
+## An imported prop has more axes than you think, and every one you assume is a coin toss (2026-08-22)
+
+`mirror_trensum.glb` is five mirrors and the whole of cycle 3's puzzle. Getting it onto the screen
+correctly took **three separate corrections, each found by play rather than by the build**, and each
+one was an assumption standing in for a measurement:
+
+| assumed | actually | how it showed |
+| --- | --- | --- |
+| Y-up | **Z-up** (converted from an FBX) | it lay on its face |
+| the glass is on a model axis | **the head is tilted ~15° on its clamp** | every mirror in the room slightly turned |
+| a pane's vertex normals say which side it is on | they give the AXIS; the sign is elsewhere | *"the front of the mirror is looking at me"* |
+
+The second was in the dump the whole time and nobody read it: the pane's own bounds are
+**(0.165, 0.0437, 0.1596)**, and 44mm is far too thick for a sheet of glass unless it is lying at an
+angle inside its own box. `0.165 × sin(15°) ≈ 0.043`. **A bounding box that is thicker than the thing
+it contains is a rotation you have not accounted for.**
+
+The third has a clean answer that needs no guessing: **the other pane.** They are back to back, so the
+vector from one to the other IS the first one's outward direction. Anywhere a sign has to be chosen,
+look for a second feature that decides it rather than picking and waiting to be told.
+
+### And a tilt can pull two ways at once
+
+The glass has to be vertical (the beam is horizontal) and the stand has to be vertical (it is an object
+on a floor), and with a 15° tilt between them **aligning either one leans the other**. There is no
+number that satisfies both.
+
+The way out was to stop treating the model as rigid: the head is rotated back **on its own clamp**,
+which is what a clamp is for. The frame and both panes go onto a pivot at the clamp's measured centre;
+the arm, the stem and the foot stay. Both come out upright.
+
+## A prompt hangs where the object's ROOT is, which is not where a held object looks (2026-08-22)
+
+*"Taking the mirror off a ghost does not work."* It was not the taking - it was the aiming.
+
+`CarryableItem.HintAnchor` defaults to its own transform, and `trigger` is `GetComponent<Collider>()`
+on the same object. That is exactly right for anything resting on a floor. But a carried item is
+parented to its holder's HAND, and for a ghost that hand is `MiddleHand.R` **on the animated
+skeleton** - so the aim test, the prompt disc and the reach volume were all clustered at a wrist while
+the mirror the player was looking at sat a metre away in front of the ghost's chest.
+
+Two rules fall out, and the second is the general one:
+
+- **If a component moves an object's visible parts away from its transform, it owns the anchor too.**
+  `Mirror` puts the glass in front of the holder's body, so `hintAnchor` points at the glass and
+  `Mirror.Sync` drags the reach volume to the same place every frame.
+- **Anything a ghost holds is on a bone, not on a body.** That bone is animated: it is twisted, and it
+  moves. Any fixture whose behaviour depends on where a held object *is* or which way it *points* must
+  ask the holder, not the item - which is also the only form a timeline can reproduce, since a
+  recorded frame has a position and a yaw in it and no skeleton at all.
+

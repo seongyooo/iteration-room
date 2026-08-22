@@ -31,6 +31,12 @@ was closed on 2026-08-20 from the source pages pasted into the raw notes at the 
 | `ArtAssets/Play/industrial_valve.glb` | **Miguel Angel Jimenez** (Mangel Tekila) | [Sketchfab — *Industrial valve*](https://sketchfab.com/3d-models/industrial-valve-cea67369ae50485c9f06ea44cb608b92) | **CC-BY** | 3.2k tris. Three of them on room2-6's walls. Its textures are 175MB as imported — `ShrinkModelTextures` takes them to 5MB. |
 | `ArtAssets/Play/beach_ball.glb` | **MaggaModels** | [Sketchfab — *Beach Ball*](https://sketchfab.com/3d-models/beach-ball-25e1816c0e22444bb62816d3999d1b0b) | **CC-BY** | 3.6k tris. Two of them, the biggest things on that pool. |
 | `ArtAssets/Play/billiard_balls.glb` | **Yanez Designs** | [Sketchfab — *Billiard Balls*](https://sketchfab.com/3d-models/billiard-balls-523ac862d2154a7e8c96b964fb7cb11f) | **CC-BY** | 15.4k tris, sixteen balls as sixteen nodes each with its own 512x256 texture. Nine of them are room2-0's keys; the set is instantiated once and robbed, like `chess.glb`. Textures are small enough that `ShrinkModelTextures` is not called on it. |
+| `ArtAssets/Furniture/cctv_camera.glb` | **Jako** (fairlight51) | [Sketchfab — *CCTV Camera*](https://sketchfab.com/3d-models/cctv-camera-22ca80ef73034cb69597ef247816bbb3) | **CC-BY** | 3.7k tris. Three of them in room3-2N, one per feed. |
+| `ArtAssets/Furniture/hanging_monitor.glb` | **MaX3Dd** | [Sketchfab — *Hanging Monitor*](https://sketchfab.com/3d-models/hanging-monitor-1bcb147db4914410a02e4a134f9bf870) | **CC-BY** | 2.4k tris. Nine of them, three to a room. Authored face-DOWN with its glass running top-to-bottom along **-Z** — see `gotchas.md`, which is a whole section because the feeds came out upside down. |
+| `ArtAssets/Furniture/mirror_trensum.glb` | **YouniqueĪdeaStudio** (sinnervoncrawsz) | [Sketchfab — *MIRROR - IKEA TRENSUM*](https://sketchfab.com/3d-models/mirror-ikea-trensum-258799ba04874be4a972b13eaf180fa0) | **CC-BY** | 30.6k tris. Five of them, cycle 3's whole puzzle. Converted from an FBX so it is **Z-up**, and it carries **two** glass meshes (`MIRROR 2` / `MIRROR 2.001`) 8mm apart in Y — the game silvers one and blanks the other, because a single-sided mirror is a rule the player has to be able to see. 0.245m tall as imported; built at 1.0m. |
+| `ArtAssets/Furniture/cctv_camera.glb` | **Jako** (fairlight51) | [Sketchfab — *CCTV Camera*](https://sketchfab.com/3d-models/cctv-camera-22ca80ef73034cb69597ef247816bbb3) | **CC-BY** | 3.7k tris. Three of them in room3-2N, one per feed. |
+| `ArtAssets/Furniture/hanging_monitor.glb` | **MaX3Dd** | [Sketchfab — *Hanging Monitor*](https://sketchfab.com/3d-models/hanging-monitor-1bcb147db4914410a02e4a134f9bf870) | **CC-BY** | 2.4k tris. Nine of them, three to a room. Authored face-DOWN with its glass running top-to-bottom along **-Z** — `gotchas.md` has a whole section, because the feeds came out upside down. |
+| `ArtAssets/Furniture/mirror_trensum.glb` | **YouniquĒIdeaStudio** (sinnervoncrawsz) | [Sketchfab — *MIRROR - IKEA TRENSUM*](https://sketchfab.com/3d-models/mirror-ikea-trensum-258799ba04874be4a972b13eaf180fa0) | **CC-BY** | 30.6k tris. Five of them, and cycle 3's whole puzzle. Converted from an FBX so it is **Z-up**, and it carries **two** glass meshes (`MIRROR 2` / `MIRROR 2.001`) 8mm apart in Y — the game silvers one and blanks the other, because single-sided is a rule the player has to be able to see. 0.245m tall as imported; built at 1.0m. |
 | ~~`ArtAssets/Furniture/nightstand.glb`~~ | — | — | — | **DELETED 2026-08-14, unused.** Nothing loaded it — the nightstand is built from primitives. It was 8.5 MB of LFS and a CC-BY attribution obligation for a model not in the game. |
 
 ### The good news, and the obligation that comes with it
@@ -981,3 +987,70 @@ CC AttributionCreative Commons Attribution
 Learn more
 Published 2 years ago
 https://sketchfab.com/3d-models/hanging-monitor-1bcb147db4914410a02e4a134f9bf870
+
+Key Electricity Lever
+3D Model
+Avatar of ahmagh2e
+Mehdi Shahsavan
+
+Follow
+1.7k
+1706 Downloads
+5.6k
+5583 Views
+198
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 2.9k
+Vertices: 1.6k
+More model information
+Key Electricity lever
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 2 years ago
+https://sketchfab.com/3d-models/key-electricity-lever-080e335bb1994eac8d6720297a569bdd
+
+MIRROR - IKEA TRENSUM
+3D Model
+Avatar of sinnervoncrawsz
+YouniqueĪdeaStudio
+pro
+
+Follow
+5.6k
+5562 Downloads
+8.1k
+8114 Views
+211
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 30.6k
+Vertices: 15.3k
+More model information
+This 2-sided mirror can be placed wherever you need it. It has a regular mirror on one side and a magnifying mirror on the other - ideal for shaving, plucking eyebrows or putting on makeup.
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 4 years ago
+https://sketchfab.com/3d-models/mirror-ikea-trensum-258799ba04874be4a972b13eaf180fa0

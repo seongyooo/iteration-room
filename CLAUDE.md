@@ -242,6 +242,14 @@ you are holding *on* that fixture" belongs in the same shape.
 **Never convert an instant into a signal bit.** A ghost can skip several recorded frames in one tick,
 so press-type interactables stretch their pulse and act on the rising edge.
 
+**"THE RECORDING SAID OFF" AND "THE RECORDING RAN OUT" ARE TWO DIFFERENT EVENTS.** A ghost's level
+goes false for both, and until 2026-08-21 a fixture could not tell them apart — so a lever thrown at
+second 12 of a 40-second recording was thrown BACK at second 40, when the past self merely retired.
+A genuine transition arrives as `SetGhostSignal`; a ghost that is finished or destroyed arrives as
+`GhostInteractable.ReleaseGhostSignal`, which defaults to the falling edge so pads are unchanged.
+**Ask of any new signal fixture: is its effect meant to outlive the past self that caused it?** A pad
+is not (nobody is standing on it). A lever is.
+
 ### 1.6 `ghostInteractables` — append, never reorder
 
 An interactable's index **is** its bit in `RecordedFrame.signals`. `PlayerRecorder.interactables` and
@@ -309,6 +317,10 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `BucketStand` | The spot under a tap that catches the water, and the socket a ghost places into |
 | `PourPoint` | Where a pour is RECORDED. A signal, because pouring hands nothing over |
 | `RewardPlinth` | A plinth that rises carrying an escape object, on its room's own condition |
+| `Mirror` | One pane: where its face is, which way it points, and whether a ray meets it. Held, or it does nothing |
+| `LaserBeam` | Cycle 3's light: the chain of segments, recomputed every frame from where the mirrors are |
+| `LaserReceiver` | Where the beam has to arrive. `Lit`, and nothing else - what that DRIVES is not decided |
+| `CctvFeed` | One camera in room3-2N and the screens showing it. Renders by hand, only while somebody is near one |
 | `FinalRoomSequence` | A cycle's `-0`: its console, its exit condition, and the break. Room4 and room2-0 |
 | `Cycle` | One cycle's world: its bed, doors, rooms, signal array, panels — and **which particle systems are its gas**. Anything per-cycle a system outside needs is NAMED here, never gathered by type at runtime |
 

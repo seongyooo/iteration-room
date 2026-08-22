@@ -256,7 +256,10 @@ namespace IterationRoom
                 if (!finished)
                 {
                     finished = true;
-                    ApplySignals(0u);
+                    // RELEASED, not switched off. The distinction is `GhostInteractable`'s and it is
+                    // the difference between a pad this ghost is no longer standing on and a lever it
+                    // threw and walked away from.
+                    ReleaseSignals();
                     // PUT DOWN, not taken away. A ghost can still be holding something here: its
                     // recorded surrender may have FAILED because another ghost already opened the
                     // door, and then it carries the key to the end of its timeline. Vanishing with
@@ -741,9 +744,26 @@ namespace IterationRoom
             activeSignals = signals;
         }
 
+        // Every bit this ghost still holds, handed back as a RELEASE rather than as a falling edge.
+        // See `GhostInteractable.ReleaseGhostSignal`.
+        private void ReleaseSignals()
+        {
+            if (interactables != null)
+            {
+                int count = Mathf.Min(interactables.Length, 32);
+                for (int i = 0; i < count; i++)
+                {
+                    if ((activeSignals & (1u << i)) == 0u) continue;
+                    if (interactables[i] != null) interactables[i].ReleaseGhostSignal(this);
+                }
+            }
+
+            activeSignals = 0u;
+        }
+
         private void OnDestroy()
         {
-            ApplySignals(0u);
+            ReleaseSignals();
 
             // A ghost must not take anything into the grave. A carried item is PARENTED to the carry
             // anchor, so destroying the ghost destroys the item with it - and there is exactly one

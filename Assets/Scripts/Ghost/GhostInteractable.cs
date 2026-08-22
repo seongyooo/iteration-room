@@ -24,5 +24,18 @@ namespace IterationRoom
         // mean: a hold button tracks the level, a one-touch button acts on the rise and ignores
         // the fall.
         public abstract void SetGhostSignal(GhostReplayer ghost, bool active);
+
+        // **"THE RECORDING SAID OFF" AND "THE RECORDING RAN OUT" ARE NOT THE SAME EVENT, and until
+        // 2026-08-21 this class could not tell them apart.** `GhostReplayer` applied a falling edge
+        // for both, which is right for a pad - a ghost that has left is not standing on anything -
+        // and wrong for anything a past self is supposed to have LEFT that way. Play found it as a
+        // staircase folding up mid-climb: the lever that raised it was thrown at second 12 of a
+        // 40-second recording, and at second 40 the ghost retired and took the throw with it.
+        //
+        // So a genuine recorded transition still goes through `SetGhostSignal`, and this is the other
+        // one: the ghost is done, for whatever reason. The default is the old behaviour, so nothing
+        // has to opt in; a fixture whose state is meant to outlive the past self that set it
+        // overrides this and does nothing.
+        public virtual void ReleaseGhostSignal(GhostReplayer ghost) => SetGhostSignal(ghost, false);
     }
 }

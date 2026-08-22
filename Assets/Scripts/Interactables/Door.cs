@@ -58,6 +58,16 @@ namespace IterationRoom
         public Vector3 openLocalOffset = new Vector3(0f, 2.2f, 0f);
         public float openDuration = 1.0f;
 
+        // **HOW LONG IT TAKES TO SHUT, when that is not how long it takes to open.** Zero means "the
+        // same", which is every door in cycles 1 and 2 and is what this class did before 2026-08-21.
+        //
+        // Room3-1's gates need the two apart, and the reason is arithmetic rather than taste. Its
+        // pads sit 3.2m from the room's centre, so the run from a pad to the wall it opens is 2.05m
+        // on the north-south axis and **1.18m on the east-west** - about a quarter of a second at
+        // sprint. A gate that takes as long to shut as to open is a gate you can open and then walk
+        // through yourself, which deletes the premise the whole cycle is built on.
+        public float closeDuration;
+
         // A FIRST PHASE, RUN BEFORE THE SLIDE, and it exists for room3-1's gates.
         //
         // Those are not doors set into a wall - they ARE the wall, built as the same panels at the
@@ -89,6 +99,20 @@ namespace IterationRoom
         // closing the slab through someone standing in the doorway, and it means the intended solve
         // does not fail by half a second when the ghost's timing is a fraction short.
         public float doorwayClearance = 1.2f;
+
+        // **WHETHER THAT REPRIEVE APPLIES AT ALL** (2026-08-21, by request, for room3-1's gates).
+        //
+        // It is a kindness everywhere else in the building and a hole in cycle 3. Play found both
+        // halves of it: step on a pad, walk to the gate, and standing near the opening kept it open
+        // with nobody on the pad - so you could then back off, step in again before it shut, and
+        // ride it open indefinitely. The room's entire premise is that **nobody goes through their
+        // own pad**, and a door that waits for you is a door that lets you.
+        //
+        // Turning it off means the leaf can close through the player. A `CharacterController` is not
+        // pushed by a moving transform, so what happens is a frame inside the panel and then being
+        // squeezed out to one side - unpleasant and survivable, and unlike the corridor it does not
+        // kill. Standing in a gateway that is shutting is the player's own choice here.
+        public bool standsOffForPlayer = true;
 
         // Set by Open() only. The pad never sets it - see the class note.
         private bool latched;
@@ -149,12 +173,18 @@ namespace IterationRoom
                 // shut door would hold it open forever. With it, the reprieve only extends a door
                 // that is already open - and it cannot be used to reach one, since the run from the
                 // pad to this doorway is 7.7m (1.7s) against a 1.0s close.
-                else if (openAmount > 0f && PlayerInDoorway()) target = 1f;
+                //
+                // Cycle 3's gates switch it off entirely - see `standsOffForPlayer`. There the run
+                // from the pad is a quarter of the distance and the reprieve was a way through.
+                else if (standsOffForPlayer && openAmount > 0f && PlayerInDoorway()) target = 1f;
             }
 
             if (Mathf.Approximately(openAmount, target)) return;
 
-            float step = openDuration > 0f ? Time.deltaTime / openDuration : 1f;
+            // Shutting can be its own speed. Zero means "the same as opening", which is every door
+            // built before room3-1's gates existed.
+            float duration = target < openAmount && closeDuration > 0f ? closeDuration : openDuration;
+            float step = duration > 0f ? Time.deltaTime / duration : 1f;
             float next = Mathf.MoveTowards(openAmount, target, step);
 
             // Only on the way open, and only from a standing start. The door shutting is the pad

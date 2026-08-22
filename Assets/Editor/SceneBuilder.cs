@@ -1316,9 +1316,7 @@ namespace IterationRoom.EditorTools
             everyDoor.AddRange(cycleTwoDoors);
 
             (NarrationDirector narration, RoomAmbience ambience) =
-                BuildAudio(player, everyDoor.ToArray(),
-                           new[] { floorButton, roomThreePads[0], roomThreePads[1] },
-                           wakeUp);
+                BuildAudio(player, everyDoor.ToArray(), wakeUp);
 
             wallMessage.narration = narration;
             // Announced at the PRESS rather than when the player stepped through the doorway:
@@ -1367,8 +1365,7 @@ namespace IterationRoom.EditorTools
             // the thing being exercised, and a puzzle would be in the way of testing it.
             (Transform cycleThreeRoot, Transform cycleThreeBedSpawn, ParticleSystem[] cycleThreeGas,
              Transform cycleThreeRoom, GhostInteractable[] cycleThreeSignals,
-             CrushingBarrier cycleThreeBarrier, ColourLever[] cycleThreeLevers,
-             ColourPanel[] cycleThreeStairs) =
+             CrushingBarrier cycleThreeBarrier) =
                 BuildCycleThreeShell(floorMat, grooveMat, panelMat, propMat);
 
             // THE JOIN BETWEEN CYCLE 2 AND CYCLE 3, and it is in the CORE scene for the reason
@@ -1391,7 +1388,7 @@ namespace IterationRoom.EditorTools
 
             (Cycle cycleThree, WallPanelDisplay cycleThreeDisplay) = AssembleCycleThree(
                 cycleThreeRoot, cycleThreeBedSpawn, cycleThreeGas, cycleThreeSignals,
-                testCard, staticNoise, cycleThreeBarrier, cycleThreeLevers, cycleThreeStairs);
+                testCard, staticNoise, cycleThreeBarrier);
 
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
@@ -3520,7 +3517,7 @@ namespace IterationRoom.EditorTools
         private static (Cycle cycle, WallPanelDisplay display) AssembleCycleThree(
             Transform root, Transform bedSpawn, ParticleSystem[] gasEmitters,
             GhostInteractable[] signals, Texture2D testCard, Texture2D staticNoise,
-            CrushingBarrier northBarrier, ColourLever[] levers, ColourPanel[] stairs)
+            CrushingBarrier northBarrier)
         {
             // ONE DISPLAY PER CYCLE, gathered by parent name exactly as cycle 2's is: the ERROR
             // spreading from a console means *this bed's cycle is over*, so a panel in a cycle the
@@ -3543,8 +3540,6 @@ namespace IterationRoom.EditorTools
             // a leaf left open is a wall with a hole in it at the top of the next iteration.
             cycle.doors = root.GetComponentsInChildren<Door>(true);
             cycle.barriers = northBarrier != null ? new[] { northBarrier } : new CrushingBarrier[0];
-            cycle.levers = levers;
-            cycle.colourPanels = stairs;
             cycle.drawers = root.GetComponentsInChildren<Drawer>(true);
             cycle.gasEmitters = gasEmitters;
             CheckGhostSignals("Cycle 3", signals);
@@ -5698,8 +5693,7 @@ namespace IterationRoom.EditorTools
         // (see `AssembleCycleTwo`). The loop simply keeps iterating here, which is the honest state of
         // a cycle with no puzzles in it.
         private static (Transform root, Transform bedSpawn, ParticleSystem[] gas, Transform room,
-                        GhostInteractable[] signals, CrushingBarrier northBarrier,
-                        ColourLever[] levers, ColourPanel[] stairs)
+                        GhostInteractable[] signals, CrushingBarrier northBarrier)
             BuildCycleThreeShell(Material floorMat, Material grooveMat, Material panelMat,
                                  Material propMat)
         {
@@ -5768,12 +5762,10 @@ namespace IterationRoom.EditorTools
 
             // PLANNED BEFORE THE ROOM IS BUILT, because the walls have to be holed where the steps
             // go and the steps have to land in those holes. One plan, read twice.
-            StairPlacement[] stairPlan = PlanColourStairs(bigWidth, bigDepth, bigHeight);
-
             Transform rN = BuildBigRoom(root.transform, "Room3_2N",
                            new Vector3(bigOffsetX, 0f, NorthRoomZ),
                            bigWidth, bigDepth, bigHeight,
-                           floorMat, grooveMat, panelMat, fixtureMat, corridorMouth, stairPlan);
+                           floorMat, grooveMat, panelMat, fixtureMat, corridorMouth);
             Transform rS = BuildEmptyRoom(root.transform, "Room3_2S", new Vector3(0f, 0f, -RoomPitch),
                            floorMat, grooveMat, panelMat, fixtureMat,
                            doorwayNorth: false, northCutout: gateNS);
@@ -5859,27 +5851,32 @@ namespace IterationRoom.EditorTools
             // ignored like any `Door`-shaped obstruction would not be - it is NOT a Door, so it has to
             // be authored raised for this to pass, and it is authored SHUT. Probing the two halves
             // separately is what tests the geometry rather than the mechanism.
-            // SS3-SS7: THE COLOURED STAIRS AND THE THREE LEVERS THAT RAISE THEM.
-            //
-            // One lever per room, on the wall FACING room3-1's gate so walking in puts it in front of
-            // you, and the colour pairing is the spec's: south red, east blue, west yellow. Nothing
-            // about the pairing is derived - it is the room's vocabulary and has to be learnable.
-            //
-            // **THE LEVER IS IN A DIFFERENT ROOM FROM THE STAIRS IT RAISES, and that is the design.**
-            // It is held, not switched, so whoever holds it is not the one climbing. Every step in
-            // room3-2N is held up by a past self standing in another room with a hand on a lever -
-            // Room3's two pads escalated into a whole cycle.
-            var levers = new[]
-            {
-                BuildColourLever(rS, "Lever_Red", PanelColour.Red,
-                    new Vector3(0f, 0f, -RoomDepth / 2f), Vector3.right, Vector3.forward, propMat),
-                BuildColourLever(rE, "Lever_Blue", PanelColour.Blue,
-                    new Vector3(RoomWidth / 2f, 0f, 0f), Vector3.forward, Vector3.left, propMat),
-                BuildColourLever(rW, "Lever_Yellow", PanelColour.Yellow,
-                    new Vector3(-RoomWidth / 2f, 0f, 0f), Vector3.forward, Vector3.right, propMat),
-            };
+            // §CYCLE 3'S BEAM. The emitter, the five mirrors and the one thing the light has to
+            // reach. None of it costs a signal bit - a mirror is a `CarryableItem`, so a past self
+            // holding one is a `CarryEvent` and a recorded position, both of which already exist.
+            LaserBeam beam = BuildLaserEmitter(rE, propMat);
+            CarryableItem[] mirrors = BuildMirrorRack(rW, propMat);
+            LaserReceiver receiver = BuildLaserReceiver(rN, bigWidth, propMat);
 
-            ColourPanel[] stairs = BuildColourStairs(rN, stairPlan);
+            // THE ROUTE AS NUMBERS, because "does the light have anywhere to go" is exactly the kind
+            // of thing that is obvious in a plan and wrong in a build. Every figure here is read off
+            // the objects rather than restated from the constants that placed them.
+            Mirror firstMirror = mirrors.Length > 0 && mirrors[0] != null
+                ? mirrors[0].GetComponent<Mirror>() : null;
+            // THE BED'S FOOTPRINT, because the beam's lane is placed to miss it and "does it" is
+            // not answerable from a plan. The corner mirror has to be STOOD at, on the corridor's
+            // axis, so whether the lane can be centred is a question about this box.
+            Transform bedT = r1.Find("Bed") ?? r1;
+            Bounds bedBox = MeasuredBounds(bedT.gameObject);
+            Debug.Log($"[SceneBuilder] Cycle 3 bed: centre {bedBox.center}, size {bedBox.size}");
+
+            Debug.Log($"[SceneBuilder] Cycle 3 beam: emitter at {beam.muzzle.position}, "
+                    + $"firing {beam.muzzle.forward}, plane y={CycleThreeFloorY + BeamHeight:0.###}, "
+                    + $"wall offset {BeamLane:0.##}, west leg must leave within "
+                    + $"+-{GateCutout(RoomDepth).width / 2f:0.##} of the gate's centre. "
+                    + $"{mirrors.Length} mirrors, glass {(firstMirror != null ? firstMirror.radius * 2f : 0f):0.###}m "
+                    + $"across. Receiver at {receiver.transform.position}, target radius "
+                    + $"{receiver.radius:0.##}m.");
 
             // SS8: THREE CAMERAS, AND A BANK OF THREE MONITORS IN EVERY LEVER ROOM.
             //
@@ -5914,35 +5911,40 @@ namespace IterationRoom.EditorTools
                 if (unlit != null) feedMats[f].shader = unlit;
             }
 
-            // Which three walls each room can spare. The gate wall is the one facing room3-1 and is
-            // left alone; the lever's own wall takes a screen too, so pulling and watching are the
-            // same direction, and it is offset along the wall to clear the lever itself.
-            var walls = new (Transform room, string tag, Vector3 centre, Vector3 right, Vector3 inward, float along)[]
+            // **ALL THREE SCREENS ARE IN ROOM3-2S, AND NOWHERE ELSE** (2026-08-22, by request; every
+            // room had a bank of three until then). That gives each of the four rooms a job instead of
+            // three of them having the same one:
+            //
+            //     room3-2E   the source        room3-2W   the mirrors
+            //     room3-2S   the control room  room3-2N   where the light has to arrive
+            //
+            // It is also most of what the feeds cost. Nine screens meant every lever room kept three
+            // cameras alive; three screens in one room means the whole system is asleep unless the
+            // player is standing in that room looking at a wall.
+            //
+            // Room3-2S's gate is in its NORTH wall, so the other three are exactly the three it can
+            // spare, and each takes one feed.
+            var walls = new (Transform room, string tag, Vector3 centre, Vector3 right, Vector3 inward)[]
             {
-                (rS, "S0", new Vector3(0f, 0f, -RoomDepth / 2f), Vector3.right, Vector3.forward, 2.6f),
-                (rS, "S1", new Vector3(-RoomWidth / 2f, 0f, 0f), Vector3.forward, Vector3.right, 0f),
-                (rS, "S2", new Vector3(RoomWidth / 2f, 0f, 0f), Vector3.forward, Vector3.left, 0f),
-
-                (rE, "E0", new Vector3(RoomWidth / 2f, 0f, 0f), Vector3.forward, Vector3.left, 2.6f),
-                (rE, "E1", new Vector3(0f, 0f, -RoomDepth / 2f), Vector3.right, Vector3.forward, 0f),
-                (rE, "E2", new Vector3(0f, 0f, RoomDepth / 2f), Vector3.right, Vector3.back, 0f),
-
-                (rW, "W0", new Vector3(-RoomWidth / 2f, 0f, 0f), Vector3.forward, Vector3.right, 2.6f),
-                (rW, "W1", new Vector3(0f, 0f, -RoomDepth / 2f), Vector3.right, Vector3.forward, 0f),
-                (rW, "W2", new Vector3(0f, 0f, RoomDepth / 2f), Vector3.right, Vector3.back, 0f),
+                (rS, "S0", new Vector3(0f, 0f, -RoomDepth / 2f), Vector3.right, Vector3.forward),
+                (rS, "S1", new Vector3(-RoomWidth / 2f, 0f, 0f), Vector3.forward, Vector3.right),
+                (rS, "S2", new Vector3(RoomWidth / 2f, 0f, 0f), Vector3.forward, Vector3.left),
             };
 
             var feedScreens = new System.Collections.Generic.List<Renderer>[3];
             for (int f = 0; f < 3; f++) feedScreens[f] = new System.Collections.Generic.List<Renderer>();
 
+            float screenAspect = 0f;
             for (int w = 0; w < walls.Length; w++)
             {
                 int feed = w % 3;
                 Renderer screen = BuildCctvMonitor(walls[w].room, $"Monitor_{walls[w].tag}",
                                                    walls[w].centre, walls[w].right, walls[w].inward,
-                                                   monitorHeight, walls[w].along, feedMats[feed],
-                                                   monitorWidth);
-                if (screen != null) feedScreens[feed].Add(screen);
+                                                   monitorHeight, 0f, feedMats[feed],
+                                                   monitorWidth, out float aspect);
+                if (screen == null) continue;
+                feedScreens[feed].Add(screen);
+                if (aspect > 0.1f) screenAspect = aspect;
             }
 
             // One camera per wall the staircase runs along - south, east, north - each looking back
@@ -5960,7 +5962,7 @@ namespace IterationRoom.EditorTools
                 new Vector3(-bigWidth * 0.1f, bigHeight * 0.7f, 0f),
             };
             for (int f = 0; f < 3; f++)
-                BuildCctvFeed(rN, $"Cctv_{f}", eyes[f], looks[f], feedScreens[f].ToArray());
+                BuildCctvFeed(rN, $"Cctv_{f}", eyes[f], looks[f], feedScreens[f].ToArray(), screenAspect);
 
             AssertWalkable(r1, "room3-1 north corridor mouth",
                 new Vector3(nsCentre, 0f, RoomDepth / 2f - 1.2f), new Vector3(nsCentre, 0f, RoomDepth / 2f + 4f));
@@ -5995,13 +5997,11 @@ namespace IterationRoom.EditorTools
             // **THE LEVERS MUST BE IN HERE or room3-2N cannot be climbed at all.** A `GhostInteractable`
             // outside this array is a fixture no past self ever operates, and every step in that room
             // is held up by a past self.
-            var signals = new GhostInteractable[drawers.Length + pads.Length + levers.Length];
+            var signals = new GhostInteractable[drawers.Length + pads.Length];
             for (int i = 0; i < drawers.Length; i++) signals[i] = drawers[i];
             for (int i = 0; i < pads.Length; i++) signals[drawers.Length + i] = pads[i];
-            for (int i = 0; i < levers.Length; i++)
-                signals[drawers.Length + pads.Length + i] = levers[i];
 
-            return (root.transform, spawn, gas, r1, signals, northBarrier, levers, stairs);
+            return (root.transform, spawn, gas, r1, signals, northBarrier);
         }
 
         // THE BED A PLAYER FALLS INTO HAS TO BE UNDER THE HATCH THEY FELL THROUGH, and nothing else in
@@ -12978,6 +12978,16 @@ namespace IterationRoom.EditorTools
                 door.openLocalOffset = rightDir * (direction * leafTravel);
                 door.requiredFloorButtons = pads;
                 door.openDuration = 1.4f;
+                // **SLOW OPEN, SNAP SHUT, and it is the same asymmetry the corridor block has.** The
+                // gate is not being closed, it is being let go of: the pad is not held, so the wall
+                // is a wall again. 0.3s is also short enough that the 1.18m from an east or west pad
+                // cannot be crossed in time, which is what makes "nobody goes through their own pad"
+                // true rather than merely intended - see `Door.closeDuration`.
+                door.closeDuration = 0.3f;
+                // AND IT DOES NOT WAIT FOR ANYONE. See `Door.standsOffForPlayer`: everywhere else in
+                // the building a door refuses to shut on the player, and here that reprieve was a way
+                // through your own gate and a way to hold it open by loitering in it.
+                door.standsOffForPlayer = false;
                 door.audioSource = audio;
                 // One clip for the pair - two copies of the same slide half a frame apart is a flam.
                 door.openClip = i == 0 ? openClip : null;
@@ -13045,7 +13055,7 @@ namespace IterationRoom.EditorTools
                                               float width, float depth, float height,
                                               Material floorMat, Material grooveMat,
                                               Material panelMat, Material fixtureMat,
-                                              Rect southCutout, StairPlacement[] stairPlan)
+                                              Rect southCutout)
         {
             GameObject rootGO = new GameObject(name + "_Root");
             rootGO.transform.SetParent(parent, false);
@@ -13060,28 +13070,29 @@ namespace IterationRoom.EditorTools
             // grazing angles find.
             float slabX = width + 2f * WallDepth;
             float slabZ = depth + 2f * WallDepth;
+
+            // ~~BUILT IN PIECES~~ ONE SLAB AGAIN. It was cut into rectangles for a while so that
+            // coloured blocks could come up through it; those went with the levers that drove them
+            // (2026-08-21), and a floor with nothing passing through it should be one surface with no
+            // seams in it to find.
             Prim(PrimitiveType.Cube, "Floor", t, new Vector3(0f, -WallThickness / 2f, 0f),
                 new Vector3(slabX, WallThickness, slabZ), floorMat);
             Prim(PrimitiveType.Cube, "Ceiling", t, new Vector3(0f, height + WallThickness / 2f, 0f),
                 new Vector3(slabX, WallThickness, slabZ), CeilingMaterial());
 
-            // Each wall's FACE is holed wherever a coloured step lives on it - the step is the panel
-            // there, so the white one must not be built. The backing behind stays whole, or the room
-            // would have a hole in it the moment a step slid out. See `BuildPanelWall`'s `panelHoles`.
+            // Whole walls, unholed. They carried a hole per coloured step until 2026-08-21; the
+            // `panelHoles` argument stays on `BuildPanelWall` because gates still want it.
             BuildPanelWall(t, "Wall_North", new Vector3(0f, 0f, depth / 2f),
-                Vector3.right, Vector3.back, width, grooveMat, panelMat, Rect.zero, height, 0f,
-                StairPanelHoles(stairPlan, Vector3.back));
+                Vector3.right, Vector3.back, width, grooveMat, panelMat, Rect.zero, height);
             BuildPanelWall(t, "Wall_South", new Vector3(0f, 0f, -depth / 2f),
-                Vector3.right, Vector3.forward, width, grooveMat, panelMat, southCutout, height, 0f,
-                StairPanelHoles(stairPlan, Vector3.forward));
+                Vector3.right, Vector3.forward, width, grooveMat, panelMat, southCutout, height);
             BuildPanelWall(t, "Wall_West", new Vector3(-width / 2f, 0f, 0f),
-                Vector3.forward, Vector3.right, depth, grooveMat, panelMat, Rect.zero, height, 0f,
-                StairPanelHoles(stairPlan, Vector3.right));
+                Vector3.forward, Vector3.right, depth, grooveMat, panelMat, Rect.zero, height);
             BuildPanelWall(t, "Wall_East", new Vector3(width / 2f, 0f, 0f),
-                Vector3.forward, Vector3.left, depth, grooveMat, panelMat, Rect.zero, height, 0f,
-                StairPanelHoles(stairPlan, Vector3.left));
+                Vector3.forward, Vector3.left, depth, grooveMat, panelMat, Rect.zero, height);
 
             BuildTallRoomLights(t, name, width, depth, height, fixtureMat);
+            BuildMezzanines(t, width, depth, floorMat, panelMat, fixtureMat);
 
             // Sized to the room rather than to `RoomWidth`/`RoomDepth`, and centred at half its own
             // height. A probe left at the standard size would capture a box a fraction of this one and
@@ -13153,265 +13164,533 @@ namespace IterationRoom.EditorTools
                 }
         }
 
-        // WHAT COLOUR A SET OF PANELS IS, as a material. Coloured rather than white because these are
-        // the one thing in the building that is NOT trying to look like the wall - a player reading
-        // the room off a monitor in another room has to tell three sets apart at a glance.
-        private static Material PanelColourMaterial(PanelColour colour)
+        // ==================================================== ROOM3-2N'S SECOND STOREY, AND ITS THIRD
+        //
+        // **A ROOM THREE STOREYS TALL WITH NOTHING IN IT IS NOT BIG, IT IS EMPTY** (2026-08-21, by
+        // request: more structure, things coming up out of the floor, and a half-floor like a second
+        // storey - the kind that is open in the middle). Height only reads as height when there is
+        // something AT the heights. Two partial decks, five columns and seven blocks that come up out
+        // of the floor are what turn sixteen metres of air into a place with an up and a down.
+        //
+        // Everything here is authored off the grid the walls are: a deck's surface is a whole number
+        // of ROWS off the floor, a block's footprint is a whole CELL, and a block's travel is a whole
+        // number of rows. That is what lets the coloured stairs arrive exactly on a deck without
+        // either layout ever being measured against the other.
+
+        private const float DeckSlab = 0.25f;
+        // How far a deck runs INTO the wall it lands on. Not zero, because a deck that stops exactly
+        // on the wall's panel face puts one of its own faces on that plane; not `WallDepth`, because
+        // that reaches the backing plane and does the same thing one layer further in. 0.06 is
+        // between the two, which is the only place it can be - `docs/gotchas.md`.
+        private const float DeckIntoWall = 0.06f;
+        private const int DeckARows = 4;
+        private const int DeckBRows = 8;
+
+        // A DECK: a partial floor, the rectangles it is made of, and the holes cut in it. A `Rect`'s
+        // x and y are x and z in the room's frame throughout this section.
+        private struct Mezzanine
         {
-            switch (colour)
-            {
-                case PanelColour.Red:
-                    return MakeColorMaterial("StairRed", new Color(0.72f, 0.13f, 0.13f));
-                case PanelColour.Blue:
-                    return MakeColorMaterial("StairBlue", new Color(0.13f, 0.32f, 0.72f));
-                default:
-                    return MakeColorMaterial("StairYellow", new Color(0.78f, 0.66f, 0.12f));
-            }
+            public string name;
+            public float surfaceY;
+            public Rect[] area;
+            public Rect[] voids;
         }
 
-        // A LEVER ON A WALL. Pulled and held; see `ColourLever` for why a hold rather than a switch is
-        // the whole point of the room.
-        private static ColourLever BuildColourLever(Transform parent, string name, PanelColour colour,
-                                                    Vector3 wallCentreAtBase, Vector3 rightDir,
-                                                    Vector3 inward, Material propMat)
+        private static Mezzanine[] PlanMezzanines(float width, float depth)
         {
-            Vector3 outward = -inward;
-            Vector3 depthAxis = new Vector3(Mathf.Abs(inward.x), Mathf.Abs(inward.y), Mathf.Abs(inward.z));
-            Vector3 widthAxis = new Vector3(Mathf.Abs(rightDir.x), Mathf.Abs(rightDir.y), Mathf.Abs(rightDir.z));
+            float wx = width / 2f + DeckIntoWall;
+            float wz = depth / 2f + DeckIntoWall;
 
-            // Chest height, so it is pulled rather than reached up for.
-            const float leverY = 1.15f;
+            return new[]
+            {
+                // DECK A, one storey up: an L down the west wall and along the north. **No parapet
+                // anywhere on it**, and that is deliberate rather than unfinished - the whole request
+                // was for a floor you can see past, and a rail on the inside edge would hide the one
+                // thing this room is for, which is looking down at which colour of step is out.
+                new Mezzanine
+                {
+                    name = "DeckA",
+                    surfaceY = DeckARows * GridCellHeight,
+                    area = new[]
+                    {
+                        Rect.MinMaxRect(-wx, -7f, -width / 2f + 2f * GridCellWidth, 7f),
+                        Rect.MinMaxRect(-wx, 7f, wx, wz),
+                    },
+                    voids = new Rect[0],
+                },
 
+                // DECK B, two storeys up, over the north-west quarter, with a square cut clean out of
+                // the middle. That hole is the request taken literally: standing on deck B you look
+                // through it onto deck A and past deck A's open side to the floor, which is three
+                // storeys in one glance and the only place in the building you can get one.
+                new Mezzanine
+                {
+                    name = "DeckB",
+                    surfaceY = DeckBRows * GridCellHeight,
+                    // **3.62 AND NOT 3.5, WHICH IS MEASURED RATHER THAN CHOSEN.** A deck buried in a
+                    // wall has an end cap inside that wall, and at 3.5 deck B's landed 5mm off a west
+                    // wall panel's edge while overlapping it - `CycleThreeDiagnostics` found it, the
+                    // eye would have found it later as a flickering sliver at the top of the stair.
+                    // Nothing here is on the wall grid on purpose: an edge that ends INSIDE a wall
+                    // must miss that wall's panel lines, and the only way to be sure is to scan.
+                    area = new[] { Rect.MinMaxRect(-wx, 3.62f, -GridCellWidth, wz) },
+                    voids = new[]
+                    {
+                        Rect.MinMaxRect(-3.5f * GridCellWidth, 5.25f,
+                                        -2.5f * GridCellWidth, 8.75f),
+                    },
+                },
+            };
+        }
+
+        private static void BuildMezzanines(Transform room, float width, float depth,
+                                            Material floorMat, Material panelMat, Material fixtureMat)
+        {
+            GameObject root = new GameObject("Mezzanines");
+            root.transform.SetParent(room, false);
+
+            foreach (Mezzanine deck in PlanMezzanines(width, depth))
+            {
+                var parts = new System.Collections.Generic.List<Rect>(deck.area);
+                parts = SubtractRects(parts, deck.voids);
+
+                GameObject deckGO = new GameObject(deck.name);
+                deckGO.transform.SetParent(root.transform, false);
+
+                int i = 0;
+                foreach (Rect part in parts)
+                {
+                    if (part.width < 0.02f || part.height < 0.02f) continue;
+                    Prim(PrimitiveType.Cube, $"Slab_{i++:00}", deckGO.transform,
+                        new Vector3(part.center.x, deck.surfaceY - DeckSlab / 2f, part.center.y),
+                        new Vector3(part.width, DeckSlab, part.height), floorMat);
+                }
+            }
+
+            BuildDeckColumns(root.transform, panelMat);
+            BuildUnderDeckLights(root.transform, fixtureMat);
+        }
+
+        // THE COLUMNS UNDER THEM. A deck hung off two walls needs no support to stand up in a game
+        // engine, and does need one to look like it is standing up.
+        private static void BuildDeckColumns(Transform parent, Material mat)
+        {
+            float aTop = DeckARows * GridCellHeight;
+            float aUnder = aTop - DeckSlab;
+            float bUnder = DeckBRows * GridCellHeight - DeckSlab;
+
+            void Column(string name, float x, float z, float from, float to) =>
+                Prim(PrimitiveType.Cube, name, parent,
+                    new Vector3(x, (from + to) / 2f, z),
+                    new Vector3(0.5f, to - from, 0.5f), mat);
+
+            Column("Column_A0", -5.75f, -6f, 0f, aUnder);
+            Column("Column_A1", -5.75f, 6f, 0f, aUnder);
+            Column("Column_A2", 7.5f, 7.6f, 0f, aUnder);
+            // Ten metres of column straight off the floor, past deck A without touching it, up to
+            // deck B. It is the one thing in the room that shows the whole height at once.
+            Column("Column_B0", -2.25f, 4.4f, 0f, bUnder);
+            Column("Column_B1", -2.25f, 9.8f, aTop, bUnder);
+        }
+
+        // A deck is a ceiling for whatever is under it, and the nine fixtures overhead cannot reach
+        // through one. Four small ones underneath, so walking below deck A is not walking into a
+        // shadow the size of a room.
+        private static void BuildUnderDeckLights(Transform parent, Material emissiveMat)
+        {
+            float aUnder = DeckARows * GridCellHeight - DeckSlab;
+            float bUnder = DeckBRows * GridCellHeight - DeckSlab;
+
+            void Lamp(string name, float x, float z, float y)
+            {
+                GameObject fixture = new GameObject(name);
+                fixture.transform.SetParent(parent, false);
+                fixture.transform.localPosition = new Vector3(x, y, z);
+
+                Prim(PrimitiveType.Cube, "Panel", fixture.transform, new Vector3(0f, -0.02f, 0f),
+                    new Vector3(0.9f, 0.04f, 0.9f), emissiveMat, removeCollider: true);
+
+                GameObject lightGO = new GameObject("Light");
+                lightGO.transform.SetParent(fixture.transform, false);
+                lightGO.transform.localPosition = new Vector3(0f, -0.05f, 0f);
+                lightGO.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+                Light light = lightGO.AddComponent<Light>();
+                light.type = LightType.Spot;
+                light.spotAngle = 120f;
+                light.innerSpotAngle = 40f;
+                light.range = 12f;
+                light.intensity = 6f;
+                light.color = new Color(0.99f, 0.99f, 1f);
+                // No shadows, for the reason `BuildTallRoomLights` gives: one atlas, and this room
+                // already asks for nine.
+                light.shadows = LightShadows.None;
+                light.renderMode = LightRenderMode.ForcePixel;
+            }
+
+            Lamp("UnderA0", -7f, 0f, aUnder);
+            Lamp("UnderA1", 0f, 9f, aUnder);
+            Lamp("UnderB0", -5f, 4.6f, bUnder);
+            Lamp("UnderB1", -5f, 9.6f, bUnder);
+        }
+
+        // ==================================================== CYCLE 3'S BEAM, AND THE MIRRORS THAT BEND IT
+        //
+        // A laser leaves room3-2E and has to arrive in room3-2N. Nothing between the two is a switch:
+        // the light is bent by mirrors, a mirror only works while somebody is holding it, and nobody
+        // can hold two (CLAUDE.md §4). **One mirror is one past self.**
+        //
+        // Why it is this and not the coloured levers it replaced: a lever REMEMBERS a decision, so a
+        // past self who threw one wrongly goes on throwing it wrongly for the rest of the cycle, and
+        // there is no way to make a remembered decision both meaningful and harmless. A mirror
+        // remembers nothing - a ghost holding one is a body in a place, which `RecordedFrame` already
+        // stores exactly. The full argument is in `Mirror`.
+        //
+        // Everything here lives in ONE HORIZONTAL PLANE at `BeamHeight`, and that is forced by the
+        // recording format rather than chosen for looks: a timeline has `position`, `yaw` and
+        // `signals` in it and no pitch anywhere, so a mirror that could tilt would replay at the wrong
+        // angle in a ghost's hands.
+
+        private const string MirrorModel = FurnitureDir + "/mirror_trensum.glb";
+
+        // A SUPPLY of five, sharing one id, exactly as the three pins share `"Tool"`. A recorded "took
+        // a Mirror" has to be satisfiable by whichever one is going spare, and `CarryEvent`'s
+        // `instanceName` is what keeps track of WHICH - see CLAUDE.md §1.4.
+        private const string MirrorItemId = "Mirror";
+        private const int MirrorCount = 5;
+
+        // Chest height. Under the 2.7038 gate opening by a mile, so the beam passes through every gate
+        // in the cycle, and above the bed in room3-1 so it crosses that room without being interrupted
+        // by the furniture. One constant: the emitter, the receiver and every mirror take it from
+        // here, so the beam cannot miss a mirror by being on a different plane from it.
+        private const float BeamHeight = 1.2f;
+
+        // Where along its own wall the emitter sits. Centred.
+        //
+        // **THE EMITTER IS ON ROOM3-2E'S SOUTH WALL AND FIRES NORTH** (2026-08-22, by request; it was
+        // on the east wall firing west). That is not a cosmetic move - it changes the puzzle, and for
+        // the better:
+        //
+        // - **The first mirror now lives in room3-2E.** Firing north, the light runs up its own room
+        //   and stops at the far wall; getting it out through the gate, which is in the WEST wall,
+        //   takes a turn made inside this room. The route was two mirrors long with five on the floor.
+        //   It is three now, and room3-2E stops being a wall with a gun on it.
+        // - **The lane through room3-1 becomes the player's choice** rather than a constant here. The
+        //   west-bound leg can leave at any z the gate's opening allows - the middle PAIR of cells,
+        //   so ±1.75 of the wall's centre.
+        //
+        // **And that choice is narrower than it looks, because of the bed.** The beam clears it on its
+        // own (0.89 tall against a 1.2 lane), but the corner mirror in room3-1 has to be STOOD at, on
+        // the corridor's axis, and a person holding a mirror half a metre in front of them needs rather
+        // more room than a beam. The bed is 1.26 x 2.05 and sits 0.70 NORTH of centre, so it reaches
+        // z +1.72 and eats the northern half of the band outright. What is left is roughly z -1.75 to
+        // -0.7: about a metre of usable lane, on the south side, with the bed visibly explaining why.
+        // Both figures are read off the build (`Cycle 3 bed:` in the log) rather than off a plan.
+        private const float BeamLane = 0f;
+
+        // ONE MIRROR, scattered on a floor or held in both hands.
+        //
+        // **EVERYTHING ABOUT THIS MODEL IS MEASURED, AND EACH THING THAT WAS ASSUMED INSTEAD WAS
+        // WRONG IN PLAY.** `mirror_trensum.glb` is an IKEA clamp-on vanity mirror converted from an
+        // FBX. Three separate traps, in the order they were found:
+        //
+        // 1. **It is Z-UP**, not Y-up - foot at z 0, head at z 0.229.
+        // 2. **The glass is not on a model axis.** The head is TILTED on its clamp, the way a
+        //    dressing-table mirror is, so assuming the silvered normal was the model's +Y left every
+        //    mirror in the room a few degrees turned. The give-away was in the dump from the start:
+        //    the pane's own bounds are (0.165, 0.0437, 0.1596), and 44mm is far too thick for a sheet
+        //    of glass unless it is lying at an angle inside its own box. About 15 degrees of it.
+        // 3. **A pane's vertex normals do not say which side of the frame it is on.** Averaging them
+        //    gives the axis; the SIGN has to come from somewhere else, and getting it backwards
+        //    silvered the side facing the holder. Play reported it exactly that way - "the front of
+        //    the mirror is looking at me". The other pane settles it: the two are back to back, so
+        //    the vector from one to the other IS the first one's outward direction.
+        //
+        // And then the tilt has to be taken OUT rather than lived with, because it pulls two ways at
+        // once: the optics need the glass vertical (the beam is horizontal), and the eye needs the
+        // stand vertical (it is a thing standing on a floor). Aligning either one leans the other by
+        // fifteen degrees, which is what "make it stand up straight" was about. **So the head is
+        // rotated back on its own clamp** - which is what the clamp is for - and both come out
+        // upright.
+        private static CarryableItem BuildMirror(Transform parent, string name, Vector3 floorAt, float yaw)
+        {
             GameObject root = new GameObject(name);
             root.transform.SetParent(parent, false);
-            root.transform.localPosition = wallCentreAtBase + Vector3.up * leverY;
+            root.transform.localPosition = floorAt;
+            root.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
 
-            // The plate it is mounted on, proud of the panelling so the lever is not a decal.
-            Prim(PrimitiveType.Cube, "Plate", root.transform,
-                inward * 0.03f,
-                widthAxis * 0.42f + Vector3.up * 0.58f + depthAxis * 0.06f, propMat, removeCollider: true);
+            // The face carries everything visible and is what `Mirror` re-aims every frame off the
+            // HOLDER. The root follows a hand - a bone, for a ghost - and must not be believed.
+            GameObject face = new GameObject("Face");
+            face.transform.SetParent(root.transform, false);
 
-            // The indicator is the readout, and it is the lever's OWN colour rather than a red/green
-            // pair like a door's: three of these exist and which one is up matters more than whether.
-            Material lampMat = MakeEmissiveMaterial("StairLeverLamp", Color.white, 1f);
-            GameObject lamp = Prim(PrimitiveType.Cube, "Lamp", root.transform,
-                Vector3.up * 0.22f + inward * 0.07f,
-                widthAxis * 0.18f + Vector3.up * 0.07f + depthAxis * 0.03f, lampMat, removeCollider: true);
+            (GameObject model, Bounds bounds) = PlaceModelLocal(
+                MirrorModel, face.transform, "Model", Vector3.zero, Quaternion.identity, MirrorHeight);
+            if (model == null) return null;
 
-            // **TWO TRANSFORMS, NOT ONE, AND THAT IS A BUG FIX.** The arm used to be a single pivot
-            // carrying both the wall's facing and the pull angle - and `ColourLever.Apply` writes
-            // `localRotation` outright every frame, so the facing was wiped on the first tick and
-            // every lever's arm swung in world +Z. On the south wall that happens to be right; in the
-            // east and west rooms play found them lying on their sides.
-            //
-            // `Orient` holds which way the lever faces and is never written again. `Pivot` holds only
-            // the pull, in that oriented frame, and is the one the component drives.
-            GameObject orient = new GameObject("Orient");
-            orient.transform.SetParent(root.transform, false);
-            orient.transform.localPosition = inward * 0.05f;
-            orient.transform.localRotation = Quaternion.LookRotation(inward, Vector3.up);
-
-            GameObject pivot = new GameObject("Pivot");
-            pivot.transform.SetParent(orient.transform, false);
-
-            Prim(PrimitiveType.Cube, "Arm", pivot.transform,
-                new Vector3(0f, 0f, 0.16f), new Vector3(0.05f, 0.05f, 0.32f), propMat, removeCollider: true);
-            Prim(PrimitiveType.Sphere, "Grip", pivot.transform,
-                new Vector3(0f, 0f, 0.34f), Vector3.one * 0.10f,
-                PanelColourMaterial(colour), removeCollider: true);
-
-            GameObject hint = new GameObject("HintAnchor");
-            hint.transform.SetParent(root.transform, false);
-            hint.transform.localPosition = inward * 0.2f;
-
-            ColourLever lever = root.AddComponent<ColourLever>();
-            lever.colour = colour;
-            lever.handle = pivot.transform;
-            lever.indicator = lamp.GetComponent<Renderer>();
-            lever.onColour = PanelColourMaterial(colour).color;
-            lever.hintAnchor = hint.transform;
-            lever.audioSource = MakeSource(root.transform, "LeverAudio", spatialBlend: 1f, volume: 0.8f);
-            lever.pullClip = LoadClip(SfxDir, "sfx_switch_on");
-            lever.releaseClip = LoadClip(SfxDir, "sfx_switch_off");
-
-            // The arm needs something to be pressed AT. The plate and the arm have their colliders
-            // removed so they cannot be aimed at individually; one box over the whole fitting is what
-            // `PlayerLookup` ranks, and it is what the prompt disc hangs off.
-            BoxCollider grab = root.AddComponent<BoxCollider>();
-            grab.center = inward * 0.18f;
-            grab.size = widthAxis * 0.45f + Vector3.up * 0.62f + depthAxis * 0.42f;
-
-            return lever;
-        }
-
-        // **THE STAIRCASE, AND ITS LAYOUT IS THE TUNING KNOB.** The spec deliberately leaves the panel
-        // count and placement open for play to settle, so the two things that decide the puzzle are one
-        // string and one integer here rather than geometry spread through a builder.
-        //
-        // `StairPattern` is read one character per step, from the bottom up: R red, B blue, Y yellow.
-        // **Runs of two are what force a second past self.** One colour per step would need three
-        // levers held at once to climb at all; a single run the whole way would need one, and then
-        // there is no puzzle. In pairs, a climber gets two steps out of a colour before needing the
-        // next - so two levers held together carries you a long way and the third is the one you have
-        // to plan for.
-        //
-        // The climb runs along the walls, one cell per step, turning the corner when it runs out -
-        // rise 0.676 (half a grid row) against a going of 1.75, which is a shallow stair the player
-        // WALKS up on `PlayerStepOffset` rather than jumping.
-        //
-        // **§7 OF THE SPEC IS NOT BUILT.** "Raising one colour blocks a route the others opened" is
-        // what stops the room being two levers held down, and it needs geometry that gets in the way
-        // rather than a longer stair. This is the climbable skeleton it will be tuned into.
-        private const string StairPattern = "RRBBYYRRBBYYRRBBYYRRBB";
-
-        // WHERE ONE STEP IS, worked out once so the wall that has to be holed and the block that fills
-        // the hole cannot disagree about it. They are built in two passes - the wall first, then the
-        // steps - and a step whose hole is a centimetre out is a coloured panel sitting in front of a
-        // white one.
-        private struct StairPlacement
-        {
-            public PanelColour colour;
-            public Vector3 wallPoint;    // on the wall's inner face, at floor level
-            public Vector3 inward;       // into the room
-            public Vector3 along;        // across the wall
-            public float alongCentre;    // the cell's centre in the wall's own coordinates
-            public float bottom;         // the panel's bottom, in metres off the floor
-        }
-
-        // **A STEP IS A WALL PANEL, and everything else follows from that** (2026-08-21, by request:
-        // "the panel itself should come out, not a thin thing out of the panel").
-        //
-        // The first version was a 0.22m shelf that hid inside the wall when retracted, and it was
-        // wrong twice over: it read as a bracket rather than as the building moving, and hiding it in
-        // the wall put its face on exactly the plane of the white panel in front of it, which
-        // flickered. Both go away if the step simply IS the panel at that cell - the white one is
-        // never built there (`panelHoles`), the coloured one fills the slot flush, and sliding out is
-        // the only thing that ever happens.
-        //
-        // **A STEP IS A WHOLE CELL AND A WHOLE ROW, AND RISES A WHOLE ROW** (2026-08-21, by request:
-        // half-row steps were tried first and read as half blocks rather than as the building).
-        // Every panel now sits exactly on the wall's own grid, top and bottom on its row lines.
-        //
-        // **A ROW IS CLIMBABLE, AND THE ARITHMETIC THAT SAID OTHERWISE WAS WRONG.** This comment used
-        // to claim a 1.3519 rise was out of reach because the jump clears 0.90 and the step offset is
-        // 0.72, neither of which is 1.35. That treats them as alternatives and they are not: the
-        // controller steps up from wherever its feet ARE, so a jump puts the feet at 0.90 and the
-        // offset carries them 0.72 further. Effective reach is 1.62, and play confirmed the climb
-        // before this was noticed. Nothing had to change - not the jump, which was called awkward when
-        // it was raised, and not the offset, which is deliberately kept under the jump.
-        private static StairPlacement[] PlanColourStairs(float width, float depth, float height)
-        {
-            float rise = GridCellHeight;
-            float cell = GridCellWidth;
-            int southCells = Mathf.RoundToInt(width / cell);
-            int eastCells = Mathf.RoundToInt(depth / cell);
-
-            var plan = new System.Collections.Generic.List<StairPlacement>();
-
-            for (int i = 0; i < StairPattern.Length; i++)
+            Renderer front = null, back = null, clamp = null;
+            foreach (Renderer r in model.GetComponentsInChildren<Renderer>(true))
             {
-                float bottom = i * rise;
-                // Leave the top row clear, so the climb arrives somewhere rather than into the ceiling.
-                if (bottom + GridCellHeight > height - GridCellHeight) break;
-
-                var p = new StairPlacement
-                {
-                    colour = StairPattern[i] == 'R' ? PanelColour.Red
-                           : StairPattern[i] == 'B' ? PanelColour.Blue
-                           : PanelColour.Yellow,
-                    bottom = bottom,
-                };
-
-                // The perimeter as a walk: south wall west to east, then east wall south to north,
-                // then north wall east to west.
-                if (i < southCells)
-                {
-                    p.inward = Vector3.forward;
-                    p.along = Vector3.right;
-                    p.alongCentre = -width / 2f + (i + 0.5f) * cell;
-                    p.wallPoint = new Vector3(p.alongCentre, 0f, -depth / 2f);
-                }
-                else if (i < southCells + eastCells)
-                {
-                    int k = i - southCells;
-                    p.inward = Vector3.left;
-                    p.along = Vector3.forward;
-                    p.alongCentre = -depth / 2f + (k + 0.5f) * cell;
-                    p.wallPoint = new Vector3(width / 2f, 0f, p.alongCentre);
-                }
-                else
-                {
-                    int k = i - southCells - eastCells;
-                    p.inward = Vector3.back;
-                    p.along = Vector3.left;
-                    p.alongCentre = width / 2f - (k + 0.5f) * cell;
-                    p.wallPoint = new Vector3(p.alongCentre, 0f, depth / 2f);
-                }
-
-                plan.Add(p);
+                if (r.name.StartsWith("CLAMP")) clamp = r;
+                if (!r.name.StartsWith("MIRROR")) continue;
+                if (front == null) front = r;
+                else if (back == null) back = r;
             }
 
-            return plan.ToArray();
-        }
-
-        // The holes to leave in one wall's FACE. A wall is identified by which way it faces, because
-        // that is what `BuildBigRoom` has to hand when it builds each one.
-        private static Rect[] StairPanelHoles(StairPlacement[] plan, Vector3 inward)
-        {
-            var holes = new System.Collections.Generic.List<Rect>();
-            foreach (StairPlacement p in plan)
+            if (front == null || back == null)
             {
-                if (p.inward != inward) continue;
-                holes.Add(Rect.MinMaxRect(p.alongCentre - GridCellWidth / 2f, p.bottom,
-                                          p.alongCentre + GridCellWidth / 2f,
-                                          p.bottom + GridCellHeight));
-            }
-            return holes.ToArray();
-        }
-
-        private static ColourPanel[] BuildColourStairs(Transform room, StairPlacement[] plan)
-        {
-            float groove = GridLineThickness;
-            // Deep enough to stand on with room to turn round, and deep enough that what slides out
-            // reads as a piece of the building rather than as a tray.
-            const float stepOut = 1.0f;
-
-            var panels = new ColourPanel[plan.Length];
-
-            for (int i = 0; i < plan.Length; i++)
-            {
-                StairPlacement p = plan[i];
-                Vector3 depthAxis = new Vector3(Mathf.Abs(p.inward.x), Mathf.Abs(p.inward.y), Mathf.Abs(p.inward.z));
-                Vector3 widthAxis = new Vector3(Mathf.Abs(p.along.x), Mathf.Abs(p.along.y), Mathf.Abs(p.along.z));
-
-                // The face is the wall's own panel to the millimetre - cell less a groove, row less a
-                // groove - so retracted it is indistinguishable from the panelling except in colour.
-                // The block runs back from that face into the wall and out the far side, which nobody
-                // can see and which is what lets it be a step rather than a sheet.
-                Vector3 centre = p.wallPoint
-                               + Vector3.up * (p.bottom + GridCellHeight / 2f)
-                               + p.inward * (GrooveDepth - stepOut / 2f);
-
-                GameObject step = Prim(PrimitiveType.Cube, $"Stair_{i:00}_{p.colour}", room,
-                    centre,
-                    widthAxis * (GridCellWidth - groove) + Vector3.up * (GridCellHeight - groove)
-                        + depthAxis * stepOut,
-                    PanelColourMaterial(p.colour));
-
-                ColourPanel panel = step.AddComponent<ColourPanel>();
-                panel.colour = p.colour;
-                panel.outLocalOffset = p.inward * stepOut;
-                panels[i] = panel;
+                Debug.LogError($"[SceneBuilder] {name}: expected two `MIRROR` meshes in {MirrorModel}, "
+                             + "found " + (front == null ? "none" : "one")
+                             + ". Run Iteration Room/Dump Furniture Models.");
+                return null;
             }
 
-            float top = plan.Length > 0 ? plan[plan.Length - 1].bottom + GridCellHeight : 0f;
-            // The reach is the jump PLUS the step offset - see the note on `PlanColourStairs`.
-            const float jumpReach = 6f * 6f / (2f * 20f);
-            Debug.Log($"[SceneBuilder] Room3_2N stairs: {plan.Length} panels, rise {GridCellHeight:0.###}m, "
-                    + $"pattern {StairPattern}, highest top {top:0.##}m "
-                    + $"(reach {jumpReach + PlayerStepOffset:0.##}m = {jumpReach:0.##} jump + "
-                    + $"{PlayerStepOffset:0.##} step)");
-            return panels;
+            MeshFilter frontMesh = front.GetComponent<MeshFilter>();
+            if (frontMesh == null || frontMesh.sharedMesh == null)
+            {
+                Debug.LogError($"[SceneBuilder] {name}: the `MIRROR` mesh has no geometry.");
+                return null;
+            }
+
+            // WHICH WAY THE GLASS POINTS - axis from the normals, sign from the other pane.
+            Vector3 sum = Vector3.zero;
+            foreach (Vector3 v in frontMesh.sharedMesh.normals) sum += v;
+            Vector3 glassNormal = sum.sqrMagnitude > 1e-6f
+                ? face.transform.InverseTransformDirection(
+                      front.transform.TransformDirection(sum.normalized)).normalized
+                : Vector3.up;
+
+            Vector3 outward = face.transform.InverseTransformDirection(
+                front.bounds.center - back.bounds.center);
+            if (Vector3.Dot(outward, glassNormal) < 0f) glassNormal = -glassNormal;
+
+            // The glass is round, so its largest local dimension IS its diameter. Off the MESH, which
+            // under a yaw is the only frame that describes the disc rather than the box round it.
+            Vector3 ms = frontMesh.sharedMesh.bounds.size;
+            float radius = 0.5f * Mathf.Max(ms.x, Mathf.Max(ms.y, ms.z)) * front.transform.lossyScale.x;
+
+            // STAND IT UP FIRST. The model's own up - its +Z, which is what the FBX conversion left
+            // behind - becomes +Y, and the HORIZONTAL part of the glass normal becomes +Z. Written as
+            // which axis becomes which rather than as three numbers, because the numbers would be a
+            // lie the moment the model is replaced.
+            Vector3 modelUp = Vector3.forward;
+            Vector3 flatNormal = Vector3.ProjectOnPlane(glassNormal, modelUp);
+            if (flatNormal.sqrMagnitude < 1e-6f) flatNormal = Vector3.right;
+            model.transform.localRotation =
+                Quaternion.Inverse(Quaternion.LookRotation(flatNormal.normalized, modelUp));
+
+            // THEN TAKE THE TILT OUT OF THE HEAD, on the clamp it tilts on. Everything that turns with
+            // the glass goes onto one pivot: the frame and both panes. The arm, the stem and the foot
+            // stay where they are, which is what keeps the thing standing on its base.
+            Transform pivot = null;
+            if (clamp != null)
+            {
+                GameObject head = new GameObject("Head");
+                head.transform.SetParent(model.transform, false);
+                head.transform.position = clamp.bounds.center;
+                pivot = head.transform;
+
+                var tilting = new System.Collections.Generic.List<Transform>();
+                foreach (Transform t in model.GetComponentsInChildren<Transform>(true))
+                {
+                    if (!(t.name.StartsWith("FRAME") || t.name.StartsWith("MIRROR"))) continue;
+                    // Only the topmost of each - a pane's mesh child carries the same name as its node.
+                    if (t.parent != null && (t.parent.name.StartsWith("FRAME")
+                                             || t.parent.name.StartsWith("MIRROR"))) continue;
+                    tilting.Add(t);
+                }
+                foreach (Transform t in tilting) t.SetParent(pivot, true);
+            }
+
+            // Re-measured after the stand went upright, because that is the angle that is left.
+            // `FromToRotation` rather than an euler: it carries its own sign, and a sign written by
+            // hand here is a coin toss that only shows up in a screenshot.
+            Vector3 nNow = face.transform.InverseTransformDirection(
+                front.transform.TransformDirection(sum.normalized)).normalized;
+            if (Vector3.Dot(nNow, Vector3.forward) < 0f) nNow = -nNow;
+
+            Vector3 nLevel = new Vector3(nNow.x, 0f, nNow.z);
+            if (pivot != null && nLevel.sqrMagnitude > 1e-6f)
+            {
+                Quaternion level = Quaternion.FromToRotation(nNow, nLevel.normalized);
+                level.ToAngleAxis(out float angle, out Vector3 axis);
+                if (angle > 0.01f && angle < 359.99f)
+                    pivot.RotateAround(clamp.bounds.center, face.transform.TransformDirection(axis), angle);
+            }
+
+            // THE DISC'S CENTRE BECOMES THE OBJECT'S ORIGIN, re-measured after both turns. Everything
+            // downstream - the carry pose, `Mirror.Centre`, the beam, the prompt - then talks about the
+            // glass rather than about a pivot that happens to be under a foot.
+            Vector3 centreInFace = face.transform.InverseTransformPoint(front.bounds.center);
+            model.transform.localPosition -= centreInFace;
+
+            // **AND THE OBJECT NOW STANDS ON THE FLOOR.** `CarryableItem.floorY` is how far the ORIGIN
+            // rests above the floor, and this origin is the middle of the glass - so it is the height
+            // of the glass above the mirror's own foot, measured rather than guessed. Without it a
+            // dropped mirror sank to its waist.
+            bounds = MeasuredBounds(model);
+            float glassAboveFoot = root.transform.position.y - bounds.min.y;
+            root.transform.localPosition += Vector3.up * glassAboveFoot;
+
+            // **THE BACK IS BLANKED, and that is the single-sided rule made visible.** The model ships
+            // with glass on both sides; a beam that arrives at the back of this one stops dead, so the
+            // two faces must not look alike or the rule is a trick.
+            back.sharedMaterial = MakeColorMaterial("MirrorBack", new Color(0.13f, 0.13f, 0.15f));
+
+            BoxCollider reach = root.AddComponent<BoxCollider>();
+            reach.isTrigger = true;
+            reach.size = Vector3.one * 1.1f;
+
+            CarryableItem item = root.AddComponent<CarryableItem>();
+            item.itemId = MirrorItemId;
+            item.displayName = "MIRROR";
+            item.floorY = glassAboveFoot;
+            // **THE PROMPT HANGS OFF THE GLASS, NOT OFF THE ROOT, and that is how you take one off a
+            // past self.** A carried item is parented to its holder's hand - a wrist bone, for a ghost
+            // - while `Mirror` puts the glass out in front of their body. Left on the root, the aim
+            // test and the prompt disc sat at the wrist and the thing you were looking at was a metre
+            // away: play found it as "taking the mirror off a ghost does not work". The reach volume
+            // follows the same point, from `Mirror.Sync`.
+            item.hintAnchor = face.transform;
+            item.handLocalPosition = new Vector3(0f, -0.34f, 0.62f);
+            item.restsUpright = true;
+            item.audioSource = MakeSource(root.transform, "PickupAudio", 1f, 0.85f);
+            item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+
+            Mirror mirror = root.AddComponent<Mirror>();
+            mirror.face = face.transform;
+            mirror.radius = radius;
+            mirror.backRenderer = back;
+            mirror.reach = reach;
+            mirror.beamHeight = CycleThreeFloorY + BeamHeight;
+
+            return item;
+        }
+
+        // Big enough to be a thing carried in both hands and to be an easy target for a beam twenty
+        // metres away. At this height the glass comes out about half a metre across.
+        private const float MirrorHeight = 1.0f;
+
+        // WHERE THE FIVE LIVE. **Scattered across room3-2W's floor** (2026-08-21, by request) rather
+        // than racked in a row on a wall. A rack says "take one of these five"; five of them standing
+        // about at odd angles says "somebody left these here", which is what every other room in this
+        // building says about its contents.
+        //
+        // Placed clear of the walk in from the east gate, so getting into the room is not a matter of
+        // stepping over the puzzle.
+        private static CarryableItem[] BuildMirrorRack(Transform room, Material propMat)
+        {
+            GameObject rack = new GameObject("Mirrors");
+            rack.transform.SetParent(room, false);
+
+            var spots = new (float x, float z, float yaw)[]
+            {
+                (-2.6f,  3.7f,  40f),
+                ( 1.6f,  4.3f, 205f),
+                (-3.1f, -2.2f, 120f),
+                ( 2.2f, -3.9f, 290f),
+                (-0.4f,  0.9f, 165f),
+            };
+
+            var mirrors = new CarryableItem[MirrorCount];
+            for (int i = 0; i < MirrorCount && i < spots.Length; i++)
+                mirrors[i] = BuildMirror(rack.transform, i == 0 ? "Mirror" : $"Mirror_{i}",
+                    new Vector3(spots[i].x, 0f, spots[i].z), spots[i].yaw);
+
+            return mirrors;
+        }
+
+        // THE SOURCE. On room3-2E's SOUTH wall, firing north up its own room - so the first mirror of
+        // the route has to be held in here, and the way out through the west gate is a turn somebody
+        // makes rather than a line somebody drew.
+        private static LaserBeam BuildLaserEmitter(Transform room, Material propMat)
+        {
+            GameObject root = new GameObject("LaserEmitter");
+            root.transform.SetParent(room, false);
+            root.transform.localPosition = new Vector3(BeamLane, BeamHeight, -RoomDepth / 2f + 0.2f);
+            // Local +Z points the way the beam goes: north, up its own room, at nothing in particular
+            // until somebody stands in it with a mirror.
+            root.transform.localRotation = Quaternion.LookRotation(Vector3.forward, Vector3.up);
+
+            Prim(PrimitiveType.Cube, "Housing", root.transform, new Vector3(0f, 0f, -0.16f),
+                new Vector3(0.42f, 0.42f, 0.44f), propMat);
+            Prim(PrimitiveType.Cylinder, "Barrel", root.transform, new Vector3(0f, 0f, 0.08f),
+                new Vector3(0.12f, 0.1f, 0.12f), propMat)
+                .transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+            Material glow = MakeEmissiveMaterial("LaserGlow", new Color(1f, 0.28f, 0.22f), 6f);
+            Prim(PrimitiveType.Cylinder, "Aperture", root.transform, new Vector3(0f, 0f, 0.185f),
+                new Vector3(0.075f, 0.006f, 0.075f), glow, removeCollider: true)
+                .transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+            GameObject muzzle = new GameObject("Muzzle");
+            muzzle.transform.SetParent(root.transform, false);
+            muzzle.transform.localPosition = new Vector3(0f, 0f, 0.2f);
+
+            LaserBeam beam = root.AddComponent<LaserBeam>();
+            beam.muzzle = muzzle.transform;
+
+            // ONE LINE RENDERER PER POSSIBLE SEGMENT, built here rather than pooled at runtime so the
+            // scene says what it contains. Unlit: a beam is a light source, not a lit surface.
+            Material beamMat = MakeColorMaterial("LaserBeamLine", new Color(1f, 0.3f, 0.24f));
+            Shader unlit = Shader.Find("Universal Render Pipeline/Unlit");
+            if (unlit != null) beamMat.shader = unlit;
+
+            var lines = new LineRenderer[beam.maxBounces + 1];
+            for (int i = 0; i < lines.Length; i++)
+            {
+                GameObject seg = new GameObject($"Segment_{i:00}");
+                seg.transform.SetParent(root.transform, false);
+                LineRenderer line = seg.AddComponent<LineRenderer>();
+                line.useWorldSpace = true;
+                line.positionCount = 2;
+                line.widthMultiplier = 0.03f;
+                line.numCapVertices = 2;
+                line.sharedMaterial = beamMat;
+                line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                line.receiveShadows = false;
+                line.enabled = false;
+                lines[i] = line;
+            }
+            beam.segments = lines;
+
+            GameObject dot = Prim(PrimitiveType.Sphere, "TerminalDot", root.transform,
+                Vector3.zero, Vector3.one * 0.09f, glow, removeCollider: true);
+            beam.terminalDot = dot.transform;
+
+            beam.audioSource = MakeSource(root.transform, "LaserAudio", spatialBlend: 1f, volume: 0.6f);
+            beam.hitClip = LoadClip(SfxDir, "sfx_switch_on");
+            return beam;
+        }
+
+        // WHAT IT HAS TO REACH. On room3-2N's west wall for now, so the shortest route needs one turn
+        // in room3-1 and one more inside the big room - two mirrors of the five.
+        //
+        // **WHAT IT DOES IS UNDECIDED, AND THAT IS DELIBERATE.** `LaserReceiver.Lit` is the whole
+        // interface; whether the beam runs a machine or opens the way out of the cycle is a design
+        // decision that has not been taken, and taking it in code before it is taken in play is what
+        // put a CCTV system in this cycle before there was a puzzle for it to watch.
+        private static LaserReceiver BuildLaserReceiver(Transform room, float width, Material propMat)
+        {
+            GameObject root = new GameObject("LaserReceiver");
+            root.transform.SetParent(room, false);
+            root.transform.localPosition = new Vector3(-width / 2f + 0.18f, BeamHeight, 5f);
+
+            Vector3 inward = Vector3.right;
+            Prim(PrimitiveType.Cube, "Plate", root.transform, -inward * 0.06f,
+                new Vector3(0.14f, 1.5f, 1.5f), propMat);
+
+            Material lampMat = MakeEmissiveMaterial("LaserReceiverLamp", Color.white, 1f);
+            GameObject lamp = Prim(PrimitiveType.Cylinder, "Lens", root.transform, inward * 0.02f,
+                new Vector3(0.9f, 0.03f, 0.9f), lampMat, removeCollider: true);
+            lamp.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+
+            LaserReceiver receiver = root.AddComponent<LaserReceiver>();
+            receiver.lamp = lamp.GetComponent<Renderer>();
+            receiver.radius = 0.7f;
+            receiver.audioSource = MakeSource(root.transform, "ReceiverAudio", spatialBlend: 1f, volume: 0.8f);
+            receiver.onClip = LoadClip(SfxDir, "sfx_switch_on");
+            return receiver;
         }
 
         private const string CctvCameraModel = FurnitureDir + "/cctv_camera.glb";
@@ -13431,11 +13710,19 @@ namespace IterationRoom.EditorTools
         // around it** - the same rule the chess set and the tree are placed by.
         //
         // The screen is thin in Y and offset below the housing's centre, so the glb is authored
-        // face-DOWN: it is a monitor slung under a ceiling. `LookRotation(up, -inward)` turns the
-        // whole model so that face points into the room and the picture stays the right way up.
+        // face-DOWN: it is a monitor slung under a ceiling. The rotation below turns that face into
+        // the room, and its bracket - which is the model's +Y - into the wall, where nobody sees it.
+        //
+        // **`Vector3.down` RATHER THAN `Vector3.up`, AND THAT IS THE UPSIDE-DOWN FIX** (2026-08-21,
+        // found by play). The two differ by a half turn about `inward`, which is a half turn IN THE
+        // SCREEN PLANE - so the glass still faces the room and the bracket is still buried either way,
+        // and the only thing that changes is which end of the picture is the top. The model's own
+        // screen runs top-to-bottom along its -Z, not its +Z, so mapping model +Z to world up stood
+        // every feed on its head.
         private static Renderer BuildCctvMonitor(Transform parent, string name, Vector3 wallCentreAtBase,
                                                  Vector3 rightDir, Vector3 inward, float height,
-                                                 float alongOffset, Material screenMat, float widthWanted)
+                                                 float alongOffset, Material screenMat, float widthWanted,
+                                                 out float screenAspect)
         {
             GameObject root = new GameObject(name);
             root.transform.SetParent(parent, false);
@@ -13447,9 +13734,10 @@ namespace IterationRoom.EditorTools
             // and from the doorway, which is what a room whose whole job is watching another room
             // needs. Hung off the wall by a fraction of its own size so the housing never intersects
             // the panelling.
+            screenAspect = 0f;
             (GameObject housing, Bounds bounds) = PlaceModelLocal(
                 CctvMonitorModel, root.transform, "Housing", inward * (widthWanted * 0.2f),
-                Quaternion.LookRotation(Vector3.up, -inward), widthWanted);
+                Quaternion.LookRotation(Vector3.down, -inward), widthWanted);
             if (housing == null) return null;
 
             Renderer screen = null;
@@ -13467,12 +13755,24 @@ namespace IterationRoom.EditorTools
             // material in the glb, so assigning to `sharedMaterial` would put the feed on the plastic
             // as well as on the glass.
             screen.sharedMaterial = screenMat;
+
+            // HOW WIDE THE GLASS IS AGAINST HOW TALL, MEASURED. The feed's render texture is cut to
+            // this rather than to 16:9, because a picture rendered at one shape and shown at another
+            // is squeezed - and a squeezed picture reads as a badly made one long before anyone works
+            // out that nothing is actually blurry. The thin axis is the glass's thickness; of the
+            // other two, the model's X is the one that ends up horizontal on the wall.
+            MeshFilter mf = screen.GetComponent<MeshFilter>();
+            if (mf != null && mf.sharedMesh != null)
+            {
+                Vector3 ms = mf.sharedMesh.bounds.size;
+                if (ms.y < ms.x && ms.y < ms.z && ms.z > 0.0001f) screenAspect = ms.x / ms.z;
+            }
             return screen;
         }
 
         // ONE FEED: a camera somewhere in room3-2N and the screens showing it.
         private static CctvFeed BuildCctvFeed(Transform bigRoom, string name, Vector3 eye,
-                                              Vector3 lookAt, Renderer[] screens)
+                                              Vector3 lookAt, Renderer[] screens, float screenAspect)
         {
             GameObject rig = new GameObject(name);
             rig.transform.SetParent(bigRoom, false);
@@ -13483,11 +13783,30 @@ namespace IterationRoom.EditorTools
             // Wide, because a feed has to hold a room three storeys tall in one frame.
             cam.fieldOfView = 78f;
             cam.nearClipPlane = 0.15f;
-            cam.farClipPlane = 60f;
+            // The room's own diagonal and no further. 60 was a guess and it was reaching two rooms
+            // past anything a monitor can show.
+            cam.farClipPlane = 34f;
             cam.allowHDR = false;
             cam.allowMSAA = false;
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = Color.black;
+
+            // **A SECURITY MONITOR DOES NOT NEED THE PIPELINE THE GAME NEEDS, and saying so is most of
+            // what made cycle 3 playable again** (2026-08-21: play reported the whole cycle starting
+            // to stutter). Every one of these is a whole extra render of the room, and by default it
+            // was a whole extra render WITH shadow maps, post-processing and a depth prepass - three
+            // costs that buy a 2.6m picture of a white room precisely nothing.
+            //
+            // Shadows are the big one: the feed camera was making the additional lights re-render
+            // their shadow maps, and room3-2N has thirteen lights in it.
+            UniversalAdditionalCameraData feedData = cam.GetUniversalAdditionalCameraData();
+            feedData.renderShadows = false;
+            feedData.renderPostProcessing = false;
+            feedData.requiresColorOption = CameraOverrideOption.Off;
+            feedData.requiresDepthOption = CameraOverrideOption.Off;
+            feedData.antialiasing = AntialiasingMode.None;
+            feedData.dithering = false;
+            feedData.stopNaN = false;
             // Built from nothing rather than copied from the player, so it cannot bring an
             // AudioListener with it - two listeners is what silences every spatial sound in the game.
 
@@ -13499,6 +13818,17 @@ namespace IterationRoom.EditorTools
             CctvFeed feed = rig.AddComponent<CctvFeed>();
             feed.feedCamera = cam;
             feed.screens = screens;
+            // **1024, DOWN FROM 1600.** 1600 was chosen to supersample the 2.6m screens and it did,
+            // at 2.4x the pixels of 1024 and three feeds at once - which is where a good part of the
+            // stutter came from. 1024 is still twice the old 512 and roughly the number of pixels one
+            // of these screens covers on a 1080p display, so it is native rather than blurry; the
+            // antialiasing it was buying is worth less than the frame rate it was costing.
+            //
+            // The height is DERIVED so the picture cannot be the wrong shape for the glass. See
+            // `CctvFeed` for why the old 512x288 was two faults rather than one.
+            feed.textureWidth = 1024;
+            feed.textureHeight = screenAspect > 0.1f
+                ? Mathf.RoundToInt(feed.textureWidth / screenAspect) : 720;
             return feed;
         }
 
@@ -13522,10 +13852,22 @@ namespace IterationRoom.EditorTools
             // `GrooveDepth` = 0.025 behind the wall face. The two numbers are equal, so the two planes
             // land on each other, and no amount of moving things along Z will separate them.
             //
-            // Widening the WALLS breaks it and leaves everything else alone: the opening, the block's
-            // face and the jambs are all still the gate's own 1.75, and the corridor behind them is
-            // 20mm roomier on each side than its mouth - a step back into shadow that nobody can see.
-            const float wallClearance = 0.02f;
+            // Widening the WALLS broke it, and the corridor stood 20mm wider than its mouth for a day.
+            //
+            // **IT IS BACK TO ZERO, AND THE 20mm WAS COSTING SOMETHING AT THE OTHER END** (2026-08-21).
+            // Two things happened after that fix. The walls were inset along Z until they touch
+            // neither room's wall at all, which is what actually separates them from room3-1's
+            // panelling - the sentence above about Z is wrong, and it was written before the inset
+            // existed. And room3-2N grew a staircase whose steps are wall panels with a metre of tail
+            // behind them: the step in the cell next to the mouth reaches 25mm PAST the mouth's edge,
+            // into the back of this corridor's west wall.
+            //
+            // Those two pull opposite ways on the same number. Every 1mm of clearance moves this wall
+            // 1mm further west and buries 1mm more of it inside that step - at 25mm the blue step
+            // would come through the corridor wall and be visible from inside the corridor. At zero,
+            // the wall's face sits 25mm proud of the step's edge and hides it, which is the margin the
+            // step's own groove already provides. Keep it at zero unless a scan says otherwise.
+            const float wallClearance = 0f;
             float wallHalfWidth = halfWidth + wallClearance;
 
             // Between the two rooms' inner faces. Both ends are derived, so moving either room moves
@@ -13616,7 +13958,19 @@ namespace IterationRoom.EditorTools
             // The lift is `GateHeight`, so the corridor and the void above it stack to 5.42 - within
             // 2mm of `RoomHeight`, which is not a coincidence worth engineering around but is worth
             // knowing: this whole assembly is one storey tall, like everything else here.
-            float lift = GateHeight + 0.02f;
+            //
+            // **THE 60mm ON TOP IS THE LAST OF THE FLICKER, and it is the most literal answer to what
+            // play described** ("after the structure has finished rising, the upper part flickers").
+            // At `GateHeight + 0.02` the block's underside came to rest at exactly `GateHeight` - and
+            // `GateHeight` is where the wall's cutout stops, so the wall backing's own bottom face is
+            // on that plane too. A 25mm-deep strip across the full width of the mouth, near-black
+            // backing against white block, sharing a plane, right at the top edge of the opening a
+            // player walks under and looks up at.
+            //
+            // Raised 40mm clear of it instead. The mouth's headroom is unchanged - that is the wall's
+            // cutout, not the block - and the top still lands inside `Shaft_Top` without touching
+            // either of its faces.
+            float lift = GateHeight + 0.06f;
 
             GameObject barrierRoot = new GameObject("NorthBarrier");
             barrierRoot.transform.SetParent(root.transform, false);
@@ -13640,7 +13994,9 @@ namespace IterationRoom.EditorTools
             // slab sits at exactly this height and reaches 5.425. The north end needs none - room3-2N
             // is three storeys tall, so its ceiling is nowhere near this one.
             float shaftStart = RoomPitch / 2f - zMid;
-            float shaftEnd = run / 2f;
+            // 30mm short at the north end, the same as the block below it and for the same reason:
+            // room3-2N's inner face is a panel plane, and a lid that reaches it shares that plane.
+            float shaftEnd = run / 2f - 0.03f;
             Prim(PrimitiveType.Cube, "Shaft_Top", barrierRoot.transform,
                 new Vector3(0f, GateHeight + CorridorShaftHeight + WallThickness / 2f,
                             (shaftStart + shaftEnd) / 2f),
@@ -13685,6 +14041,23 @@ namespace IterationRoom.EditorTools
             float faceZ = zStart - zMid;                       // the block's south end, in its own frame
             float grooveGap = GridLineThickness;
 
+            // **THE FACE IS ONLY DRAWN WHILE THE BLOCK IS SHUT, and that is a flicker fix measured
+            // rather than guessed** (2026-08-21, by `CycleThreeDiagnostics` scanning the OPENED pose -
+            // the first scan that had ever looked at this cycle with anything moved).
+            //
+            // The block lifts by its own height, so this two-row grid arrives exactly on the wall's
+            // own panels in rows 2 and 3 of the same cell: same plane, same width, overlapping. A
+            // whole cell of coplanar panelling directly above the corridor mouth, in the one place a
+            // player standing in room3-1 is looking.
+            //
+            // **It cannot be fixed by moving anything.** The shaft is exactly one block tall, so a
+            // taller face rises out through the top of it; a face set back far enough to clear the
+            // wall is a face visibly recessed while shut, which is the one thing it exists not to be.
+            // What is left is the observation that this grid has no job once the block moves: it is
+            // the wall while the wall is a wall, and after that it is a lid on a lift. Switched off at
+            // the first millimetre of travel, so the change happens under the clunk.
+            var faceRenderers = new System.Collections.Generic.List<Renderer>();
+
             for (int row = 0; row * GridCellHeight < GateHeight - 0.001f; row++)
             {
                 float bottom = row * GridCellHeight;
@@ -13692,24 +14065,54 @@ namespace IterationRoom.EditorTools
                 // THE ONE THING THAT IS EXACTLY ON THE GRID. These are what room3-1 sees when the
                 // corridor is shut, so they are the wall's own panels - cell width less one groove,
                 // row height less one groove - and no clearance is applied to them.
-                Prim(PrimitiveType.Cube, $"FacePanel_{row}", slab.transform,
+                faceRenderers.Add(Prim(PrimitiveType.Cube, $"FacePanel_{row}", slab.transform,
                     new Vector3(0f, (bottom + top) / 2f, faceZ + GrooveDepth / 2f),
                     new Vector3(2f * halfWidth - grooveGap, top - bottom - grooveGap, GrooveDepth),
-                    panelMat, removeCollider: true);
+                    panelMat, removeCollider: true).GetComponent<Renderer>());
             }
 
-            Prim(PrimitiveType.Cube, "FaceBacking", slab.transform,
+            faceRenderers.Add(Prim(PrimitiveType.Cube, "FaceBacking", slab.transform,
                 new Vector3(0f, (GateHeight - sink) / 2f, faceZ + GrooveDepth + faceBackingDepth / 2f),
                 new Vector3(2f * halfWidth - faceClearance, GateHeight + sink, faceBackingDepth),
-                grooveMat, removeCollider: true);
+                grooveMat, removeCollider: true).GetComponent<Renderer>());
 
             // The mass itself, starting where the face finishes so nothing is coplanar with anything.
+            //
+            // **AND STOPPING 60mm SHORT AT THE NORTH END**, which is the same rule at the other end and
+            // was also found by scanning the opened pose: raised, the block's top reaches into
+            // `Shaft_Top` and the two shared their north face exactly.
+            //
+            // 60 rather than 30 because the lid stops 30 short as well, and shortening both by the
+            // same amount moved the shared plane rather than removing it - which is the entire lesson
+            // of this corridor, made once more in one line. Both ends land inside room3-2N's own wall
+            // build-up, so nothing can see either gap while the block is down.
             float bodyStart = faceZ + GrooveDepth + faceBackingDepth;
-            float bodyEnd = zEnd - zMid;
+            float bodyEnd = zEnd - zMid - 0.06f;
             Prim(PrimitiveType.Cube, "Body", slab.transform,
                 new Vector3(0f, (GateHeight - sink) / 2f, (bodyStart + bodyEnd) / 2f),
                 new Vector3(2f * halfWidth - bodyClearance, GateHeight + sink, bodyEnd - bodyStart),
                 panelMat);
+
+            // **THE CORRIDOR HAD NO REFLECTION PROBE, AND TWENTY-THREE METRES OF 0.85-SMOOTH WHITE
+            // PANELLING IS ALMOST ENTIRELY WHAT IT REFLECTS** (2026-08-21; play reported the ceiling
+            // "flickering, and worse the more I move", once the block was fully up).
+            //
+            // Every other space in the building has one and this one fell between two rooms: room3-1's
+            // probe is a box around room3-1 and room3-2N's is a box around room3-2N, and the corridor
+            // is in neither. **Box projection does not politely give up outside its box - it
+            // EXTRAPOLATES**, so every surface in here was sampling room3-1's cubemap re-projected up
+            // to twenty metres past where it was captured. That smears, and it swims as the camera
+            // moves, which is what "flickers when I move" looks like on a surface with no texture of
+            // its own to anchor it.
+            //
+            // It only shows once the block is up because until then there is no corridor to stand in -
+            // which is also why no earlier scan of this cycle could have found it.
+            //
+            // Sized to the walk plus its shaft and centred on the run, so the box is the space rather
+            // than a room next to it.
+            BuildReflectionProbe(root.transform, "Room3_1_Corridor", zMid,
+                                 sizeOverride: new Vector3(slabWidth, shaftTop, run),
+                                 yCenter: shaftTop * 0.5f);
 
             AudioSource audio = MakeSource(barrierRoot.transform, "BarrierAudio",
                                            spatialBlend: 1f, volume: 0.95f);
@@ -13734,6 +14137,7 @@ namespace IterationRoom.EditorTools
             // should take half a second to lose.
             barrier.openDuration = 2.6f;
             barrier.closeDuration = 0.45f;
+            barrier.faceRenderers = faceRenderers.ToArray();
             barrier.moveClip = LoadClip(SfxDir, "sfx_door_open");
             // The heaviest thing in the SFX folder. There is no crunch in it and there does not need
             // to be - the room is a facility, and what it does to you is switch you off.
@@ -13764,6 +14168,26 @@ namespace IterationRoom.EditorTools
             FloorButton fb = root.AddComponent<FloorButton>();
             fb.activationRadius = padRadius + 0.05f;
             fb.buttonRenderer = visual.GetComponent<Renderer>();
+
+            // **THE CLUNK IS WIRED HERE, WHERE THE PAD IS MADE, AND THAT IS THE POINT.** It used to be
+            // wired in `BuildAudio` from a HAND-WRITTEN LIST of pads, and the comment beside that list
+            // already recorded this exact bug happening to the doors: cycle 2's seven were left off
+            // it and opened in silence for weeks, because a door that makes no sound looks exactly
+            // like a door. Cycle 3's four pads were then left off the same list, and play reported it
+            // as "the floor pad sound is gone".
+            //
+            // A list of every instance of a thing, maintained by hand, is a list that will be wrong.
+            // The fix is not a better list - it is that there is no list: every pad in the game gets
+            // its source and its clips from the one function that can make one.
+            //
+            // Positional and parented to the pad, which is the entire point of it. The door lamp only
+            // reports the condition to someone looking at the door; the clunk reaches you wherever you
+            // are, so hearing a ghost step onto a pad behind you is how the puzzle tells you the way
+            // is open - and in room3-1, where four pads open four different walls, it is how you learn
+            // which is which without turning round.
+            fb.audioSource = MakeSource(root.transform, "FloorButtonAudio", 1f, 0.9f);
+            fb.pressClip = LoadClip(SfxDir, "sfx_floor_button_press");
+            fb.releaseClip = LoadClip(SfxDir, "sfx_floor_button_release");
             return fb;
         }
 
@@ -14430,7 +14854,7 @@ namespace IterationRoom.EditorTools
             }
         }
 
-        private static (NarrationDirector, RoomAmbience) BuildAudio(GameObject player, Door[] doors, FloorButton[] floorButtons, WakeUpSequence wakeUp)
+        private static (NarrationDirector, RoomAmbience) BuildAudio(GameObject player, Door[] doors, WakeUpSequence wakeUp)
         {
             GameObject root = new GameObject("Audio");
 
@@ -14494,20 +14918,9 @@ namespace IterationRoom.EditorTools
             ambience.pullIn = LoadClip(SfxDir, "sfx_pull_in");
             ambience.powerDown = LoadClip(SfxDir, "sfx_power_down");
 
-            // --- the floor pads ---
-            // Positional and parented to each pad, which is the entire point: the door lamp only
-            // reports the condition to someone looking at the door, but the clunk reaches you
-            // wherever you are. Hearing a ghost step onto a pad behind you is how the puzzle tells
-            // you the door is live - and in Room3, where two pads have to go down, it is how you
-            // count them without turning round.
-            AudioClip padPress = LoadClip(SfxDir, "sfx_floor_button_press");
-            AudioClip padRelease = LoadClip(SfxDir, "sfx_floor_button_release");
-            foreach (FloorButton pad in floorButtons)
-            {
-                pad.audioSource = MakeSource(pad.transform, "FloorButtonAudio", 1f, 0.9f);
-                pad.pressClip = padPress;
-                pad.releaseClip = padRelease;
-            }
+            // ~~THE FLOOR PADS~~ WIRED IN `BuildFloorButton` SINCE 2026-08-21. They were wired
+            // here from a hand-written list, cycle 3's four were never added to it, and play found
+            // them silent. See that function for why the list itself was the bug.
 
             // --- the doors ---
             WireDoorAudio(doors);

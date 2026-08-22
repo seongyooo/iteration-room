@@ -43,12 +43,6 @@ namespace IterationRoom
         // also what stops the reset being HEARD - it tracks its pads, so left alone it would slam
         // shut on its own a fraction after the ghosts are released, behind the closed eyelids.
         public CrushingBarrier[] barriers;
-        // Room3-2N's staircase, and the three levers in the rooms around it. Both are world state the
-        // loop rewinds for the same reason a door is: a lever still thrown at the top of an iteration
-        // is a staircase nobody is holding up, and letting the panels fall back on their own would be
-        // a stairwell folding itself away behind the closed eyelids.
-        public ColourLever[] levers;
-        public ColourPanel[] colourPanels;
         public Drawer[] drawers;
         // Taps left running are world state exactly like an open drawer, and a good deal more visible:
         // a tap not shut here floods the next iteration on top of the last one's puddle.
@@ -105,12 +99,10 @@ namespace IterationRoom
             if (barriers != null)
                 foreach (CrushingBarrier b in barriers) b?.ResetBarrier();
 
-            // The levers BEFORE the panels: a panel reads its colour's lever every frame, so putting
-            // the panels back first would only have them come straight out again on the next tick.
-            if (levers != null)
-                foreach (ColourLever l in levers) l?.ResetLever();
-            if (colourPanels != null)
-                foreach (ColourPanel cp in colourPanels) cp?.ResetPanel();
+            // ~~THE COLOURED LEVERS AND PANELS~~ GONE 2026-08-21, replaced by the beam. Nothing
+            // about that needs rewinding here: the mirrors are `CarryableItem`s, so
+            // `ItemRegistry.ReturnAllToOrigin` already puts them back, and the beam is recomputed
+            // from where they are every frame rather than being state anybody has to remember.
 
             if (doors == null) return;
             foreach (Door d in doors) d?.Close();

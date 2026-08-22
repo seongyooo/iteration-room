@@ -42,27 +42,103 @@ namespace IterationRoom.EditorTools
             foreach (GameObject root in scene.GetRootGameObjects())
                 renderers.AddRange(root.GetComponentsInChildren<MeshRenderer>(true));
 
-            // Only the corridor and what it touches. The whole cycle is thousands of renderers and the
-            // pairwise scan below is quadratic.
-            var corridor = new List<Renderer>();
-            foreach (Renderer r in renderers)
+            // TWO GROUPS, NOT THE WHOLE CYCLE. The pairwise scan below is quadratic and the cycle is
+            // thousands of renderers, so each group is one place where structures were built to fit
+            // against each other and are therefore where a coincidence can be.
+            Scan("the corridor", renderers, path =>
+                path.Contains("NorthCorridor") || path.Contains("NorthBarrier")
+                || path.Contains("Room3_1/Wall_North") || path.Contains("Room3_1/Floor")
+                || path.Contains("Room3_1/Ceiling"));
+
+            // ROOM3-2N'S OWN STRUCTURE, added when the decks and the risers were (2026-08-21). Three
+            // separate layouts - wall steps, mezzanine slabs, blocks through a holed floor - all
+            // authored off the same grid, which is exactly the arrangement that produces two things on
+            // one plane by arithmetic rather than by mistake.
+            Scan("room3-2N", renderers, path =>
+                path.Contains("Room3_2N/Floor") || path.Contains("Room3_2N/Mezzanines")
+                // The PANELS, not the walls. Every corner in the building is two backings
+                // interpenetrating on purpose, and six of those is all this scan reported the first
+                // time it was pointed at a whole room.
+                || path.Contains("_Panels/"));
+
+            // **AND AGAIN WITH EVERYTHING OPEN, which no scan had ever covered.** Both scans above
+            // read the scene as AUTHORED, and everything in this cycle is authored in its resting
+            // pose - the corridor full, every gate shut, every coloured panel in. That is half the
+            // states the player sees. Play found the other half: with the block fully raised, the
+            // corridor's ceiling - which IS the underside of that block - flickered.
+            //
+            // Moving the movers by their own offsets and re-scanning is the whole test, and it is the
+            // same lesson as before: the tool has to be able to look at the state that is wrong.
+            int moved = OpenEverything(scene);
+            Debug.Log($"[Diagnose] --- re-scanning with {moved} movers in their OPEN pose ---");
+
+            Scan("the corridor, opened", renderers, path =>
+                path.Contains("NorthCorridor") || path.Contains("NorthBarrier")
+                || path.Contains("Room3_1/Wall_North") || path.Contains("Room3_1/Floor")
+                || path.Contains("Room3_1/Ceiling"));
+
+            // **THE BARRIER IS IN THIS GROUP TOO, because it reaches into room3-2N's wall.** The two
+            // filters used to meet exactly at the two rooms' walls and a pair that straddled them fell
+            // between both scans - which is its own lesson: a group is only as good as its edges.
+            Scan("room3-2N, opened", renderers, path =>
+                path.Contains("Room3_2N/Floor") || path.Contains("Room3_2N/Mezzanines")
+                || path.Contains("NorthBarrier") || path.Contains("_Panels/"));
+
+            DumpModel("Assets/ArtAssets/Furniture/hanging_monitor.glb");
+            DumpModel("Assets/ArtAssets/Furniture/mirror_trensum.glb");
+        }
+
+        // Every retractable thing in the cycle, put where it goes when the puzzle is solved. Nothing
+        // is saved - the scene is opened read-only for this and never written back - so this is a
+        // measurement, not an edit.
+        private static int OpenEverything(Scene scene)
+        {
+            int moved = 0;
+            foreach (GameObject root in scene.GetRootGameObjects())
             {
-                string path = Path(r.transform);
-                if (path.Contains("NorthCorridor") || path.Contains("NorthBarrier")
-                    || path.Contains("Room3_1/Wall_North") || path.Contains("Room3_1/Floor")
-                    || path.Contains("Room3_1/Ceiling"))
-                    corridor.Add(r);
+                foreach (CrushingBarrier barrier in root.GetComponentsInChildren<CrushingBarrier>(true))
+                {
+                    if (barrier.slab == null) continue;
+                    barrier.slab.localPosition += barrier.openLocalOffset;
+                    // AND WHAT IT STOPS DRAWING, or the scan reports a pair the runtime never shows.
+                    // The block's face grid is the wall while the block is a wall and is switched off
+                    // the moment it moves - a scan that only moved transforms went on reporting it
+                    // against the panels it lands on, which is a false positive of exactly the kind
+                    // that makes a measuring tool stop being believed.
+                    if (barrier.faceRenderers != null)
+                        foreach (Renderer face in barrier.faceRenderers)
+                            if (face != null) face.enabled = false;
+                    moved++;
+                }
+
+                foreach (Door door in root.GetComponentsInChildren<Door>(true))
+                {
+                    if (door.doorPanel == null) continue;
+                    door.doorPanel.localPosition += door.pushInOffset + door.openLocalOffset;
+                    moved++;
+                }
+            }
+            return moved;
+        }
+
+        private static void Scan(string label, List<Renderer> all, System.Func<string, bool> wanted)
+        {
+            var group = new List<Renderer>();
+            foreach (Renderer r in all)
+            {
+                // A renderer that is switched off cannot fight anything for a pixel. This matters on
+                // the opened pass, where `OpenEverything` turns off the things the runtime turns off.
+                if (r == null || !r.enabled) continue;
+                if (wanted(Path(r.transform))) group.Add(r);
             }
 
-            Debug.Log($"[Diagnose] {corridor.Count} renderers in and around the corridor");
-            foreach (Renderer r in corridor)
-                Debug.Log($"[Diagnose]   {Path(r.transform)}  min {V(r.bounds.min)}  max {V(r.bounds.max)}");
+            Debug.Log($"[Diagnose] {group.Count} renderers in {label}");
 
             int found = 0;
-            for (int i = 0; i < corridor.Count; i++)
-                for (int j = i + 1; j < corridor.Count; j++)
+            for (int i = 0; i < group.Count; i++)
+                for (int j = i + 1; j < group.Count; j++)
                 {
-                    Bounds a = corridor[i].bounds, b = corridor[j].bounds;
+                    Bounds a = group[i].bounds, b = group[j].bounds;
                     // Only worth reporting when the two actually share space to fight over: boxes that
                     // merely line up edge to edge have no common visible surface.
                     if (!Overlaps(a, b)) continue;
@@ -72,12 +148,11 @@ namespace IterationRoom.EditorTools
 
                     found++;
                     Debug.LogWarning($"[Diagnose] COINCIDENT {face}\n"
-                                   + $"    {Path(corridor[i].transform)}  min {V(a.min)} max {V(a.max)}\n"
-                                   + $"    {Path(corridor[j].transform)}  min {V(b.min)} max {V(b.max)}");
+                                   + $"    {Path(group[i].transform)}  min {V(a.min)} max {V(a.max)}\n"
+                                   + $"    {Path(group[j].transform)}  min {V(b.min)} max {V(b.max)}");
                 }
 
-            Debug.Log($"[Diagnose] {found} coincident-face pairs in the corridor");
-            DumpModel("Assets/ArtAssets/Furniture/hanging_monitor.glb");
+            Debug.Log($"[Diagnose] {found} coincident-face pairs in {label}");
         }
 
         // Two boxes overlap in every axis with something to spare. A shared FACE with no overlapping
@@ -107,6 +182,17 @@ namespace IterationRoom.EditorTools
                         return $"{names[p]} vs {names[q]} at {av[p].ToString("0.####", CultureInfo.InvariantCulture)}";
                 }
             return null;
+        }
+
+        // **THE MODEL DUMP ON ITS OWN, WITHOUT OPENING A SCENE.** `Diagnose` opens Cycle3 in Single
+        // mode, which closes whatever the person at the Editor was looking at - fine in batch mode,
+        // rude while somebody is working. Reading a `.glb` needs no scene at all, so the half of this
+        // tool that gets used most often is its own menu item.
+        [MenuItem("Iteration Room/Dump Furniture Models")]
+        public static void DumpModels()
+        {
+            DumpModel("Assets/ArtAssets/Furniture/hanging_monitor.glb");
+            DumpModel("Assets/ArtAssets/Furniture/mirror_trensum.glb");
         }
 
         // WHAT IS ACTUALLY IN A MODEL. "Which submesh is the screen" is not guessable from the

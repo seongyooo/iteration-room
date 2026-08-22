@@ -39,6 +39,15 @@ namespace IterationRoom
         public float closeDuration = 0.45f;
         public float openDuration = 0.9f;
 
+        // **THE GRID ON ITS SOUTH FACE, WHICH IS ONLY THE WALL WHILE IT IS A WALL.** Drawn at rest and
+        // switched off the instant the block moves - see `SceneBuilder`, where the reason is written
+        // out: the block rises by its own height, so this grid lands exactly on the wall's own panels
+        // above the mouth, and no amount of moving either of them separates the two.
+        //
+        // Renderers rather than a parent object, because the thing they hang off is the same `slab`
+        // that carries the body; disabling that would disable the block.
+        public Renderer[] faceRenderers;
+
         public AudioSource audioSource;
         public AudioClip moveClip;
         public AudioClip crushClip;
@@ -126,6 +135,14 @@ namespace IterationRoom
         private void Apply()
         {
             if (slab != null) slab.localPosition = closedLocalPos + openLocalOffset * openAmount;
+
+            // At rest it is the wall; a millimetre off rest it is a block in a shaft and the grid on
+            // its face has nothing to be. The threshold is small enough that the change happens inside
+            // the first frames of a 2.6s lift, under the clunk.
+            bool shut = openAmount <= 0.002f;
+            if (faceRenderers != null)
+                foreach (Renderer r in faceRenderers)
+                    if (r != null && r.enabled != shut) r.enabled = shut;
         }
     }
 }
