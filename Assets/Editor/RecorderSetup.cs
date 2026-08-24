@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using UnityEditor;
 using UnityEditor.Recorder;
 using UnityEditor.Recorder.Encoder;
@@ -75,16 +76,44 @@ namespace IterationRoom.EditorTools
             movie.CaptureAudio = true;
             movie.AudioInputSettings.PreserveAudio = true;
 
+            // **AN ABSOLUTE PATH, AND THE FOLDER MADE BEFORE WE ASK FOR IT.** This was
+            // `$"{OutputDir}/iteration_<Take>"` and it cost a recording session: a RELATIVE path is
+            // not resolved against the project folder here, so `Recordings/iteration_<Take>` came out
+            // as `C:\iteration_002.mp4` - the root of the system drive, which Windows does not let a
+            // normal process write to. What the console then showed was three errors deep and none of
+            // them said "path":
+            //
+            //     WindowsVideoMedia error 0x80070005 while reading C:\iteration_002.mp4
+            //     VideoMediaEncoder::Create got unsupported format.
+            //     Recording failed. Unable to create encoder
+            //
+            // 0x80070005 is E_ACCESSDENIED. The "unsupported format" line is a consequence of the
+            // encoder never getting a file to open, not a codec problem - so anyone debugging this
+            // from the last line up goes looking at H.264 settings that were never wrong.
+            //
+            // `CreateDirectory` because Recorder does not make the folder either, and a missing
+            // directory fails exactly as unhelpfully as an unwritable one.
+            string projectRoot = Directory.GetParent(Application.dataPath).FullName;
+            string outputDir = Path.Combine(projectRoot, OutputDir);
+            Directory.CreateDirectory(outputDir);
+
             // `Take` auto-increments, so a second recording never silently overwrites the first -
             // which is the failure mode that costs you the good run.
-            movie.OutputFile = $"{OutputDir}/iteration_<Take>";
+            // **CONCATENATED, NOT `Path.Combine`.** `<Take>` is a Recorder wildcard, and `<` and `>`
+            // are illegal path characters - `Path.Combine` validates its arguments and throws
+            // `ArgumentException: Illegal characters in path` before Recorder ever sees the pattern.
+            // The wildcard is only a real path after Recorder expands it, so the join has to be dumb.
+            //
+            // Forward slashes: Recorder stores this as a string and a backslash in it reads as an
+            // escape on the way back out.
+            movie.OutputFile = outputDir.Replace('\\', '/').TrimEnd('/') + "/iteration_<Take>";
 
             controller.AddRecorderSettings(movie);
             controller.Save();
             AssetDatabase.SaveAssets();
 
             Debug.Log($"[RecorderSetup] '{MovieName}' ready: 1920x1080, 60 fps constant, H.264 MP4 "
-                    + $"with audio, manual start/stop, writing to {OutputDir}/. "
+                    + $"with audio, manual start/stop, writing to {outputDir}. "
                     + "Open Window > General > Recorder and press START RECORDING.");
         }
     }

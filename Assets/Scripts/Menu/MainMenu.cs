@@ -77,6 +77,13 @@ namespace IterationRoom
         // SETTINGS, on a page of its own for the same reason the cycle picker is: the title screen
         // stays a short column of choices, and anything that needs a slider needs room the column
         // does not have.
+        // THE CREDITS PAGE. Not optional furniture: every model in this game is Creative Commons and
+        // CC-BY makes attribution a condition of the licence, so this page is the thing that keeps
+        // the build compliant. It is generated - see `SceneBuilder.ReadModelCredits`.
+        public Button creditsButton;
+        public Button creditsBackButton;
+        public CanvasGroup creditsGroup;
+
         public Button settingsButton;
         public Button settingsBackButton;
         public CanvasGroup settingsGroup;
@@ -149,6 +156,9 @@ namespace IterationRoom
 
             if (recordButton != null) recordButton.onClick.AddListener(() => ShowRecord(true));
             if (recordBackButton != null) recordBackButton.onClick.AddListener(() => ShowRecord(false));
+
+            if (creditsButton != null) creditsButton.onClick.AddListener(() => ShowCredits(true));
+            if (creditsBackButton != null) creditsBackButton.onClick.AddListener(() => ShowCredits(false));
 
             if (settingsButton != null) settingsButton.onClick.AddListener(() => ShowSettings(true));
             if (settingsBackButton != null) settingsBackButton.onClick.AddListener(() =>
@@ -407,6 +417,22 @@ namespace IterationRoom
         {
             if (sensitivityValue != null)
                 sensitivityValue.text = GameSettings.MouseSensitivity.ToString("0.00");
+        }
+
+        // The same shape as `ShowSettings` and deliberately simpler: this page holds no state, so
+        // there is nothing to re-seed on open and nothing to commit on close.
+        private void ShowCredits(bool show)
+        {
+            if (creditsGroup != null)
+            {
+                creditsGroup.alpha = show ? 1f : 0f;
+                creditsGroup.blocksRaycasts = show;
+            }
+            if (menuGroup != null)
+            {
+                menuGroup.alpha = show ? 0f : 1f;
+                menuGroup.blocksRaycasts = !show;
+            }
         }
 
         private void ShowSettings(bool show)

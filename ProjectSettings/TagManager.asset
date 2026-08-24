@@ -14,9 +14,9 @@ TagManager:
   - 
   - 
   - Balloon
-  - 
-  - 
-  - 
+  - PlayerBodyView
+  - PlayerBodyWorld
+  - PlayerBodyShadow
   - 
   - 
   - 

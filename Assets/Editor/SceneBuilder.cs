@@ -122,6 +122,10 @@ namespace IterationRoom.EditorTools
         private const string CubeKeyItemId = "KeyCube";
         private const string SphereKeyItemId = "KeySphere";
 
+        // The root every third-party model lives under. `ReadModelCredits` walks it, so an asset
+        // dropped anywhere inside is credited without anything else being edited.
+        private const string ArtAssetsDir = "Assets/ArtAssets";
+
         private const string FurnitureDir = "Assets/ArtAssets/Furniture";
         // Kept apart from the furniture because neither is furniture, and because the tree is the
         // only asset in the project whose SHAPE is load-bearing - its clear trunk is the bridge.
@@ -215,14 +219,10 @@ namespace IterationRoom.EditorTools
 
         // The attribution shown at the bottom of the title screen. Everything in this project is
         // generated from a script except the two furniture models and the HUD typeface, so this is
-        // the complete list of what came from somewhere else.
-        //
-        // ⚠️ IF THE MODELS ARE CC-BY RATHER THAN CC0 THIS IS NOT YET SUFFICIENT: BY requires the
-        // creator's name, and ideally a link to the source. Fill those in here the moment they are
-        // known - it is one string, and it is the only thing standing between this build and being
-        // properly credited.
-        private const string CreditsLine =
-            "FURNITURE MODELS: CREATIVE COMMONS   ·   TYPE: JETBRAINS MONO (SIL OFL)";
+        // ~~`CreditsLine`~~ **REPLACED 2026-08-23 by a generated credits PAGE.** One dim line reading
+        // "FURNITURE MODELS: CREATIVE COMMONS" named no author, no title, no licence version and no
+        // link - a statement that a licence exists somewhere rather than an attribution, for
+        // twenty-six CC-BY models. See `ReadModelCredits` and `BuildCreditsPage`.
 
         // Balloons get their own physics layer so the player's CharacterController can exclude it
         // outright. See FirstPersonController.PushOverlapping for why not colliding with them at
@@ -1140,7 +1140,7 @@ namespace IterationRoom.EditorTools
             // Already built, above - cycle 2's haul room needs it, and that is built with the shell.
             // (kept here as a comment so the old creation site is not re-added)
 
-            (IterationLabel label, WakeUpSequence wakeUp, Transform canvas, CanvasGroup loadingBackdrop) = BuildUI(hand);
+            (IterationLabel label, WakeUpSequence wakeUp, Transform canvas, CanvasGroup loadingBackdrop, CaptureRig capture) = BuildUI(hand);
             wakeUp.wallPanels = wallDisplay;
 
             // Everything E does something to, in the order the player is likely to meet it. The
@@ -1199,7 +1199,12 @@ namespace IterationRoom.EditorTools
             hints.bucketPlacer = bucketPlacer;
 
             // The touch layer, under the pause menu so a paused game's buttons draw over it.
-            BuildTouchControls(canvas);
+            TouchControls touch = BuildTouchControls(canvas);
+
+            // The rest of the capture rig, now that the prompts, the touch layer and the player's
+            // camera all exist. Everything it needs is named here rather than found at runtime.
+            WireCaptureRig(capture, hints.gameObject, touch.gameObject,
+                           player.GetComponentInChildren<Camera>());
 
             // Escape's overlay covers the HUD, the prompts and the eyelids...
             BuildPauseMenu(canvas, fpc);
@@ -1476,6 +1481,12 @@ namespace IterationRoom.EditorTools
             // author having to know the rule exists.
             AddFallingToEveryCarryable();
 
+            // BEFORE THE BAKE, and that is the point rather than an ordering detail. This leaves every
+            // fixture at `LightShadows.None` and hands the list to a runtime component - so the probe
+            // cubemaps, which render 360 degrees and see most of the corridor at once, bake without
+            // asking for thirty shadow maps apiece. See `ShadowBudget`.
+            WireShadowBudget();
+
             BakeReflectionProbes();
 
             // ASLEEP UNTIL ITS TURN - and AFTER the bake, which is the whole reason this is here
@@ -1744,6 +1755,7 @@ namespace IterationRoom.EditorTools
             RenderTexture previousTarget = cam.targetTexture;
             CameraClearFlags previousFlags = cam.clearFlags;
             Color previousBackground = cam.backgroundColor;
+            int previousMask = cam.cullingMask;
             Texture2D shot = null;
             byte[] png = null;
             float stray = 1f;
@@ -1760,6 +1772,20 @@ namespace IterationRoom.EditorTools
                 // a good frame contains none of it.
                 cam.clearFlags = CameraClearFlags.SolidColor;
                 cam.backgroundColor = MenuCaptureTripwire;
+
+                // **NO BODY IN THE TITLE SHOT** (2026-08-23, by request). This is the player's own
+                // camera, and the caller MOVES it across the room to frame the north wall - but the
+                // body stays with the player root, so it does not come along. It stands wherever the
+                // spawn left it and walks straight into the frame. Before the player had a body this
+                // capture was of an empty room, which is what the title screen is composed as.
+                //
+                // All three layers, not just the world one. The first-person body is headless and
+                // armless by design, so what it contributes to a shot taken from across the room is a
+                // legless torso - worse than the whole person, not better. And the shadow-only
+                // instance would leave a person-shaped shadow on the floor with nobody casting it.
+                cam.cullingMask &= ~((1 << EnsureLayer(PlayerBodyViewLayer))
+                                   | (1 << EnsureLayer(PlayerBodyWorldLayer))
+                                   | (1 << EnsureLayer(PlayerBodyShadowLayer)));
 
                 shot = new Texture2D(rw, rh, TextureFormat.RGB24, false);
 
@@ -1803,6 +1829,8 @@ namespace IterationRoom.EditorTools
                 cam.targetTexture = previousTarget;
                 cam.clearFlags = previousFlags;
                 cam.backgroundColor = previousBackground;
+                // Or the saved scene ships a player who cannot see their own legs.
+                cam.cullingMask = previousMask;
                 RenderTexture.active = previousActive;
                 if (shot != null) Object.DestroyImmediate(shot);
                 rt.Release();
@@ -2040,13 +2068,26 @@ namespace IterationRoom.EditorTools
             // Also an enum, not a pixel count - assigning 2048 as an int throws "enum index is out
             // of range". One shared atlas holds every additional light's shadow map.
             //
-            // 2048. This was 4096 on the grounds that SIX shadowed fixtures shared the atlas and
-            // 2048 made URP log "Reduced additional punctual light shadows resolution by 2 to make
-            // 6 shadow maps fit" and drop each map to 512. **There are four now** - only Room1's
-            // ceiling casts, and the count has moved since - so 2048 gives each of them a 1024 map
-            // with no reduction, at a quarter of the atlas. If the shadowed count ever climbs past
-            // four, watch the console for that exact warning and put this back.
+            // **2048, HOLDING EXACTLY ONE MAP OF 2048** (2026-08-24).
+            //
+            // `ShadowBudget` lets one fixture cast at a time - see the note there for why more is the
+            // skeleton - so the atlas has one tenant and there is no reason to divide it. This is the
+            // opposite trade to the one this line has carried before: it was 4096 back when SIX
+            // fixtures shared it, and 2048 then made URP log "Reduced additional punctual light
+            // shadows resolution by 2 to make 6 shadow maps fit" and cut each to 512.
+            //
+            // **The whole atlas on one caster is a fix, not a saving.** At 1024 over a 130-degree cone
+            // from 5.4m a texel is about 2cm, and a person's arm is three of them - which is how a
+            // silhouette comes apart into something ragged and spindly. 2048 halves that.
+            //
+            // **If the console ever prints that reduction line again, something is casting that this
+            // does not know about**, because one 2048 map in a 2048 atlas is an exact fit and nothing
+            // else in the building is allowed shadows.
             SetEnumByName(so, "m_AdditionalLightsShadowmapResolution", "_2048");
+            // The per-light tiers URP picks from. `UniversalAdditionalLightData` defaults a light to
+            // the HIGH one, so raising it is what actually reaches the fixtures - and with a single
+            // caster it can have the lot.
+            SetIfPresent(so, "m_AdditionalLightsShadowResolutionTierHigh", 2048);
             SetIfPresent(so, "m_SoftShadowsSupported", true);
 
             // OFF, because there is no main light. URP's main light is the brightest DIRECTIONAL
@@ -2055,10 +2096,15 @@ namespace IterationRoom.EditorTools
             // and a shadow pass for a light that does not exist.
             SetIfPresent(so, "m_MainLightShadowsSupported", false);
 
-            // 15, not 30. Shadows are cast only in Room1, which is 10.5m deep - 30m of shadow
-            // distance was reaching two rooms past anything that casts. Halving it also doubles the
-            // effective texel density of what is left, so this is a quality gain as much as a cost
-            // one.
+            // 15, not 30. A room is 10.5m deep, so this covers the one the player is standing in and
+            // a little of the next through an open door; 30m was reaching two rooms past anything
+            // worth shadowing. Halving it also doubles the effective texel density of what is left,
+            // so this is a quality gain as much as a cost one.
+            //
+            // **STILL 15 now that every room casts** (2026-08-24, was written when only Room1 did).
+            // It is doing more work than it was - it is now what stops a corridor of lit rooms all
+            // rendering shadow maps at once - and 15 against a 10.5m room is the right side of that
+            // trade. Raise it only if a shadow is ever wanted across a doorway.
             SetFloatIfPresent(so, "m_ShadowDistance", 15f);
 
             // GhostFaint samples _CameraDepthTexture to fade where a ghost crosses solid geometry,
@@ -2179,8 +2225,10 @@ namespace IterationRoom.EditorTools
         // the floor bright pools and lets the walls fall off toward the corners. That gradient is
         // most of what separates a room from a whitebox; a point light just washes everything.
         //
-        // castShadows is off for Room2: shadows from additional lights all share one atlas, and
-        // Room2 is an empty shell with nothing in it to cast any.
+        // castShadows is TRUE for every room now, and the flag is kept rather than removed: it is the
+        // per-room switch for the one thing here that costs real frames, so a room that turns out to
+        // be too heavy can opt out without touching the mechanism. It was off everywhere but Room1
+        // until 2026-08-24 - see the shadow block below for what that did to the player's own shadow.
         // xCenter is 0 for every room in the north-south chain and non-zero only for Room2's two side
         // rooms, which sit off that axis.
         //
@@ -2248,11 +2296,35 @@ namespace IterationRoom.EditorTools
                     light.intensity = 10.5f;
                     // Barely off white - clinical rather than domestic, without tinting the room.
                     light.color = new Color(0.99f, 0.99f, 1f);
-                    // ONE SHADOW-CASTING FIXTURE PER ROOM, not four. Shadows from additional lights
-                    // all share one atlas, and four casters a room across fourteen rooms is both a
-                    // budget nobody has and four overlapping shadows under one person - which reads
-                    // as a smear, not as a figure. The first fixture casts; the other three light.
-                    light.shadows = castShadows && index == 1 ? LightShadows.Soft : LightShadows.None;
+                    // **ALL FOUR CAST** (2026-08-24, after play called the player's shadow detached -
+                    // "not something coming off my body"). It was ONE per room before, and that is
+                    // what the complaint was: one caster is one shadow pointing one way, and this
+                    // grid's first fixture is a CORNER of it, so a player at the room's centre was
+                    // lit for shadow purposes from 3.13m to one side and threw a 1.8m body into a
+                    // shadow whose head landed a metre away - while the room LOOKS evenly lit from
+                    // four panels overhead. A shadow at that angle reads as a separate object lying
+                    // on the floor beside you.
+                    //
+                    // **THE CUE THAT WAS MISSING IS A CONTACT SHADOW, AND ONLY SEVERAL LIGHTS MAKE
+                    // ONE.** With four, each fixture carries about a quarter of the light: directly
+                    // under the feet all four are blocked and it goes properly dark, while each
+                    // single radiating shadow loses only its own quarter and stays faint. Dark at the
+                    // feet fading outward is what the eye reads as "this is standing here" - a
+                    // better-aimed single shadow cannot produce it at all.
+                    //
+                    // The old reasoning here was that four overlapping shadows "read as a smear, not
+                    // as a figure". That is true of four EQUALLY dark ones; at `shadowStrength` 0.75
+                    // a region shadowed from one fixture only loses about 19% and is faint, so the
+                    // smear is the gradient and it is the point. The other half of the old argument -
+                    // that four casters a room is a budget nobody has - was written for the WebGL
+                    // build. The target is Steam, and six shadowed fixtures is a configuration this
+                    // project has already shipped (see the atlas note in `ConfigureUrpAsset`).
+                    //
+                    // Cost is bounded by CULLING, not by room count: a light outside the frustum is
+                    // not in `visibleLights` and costs nothing, so this is four casters in the room
+                    // you are standing in and up to eight seen through an open door - never fourteen
+                    // rooms' worth.
+                    light.shadows = castShadows ? LightShadows.Soft : LightShadows.None;
                     light.shadowStrength = 0.75f;
                     light.renderMode = LightRenderMode.ForcePixel;
                     built.Add(light);
@@ -5573,7 +5645,7 @@ namespace IterationRoom.EditorTools
             BuildPanelWall(t, "Wall_East", new Vector3(RoomWidth / 2f, 0f, 0f),
                 Vector3.forward, Vector3.left, RoomDepth, grooveMat, panelMat, Rect.zero);
 
-            BuildCeilingLights(t, "Room2_6", 0f, fixtureMat, castShadows: false);
+            BuildCeilingLights(t, "Room2_6", 0f, fixtureMat, castShadows: true);
             BuildReflectionProbe(t, "Room2_6", 0f);
 
             // AND IT IS FULL OF WATER, which is what the slide lands in.
@@ -5657,7 +5729,7 @@ namespace IterationRoom.EditorTools
             BuildPanelWall(t, "Wall_East", new Vector3(RoomWidth / 2f, 0f, 0f),
                 Vector3.forward, Vector3.left, RoomDepth, grooveMat, panelMat, eastCutout);
 
-            BuildCeilingLights(t, name, 0f, fixtureMat, castShadows: false);
+            BuildCeilingLights(t, name, 0f, fixtureMat, castShadows: true);
             BuildReflectionProbe(t, name, 0f);
             return t;
         }
@@ -6222,7 +6294,7 @@ namespace IterationRoom.EditorTools
             BuildPanelWall(t, "Wall_East", new Vector3(RoomWidth / 2f, 0f, 0f),
                 Vector3.forward, Vector3.left, RoomDepth, grooveMat, panelMat, Rect.zero);
 
-            BuildCeilingLights(t, "Room2_7", 0f, fixtureMat, castShadows: false);
+            BuildCeilingLights(t, "Room2_7", 0f, fixtureMat, castShadows: true);
             BuildReflectionProbe(t, "Room2_7", 0f);
 
             WeighScale scale = BuildWeighScale(t, propMat);
@@ -9113,7 +9185,7 @@ namespace IterationRoom.EditorTools
             for (int i = 0; i < rooms.Length; i++)
             {
                 (Light[] lights, Renderer[] panels) =
-                    BuildCeilingLights(rooms[i], names[i], 0f, fixtureMat, castShadows: false);
+                    BuildCeilingLights(rooms[i], names[i], 0f, fixtureMat, castShadows: true);
                 if (i == 0) { room1Lights = lights; room1Panels = panels; }
                 BuildReflectionProbe(rooms[i], names[i], 0f);
             }
@@ -9834,15 +9906,15 @@ namespace IterationRoom.EditorTools
             // rooms past the first hold nothing that casts a shadow worth the map: Room2 is
             // balloons, Room3 is two floor pads.
             BuildCeilingLights(parent, "Room1", 0f, fixtureMat, castShadows: true);
-            BuildCeilingLights(parent, "Room2", RoomPitch, fixtureMat, castShadows: false);
+            BuildCeilingLights(parent, "Room2", RoomPitch, fixtureMat, castShadows: true);
             // Room2West's fixtures are kept: the chess board dims them and brings them back up as
             // its reward, so something downstream needs the references rather than just the room.
             (Room2WestLights, Room2WestPanels) =
-                BuildCeilingLights(parent, "Room2West", 2f * RoomPitch, fixtureMat, castShadows: false);
-            BuildCeilingLights(parent, "Room2East", 3f * RoomPitch, fixtureMat, castShadows: false);
-            BuildCeilingLights(parent, "Room3", 4f * RoomPitch, fixtureMat, castShadows: false);
-            BuildCeilingLights(parent, "Room4", 5f * RoomPitch, fixtureMat, castShadows: false);
-            BuildCeilingLights(parent, CalibrationRoomName, CalibrationRoomZ, fixtureMat, castShadows: false);
+                BuildCeilingLights(parent, "Room2West", 2f * RoomPitch, fixtureMat, castShadows: true);
+            BuildCeilingLights(parent, "Room2East", 3f * RoomPitch, fixtureMat, castShadows: true);
+            BuildCeilingLights(parent, "Room3", 4f * RoomPitch, fixtureMat, castShadows: true);
+            BuildCeilingLights(parent, "Room4", 5f * RoomPitch, fixtureMat, castShadows: true);
+            BuildCeilingLights(parent, CalibrationRoomName, CalibrationRoomZ, fixtureMat, castShadows: true);
 
             // Built after the lights, so the probes capture the rooms already lit. The calibration
             // room needs its own: the walls are at 0.85 smoothness, and without a probe to reflect
@@ -13452,21 +13524,34 @@ namespace IterationRoom.EditorTools
                 return null;
             }
 
-            // WHICH WAY THE GLASS POINTS - axis from the normals, sign from the other pane.
-            Vector3 sum = Vector3.zero;
-            foreach (Vector3 v in frontMesh.sharedMesh.normals) sum += v;
-            Vector3 glassNormal = sum.sqrMagnitude > 1e-6f
-                ? face.transform.InverseTransformDirection(
-                      front.transform.TransformDirection(sum.normalized)).normalized
-                : Vector3.up;
+            // WHICH WAY THE GLASS POINTS - **the THIN AXIS of the mesh's own bounds**, sign from the
+            // other pane.
+            //
+            // **It was the average of the vertex normals, and that was wrong for a reason worth
+            // keeping**: a pane modelled as a SOLID - front, back and a rim - has a normal for every
+            // direction and they cancel, so the average is a near-zero vector pointing nowhere in
+            // particular. The magnitude check passed anyway (it is not exactly zero) and the direction
+            // was noise, which is why every mirror in the room came out at some arbitrary angle. Play
+            // called it "the disc looks like it can rotate", which is precisely what a garbage
+            // orientation looks like.
+            //
+            // A flat disc has one short axis and it is the normal. That is a fact about the shape
+            // rather than about how somebody chose to weld the mesh.
+            Vector3 ms = frontMesh.sharedMesh.bounds.size;
+            Vector3 thin = ms.x <= ms.y && ms.x <= ms.z ? Vector3.right
+                         : ms.y <= ms.z ? Vector3.up : Vector3.forward;
 
+            Vector3 glassNormal = face.transform.InverseTransformDirection(
+                front.transform.TransformDirection(thin)).normalized;
+
+            // The two panes are back to back, so the vector from one to the other IS the first one's
+            // outward direction. Anywhere a sign has to be chosen, find a second feature that decides
+            // it rather than picking and waiting to be told.
             Vector3 outward = face.transform.InverseTransformDirection(
                 front.bounds.center - back.bounds.center);
             if (Vector3.Dot(outward, glassNormal) < 0f) glassNormal = -glassNormal;
 
-            // The glass is round, so its largest local dimension IS its diameter. Off the MESH, which
-            // under a yaw is the only frame that describes the disc rather than the box round it.
-            Vector3 ms = frontMesh.sharedMesh.bounds.size;
+            // The glass is round, so its largest local dimension IS its diameter.
             float radius = 0.5f * Mathf.Max(ms.x, Mathf.Max(ms.y, ms.z)) * front.transform.lossyScale.x;
 
             // STAND IT UP FIRST. The model's own up - its +Z, which is what the FBX conversion left
@@ -13479,44 +13564,64 @@ namespace IterationRoom.EditorTools
             model.transform.localRotation =
                 Quaternion.Inverse(Quaternion.LookRotation(flatNormal.normalized, modelUp));
 
-            // THEN TAKE THE TILT OUT OF THE HEAD, on the clamp it tilts on. Everything that turns with
-            // the glass goes onto one pivot: the frame and both panes. The arm, the stem and the foot
-            // stay where they are, which is what keeps the thing standing on its base.
-            Transform pivot = null;
-            if (clamp != null)
+            // THEN TAKE THE TILT OUT OF THE HEAD, on the clamp it tilts on. What turns with the glass
+            // is the frame and both panes; the arm, the stem and the foot stay where they are, which
+            // is what keeps the thing standing on its base.
+            //
+            // **THEY ARE TURNED ONE BY ONE ABOUT A SHARED POINT, NOT REPARENTED UNDER A COMMON PIVOT,
+            // and the first version did the second and silently did nothing.** A model placed with
+            // `PrefabUtility.InstantiatePrefab` is a prefab INSTANCE, and Unity refuses to restructure
+            // one - `SetParent` across it is dropped without an exception. The build cheerfully
+            // reported "levelled on the clamp: yes" for a pivot that had collected zero nodes, which
+            // is what a log that measures the intention instead of the result is worth.
+            //
+            // Rotating each node about the same world point by the same amount is exactly what a
+            // common parent would have done, and needs no restructuring at all.
+            var tilting = new System.Collections.Generic.List<Transform>();
+            foreach (Transform t in model.GetComponentsInChildren<Transform>(true))
             {
-                GameObject head = new GameObject("Head");
-                head.transform.SetParent(model.transform, false);
-                head.transform.position = clamp.bounds.center;
-                pivot = head.transform;
-
-                var tilting = new System.Collections.Generic.List<Transform>();
-                foreach (Transform t in model.GetComponentsInChildren<Transform>(true))
-                {
-                    if (!(t.name.StartsWith("FRAME") || t.name.StartsWith("MIRROR"))) continue;
-                    // Only the topmost of each - a pane's mesh child carries the same name as its node.
-                    if (t.parent != null && (t.parent.name.StartsWith("FRAME")
-                                             || t.parent.name.StartsWith("MIRROR"))) continue;
-                    tilting.Add(t);
-                }
-                foreach (Transform t in tilting) t.SetParent(pivot, true);
+                if (!(t.name.StartsWith("FRAME") || t.name.StartsWith("MIRROR"))) continue;
+                // Only the topmost of each - a pane's mesh child carries the same name as its node.
+                if (t.parent != null && (t.parent.name.StartsWith("FRAME")
+                                         || t.parent.name.StartsWith("MIRROR"))) continue;
+                tilting.Add(t);
             }
+
+            Vector3 clampAt = clamp != null ? clamp.bounds.center : front.bounds.center;
 
             // Re-measured after the stand went upright, because that is the angle that is left.
             // `FromToRotation` rather than an euler: it carries its own sign, and a sign written by
             // hand here is a coin toss that only shows up in a screenshot.
             Vector3 nNow = face.transform.InverseTransformDirection(
-                front.transform.TransformDirection(sum.normalized)).normalized;
+                front.transform.TransformDirection(thin)).normalized;
             if (Vector3.Dot(nNow, Vector3.forward) < 0f) nNow = -nNow;
 
+            float tilt = Mathf.Asin(Mathf.Clamp(nNow.y, -1f, 1f)) * Mathf.Rad2Deg;
             Vector3 nLevel = new Vector3(nNow.x, 0f, nNow.z);
-            if (pivot != null && nLevel.sqrMagnitude > 1e-6f)
+            if (tilting.Count > 0 && nLevel.sqrMagnitude > 1e-6f)
             {
                 Quaternion level = Quaternion.FromToRotation(nNow, nLevel.normalized);
                 level.ToAngleAxis(out float angle, out Vector3 axis);
                 if (angle > 0.01f && angle < 359.99f)
-                    pivot.RotateAround(clamp.bounds.center, face.transform.TransformDirection(axis), angle);
+                {
+                    Vector3 axisWorld = face.transform.TransformDirection(axis);
+                    foreach (Transform t in tilting) t.RotateAround(clampAt, axisWorld, angle);
+                }
             }
+
+            // **MEASURED AFTER, not before.** The line under this used to print the angle the stand-up
+            // left behind and stop there, which says nothing at all about whether the correction
+            // worked - and it did not, for a while, with the log cheerfully reporting the fault it
+            // was supposed to catch.
+            Vector3 after = face.transform.InverseTransformDirection(
+                front.transform.TransformDirection(thin)).normalized;
+            if (Vector3.Dot(after, Vector3.forward) < 0f) after = -after;
+            float residual = Mathf.Asin(Mathf.Clamp(after.y, -1f, 1f)) * Mathf.Rad2Deg;
+
+            if (name.EndsWith("Mirror"))
+                Debug.Log($"[SceneBuilder] {name}: glass thin axis {thin}, stand-up left the disc "
+                        + $"{tilt:0.##}° off vertical, {tilting.Count} node(s) turned on the clamp, "
+                        + $"**residual {residual:0.##}°**.");
 
             // THE DISC'S CENTRE BECOMES THE OBJECT'S ORIGIN, re-measured after both turns. Everything
             // downstream - the carry pose, `Mirror.Centre`, the beam, the prompt - then talks about the
@@ -13560,11 +13665,71 @@ namespace IterationRoom.EditorTools
             Mirror mirror = root.AddComponent<Mirror>();
             mirror.face = face.transform;
             mirror.radius = radius;
+            mirror.frontRenderer = front;
             mirror.backRenderer = back;
             mirror.reach = reach;
             mirror.beamHeight = CycleThreeFloorY + BeamHeight;
 
+            BuildMirrorReflection(root.transform, mirror, front);
+
             return item;
+        }
+
+        // WHAT THE GLASS SHOWS. A camera standing behind the mirror looking back, and a shader that
+        // samples what it drew by SCREEN position - see `MirrorReflection` for the four rules that
+        // keep it affordable and `MirrorGlass.shader` for why screen space rather than UVs.
+        private static void BuildMirrorReflection(Transform root, Mirror mirror, Renderer glass)
+        {
+            Shader shader = AssetDatabase.LoadAssetAtPath<Shader>($"{ShadersDir}/MirrorGlass.shader");
+            if (shader == null)
+            {
+                Debug.LogError($"[SceneBuilder] MirrorGlass.shader missing from {ShadersDir} - "
+                             + "the mirrors will show whatever the model shipped with.");
+                return;
+            }
+
+            // **THE TINT IS WHAT ENDS THE TUNNEL**, and it is a value rather than a shader default
+            // for the reason every number in this project is (CLAUDE.md §2). Slightly cool and a
+            // quarter down from white: real glass loses about that much per bounce, and two mirrors
+            // facing each other then fade out on their own instead of needing a cap.
+            Material glassMat = MakeColorMaterial("MirrorGlass", new Color(0.76f, 0.78f, 0.82f));
+            glassMat.shader = shader;
+            glassMat.SetColor("_Tint", new Color(0.76f, 0.78f, 0.82f));
+            glass.sharedMaterial = glassMat;
+
+            GameObject rig = new GameObject("ReflectionCamera");
+            rig.transform.SetParent(root, false);
+
+            Camera cam = rig.AddComponent<Camera>();
+            cam.enabled = false;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = Color.black;
+            cam.allowHDR = false;
+            cam.allowMSAA = false;
+            // The building, not the horizon. Room3-2N is the deepest thing a mirror can be pointed
+            // down and it is 21m.
+            cam.farClipPlane = 40f;
+            // The WHOLE player, never the headless one they are looking out of - the entire point of
+            // a mirror here is seeing yourself. The shadow body goes too: the world body already casts
+            // here, and both would put two shadows under one person.
+            cam.cullingMask &= ~(1 << EnsureLayer(PlayerBodyViewLayer));
+            cam.cullingMask &= ~(1 << EnsureLayer(PlayerBodyShadowLayer));
+
+            // Same trim as the CCTV feeds, and for the same reason: a reflection of a white room does
+            // not need the pipeline the game needs, and shadow maps were the expensive part.
+            UniversalAdditionalCameraData data = cam.GetUniversalAdditionalCameraData();
+            data.renderShadows = false;
+            data.renderPostProcessing = false;
+            data.requiresColorOption = CameraOverrideOption.Off;
+            data.requiresDepthOption = CameraOverrideOption.Off;
+            data.antialiasing = AntialiasingMode.None;
+            data.dithering = false;
+            data.stopNaN = false;
+
+            MirrorReflection reflection = root.gameObject.AddComponent<MirrorReflection>();
+            reflection.mirror = mirror;
+            reflection.glass = glass;
+            reflection.reflectionCamera = cam;
         }
 
         // Big enough to be a thing carried in both hands and to be an easy target for a beam twenty
@@ -13790,6 +13955,11 @@ namespace IterationRoom.EditorTools
             cam.allowMSAA = false;
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = Color.black;
+            // The WHOLE player, not the headless one they are looking out of. A security monitor that
+            // showed a decapitated figure would be a memorable bug. The shadow body goes for the same
+            // reason it goes from the mirrors - the world body is already casting on this feed.
+            cam.cullingMask &= ~(1 << EnsureLayer(PlayerBodyViewLayer));
+            cam.cullingMask &= ~(1 << EnsureLayer(PlayerBodyShadowLayer));
 
             // **A SECURITY MONITOR DOES NOT NEED THE PIPELINE THE GAME NEEDS, and saying so is most of
             // what made cycle 3 playable again** (2026-08-21: play reported the whole cycle starting
@@ -14437,6 +14607,12 @@ namespace IterationRoom.EditorTools
             camGO.AddComponent<AudioListener>();
             cam.tag = "MainCamera";
 
+            // **THE PLAYER SEES THEIR OWN BODY AND NOT THE ONE THE MIRRORS SEE.** Two bodies, two
+            // layers, and each camera picks one - see `BuildPlayerBody`. This one takes the headless
+            // one, because it is standing inside the other one's skull.
+            BuildPlayerBody(player.transform);
+            cam.cullingMask &= ~(1 << EnsureLayer(PlayerBodyWorldLayer));
+
             // Unity's default near plane of 0.3 is the same as the controller's radius, and that
             // does not work: what pokes through a wall is the near plane's CORNER, not its centre,
             // and at fov 60 that corner reaches 0.463m (0.532m ultrawide) while the capsule stops
@@ -14508,6 +14684,22 @@ namespace IterationRoom.EditorTools
             clearance.hand = hand;
             clearance.ignoreRoot = player.transform;
             clearance.blockers = ~(1 << balloonLayer);
+
+            // ~~A FIRST-PERSON HAND UNDER THE HELD OBJECT~~ **BUILT AND REMOVED 2026-08-24, after
+            // play, by request: it hurt the game more than it helped.**
+            //
+            // It was DavidFischer's rigged FPS hands on `PlayerBodyView`, parented here so
+            // `HeldItemClearance` pulled it in with whatever it was holding, closing per object from
+            // the object's own thinnest dimension. None of that was the problem - it worked. The
+            // problem is what a hand DOES to a first-person game: it fills the corner of the frame
+            // permanently, and this is a game about looking at rooms.
+            //
+            // **The reasoning that argued FOR it still stands and is why this note is here**: held
+            // objects are their true size, so a metre of glass genuinely fills the view, and a hand
+            // is what explains that rather than leaving it a prop stuck to the camera. If it ever
+            // comes back, `git log` has the whole of it - the measured-not-written rig orientation,
+            // the 100x bone-space trap, and the per-object closure. What it does NOT solve is the
+            // objection above.
             // Takes and surrenders go into the same timeline the frames do, so a past self can
             // repeat them. Only items flagged ghostCarryable are written.
             hand.recorder = recorder;
@@ -14525,6 +14717,40 @@ namespace IterationRoom.EditorTools
         }
 
         private const string GhostModelPath = "Assets/ArtAssets/Smooth_Male_Casual@Walking.fbx";
+
+        // **TWO LAYERS, because a first-person body and a body in a mirror are not the same object.**
+        // A renderer cannot be told to draw differently per camera, so there are two of them and every
+        // camera in the building is told which one it may see:
+        //
+        //     PlayerBodyView    headless. ONLY the player's own camera renders it.
+        //     PlayerBodyWorld   whole. Everything EXCEPT the player's camera renders it.
+        //
+        // The head has to go from the first one because the camera is inside it, and a head rendered
+        // from the inside is a wall of skull across the top of the frame.
+        private const string PlayerBodyViewLayer = "PlayerBodyView";
+        private const string PlayerBodyWorldLayer = "PlayerBodyWorld";
+        // **AND A THIRD, WHICH IS ONLY EVER A SHADOW** (2026-08-22). The player cast none in their own
+        // view and the cause was not the lights: a camera's culling mask culls SHADOW CASTERS too, so
+        // excluding `PlayerBodyWorld` from the player's camera removed the body's shadow along with the
+        // body. The view body cannot supply it either - it is headless and armless, and a headless
+        // armless shadow on the floor is worse than no shadow at all.
+        //
+        // So a whole third instance, drawn by nobody (`ShadowsOnly`) and rendered by the player's
+        // camera alone; the mirrors and the CCTV feeds exclude it and take the world body's shadow
+        // instead, or a player standing in front of a mirror would cast two. Each of the three now
+        // does exactly one job, which is the same argument that built the first two.
+        private const string PlayerBodyShadowLayer = "PlayerBodyShadow";
+        // The same 0.377 the ghosts use, and for the same measured reason: the rig stands 4.739m at
+        // scale 1, so this puts it at 1.75m - a hair under the 1.8m controller and right for the 1.6m
+        // eye it is seen from.
+        private const float PlayerBodyScale = 0.377f;
+
+
+        // ~~`PlayerBodyViewSetback` and `FirstPersonHiddenBones`~~ **BOTH GONE 2026-08-23 with the
+        // first-person body they served.** The setback pushed that instance 20cm behind the player so
+        // the camera was not inside its chest; the bone list hid its head, its arms and finally its
+        // whole upper body. Neither has a subject any more - see `BuildPlayerBody`. `git log` has the
+        // measurements if the body ever comes back.
 
         // The ghosts are real people now - a rigged, animated, opaque figure rather than the six
         // faint primitives that came before. That is a deliberate change of what a ghost IS: it
@@ -14582,6 +14808,256 @@ namespace IterationRoom.EditorTools
 
             return anchor.transform;
         }
+
+        // THE PLAYER'S BODY, twice. See `PlayerBody` for why twice.
+        //
+        // Parented to the player ROOT rather than to the camera rig, so it takes the yaw and not the
+        // pitch: a body that tipped forward when you looked at your feet would be a body doing a
+        // somersault every time you checked where you were standing. The controller's origin is at
+        // the feet (`cc.center` is half its height), so this sits at local zero.
+        private static void BuildPlayerBody(Transform player)
+        {
+            GameObject model = AssetDatabase.LoadAssetAtPath<GameObject>(GhostModelPath);
+            if (model == null)
+            {
+                Debug.LogError($"[SceneBuilder] Player body model missing at {GhostModelPath}");
+                return;
+            }
+
+            // **THE MODEL'S OWN MATERIALS, and that is the fix rather than the shortcut.** It ships
+            // with six of them - Shirt, Skin, Pants, Eyes, Socks, Hair - already on
+            // `Universal Render Pipeline/Lit`, which the dump says and nobody had asked. They were
+            // being overwritten with one flat grey, so the player was a slab and play said so.
+            //
+            // Not the GHOSTS' materials either: `GhostMaterials` is the afterimage shader, a hollow
+            // rim that exists to say "this is a recording". The two now differ the way they should -
+            // the living player is a person and a past self is a smear of one - out of one model.
+            // ~~A THIRD INSTANCE, `PlayerBody_View`~~ **GONE 2026-08-23, after play, by request: look
+            // down and there is nothing there.**
+            //
+            // It was the headless armless one the player's own camera drew, and the decision to drop
+            // it is narrower than it looks. Of the three reasons a body was added at all, only ONE
+            // was ever about that instance - "look down and see yourself". The other two, being on the
+            // CCTV and being in a mirror, are the WORLD body's job and are untouched.
+            //
+            // And the remaining reason is thin in this game specifically: cycle 3 is a mirror puzzle,
+            // so there is a place built for seeing yourself properly, and a glance at your own shins
+            // is the worse version of that moment. Against it: 7,932 untextured triangles are at their
+            // closest to the camera here of anywhere in the building, and the legs are scrubbed by
+            // travel, so they do not match strafing, jumping or falling. Legs that disagree with the
+            // movement read worse than no legs. Same argument the arms lost on 2026-08-22.
+            //
+            // **What went with it**: `FirstPersonHiddenBones`, `PlayerBody.hideBones`,
+            // `PlayerBody.onlyWhileDriving` and `PlayerBodyViewSetback`. All four existed only to make
+            // that instance tolerable. `git log` has them if it ever comes back.
+            MakePlayerBody(player, "PlayerBody_World", model,
+                           EnsureLayer(PlayerBodyWorldLayer),
+                           shadows: UnityEngine.Rendering.ShadowCastingMode.On);
+            // ~~`PlayerBody_Shadow`~~ **GONE 2026-08-24, after play, by request: the quality was not
+            // there.** The player casts nothing in their own view.
+            //
+            // It was a second copy of the body drawn ShadowsOnly, and it existed for a reason that
+            // still holds mechanically: a culling mask culls shadow CASTERS too, so masking the world
+            // body out of the player's camera takes its shadow with it, and something else has to put
+            // one back. Nothing does now.
+            //
+            // **Three shapes were tried in one day and the objection outlived all of them**, which is
+            // the useful part of this note:
+            //
+            //   the body, one CORNER fixture casting - read as detached, a long shadow off to one side
+            //   the body, all four casting     - "like a skeleton": four silhouettes, eight limbs
+            //   a plain capsule                - fixed the limbs by deleting them; not a person
+            //   the body, nearest fixture only - short, overhead, correctly shaped, still not good
+            //
+            // So the remaining suspects are not the caster and not the silhouette. They are that these
+            // are POINT lights standing in for 1.4m emissive panels - a real area source gives a soft
+            // penumbra where a point gives a hard edge - and URP's default shadow bias, which
+            // peter-pans the contact point away from the feet. **Anyone restoring this should fix one
+            // of those first rather than trying a fifth shape.**
+            //
+            // What did NOT go with it: the ceiling fixtures still cast, so the ROOMS still have
+            // shadows - see `ShadowBudget`. This removes the player from that, nothing else. And
+            // `PlayerBody_World` is untouched, so a mirror and the CCTV still show a whole person.
+        }
+
+        private static void MakePlayerBody(Transform player, string name, GameObject model,
+                                           int layer,
+                                           UnityEngine.Rendering.ShadowCastingMode shadows)
+        {
+            GameObject body = (GameObject)PrefabUtility.InstantiatePrefab(model);
+            body.name = name;
+            body.transform.SetParent(player, false);
+            // Exactly where the player is. Both remaining instances want the true position - the
+            // world body because mirrors and CCTV must agree with the room, the shadow body because
+            // it is now the only thing telling the player where their own feet are.
+            body.transform.localPosition = Vector3.zero;
+            body.transform.localRotation = Quaternion.identity;
+            body.transform.localScale = Vector3.one * PlayerBodyScale;
+
+            // No colliders, for the reason the ghosts have none: the player already has a capsule, and
+            // a second one inside it would fight the first. It also keeps the body out of every
+            // raycast in the building - `PlayerLookup.Occluded` and `LaserBeam` both filter the Player
+            // tag, but not having a collider at all is cheaper than being filtered.
+            foreach (Collider c in body.GetComponentsInChildren<Collider>(true))
+                Object.DestroyImmediate(c);
+
+            foreach (Transform t in body.GetComponentsInChildren<Transform>(true))
+                t.gameObject.layer = layer;
+
+            SkinnedMeshRenderer skin = body.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (skin != null)
+            {
+                skin.sharedMaterials = PlayerBodyMaterials(skin.sharedMaterials, name);
+                // ONE CASTER PER CAMERA, never two: the world body casts for the mirrors and the
+                // feeds, the shadow body casts for the player, and the view body casts for nobody.
+                skin.shadowCastingMode = shadows;
+                // **THE VIEW BODY DOES NOT RECEIVE**, and that is not laziness. The shadow body stands
+                // in the same place wearing the same pose, so a receiving view body would be lit
+                // through its own coincident shadow caster - depth-fighting on every surface of your
+                // own legs, which is the classic way this arrangement produces acne.
+                skin.receiveShadows = shadows == UnityEngine.Rendering.ShadowCastingMode.On;
+                // The bounds Unity computes for a skinned mesh are the bind pose's, and this rig's are
+                // wrong enough that it vanishes when its origin leaves the frustum.
+                skin.updateWhenOffscreen = true;
+            }
+
+            Animator animator = body.GetComponent<Animator>();
+            if (animator == null) animator = body.AddComponent<Animator>();
+            animator.runtimeAnimatorController = GhostAnimatorController();
+            animator.applyRootMotion = false;
+
+            PlayerBody driver = body.AddComponent<PlayerBody>();
+            driver.animator = animator;
+        }
+
+        // ENROLS EVERY SHADOW-CASTING CEILING FIXTURE IN ONE BUDGET, and switches them all off.
+        //
+        // **THE ENROLMENT TEST IS "THE BUILDER GAVE IT SHADOWS"** - `BuildCeilingLights` sets
+        // `LightShadows.Soft` on the fixtures of any room built with `castShadows`, and this collects
+        // exactly those. No name tag and no second list to keep in step: a room that opts out never
+        // had shadows set, so it is never found here.
+        //
+        // Then every one of them goes to `None`, because from here on WHICH of them casts is
+        // `ShadowBudget`'s decision and there must be exactly one owner of it (CLAUDE.md §2). It also
+        // means the scene is saved, and the reflection probes are baked, with nothing casting - which
+        // is what the bake did anyway when only one light in the building cast, and what stops a
+        // 360-degree cubemap render asking for thirty shadow maps.
+        //
+        // **ONE BUDGET PER CYCLE, ON THE CYCLE'S OWN GameObject** - which is what makes it survive
+        // being saved. The cycles are split into scenes of their own further down `Build`, and a
+        // single budget sitting in the core scene held references to lights that walked off into
+        // `Cycle2` and `Cycle3`: Unity refuses to serialise a cross-scene reference, so two thirds of
+        // the list would have arrived at runtime as nulls. Hung off the `Cycle`, the component and
+        // every light it names are in one subtree and move together. It is also the right owner on
+        // its own merits (CLAUDE.md §2): a cycle owns its rooms, and only the loaded one runs.
+        //
+        // **OWNERSHIP IS TESTED AGAINST `worldRoot`, NOT BY WALKING UP TO A `Cycle`.** This runs
+        // before the bake, and at that point a cycle's rooms are still under its `worldRoot` with
+        // that root NOT yet parented to the `Cycle` itself - the split loop does that later. Asking
+        // `GetComponentInParent<Cycle>` here finds nothing at all, and the first version of this
+        // reported all sixty-four fixtures as orphans and switched them off for good.
+        //
+        // A scene walk rather than a line in every room's builder, for the same reason
+        // `AddFallingToEveryCarryable` is one: a new room gets this without its author knowing.
+        private static void WireShadowBudget()
+        {
+            var byCycle = new System.Collections.Generic.Dictionary<
+                Cycle, System.Collections.Generic.List<Light>>();
+            int orphans = 0;
+
+            Cycle[] cycles = Object.FindObjectsByType<Cycle>(FindObjectsInactive.Include,
+                                                             FindObjectsSortMode.None);
+
+            foreach (Light light in Object.FindObjectsByType<Light>(FindObjectsInactive.Include,
+                                                                    FindObjectsSortMode.None))
+            {
+                if (light.shadows == LightShadows.None) continue;
+                light.shadows = LightShadows.None;
+
+                Cycle owner = null;
+                foreach (Cycle c in cycles)
+                {
+                    Transform root = c.worldRoot != null ? c.worldRoot : c.transform;
+                    if (light.transform.IsChildOf(root)) { owner = c; break; }
+                }
+
+                if (owner == null) { orphans++; continue; }
+
+                if (!byCycle.TryGetValue(owner, out var list))
+                    byCycle[owner] = list = new System.Collections.Generic.List<Light>();
+                list.Add(light);
+            }
+
+            if (orphans > 0)
+                Debug.LogWarning($"[SceneBuilder] ShadowBudget: {orphans} shadow-casting light(s) are "
+                               + "under no Cycle, so nothing will ever switch them on. They have been "
+                               + "left dark rather than left casting.");
+
+            if (byCycle.Count == 0)
+            {
+                Debug.LogWarning("[SceneBuilder] ShadowBudget: no fixture is set to cast, so nothing "
+                               + "in this game will ever have a shadow. Check `castShadows`.");
+                return;
+            }
+
+            foreach (var pair in byCycle)
+            {
+                ShadowBudget budget = pair.Key.gameObject.AddComponent<ShadowBudget>();
+                budget.fixtures = pair.Value.ToArray();
+
+                Debug.Log($"[SceneBuilder] ShadowBudget on '{pair.Key.name}': {pair.Value.Count} "
+                        + $"eligible ceiling fixtures, at most {budget.maxCasters} casting within "
+                        + $"{budget.range}m of the player.");
+            }
+        }
+
+        // WHAT THE PLAYER IS WEARING, one material per slot, MATCHED BY THE SLOT'S OWN NAME.
+        //
+        // The model ships six - Shirt, Skin, Pants, Eyes, Socks, Hair - already on URP/Lit, and they
+        // are replaced rather than tuned in place because they are sub-assets of the FBX: editing
+        // those would edit the asset, and CLAUDE.md §2 puts values in `SceneBuilder` rather than in
+        // the thing being valued.
+        //
+        // **THIS IS BELIEVABLE, NOT PHOTOREAL, AND THAT CEILING IS THE MODEL'S.** 7,932 triangles, no
+        // UVs and no textures at all - the dump says so - so every surface is one flat colour and
+        // there is no skin, no fabric weave and no wrinkle to be had at any setting. What CAN be done
+        // is stop it reading as a mannequin: muted clothing rather than saturated, a plausible skin
+        // tone, cloth at low smoothness so it is not plastic, and wet-looking eyes.
+        //
+        // Anything past that is a different asset, not a different number.
+        private static Material[] PlayerBodyMaterials(Material[] source, string bodyName)
+        {
+            var result = new Material[source.Length];
+            for (int i = 0; i < source.Length; i++)
+            {
+                string slot = source[i] != null ? source[i].name : "";
+                Material made;
+
+                if (slot.StartsWith("Skin")) made = BodyMaterial("PlayerSkin", 0.80f, 0.62f, 0.51f, 0.25f);
+                else if (slot.StartsWith("Hair")) made = BodyMaterial("PlayerHair", 0.15f, 0.12f, 0.10f, 0.30f);
+                else if (slot.StartsWith("Shirt")) made = BodyMaterial("PlayerShirt", 0.33f, 0.37f, 0.44f, 0.14f);
+                else if (slot.StartsWith("Pants")) made = BodyMaterial("PlayerPants", 0.20f, 0.23f, 0.30f, 0.12f);
+                else if (slot.StartsWith("Socks")) made = BodyMaterial("PlayerSocks", 0.74f, 0.74f, 0.71f, 0.10f);
+                else if (slot.StartsWith("Eyes")) made = BodyMaterial("PlayerEyes", 0.09f, 0.09f, 0.11f, 0.80f);
+                else
+                {
+                    Debug.LogWarning($"[SceneBuilder] {bodyName}: unrecognised material slot '{slot}' - "
+                                   + "left as imported. Run Iteration Room/Dump Furniture Models.");
+                    made = source[i];
+                }
+
+                result[i] = made;
+            }
+            return result;
+        }
+
+        private static Material BodyMaterial(string name, float r, float g, float b, float smoothness)
+        {
+            Material m = MakeColorMaterial(name, new Color(r, g, b));
+            SetSmoothness(m, smoothness);
+            return m;
+        }
+
 
         private static GhostReplayer BuildGhostPrefab()
         {
@@ -15475,7 +15951,7 @@ namespace IterationRoom.EditorTools
         // Top-left readout of what is in the player's pockets. Carrying is state the loop rewinds
         // and the key is invisible once pocketed, so without this "do I still have the key" is only
         // answerable by walking to the door and trying it.
-        private static void BuildCarriedItems(Transform canvas, PlayerHand hand)
+        private static GameObject BuildCarriedItems(Transform canvas, PlayerHand hand)
         {
             // ONE SLOT. It was a row of eight, sized for a pocket that could hold every symbol cube
             // at once; the hand holds exactly one object now and the other seven were a readout of
@@ -15548,6 +16024,7 @@ namespace IterationRoom.EditorTools
             display.hand = hand;
             display.slot = image;
             display.dropHint = hintGroup;
+            return go;
         }
 
         // The two control prompts. A grey disc over whatever the player has walked up to, with an
@@ -15835,7 +16312,7 @@ namespace IterationRoom.EditorTools
             return (group, rect);
         }
 
-        private static (IterationLabel label, WakeUpSequence wakeUp, Transform canvas, CanvasGroup loading) BuildUI(PlayerHand hand)
+        private static (IterationLabel label, WakeUpSequence wakeUp, Transform canvas, CanvasGroup loading, CaptureRig capture) BuildUI(PlayerHand hand)
         {
             GameObject canvasGO = new GameObject("Canvas");
             Canvas canvas = canvasGO.AddComponent<Canvas>();
@@ -15953,9 +16430,14 @@ namespace IterationRoom.EditorTools
             label.cycleLabel = cycleText;
 
             BuildSleepingGas(canvasGO.transform);
-            BuildCountdownTimer(canvasGO.transform);
-            BuildEndCycleControl(canvasGO.transform);
-            BuildCarriedItems(canvasGO.transform, hand);
+            GameObject timerGO = BuildCountdownTimer(canvasGO.transform);
+            GameObject endCycleGO = BuildEndCycleControl(canvasGO.transform);
+            GameObject carriedGO = BuildCarriedItems(canvasGO.transform, hand);
+
+            // THE CAPTURE RIG, holding the three readouts above by reference. The prompts, the touch
+            // layer and the two cameras are added by `WireCaptureRig` in `Build`, because none of
+            // them exists yet at this point.
+            CaptureRig capture = BuildCaptureRig(timerGO, endCycleGO, carriedGO, groupGO);
 
             // uGUI buttons do nothing without one of these in the scene, and NewScene's default
             // objects are only a camera and a light.
@@ -15963,7 +16445,92 @@ namespace IterationRoom.EditorTools
             eventSystem.AddComponent<UnityEngine.EventSystems.EventSystem>();
             eventSystem.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
 
-            return (label, wakeUp, canvasGO.transform, loadGroup);
+            return (label, wakeUp, canvasGO.transform, loadGroup, capture);
+        }
+
+        // THE RIG THAT MAKES A RECORDING A TRAILER: HUD off, camera off the player's head. See
+        // `CaptureRig` for why it is not gated on `AcceptsInput` and why its two keys are not in
+        // `InputBindings`.
+        //
+        // ITS OWN ROOT, NOT A CHILD OF THE CANVAS. It hides canvas children by deactivating them, and
+        // an object that can deactivate its own parent's siblings is confusing enough without also
+        // sitting among them. It is also not per-cycle: the HUD, the player and this all live in
+        // `IterationRoom`, so the rig survives a cycle swap with its references intact.
+        //
+        // The tuned numbers live here rather than on the component, per CLAUDE.md SS2 - a capture rig
+        // is still a mechanism, and how fast its camera flies is still a value.
+        private static CaptureRig BuildCaptureRig(GameObject timer, GameObject endCycle,
+                                                  GameObject carried, GameObject card)
+        {
+            GameObject go = new GameObject("CaptureRig");
+            CaptureRig rig = go.AddComponent<CaptureRig>();
+
+            // Everything that is a READOUT. The eyelids, the gas and the pause menu are deliberately
+            // absent: the first two are the game rather than an overlay on it, and a hidden pause
+            // menu is a game that looks broken when somebody presses Escape mid-take.
+            rig.hud = new[] { timer, endCycle, carried };
+            // The ITERATION / CYCLE card, on its own step - it is the one overlay that is also the
+            // best single frame in the game.
+            rig.cards = new[] { card };
+
+            // A THIRD OF WALKING PACE. `walkSpeed` is 2.5 and a camera moving at it reads as a person
+            // rather than as a camera; the scroll wheel takes it up when a shot needs to cover ground.
+            rig.flySpeed = 1.6f;
+            rig.boostMultiplier = 4f;
+            rig.minSpeed = 0.15f;
+            rig.maxSpeed = 12f;
+            // Well under gameplay sensitivity, which is tuned for finding things in a hurry.
+            rig.lookSensitivity = 0.6f;
+
+            return rig;
+        }
+
+        // The half of the wiring that cannot happen inside `BuildUI`: the prompts and the touch layer
+        // are built after it returns, and the player camera after that again.
+        private static void WireCaptureRig(CaptureRig rig, GameObject hints, GameObject touch,
+                                           Camera playerCamera)
+        {
+            if (rig == null) return;
+
+            var hidden = new System.Collections.Generic.List<GameObject>(rig.hud) { hints, touch };
+            rig.hud = hidden.ToArray();
+
+            rig.playerCamera = playerCamera;
+            rig.captureCamera = BuildCaptureCamera(rig.transform, playerCamera);
+        }
+
+        // THE SECOND CAMERA, disabled until F10. Not parented to the player - the whole point is that
+        // it leaves - and not carrying an `AudioListener`, because the scene already has exactly one
+        // and a second is a warning on every frame plus a mix nobody chose.
+        private static Camera BuildCaptureCamera(Transform parent, Camera playerCamera)
+        {
+            GameObject go = new GameObject("CaptureCamera");
+            go.transform.SetParent(parent, false);
+
+            Camera cam = go.AddComponent<Camera>();
+            cam.enabled = false;
+            // Optics are copied off the player camera at detach time (see `CaptureRig.SetDetached`),
+            // so what is set here is only what a fresh Camera would otherwise get wrong.
+            cam.nearClipPlane = playerCamera.nearClipPlane;
+            cam.farClipPlane = playerCamera.farClipPlane;
+            cam.fieldOfView = playerCamera.fieldOfView;
+
+            // **THE OPPOSITE BODY TO THE PLAYER'S OWN CAMERA.** `BuildPlayer` masks out the world body
+            // and keeps the headless one, because it is standing inside the other one's skull. A
+            // camera that has flown away wants the reverse: the whole person, head included, exactly
+            // as a mirror or a past self sees them. Without this the trailer's wide shots have a
+            // decapitated player in them.
+            cam.cullingMask &= ~(1 << EnsureLayer(PlayerBodyViewLayer));
+            cam.cullingMask &= ~(1 << EnsureLayer(PlayerBodyShadowLayer));
+
+            // The same pipeline treatment the player camera gets, or the footage stops looking like
+            // the game: post-processing off would drop the volume stack the whole building is graded
+            // through, and no AA on a room made of straight black panel joins crawls badly in motion.
+            UniversalAdditionalCameraData data = go.AddComponent<UniversalAdditionalCameraData>();
+            data.renderPostProcessing = true;
+            data.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
+
+            return cam;
         }
 
         // Escape's overlay. Built after everything else on the canvas so it draws over the HUD,
@@ -17563,14 +18130,17 @@ namespace IterationRoom.EditorTools
         // the left edge at mid-height, which is right for a column and wrong for the one entry that is
         // not in it - and anchoring to the corner rather than offsetting from the centre is what keeps
         // it in the corner when the window is resized.
-        private static void CornerBottomRight(RectTransform rect)
+        // `rise` stacks a second entry above the first. There are two things in this corner now -
+        // RECORD and CREDITS - and 78 is the button's own 66 plus a gap, which is deliberately TIGHTER
+        // than the column's 88: these are a pair off to one side, not a continuation of the menu.
+        private static void CornerBottomRight(RectTransform rect, float rise = 0f)
         {
             if (rect == null) return;
             rect.anchorMin = new Vector2(1f, 0f);
             rect.anchorMax = new Vector2(1f, 0f);
             rect.pivot = new Vector2(1f, 0f);
             // The same margin off both edges as the column has off the left.
-            rect.anchoredPosition = new Vector2(-MenuLeftMargin, MenuLeftMargin);
+            rect.anchoredPosition = new Vector2(-MenuLeftMargin, MenuLeftMargin + rise);
         }
 
         private static Button MakeMenuButtonInk(Transform parent, string name, string label,
@@ -17878,7 +18448,8 @@ namespace IterationRoom.EditorTools
             Button recordButton = MakeMenuButton(menuGO.transform, "RecordButton",
                                                  "RECORD", Vector2.zero, MenuInk, "Medium");
             Localize(recordButton, "menu.record", "  ");
-            CornerBottomRight(recordButton.GetComponent<RectTransform>());
+            // ONE ROW UP: CREDITS is the bottom of this pair (2026-08-24, by request).
+            CornerBottomRight(recordButton.GetComponent<RectTransform>(), 78f);
             // ~~TEST: CYCLE BOUNDARY~~ REMOVED 2026-08-15, by request. It was a development shortcut
             // into the cycle boundary with cycle 1 already finished, sitting on the title screen
             // between CONTINUE and QUIT and labelled loudly so it could not be mistaken for content.
@@ -17892,6 +18463,9 @@ namespace IterationRoom.EditorTools
             Button settingsButton = MakeMenuButton(menuGO.transform, "SettingsButton",
                                                    "SETTINGS", new Vector2(0f, -294f), MenuInk, "Medium");
             Localize(settingsButton, "menu.settings", "  ");
+            // -382 AGAIN, now that CREDITS has left the column for the bottom-right corner. It was
+            // slid to -470 to make room for it; the column's pitch is 88 throughout and this closes
+            // the gap rather than leaving a hole where a button used to be.
             Button quitButton = MakeMenuButton(menuGO.transform, "QuitButton", "QUIT",
                                                new Vector2(0f, -382f), MenuInk, "Medium");
 
@@ -18085,25 +18659,29 @@ namespace IterationRoom.EditorTools
             fill.raycastTarget = false;
             Stretch(fill.GetComponent<RectTransform>());
 
-            // Attribution, bottom centre. Small and dim: it has to be present and it must not
-            // compete with the two buttons. This is the only place it appears - a build that hands
-            // credit somewhere the player has to go looking is not really handing it over.
-            GameObject creditsGO = new GameObject("Credits");
-            creditsGO.transform.SetParent(canvasGO.transform, false);
-            Text credits = creditsGO.AddComponent<Text>();
-            credits.font = UIFont();
-            credits.fontSize = 15;
-            credits.alignment = TextAnchor.LowerCenter;
-            credits.color = new Color(1f, 1f, 1f, 0.42f);
-            credits.text = CreditsLine;
-            credits.horizontalOverflow = HorizontalWrapMode.Overflow;
-            credits.raycastTarget = false;
-            RectTransform creditsRect = credits.GetComponent<RectTransform>();
-            creditsRect.anchorMin = new Vector2(0.5f, 0f);
-            creditsRect.anchorMax = new Vector2(0.5f, 0f);
-            creditsRect.pivot = new Vector2(0.5f, 0f);
-            creditsRect.sizeDelta = new Vector2(1600f, 30f);
-            creditsRect.anchoredPosition = new Vector2(0f, 22f);
+            // THE CREDITS, read out of the models themselves and put on a page of their own.
+            //
+            // What was here was a single dim line reading "FURNITURE MODELS: CREATIVE COMMONS". The
+            // reasoning for it was right - credit belongs where the player already is, not somewhere
+            // they have to go looking - but the line was not an attribution, and twenty-six of them
+            // do not fit on it. So the strip stays as the POINTER and the page carries the content:
+            // still on the title screen, still unmissable, one click away instead of nought.
+            System.Collections.Generic.List<ModelCredit> modelCredits = ReadModelCredits();
+            CheckModelLicences(modelCredits);
+            WriteAttributionFile(modelCredits);
+
+            (CanvasGroup creditsGroup, Button creditsBack) = BuildCreditsPage(canvasGO.transform, modelCredits);
+
+            // **OUT OF THE COLUMN AND INTO THE CORNER** (2026-08-24, by request), directly above
+            // RECORD - and the reason is the one already written beside RECORD rather than a new one.
+            // Every entry in that column is a way INTO the game or a way OUT of it; a licence list is
+            // neither. Two of them now sit off to one side, which is where the things the facility
+            // keeps belong.
+            Button creditsButton = MakeMenuButton(menuGO.transform, "CreditsButton", "CREDITS",
+                                                  Vector2.zero, MenuInk, "Medium");
+            Localize(creditsButton, "menu.credits", "  ");
+            // THE BOTTOM OF THE CORNER PAIR, with RECORD sitting on top of it.
+            CornerBottomRight(creditsButton.GetComponent<RectTransform>());
 
             // THE ROOM TONE, ON THE TITLE SCREEN. The same clip `RoomAmbience` runs in the game, at
             // less than half the level - see MainMenu.ambienceVolume. 2D, looping, and started at
@@ -18132,6 +18710,9 @@ namespace IterationRoom.EditorTools
             mainMenu.cycleGroup = cycleGroup;
             mainMenu.cycleButtons = cycleButtons;
             mainMenu.cycleEndButtons = cycleEndButtons;
+            mainMenu.creditsButton = creditsButton;
+            mainMenu.creditsBackButton = creditsBack;
+            mainMenu.creditsGroup = creditsGroup;
             mainMenu.settingsButton = settingsButton;
             mainMenu.settingsBackButton = settingsBack;
             mainMenu.settingsGroup = settingsGroup;
@@ -18607,6 +19188,239 @@ namespace IterationRoom.EditorTools
             MakeMenuLine(parent, name, content, fontSize, color ?? new Color(0.7f, 0.06f, 0.06f, 1f),
                 leftEdge + new Vector2(95f, 0f), new Vector2(190f, 30f), TextAnchor.MiddleLeft);
 
+        // WHO MADE WHAT, READ OUT OF THE FILES THEMSELVES.
+        //
+        // Every `.glb` here came off Sketchfab, and Sketchfab's exporter writes the title, the author,
+        // the licence and the source URL into the glTF's own `asset.extras`. That is the primary
+        // record, it cannot get separated from the file it describes, and reading it is what makes a
+        // credits screen impossible to forget to update.
+        //
+        // **THE HAND-MAINTAINED VERSION WAS WRONG, WHICH IS WHY THIS IS CODE.**
+        // `docs/asset-licences.md` was a table somebody typed, and checking it against the files found:
+        // `chess.glb` credited to the wrong person, `rubiks_cube.glb` credited to the wrong person,
+        // thirteen models missing from it entirely, and - the one that matters - `cctv_camera.glb`
+        // recorded as CC-BY when the file says **CC-BY-NC**. That is the same argument `FloorButton`'s
+        // audio settled: a list of every instance of a thing, maintained by hand, is a list that will
+        // be wrong. So there is no list.
+        private struct ModelCredit
+        {
+            public string file, title, author, authorUrl, licence, source;
+        }
+
+        // Only the fields wanted, so `JsonUtility` can ignore the rest of a 30MB glTF header.
+        [System.Serializable] private class GltfExtras
+        {
+            public string title, author, license, source;
+        }
+        [System.Serializable] private class GltfAssetBlock { public GltfExtras extras; }
+        [System.Serializable] private class GltfHeader { public GltfAssetBlock asset; }
+
+        private static System.Collections.Generic.List<ModelCredit> ReadModelCredits()
+        {
+            var credits = new System.Collections.Generic.List<ModelCredit>();
+            if (!Directory.Exists(ArtAssetsDir)) return credits;
+
+            foreach (string path in Directory.GetFiles(ArtAssetsDir, "*.glb", SearchOption.AllDirectories))
+            {
+                // The retarget spike is scratch, not shipped. Anything under a folder starting with
+                // `_` is the same kind of thing.
+                if (path.Replace('\\', '/').Contains("/_")) continue;
+
+                GltfExtras extras = ReadGltfExtras(path);
+                if (extras == null || string.IsNullOrEmpty(extras.author))
+                {
+                    // Silence here would be the whole bug coming back. A model whose file carries no
+                    // attribution needs one found by hand and written into the docs.
+                    Debug.LogWarning($"[SceneBuilder] {Path.GetFileName(path)} carries no author in its "
+                                   + "glTF extras - it cannot be credited automatically. Find its source "
+                                   + "and record it in docs/asset-licences.md.");
+                    continue;
+                }
+
+                credits.Add(new ModelCredit
+                {
+                    file = Path.GetFileName(path),
+                    title = string.IsNullOrEmpty(extras.title) ? Path.GetFileNameWithoutExtension(path) : extras.title,
+                    author = BeforeParen(extras.author),
+                    authorUrl = InsideParen(extras.author),
+                    licence = PrettyLicence(BeforeParen(extras.license)),
+                    source = extras.source,
+                });
+            }
+
+            credits.Sort((a, b) => string.Compare(a.title, b.title, System.StringComparison.OrdinalIgnoreCase));
+            return credits;
+        }
+
+        // A GLB is a 12-byte header then length-prefixed chunks; the first is always the JSON.
+        private static GltfExtras ReadGltfExtras(string path)
+        {
+            try
+            {
+                using (FileStream fs = File.OpenRead(path))
+                using (var br = new BinaryReader(fs))
+                {
+                    if (br.ReadUInt32() != 0x46546C67u) return null;   // not "glTF"
+                    br.ReadUInt32();                                   // version
+                    br.ReadUInt32();                                   // total length
+                    int chunkLength = (int)br.ReadUInt32();
+                    if (br.ReadUInt32() != 0x4E4F534Au) return null;   // first chunk is not "JSON"
+
+                    string json = System.Text.Encoding.UTF8.GetString(br.ReadBytes(chunkLength));
+                    return JsonUtility.FromJson<GltfHeader>(json)?.asset?.extras;
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[SceneBuilder] could not read glTF header of {Path.GetFileName(path)}: {e.Message}");
+                return null;
+            }
+        }
+
+        // Sketchfab writes `Name (url)` and `CC-BY-4.0 (url)`.
+        private static string BeforeParen(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            int i = value.IndexOf(" (", System.StringComparison.Ordinal);
+            return (i < 0 ? value : value.Substring(0, i)).Trim();
+        }
+
+        private static string InsideParen(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            int open = value.IndexOf('(');
+            int close = value.LastIndexOf(')');
+            return open >= 0 && close > open ? value.Substring(open + 1, close - open - 1) : "";
+        }
+
+        // `CC-BY-NC-4.0` is the machine's spelling; `CC BY-NC 4.0` is the one the licence itself uses.
+        private static string PrettyLicence(string code) =>
+            string.IsNullOrEmpty(code) ? "?" : code.Replace("CC-", "CC ").Replace("-4.0", " 4.0");
+
+        // THE CREDITS PAGE. Every model, its author and its licence, on a page of its own over the
+        // same background as SETTINGS and the cycle picker.
+        //
+        // **A PAGE RATHER THAN THE ONE-LINE STRIP IT REPLACES.** The strip said "FURNITURE MODELS:
+        // CREATIVE COMMONS", which names no author, no title, no licence version and no link - it is
+        // a statement that a licence exists somewhere, not an attribution. CC-BY 4.0 asks for the
+        // creator, the title, the licence and a link where practicable, and twenty-six of those do
+        // not fit on one line at the bottom of a title screen.
+        //
+        // Two columns, because one would run off the bottom at any readable size.
+        private static (CanvasGroup group, Button back) BuildCreditsPage(
+            Transform canvas, System.Collections.Generic.List<ModelCredit> credits)
+        {
+            GameObject root = new GameObject("Credits");
+            root.transform.SetParent(canvas, false);
+            CanvasGroup group = root.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            group.blocksRaycasts = false;
+            Stretch(root.AddComponent<RectTransform>());
+
+            MakeMenuLine(root.transform, "Title", "CREDITS", 52, MenuInk,
+                         new Vector2(0f, 430f), new Vector2(900f, 70f));
+
+            // The heading says what the list IS, so a player reading it knows these are obligations
+            // being met rather than a thank-you note.
+            MakeMenuLine(root.transform, "Subtitle",
+                         "3D MODELS FROM SKETCHFAB, USED UNDER CREATIVE COMMONS", 15,
+                         new Color(MenuInk.r, MenuInk.g, MenuInk.b, 0.6f),
+                         new Vector2(0f, 386f), new Vector2(1200f, 24f));
+
+            const int perColumn = 13;
+            const float rowPitch = 26f;
+            const float top = 340f;
+
+            for (int i = 0; i < credits.Count; i++)
+            {
+                ModelCredit c = credits[i];
+                int column = i / perColumn;
+                int row = i % perColumn;
+                // Two columns either side of centre. Left-aligned within each, so the eye has one
+                // edge to run down rather than a ragged centred stack.
+                float x = column == 0 ? -470f : 60f;
+
+                MakeMenuLine(root.transform, $"Credit{i}",
+                             $"\"{c.title}\" — {c.author} — {c.licence}", 13, MenuInk,
+                             new Vector2(x + 200f, top - row * rowPitch), new Vector2(400f, 22f),
+                             TextAnchor.MiddleLeft);
+            }
+
+            // The typefaces are the other third-party thing in the build, and the OFL wants naming
+            // too. Audio and code are this project's own - see docs/asset-licences.md.
+            MakeMenuLine(root.transform, "Fonts",
+                         "TYPE: JETBRAINS MONO (JETBRAINS) AND D2CODING (NAVER), BOTH SIL OFL 1.1", 13,
+                         new Color(MenuInk.r, MenuInk.g, MenuInk.b, 0.75f),
+                         new Vector2(0f, -60f), new Vector2(1400f, 22f));
+
+            MakeMenuLine(root.transform, "Links",
+                         "FULL LIST WITH LINKS: ATTRIBUTION.md, SHIPPED BESIDE THE GAME", 13,
+                         new Color(MenuInk.r, MenuInk.g, MenuInk.b, 0.55f),
+                         new Vector2(0f, -86f), new Vector2(1400f, 22f));
+
+            Button back = Localize(MakeMenuButtonInk(root.transform, "CreditsBackButton",
+                                                     "BACK", new Vector2(0f, -230f)), "menu.back", "  ");
+            return (group, back);
+        }
+
+        // THE FULL ATTRIBUTION, WITH URLS, AS A FILE THAT TRAVELS WITH THE BUILD.
+        //
+        // The page names creator, title and licence, which is a reasonable manner for a screen. The
+        // licence also asks for a link to the material "where practicable", and twenty-six URLs on a
+        // menu is not practicable - but a text file beside the executable is. Written on every build
+        // from the same source the page uses, so the two cannot disagree.
+        private static void WriteAttributionFile(System.Collections.Generic.List<ModelCredit> credits)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("# Attribution");
+            sb.AppendLine();
+            sb.AppendLine("Iteration Room uses the following third-party assets.");
+            sb.AppendLine("**Generated by `SceneBuilder` from each file's own glTF metadata — do not edit by hand.**");
+            sb.AppendLine();
+            sb.AppendLine("## 3D models");
+            sb.AppendLine();
+
+            foreach (ModelCredit c in credits)
+            {
+                sb.AppendLine($"- **\"{c.title}\"** by {c.author} — {c.licence}");
+                if (!string.IsNullOrEmpty(c.source)) sb.AppendLine($"  - Source: {c.source}");
+                if (!string.IsNullOrEmpty(c.authorUrl)) sb.AppendLine($"  - Author: {c.authorUrl}");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("## Fonts");
+            sb.AppendLine();
+            sb.AppendLine("- **JetBrains Mono** by JetBrains — SIL Open Font License 1.1");
+            sb.AppendLine("- **D2Coding** by NAVER Corporation — SIL Open Font License 1.1");
+            sb.AppendLine();
+            sb.AppendLine("## Everything else");
+            sb.AppendLine();
+            sb.AppendLine("Code, scenes, textures, materials, meshes, shaders and sound effects are this");
+            sb.AppendLine("project's own work. See `docs/asset-licences.md` for the full record.");
+
+            string path = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "ATTRIBUTION.md");
+            File.WriteAllText(path, sb.ToString());
+            Debug.Log($"[SceneBuilder] Attribution written for {credits.Count} models to {path}");
+        }
+
+        // **THE BUILD POLICES THE LICENCES NOW**, because the last check was a document and the
+        // document was wrong. NC cannot be sold at all, so it fails loudly; SA is sellable but viral
+        // and wants a decision rather than a surprise.
+        private static void CheckModelLicences(System.Collections.Generic.List<ModelCredit> credits)
+        {
+            foreach (ModelCredit c in credits)
+            {
+                if (c.licence.Contains("NC"))
+                    Debug.LogError($"[SceneBuilder] NON-COMMERCIAL ASSET: {c.file} is {c.licence} "
+                                 + $"(\"{c.title}\" by {c.author}). This CANNOT ship in a paid build - "
+                                 + "replace the model or keep the game free. See docs/asset-licences.md.");
+                else if (c.licence.Contains("SA"))
+                    Debug.LogWarning($"[SceneBuilder] SHARE-ALIKE ASSET: {c.file} is {c.licence} "
+                                   + $"(\"{c.title}\" by {c.author}). Sellable, but the model and any "
+                                   + "modification of it stay under the same licence - decide deliberately.");
+            }
+        }
+
         private static Text MakeMenuLine(Transform parent, string name, string content, int fontSize,
                                          Color color, Vector2 anchoredPosition, Vector2 size,
                                          TextAnchor alignment = TextAnchor.MiddleCenter)
@@ -19017,7 +19831,9 @@ namespace IterationRoom.EditorTools
             return rect;
         }
 
-        private static void BuildCountdownTimer(Transform canvasParent)
+        // Returns the object it built, purely so `CaptureRig` can be handed the HUD by reference
+        // rather than finding it by name at runtime. Same for the two builders below it.
+        private static GameObject BuildCountdownTimer(Transform canvasParent)
         {
             GameObject go = new GameObject("CountdownTimer");
             go.transform.SetParent(canvasParent, false);
@@ -19037,6 +19853,7 @@ namespace IterationRoom.EditorTools
 
             CountdownTimer timer = go.AddComponent<CountdownTimer>();
             timer.label = text;
+            return go;
         }
 
         // The end-cycle control, immediately left of the countdown. Built last so it draws over the
@@ -19077,7 +19894,7 @@ namespace IterationRoom.EditorTools
             gas.hissClip = LoadClip(SfxDir, "sfx_gas_hiss");
         }
 
-        private static void BuildEndCycleControl(Transform canvasParent)
+        private static GameObject BuildEndCycleControl(Transform canvasParent)
         {
             GameObject go = new GameObject("EndCycleControl");
             go.transform.SetParent(canvasParent, false);
@@ -19147,6 +19964,7 @@ namespace IterationRoom.EditorTools
             EndCycleControl control = go.AddComponent<EndCycleControl>();
             control.fill = fill;
             control.group = group;
+            return go;
         }
     }
 }

@@ -86,6 +86,7 @@ namespace IterationRoom.EditorTools
 
             DumpModel("Assets/ArtAssets/Furniture/hanging_monitor.glb");
             DumpModel("Assets/ArtAssets/Furniture/mirror_trensum.glb");
+            DumpModel("Assets/ArtAssets/Smooth_Male_Casual@Walking.fbx");
         }
 
         // Every retractable thing in the cycle, put where it goes when the puzzle is solved. Nothing
@@ -193,6 +194,7 @@ namespace IterationRoom.EditorTools
         {
             DumpModel("Assets/ArtAssets/Furniture/hanging_monitor.glb");
             DumpModel("Assets/ArtAssets/Furniture/mirror_trensum.glb");
+            DumpModel("Assets/ArtAssets/Smooth_Male_Casual@Walking.fbx");
         }
 
         // WHAT IS ACTUALLY IN A MODEL. "Which submesh is the screen" is not guessable from the
@@ -212,18 +214,31 @@ namespace IterationRoom.EditorTools
             probe.transform.localScale = Vector3.one;
 
             Debug.Log($"[Diagnose] {assetPath}");
-            foreach (MeshFilter mf in probe.GetComponentsInChildren<MeshFilter>(true))
+
+            // **EVERY RENDERER, NOT EVERY MESH FILTER.** A rigged character has none - its geometry
+            // hangs off a `SkinnedMeshRenderer` - so a dump that walked `MeshFilter` printed nothing
+            // at all for one and looked like an empty model.
+            foreach (Renderer r in probe.GetComponentsInChildren<Renderer>(true))
             {
-                Renderer r = mf.GetComponent<Renderer>();
-                Vector3 size = r != null ? r.bounds.size : Vector3.zero;
-                Vector3 centre = r != null ? r.bounds.center : Vector3.zero;
+                Mesh mesh = null;
+                if (r is SkinnedMeshRenderer skinned) mesh = skinned.sharedMesh;
+                else
+                {
+                    MeshFilter mf = r.GetComponent<MeshFilter>();
+                    if (mf != null) mesh = mf.sharedMesh;
+                }
+
                 string mats = "";
-                if (r != null)
-                    foreach (Material m in r.sharedMaterials)
-                        mats += (m != null ? m.name : "null") + " ";
-                Debug.Log($"[Diagnose]   mesh {Path(mf.transform)}  size {V(size)}  centre {V(centre)}"
-                        + $"  tris {(mf.sharedMesh != null ? mf.sharedMesh.triangles.Length / 3 : 0)}"
-                        + $"  mats [{mats.Trim()}]");
+                foreach (Material m in r.sharedMaterials)
+                    mats += (m != null ? $"{m.name}<{m.shader.name}>" : "null") + " ";
+
+                bool colours = mesh != null && mesh.colors32 != null && mesh.colors32.Length > 0;
+                bool uvs = mesh != null && mesh.uv != null && mesh.uv.Length > 0;
+
+                Debug.Log($"[Diagnose]   {Path(r.transform)}  size {V(r.bounds.size)}"
+                        + $"  centre {V(r.bounds.center)}"
+                        + $"  tris {(mesh != null ? mesh.triangles.Length / 3 : 0)}"
+                        + $"  vcol {colours}  uv {uvs}  mats [{mats.Trim()}]");
             }
 
             Object.DestroyImmediate(probe);

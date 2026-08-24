@@ -5,68 +5,59 @@ Every file in this project that somebody else made, and what it is licensed unde
 **Why this exists**: the project has shipped as a free WebGL build, where "it's Creative Commons" was
 good enough. It is not good enough for a paid release. **CC is not one licence** — `CC-BY` needs an
 attribution line, `CC-BY-SA` asks awkward questions of a commercial derivative, and **`CC-BY-NC`
-cannot be sold at all.** Nobody can tell which of those applies to a `.glb` by looking at it, and the
-file itself carries no record. So the record is here.
+cannot be sold at all.**
 
-**The rule: nothing ships in a paid build with `UNKNOWN` in its row.** Either the source is found
-again and written down, or the asset is replaced.
+**~~The file itself carries no record~~ — IT DOES, AND THAT WAS THE WHOLE MISTAKE.** Every `.glb`
+here came off Sketchfab, and Sketchfab's exporter writes the title, the author, the licence and the
+source URL into the glTF's own `asset.extras`. This document spent months being a hand-typed
+substitute for data that was inside the files the entire time, and it got two authors wrong, one
+licence wrong, and missed thirteen models. **The record is the files now**; `SceneBuilder` reads them
+at build time into `ATTRIBUTION.md` and the title screen's CREDITS page.
 
-Status as of 2026-08-20. **Every model row is resolved.** The one that was not — `weigh_scale.glb` —
-was closed on 2026-08-20 from the source pages pasted into the raw notes at the bottom of this file.
+**What this document is for now**: the things a glTF header cannot tell you — the fonts, the audio,
+the engine, and the judgement calls about which licences this project can actually live with.
+
+Status as of 2026-08-23.
 
 ---
 
 ## 3D models
 
-| File | Author | Source | Licence | Notes |
-|---|---|---|---|---|
-| `ArtAssets/Smooth_Male_Casual@Walking.fbx` | Quaternius | *Smooth Male Casual* | **CC0** | The ghost. 7,932 tris, 31 bones, twelve clips. No attribution required. |
-| `ArtAssets/Furniture/messy_bed.glb` | **thethieme** | [Sketchfab — *Messy Bed*](https://sketchfab.com/3d-models/messy-bed-b49dc1778b0b430cabdbad327d6e2e0d) | **CC-BY** | 306.9k tris. The author's own page calls it "old, poorly optimized" and links a newer one. |
-| `ArtAssets/Furniture/chess.glb` | **YarikLegendary** | [Sketchfab — *Chess*](https://sketchfab.com/3d-models/chess-6471ad3881ad45dba7634f1442ed3efe) | **CC-BY** | 421.3k tris, board + pieces. Half the pieces are mirrored — see `gotchas.md`. |
-| `ArtAssets/Furniture/rubiks_cube.glb` | **Shivansh Singh** | [Sketchfab — *rubik's cube*](https://sketchfab.com/3d-models/rubiks-cube-155420e09a124ec3a3bcca0852280672) | **CC-BY** | 1.7k tris. On the nightstand. |
-| `ArtAssets/Furniture/gold_key.glb` | **JeremyW** | [Sketchfab — *Gold Key*](https://sketchfab.com/3d-models/gold-key-34998df98cac4fa4a3a1ac395df5f708) | **CC-BY** | 4.2k tris. |
-| `ArtAssets/Play/seesaw.glb` | **IronEqual** (ie-niels) | [Sketchfab — *Seesaw from Poly by Google*](https://sketchfab.com/3d-models/seesaw-from-poly-by-google-b518b55b56f249ee902205775d2d0cdd) | **CC-BY** | 3.2k tris. A Poly backup. Scenery on room2-5's ledge. |
-| `ArtAssets/Play/rubber_duck.glb` | **Ikki_3d** | [Sketchfab — *Rubber duck*](https://sketchfab.com/3d-models/rubber-duck-f1de4fc390db4266a509b9739350512a) | **CC-BY** | 3.5k tris. Three of them float on room2-5's pool. |
-| `ArtAssets/Play/weigh_scale.glb` | **Dimitri** (dimitri_blender) | [Sketchfab — *Digital Weight Scale*](https://sketchfab.com/3d-models/digital-weight-scale-1b1b2ad2f06640528e67c1c37e0359b0) | **CC-BY** | 2.4k tris. Room2-7's platform scale, scaled up ~6x. Its green display is embossed geometry with no texture — `SceneBuilder.FlatPanelMesh` replaces that submesh with a quad so `PanelDigits` can paint the readout onto the model itself. Carries a **NoAI** notice. |
-| `ArtAssets/Play/industrial_valve.glb` | **Miguel Angel Jimenez** (Mangel Tekila) | [Sketchfab — *Industrial valve*](https://sketchfab.com/3d-models/industrial-valve-cea67369ae50485c9f06ea44cb608b92) | **CC-BY** | 3.2k tris. Three of them on room2-6's walls. Its textures are 175MB as imported — `ShrinkModelTextures` takes them to 5MB. |
-| `ArtAssets/Play/beach_ball.glb` | **MaggaModels** | [Sketchfab — *Beach Ball*](https://sketchfab.com/3d-models/beach-ball-25e1816c0e22444bb62816d3999d1b0b) | **CC-BY** | 3.6k tris. Two of them, the biggest things on that pool. |
-| `ArtAssets/Play/billiard_balls.glb` | **Yanez Designs** | [Sketchfab — *Billiard Balls*](https://sketchfab.com/3d-models/billiard-balls-523ac862d2154a7e8c96b964fb7cb11f) | **CC-BY** | 15.4k tris, sixteen balls as sixteen nodes each with its own 512x256 texture. Nine of them are room2-0's keys; the set is instantiated once and robbed, like `chess.glb`. Textures are small enough that `ShrinkModelTextures` is not called on it. |
-| `ArtAssets/Furniture/cctv_camera.glb` | **Jako** (fairlight51) | [Sketchfab — *CCTV Camera*](https://sketchfab.com/3d-models/cctv-camera-22ca80ef73034cb69597ef247816bbb3) | **CC-BY** | 3.7k tris. Three of them in room3-2N, one per feed. |
-| `ArtAssets/Furniture/hanging_monitor.glb` | **MaX3Dd** | [Sketchfab — *Hanging Monitor*](https://sketchfab.com/3d-models/hanging-monitor-1bcb147db4914410a02e4a134f9bf870) | **CC-BY** | 2.4k tris. Nine of them, three to a room. Authored face-DOWN with its glass running top-to-bottom along **-Z** — see `gotchas.md`, which is a whole section because the feeds came out upside down. |
-| `ArtAssets/Furniture/mirror_trensum.glb` | **YouniqueĪdeaStudio** (sinnervoncrawsz) | [Sketchfab — *MIRROR - IKEA TRENSUM*](https://sketchfab.com/3d-models/mirror-ikea-trensum-258799ba04874be4a972b13eaf180fa0) | **CC-BY** | 30.6k tris. Five of them, cycle 3's whole puzzle. Converted from an FBX so it is **Z-up**, and it carries **two** glass meshes (`MIRROR 2` / `MIRROR 2.001`) 8mm apart in Y — the game silvers one and blanks the other, because a single-sided mirror is a rule the player has to be able to see. 0.245m tall as imported; built at 1.0m. |
-| `ArtAssets/Furniture/cctv_camera.glb` | **Jako** (fairlight51) | [Sketchfab — *CCTV Camera*](https://sketchfab.com/3d-models/cctv-camera-22ca80ef73034cb69597ef247816bbb3) | **CC-BY** | 3.7k tris. Three of them in room3-2N, one per feed. |
-| `ArtAssets/Furniture/hanging_monitor.glb` | **MaX3Dd** | [Sketchfab — *Hanging Monitor*](https://sketchfab.com/3d-models/hanging-monitor-1bcb147db4914410a02e4a134f9bf870) | **CC-BY** | 2.4k tris. Nine of them, three to a room. Authored face-DOWN with its glass running top-to-bottom along **-Z** — `gotchas.md` has a whole section, because the feeds came out upside down. |
-| `ArtAssets/Furniture/mirror_trensum.glb` | **YouniquĒIdeaStudio** (sinnervoncrawsz) | [Sketchfab — *MIRROR - IKEA TRENSUM*](https://sketchfab.com/3d-models/mirror-ikea-trensum-258799ba04874be4a972b13eaf180fa0) | **CC-BY** | 30.6k tris. Five of them, and cycle 3's whole puzzle. Converted from an FBX so it is **Z-up**, and it carries **two** glass meshes (`MIRROR 2` / `MIRROR 2.001`) 8mm apart in Y — the game silvers one and blanks the other, because single-sided is a rule the player has to be able to see. 0.245m tall as imported; built at 1.0m. |
-| ~~`ArtAssets/Furniture/nightstand.glb`~~ | — | — | — | **DELETED 2026-08-14, unused.** Nothing loaded it — the nightstand is built from primitives. It was 8.5 MB of LFS and a CC-BY attribution obligation for a model not in the game. |
+**THIS TABLE IS NO LONGER THE RECORD.** `SceneBuilder.ReadModelCredits` reads the title, author,
+licence and source URL out of each `.glb`'s own glTF `asset.extras` at build time, writes
+`ATTRIBUTION.md` from it, and puts the same data on the title screen's CREDITS page. **Read
+`ATTRIBUTION.md` for the current list** — it cannot drift, because it is generated from the files.
 
-### The good news, and the obligation that comes with it
+### Why the hand-typed table was replaced (2026-08-23)
 
-**Nothing is NC and nothing is SA.** Every model is plain **CC-BY**, which permits commercial use — so
-Steam is not blocked by any of this, and no asset has to be replaced on licence grounds.
+It was checked against the files for the first time and it was wrong in five ways:
 
-**But CC-BY makes attribution mandatory, and that applies to the free build already published.** This
-is not a Steam-only problem. `SceneBuilder.CreditsLine` currently reads:
+| What the table said | What the file says |
+|---|---|
+| `chess.glb` by **YarikLegendary** | by **xnicrox** |
+| `rubiks_cube.glb` by **Shivansh Singh** | by **DoobiDooba** |
+| `billiard_balls.glb` by **Yanez Designs** | by **Anthony Yanez** (`paulyanez`) |
+| `cctv_camera.glb` is **CC-BY** | **CC-BY-NC-4.0** — non-commercial |
+| "Every model row is resolved" | **thirteen models were missing from the table entirely** |
 
-    FURNITURE MODELS: CREATIVE COMMONS
+Two of those are attributions to the wrong person, which is worse than no attribution. One is a
+licence class that cannot be sold. The lesson is the one `FloorButton`'s audio already recorded: a
+list of every instance of a thing, maintained by hand, is a list that will be wrong.
 
-That is not an attribution. It names no author, no title, no licence version and no link — it is a
-statement that a licence exists somewhere. Four separate creators are currently uncredited in a
-build that is publicly downloadable.
+### The two licences that are not plain CC-BY
 
-### What the credits line has to say
+**`cctv_camera.glb` — CC-BY-NC-4.0. This cannot ship in a paid build.** Three of them are in
+room3-2N, one per CCTV feed. NonCommercial is not a formality and there is no attribution that cures
+it: either the model is replaced before the game is sold, or the game stays free. `SceneBuilder`
+now fails this loudly on every build (`CheckModelLicences`) so it cannot be forgotten again.
 
-CC-BY 4.0 asks for, in any reasonable manner: the **creator's name**, the **title**, the **licence**
-(named and linked), and **a link to the material where practicable**. For a Sketchfab page a link is
-trivially practicable, so it is required rather than optional — and it doubles as the only thing that
-will let anyone re-verify these rows a year from now.
+**`wooden_bucket.glb` — CC-BY-SA-4.0.** Room2-2's buckets, a core cycle-2 puzzle. ShareAlike permits
+commercial use, so this is not a blocker — but the model and any modification of it stay under
+CC-BY-SA, and that is a decision to take deliberately rather than discover. Replacing it is cheap if
+the answer is no; a bucket is not a hard model to source.
 
-So each entry wants roughly:
-
-    "Messy Bed" by thethieme — CC BY 4.0 — <sketchfab url>
-
-Four of those will not fit on the one-line credits strip the menu currently has. The likely answer is
-a credits **panel** — the game already builds wall displays out of `MakeMenuLine`, so a scrollable or
-paged list is the same machinery, not new machinery.
+Everything else is plain **CC-BY 4.0**, which permits commercial use with attribution — and the
+attribution is now generated, so it is met.
 
 ## Fonts
 
@@ -174,7 +165,7 @@ disputes; they act on complaints. A page pulled in release week is the shape thi
 
 ### The cheapest resolution, and it is available right now
 
-**Write to Jesse Lupini.** He is findable, the film is nine years old, and short-film directors are
+**Write to Jesse Lupini.** A draft is ready to send in `docs/lupini-permission-email.md`. He is findable, the film is nine years old, and short-film directors are
 routinely pleased rather than threatened when someone builds on their work. Written permission —
 even an informal blessing over email — converts this entire section into a non-problem, and becomes a
 line on the store page worth more than it costs: *"made with the permission of the director."*
@@ -1054,3 +1045,274 @@ CC AttributionCreative Commons Attribution
 Learn more
 Published 4 years ago
 https://sketchfab.com/3d-models/mirror-ikea-trensum-258799ba04874be4a972b13eaf180fa0
+
+Joe | Realistic Human 3D Model
+3D Model
+Avatar of arjunpkrishna
+Arjun P Krishna
+
+Follow
+7.4k
+7426 Downloads
+65.7k
+65666 Views
+153
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 53.4k
+Vertices: 28.7k
+More model information
+Joe is recent model I created. It’s completely game-ready, it comes with good topology. Thus it’s ready for rigging and animation, skinning will be much easier. There’s a rigged version of Joe which is done in Maya(Advanced Skeleton), if you need it feel free to comment or contact me.
+
+Features:
+
+Game-Ready
+Good Topology
+PBR Texture
+Hope you love it!!
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 2 years ago
+https://sketchfab.com/3d-models/joe-realistic-human-3d-model-2a108401fe5547409a3ad666b9b7d6b3
+
+Realistic Female
+3D Model
+Avatar of Biviyt
+Biviyt
+
+Follow
+19.6k
+19574 Downloads
+112k
+111990 Views
+641
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 82.1k
+Vertices: 57.5k
+More model information
+Realistic Female realistic texture model everything rigged
+
+License:
+CC Attribution-ShareAlikeCreative Commons Attribution-ShareAlike
+
+Learn more
+Published 4 years ago
+https://sketchfab.com/3d-models/realistic-female-b0cc2a6c26114da184252e433cf75d23
+
+Hight Quality Realistic Girl Character
+3D Model
+Avatar of hammer.gamedev
+hammer.gamedev
+
+Follow
+1.1k
+1056 Downloads
+3.4k
+3380 Views
+45
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 80.9k
+Vertices: 58k
+More model information
+Realistic Female Character - High-Quality Humanoid Model
+
+Introducing our meticulously crafted 3D model of a realistic female character, designed with an exceptional level of detail and precision. This high-quality humanoid model is perfect for a wide range of applications including games, animations, and virtual reality projects.
+
+Features: Realistic Anatomy: Carefully modeled with accurate human proportions and anatomy to ensure a lifelike appearance. Detailed Texturing: High-resolution textures with intricate details, including skin pores, subtle facial features, and natural hair. Rigged Skeleton: Fully rigged with a comprehensive bone structure, allowing for smooth and realistic movements. Ideal for animators and game developers looking for fluid character motion.
+
+Tags: #3DModel #FemaleCharacter #Humanoid #Realistic #HighQuality #Rigged #GameAsset #Animation #VirtualReality
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 2 years ago
+https://sketchfab.com/3d-models/hight-quality-realistic-girl-character-e604d0b19f2f44c08f58bacad2ed03d8
+
+Arm
+3D Model
+Avatar of Just8
+Just8
+
+Follow
+9.3k
+9256 Downloads
+27.2k
+27206 Views
+267
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 87.8k
+Vertices: 44k
+More model information
+A photoscan of my arm i created for a little render 😊 Idk what you could use this for but u can download it for free :)
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 3 years agoJun 10th 2023
+Uploaded with Substance Painter
+https://sketchfab.com/3d-models/arm-76c7f128c3fd427ca939c3050ae95e26
+
+FREE GameReady [FPS Female Arms]
+3D Model
+Avatar of bamenwo05
+BAMEN
+
+Follow
+304
+304 Downloads
+1.2k
+1218 Views
+13
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 38.8k
+Vertices: 19.5k
+More model information
+GameReady Female First Peson Arms
+Ditails
+Topology: Perfect Quad-topology
+
+Textures: 4k PBR
+
+BaseColor
+Roughness
+Normal
+RIG: RIGGED, skeleton included
+Add: Example poses inclided, ready to animate
+
+Usage:
+Female Game Character. Perfect for FPS Games (Shooter, Survive and other games) I love ScetchFab, so I want to bring something usefull for all people here <3
+
+Please enjoy this model <3
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 22 days ago
+
+
+First Person hands rigged
+3D Model
+Avatar of davidfischer
+David Fischer
+
+Follow
+37.9k
+37910 Downloads
+140k
+139972 Views
+830
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 8.2k
+Vertices: 4.2k
+More model information
+Its a .blend file and a .fbx
+
+Material applied and ready to animate.
+
+First person hands for shooters or VR applications.
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 12 years agoNov 24th 2014
+No category set.
+https://sketchfab.com/3d-models/first-person-hands-rigged-547a45535f0c4fe787948f7a7a6a88db
+
+Hight Quality Realistic Girl Character
+3D Model
+Avatar of hammer.gamedev
+hammer.gamedev
+
+Follow
+668
+668 Downloads
+2.3k
+2330 Views
+28
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 78.3k
+Vertices: 55.7k
+More model information
+Realistic Female Character - High-Quality Humanoid Model
+
+Introducing our meticulously crafted 3D model of a realistic female character, designed with an exceptional level of detail and precision. This high-quality humanoid model is perfect for a wide range of applications including games, animations, and virtual reality projects.
+
+Features: Realistic Anatomy: Carefully modeled with accurate human proportions and anatomy to ensure a lifelike appearance. Detailed Texturing: High-resolution textures with intricate details, including skin pores, subtle facial features, and natural hair. Rigged Skeleton: Fully rigged with a comprehensive bone structure, allowing for smooth and realistic movements. Ideal for animators and game developers looking for fluid character motion.
+
+Tags: #3DModel #FemaleCharacter #Humanoid #Realistic #HighQuality #Rigged #GameAsset #Animation #VirtualReality
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 2 years ago
+https://sketchfab.com/3d-models/hight-quality-realistic-girl-character-baba4b0b710745ceabfea9a9aede7f42

@@ -323,6 +323,7 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `CctvFeed` | One camera in room3-2N and the screens showing it. Renders by hand, only while somebody is near one |
 | `FinalRoomSequence` | A cycle's `-0`: its console, its exit condition, and the break. Room4 and room2-0 |
 | `Cycle` | One cycle's world: its bed, doors, rooms, signal array, panels — and **which particle systems are its gas**. Anything per-cycle a system outside needs is NAMED here, never gathered by type at runtime |
+| `CaptureRig` | Filming: which HUD is hidden, and the camera that leaves the player's head. Editor/dev builds only, records nothing, and freezes the player through `GameInput.Suspended` alone |
 
 **Values live in `SceneBuilder`, mechanisms live in components.** Shaders and scripts take the
 number; they do not choose it.
@@ -573,7 +574,9 @@ and only the second answers whether something is understandable or enjoyable.
 | `docs/room-geometry.md` | Shells, the wall grid, doors |
 | `docs/rendering-notes.md` | Lighting, materials, probes |
 | `docs/audio.md` | PA schedule, filter chain, clip generation |
+| `docs/trailer-shotlist.md` | What to film, how to reach each shot, what it costs in iterations |
 | `docs/asset-licences.md` | Every third-party file and what it is licensed under |
+| `docs/lupini-permission-email.md` | Draft asking the director of *Iteration 1* for permission |
 | `docs/gotchas.md` | Costly one-time discoveries |
 | `docs/decisions.md` | Rejected ideas and open questions |
 | `iteration-game-spec.md` | Original spec |

@@ -821,7 +821,37 @@ one was an assumption standing in for a measurement:
 The second was in the dump the whole time and nobody read it: the pane's own bounds are
 **(0.165, 0.0437, 0.1596)**, and 44mm is far too thick for a sheet of glass unless it is lying at an
 angle inside its own box. `0.165 × sin(15°) ≈ 0.043`. **A bounding box that is thicker than the thing
-it contains is a rotation you have not accounted for.**
+it contains is a rotation you have not accounted for.** The build now measures and prints that angle,
+and it is 15.0°.
+
+### And a fourth: averaging vertex normals does not give you a face
+
+The first attempt at "which way does the glass point" averaged the pane's vertex normals. That works
+for a single-sided sheet and is **meaningless for a solid** - this pane is modelled front, back and
+rim, so it has a normal for every direction and they cancel. The average came out near zero, the
+magnitude guard passed anyway because it is not *exactly* zero, and the direction was noise. Every
+mirror in the room ended up at an arbitrary angle; play reported it as *"the disc looks like it can
+rotate"*, which is exactly what a garbage orientation looks like.
+
+**A flat disc has one short axis and that is its normal.** The mesh's own bounds say which, and that
+is a fact about the shape rather than about how somebody chose to weld it.
+
+### And a fifth, which is the one that took longest: a prefab instance cannot be restructured
+
+Taking the tilt out meant turning the frame and both panes on the clamp, so the first version made a
+pivot object and reparented the three nodes onto it. **`SetParent` across a prefab instance is dropped
+by Unity without an exception** - a model placed with `PrefabUtility.InstantiatePrefab` is an instance,
+and restructuring one is not allowed. The pivot collected nothing, rotated nothing, and the build
+reported *"levelled on the clamp: yes"* because what it was printing was `pivot != null`.
+
+Two lessons, and the second is the expensive one:
+
+- **Rotating N objects about a shared world point is exactly what a common parent would have done**,
+  and needs no restructuring. `Transform.RotateAround` per node, same pivot, same axis, same angle.
+- **A log that measures the INTENTION is worse than no log.** "levelled: yes" was true and useless;
+  it took a second report from the user to find out the correction had never run. The line prints the
+  **residual angle after the fact** now - it reads `-15° off vertical ... residual 0°` - and that is a
+  sentence that can only be written by something that actually worked.
 
 The third has a clean answer that needs no guessing: **the other pane.** They are back to back, so the
 vector from one to the other IS the first one's outward direction. Anywhere a sign has to be chosen,
@@ -856,4 +886,23 @@ Two rules fall out, and the second is the general one:
   moves. Any fixture whose behaviour depends on where a held object *is* or which way it *points* must
   ask the holder, not the item - which is also the only form a timeline can reproduce, since a
   recorded frame has a position and a yaw in it and no skeleton at all.
+
+## A clip imported without Loop Time plays once and then holds its last frame (2026-08-22)
+
+The player body's walk looked right for about a second and then the legs froze. `Man_Walk` is imported
+with Loop Time off, and nothing had ever noticed because **the ghosts have always scrubbed their own
+normalized time** - `animator.speed` pinned at 0 and `animator.Play(hash, 0, phase)` every frame - so
+the clip's own loop flag has never been read by anything.
+
+The fix was not to turn the flag on. `PlayerBody` scrubs too, which removes the dependency instead of
+patching it, and brings the other half of why `GhostReplayer` does it:
+
+> **The phase is advanced by TRAVEL, not by time.** `walkPhase += travel / metresPerCycle`. A stride
+> tied to distance cannot skate, at any speed, including none.
+
+Both now read the same three numbers - `metresPerCycle`, `walkThreshold`, `idleCycleSeconds` - because
+it is one rig playing one clip and two sets of them would drift.
+
+**The general form: when a component depends on an import setting nobody set deliberately, own the
+thing instead of the setting.**
 

@@ -44,6 +44,9 @@ namespace IterationRoom
         // image and happens to be the cheaper one to render.
         public Renderer backRenderer;
 
+        // The silvered side. `MirrorReflection` paints this one; nothing else reads it.
+        public Renderer frontRenderer;
+
         private static readonly System.Collections.Generic.List<Mirror> all
             = new System.Collections.Generic.List<Mirror>();
 

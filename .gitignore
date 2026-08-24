@@ -74,3 +74,6 @@ __pycache__/
 # Burst drops its generated WebGL plugin at the project root during a player build.
 # Build output, not source - the same category as Build/.
 /Data/
+
+# Trailer captures. Recorder writes 1080p60 MP4 here; none of it belongs in git.
+/Recordings/

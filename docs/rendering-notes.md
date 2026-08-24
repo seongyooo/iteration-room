@@ -216,3 +216,54 @@ things that made it work:
 - **The cursor was the whole awkwardness.** That room keeps the pointer captured, because that is what
   the sensitivity step measures, while a slider needs it loose. It took a TAB toggle and a hook in
   `FirstPersonController` to stop the first click at a handle taking the lock back.
+
+## Shadows: what the rooms cast, and why the player casts nothing (2026-08-24)
+
+Before this day, **exactly one light in the building cast a shadow**: `BuildCeilingLights` was called
+with `castShadows: true` for Room1 alone, and inside Room1 `index == 1` handed it to a fixed CORNER
+fixture of the 2x2 ceiling grid. Main-light shadows are off in the URP asset and every directional
+light is destroyed at build, so thirteen of fourteen rooms cast nothing at all.
+
+That surfaced as a complaint about the PLAYER's shadow reading as detached. It was: standing at a
+room's centre puts that corner fixture 3.13m to one side and 5.41m up, so a 1.8m body throws a shadow
+whose head lands about a metre away, in a room that looks evenly lit by four panels overhead.
+
+### The player's shadow was removed, after four attempts
+
+Recorded because the objection outlived every shape tried, which is the useful information:
+
+| Attempt | Result |
+| --- | --- |
+| The body, one CORNER fixture casting | Detached — a long shadow off to one side |
+| The body, all four fixtures casting | "Like a skeleton" — four silhouettes, eight limbs |
+| A plain capsule proxy | Fixed the limbs by deleting them; not a person's shadow |
+| The body, nearest fixture only | Short, overhead, correctly shaped — still not good enough |
+
+**So the caster count and the silhouette are both exhausted.** The two suspects nobody has tested are
+worth writing down, because a fifth shape will not help:
+
+1. **These are POINT lights standing in for 1.4m emissive panels.** A real area source of that size
+   gives a wide penumbra; a point gives a hard edge that no resolution fixes. This is the likeliest
+   cause of "the quality is bad", and it is a lighting-model problem rather than a shadow problem.
+2. **`m_ShadowDepthBias` and `m_ShadowNormalBias` are both at URP's default 1**, which peter-pans the
+   contact point away from the caster's base — the detachment complaint, from a second cause.
+   Lowering it blind trades that for shadow acne on the floor, so it needs an eye, not a guess.
+
+Resolution was ruled out on the way: the atlas was given to a single caster at 2048, which halves the
+~2cm texel a 1024 map spreads over a 130-degree cone from 5.4m.
+
+### What the rooms kept
+
+Every room's four fixtures are eligible, and `ShadowBudget` (one per `Cycle`, on the cycle's own
+GameObject so it survives the per-cycle scene split) keeps the **nearest one to the player** casting
+and the rest dark. Same cost as the single caster the game already paid for, and shadows now fall
+from roughly overhead in every room rather than from one corner of one room.
+
+Two details that cost a build each to find:
+
+- **Ownership is tested against `Cycle.worldRoot`, not by walking up to a `Cycle`.** The enrolment
+  sweep runs before the probe bake, and at that point a cycle's rooms are still under `worldRoot` with
+  that root not yet parented to the `Cycle`. `GetComponentInParent<Cycle>` finds nothing there.
+- **The sweep switches every fixture off before `BakeReflectionProbes`.** A probe cubemap renders 360
+  degrees and sees most of the corridor, so with all 64 eligible it asked for 24–42 shadow maps a face
+  and URP logged its atlas-reduction warning 76 times in one build.

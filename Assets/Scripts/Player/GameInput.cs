@@ -30,9 +30,25 @@ namespace IterationRoom
             if (touch == controls) touch = null;
         }
 
+        // EVERY VERB ANSWERS NOTHING WHILE THIS IS SET, and one flag here is the whole of it because
+        // one place is where every verb is read. `CaptureRig` raises it to fly the camera off the
+        // player's head: without it the frozen player still answers E, so a press meant to nudge the
+        // camera picks a key up off the floor beside a body that is not being controlled any more.
+        // Disabling `FirstPersonController` would stop the walking and none of the rest.
+        //
+        // **NOT A PAUSE.** `Time.timeScale` is untouched, the clock keeps running, ghosts keep
+        // replaying and the recorder keeps writing - which is exactly what filming past selves needs.
+        // And note what stays live below: `PausePressed` reads the raw Escape key beside the bound
+        // one, so the way to a menu survives this the way SS3 requires it to survive everything.
+        public static bool Suspended { get; set; }
+
         // THE TOUCH LAYER IS DRIVING. False on a desktop, and false on a touch device while the pause
         // menu is up - see TouchControls.Active, which is what decides.
-        public static bool TouchActive => touch != null && touch.Active;
+        //
+        // `Suspended` is folded in HERE rather than into each property below, so every touch branch
+        // falls through to the keyboard one - which `Held` and `Pressed` already answer false for.
+        // Two guards instead of eight, and no verb can be added later that forgets one.
+        public static bool TouchActive => touch != null && touch.Active && !Suspended;
 
         // THE HARDWARE, not the moment. True on a phone whether or not the game is currently taking
         // input - which is what makes it usable before the loop has started, where `TouchActive`
@@ -81,8 +97,8 @@ namespace IterationRoom
 
         // The two shapes every verb below is one of. Kept here so no call site repeats the lookup and
         // so "which key" has exactly one answer per verb.
-        private static bool Held(GameAction action) => Input.GetKey(InputBindings.Get(action));
-        private static bool Pressed(GameAction action) => Input.GetKeyDown(InputBindings.Get(action));
+        private static bool Held(GameAction action) => !Suspended && Input.GetKey(InputBindings.Get(action));
+        private static bool Pressed(GameAction action) => !Suspended && Input.GetKeyDown(InputBindings.Get(action));
 
         // IN DEGREES BEFORE SENSITIVITY, which is what `GetAxis("Mouse X")` already is once the
         // caller multiplies by it. The touch side converts a drag in pixels into the same units, so
@@ -93,6 +109,10 @@ namespace IterationRoom
             {
                 Pump();
                 if (TouchActive) return touch.Look;
+                // The one branch `Held`/`Pressed` cannot cover, because look is an axis rather than a
+                // key. Without it a suspended player keeps turning their head while the capture
+                // camera flies, and the mouse drives two views at once.
+                if (Suspended) return Vector2.zero;
                 return new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
             }
         }

@@ -26,14 +26,17 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
      room3-2N's two decks and its five columns are unreachable architecture. Whether the room wants a
      climb at all any more is part of the redesign.
    - **The mirrors have no HUD icon.** Every other carryable has one; `BuildMirror` passes none.
-   - **Reflections are the next rendering step, and deliberately after the puzzle.** A mirror that
-     shows the room and the player needs a planar reflection camera per VISIBLE mirror - the same cost
-     the CCTV feeds were cut for, and affordable under the same discipline (one render per frame
-     globally, shadows and post off, resolution by screen size). It also needs **a player body**:
-     `BuildPlayer` makes a controller and a camera and no mesh at all, so today a mirror pointed at
-     the player reflects an empty room. A body fixes the CCTV too, which shows ghosts and not you.
-     Recursion is to be left to fall off on its own - tinted reflectance, each nested image dimmer and
-     smaller - rather than hard-capped, by request: "like a real mirror".
+   - **THE MIRRORS REFLECT, AND NOBODY HAS SEEN IT.** Planar reflection, 512 square, one mirror per
+     frame, culled by which side of the glass you are on. Verified in code only, and a planar
+     reflection has several ways to look wrong that a clean build cannot rule out: inverted culling
+     (the room renders inside-out), the oblique near plane (the mirror shows the wall behind it), and
+     the screen-space sample being off by a viewport. **Look at one before anything else in this
+     list.**
+   - **How much realism the body is worth is now answerable and was not before.** The model is 7,932
+     triangles with no UVs and no textures, so every surface is one flat colour - `SceneBuilder` gives
+     it six tuned ones (skin, hair, shirt, pants, socks, eyes) and that is the ceiling. Anything more
+     is a different asset, not a different number. The mirror is the only place it will ever be seen
+     properly, so decide after looking in one.
    - **The gates no longer stand off for the player** (`Door.standsOffForPlayer = false`) and shut in
      0.3s. Two things to watch: whether a leaf closing THROUGH the player reads as a bug rather than
      as your own fault, and whether the room still lets a determined player through their own east or
@@ -86,11 +89,19 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
 6. **Gate the cycle picker before release.** CYCLE SELECT lists every cycle whether or not the player
    has reached it, which is a shortcut worth having while cycle 3 is under construction and a spoiler
    in a shipped build. One condition in `MainMenu.Awake` and one in `Start`.
-7. **CC-BY attribution is mandatory and the credits line does not do it.** Every model is CC-BY, which
-   permits commercial use - so nothing is blocked - but `SceneBuilder.CreditsLine` reads "FURNITURE
-   MODELS: CREATIVE COMMONS", which names no author, no title, no licence version and no link. Ten
-   creators are uncredited in a build that is already public. See `docs/asset-licences.md`, which has
-   every row resolved and the exact form each entry wants.
+7. **THE CCTV CAMERA IS NON-COMMERCIAL, AND THAT IS THE ONE REAL LICENCE BLOCKER.**
+   `cctv_camera.glb` is **CC-BY-NC-4.0** - three of them, one per feed in room3-2N. NonCommercial
+   cannot be sold and no attribution cures it: **replace the model before the game is sold, or keep
+   the game free.** Found 2026-08-23 by reading the file instead of the document; the document said
+   CC-BY. `SceneBuilder.CheckModelLicences` now fails it loudly on every build.
+   - **`wooden_bucket.glb` is CC-BY-SA-4.0** (room2-2's buckets). Sellable, but the model and any
+     modification stay under the same licence. A decision to take, not to discover. Replacing it is
+     cheap - a bucket is not a hard model to source.
+   - ~~Attribution is missing~~ **DONE**: `ReadModelCredits` reads title/author/licence/source out of
+     each glTF's own `asset.extras`, `BuildCreditsPage` puts it on a CREDITS page on the title screen,
+     and `WriteAttributionFile` writes `ATTRIBUTION.md` with the URLs. 26 models, generated on every
+     build, so it cannot go stale again.
+
 8. **Room2-7's latch is the length lever.** Its scale re-locks every iteration, so five past-self
    deliveries are the standing price of every trip to room2-0 - which is why two independent clears
    came out at 22 iterations 1.2 seconds apart. If cycle 2 should be shorter, that is what to change,
@@ -300,3 +311,74 @@ gone through it**, so the room works; what is below is what a clear cannot answe
   of one object instead of two different trees' geometry meeting at the floor. `tree_roots.glb` is
   still in `Assets/ArtAssets/Nature` and is now referenced by nothing - delete it with
   `nightstand.glb` when the orphans are swept.
+
+## The capture rig, built 2026-08-23, unplayed
+
+`CaptureRig` hides the HUD (F9, three steps) and takes the camera off the player's head (F10).
+Verified in code only: **the two keys have never been pressed.** `docs/trailer-shotlist.md` is what it
+is for.
+
+- **Shot F has no shortcut.** `DebugStart.AtCycleBoundary` does exactly what filming the console
+  needs - stands the player in the last room with the three escape objects on the floor, everything
+  after that on the real path - and nothing sets it, because the title screen's TEST button was
+  removed on request 2026-08-15. Either it goes back in some form (a modifier-click on the existing
+  cycle picker would not add a visible control), or that shot costs a played cycle. **A decision, not
+  a defect** - it was removed deliberately.
+- **Three numbers are guesses**: `lookSensitivity` 0.6, `flySpeed` 1.6 and the 1.15-per-notch scroll
+  step. All three are one field in `SceneBuilder.BuildCaptureRig`.
+- **The detached camera's culling mask is unverified.** It is set to the mirror camera's - full body,
+  no headless one - so a flown shot should show a whole person. Nobody has looked.
+- **Mirrors are wrong from a detached camera** and will stay wrong: `MirrorReflection` renders for
+  `PlayerLookup.Eye`, which is still the player's head. Fixable only by letting something else name
+  the eye, which is a change to a cycle-3 system for a trailer's benefit. Not worth it yet.
+
+## The ROOMS cast shadows now, and nobody has looked at those either (2026-08-24)
+
+**The player's own shadow is gone** - removed after play, because four attempts in one day all came
+out below the bar. `SceneBuilder.BuildPlayerBody` records what each one ruled out and what to fix
+FIRST if it is ever restored; the short version is that the remaining suspects are not the caster and
+not the silhouette, they are point lights standing in for area panels, and URP's default shadow bias.
+
+What survived that removal is the half of the change that was never about the player. Until this day
+exactly ONE light in the building cast anything - Room1's, and inside Room1 a fixed CORNER fixture -
+so thirteen of fourteen rooms had no shadows at all and the fourteenth threw them sideways. Every
+room now has a caster and `ShadowBudget` keeps it to the one nearest the player, which is very nearly
+the one overhead, at the same cost the game already paid.
+
+Nobody has looked at what that does for the ROOMS - the chess pieces, the cubes, the buckets, the
+tree. Open:
+
+- **Do room shadows help or just add noise?** This is the first time twelve chess pieces on a board,
+  or a stack of cubes, have thrown anything. If they read badly the whole thing can go back to
+  `castShadows: false` and cost nothing.
+- **`maxCasters` is 1 and no longer has to be.** One was forced by the player's shadow multiplying
+  into limbs; ordinary objects multiply into a soft pool instead. Raising it costs one shadow-map
+  render per fixture.
+- **`switchMargin` 0.8 is a guess** - it holds the current caster until a rival is clearly closer, so
+  walking between two fixtures does not flick the room's shadows back and forth. Watch for a swing.
+- **`m_ShadowDepthBias`/`m_ShadowNormalBias` are both at URP's default 1**, which peter-pans a contact
+  point away from whatever is casting. Lowering it blind trades that for acne on the floor.
+- **Nothing has been profiled**, though one caster is what the game had before any of this.
+
+Also worth knowing: the probes bake with **nothing** casting, because `WireShadowBudget` switches
+every fixture off before `BakeReflectionProbes` runs. That is what the bake effectively did before,
+so it is not a regression - but a probe cubemap will never contain a shadow while it stays that way.
+
+
+## The first-person body is GONE (2026-08-23, after play, by request)
+
+Looking down shows the floor. `PlayerBody_View` is not built, and `FirstPersonHiddenBones`,
+`PlayerBody.hideBones`, `PlayerBody.onlyWhileDriving` and `PlayerBodyViewSetback` went with it - all
+four existed only to make that instance tolerable. The world and shadow bodies stay, so mirrors, CCTV
+and past selves are unchanged.
+
+- **This closes the knee question.** The hip-down cut it briefly had could never have been knee-down:
+  hiding is a zeroed `localScale`, scale is inherited, and the shin is a child of the thigh - so there
+  is no arrangement that keeps a child and drops its parent, on this rig or any other. A true cut
+  needed a clip plane in the shader. Nothing needs one now.
+- **If a first-person body ever comes back**, the thing that will bite again is the rig: it is
+  IK-built and `Foot.L/R` hang off the skeleton root beside `Body`, NOT off the shins. The obvious
+  edit - hide `LowerLeg` - leaves two feet standing on the floor by themselves.
+- **The shadow body now stands at the true position** rather than 20cm back, because the legs it used
+  to line up against are gone. It is the only evidence in the player's own view that they have a body,
+  which makes it worth more attention than it has had - nobody has looked at it since it moved.
