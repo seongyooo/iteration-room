@@ -332,6 +332,71 @@ is for.
   `PlayerLookup.Eye`, which is still the player's head. Fixable only by letting something else name
   the eye, which is a change to a cycle-3 system for a trailer's benefit. Not worth it yet.
 
+## Two graphics passes are in and unseen; the third is blocked (2026-08-25)
+
+Asked for after play: lift the graphics. The diagnosis was that nothing was textured badly - it was
+that **every surface in the building was mathematically perfect**. Three passes; the reasoning and
+every dead end are in `docs/rendering-notes.md`.
+
+**1 and 2 are built and verified in code only.** Nobody has looked at either.
+
+- **Chamfered panel rims.** Every wall panel is a generated mesh with a 6mm chamfer on its front rim
+  instead of a scaled cube, so each of the ~3,400 raised panels has a lit line inside the shadow line
+  it already had. 20 distinct meshes for the whole game, so batching is unaffected - the build logs
+  the count and hundreds would mean the sizes had stopped repeating.
+  - **What to look at**: whether the rim reads at all at the far end of a room, or whether 6mm is too
+    fine to survive at distance. `PanelChamfer` is the number.
+  - Watch the doorway edges specifically - partial panels are what mint the odd mesh sizes.
+- **Roughness variation.** `MakeSmoothnessMap` breaks up how sharply light comes back, in broad soft
+  patches, on everything that already gets a normal map. It can only ever dull: the walls' 0.85
+  becomes a range of about 0.61-0.83.
+  - **What to look at**: whether it reads as "used" or as "dirty". `WearFloor` (0.72) is the range and
+    turning it toward 1.0 disables the effect without removing the texture.
+  - The metallics are the risk - the map carries metallic in its red channel, so check something
+    polished (the three escape objects) has not lost its shine.
+
+- **Bounce light. THE BAKE WORKS NOW (2026-08-25) AND NOBODY HAS LOOKED AT IT.** All four scenes bake
+  clean; what remains is entirely a judgement made by eye, and it is the one thing that decides
+  whether any of this was worth it.
+  - **Take the ambient DOWN, and do it before judging the result.** `SetupLighting` carries almost all
+    of the room's light on flat Trilight ambient precisely because there was no bounce. That constant
+    is now a second helping, so left alone a successful bake makes the building brighter and
+    **FLATTER** - the opposite of the point. Start by halving the Trilight values
+    (0.155 / 0.644 / 0.719) and compare a corner against a wall centre: the corner should now be
+    visibly darker. If it is not, the ambient is still winning.
+  - **The dial is back for this.** `Iteration Room` → play the calibration room → **TAB**
+    (`Assets/Scripts/Dev/LightingTuner.cs`): ambient x3, fixture intensity/cone, both shadow biases,
+    and the six surface numbers, all seeded from the live scene. Read the numbers off it and type
+    them into `SceneBuilder` - it saves nothing on purpose. **It cannot show you bounce**: the
+    fixtures are Mixed, so anything feeding the bake is live in its direct half and stale in its
+    indirect one. Rebuild and RE-BAKE before believing a result.
+  - **THE SHADOW ATLAS IS AT 4096 AND NOBODY HAS MEASURED THE COST** (2026-08-25). Four casters at
+    2048 each was chosen for sharpness plus stability, and it is four times the shadow pixels the
+    game drew the day before. This exact number was reduced to 2048 once already, after play reported
+    "laggy everywhere" - the cause was believed to be full-screen passes, but nothing was measured
+    then either. **Watch the frame rate; if it moved, this is the first thing to halve.**
+  - **Shadows are the one thing it is honest about**, and there is a real complaint waiting for it:
+    the player's shadow was removed after four attempts because it read as detached, and
+    `docs/rendering-notes.md` names `m_ShadowDepthBias`/`m_ShadowNormalBias` as an untested suspect
+    that "needs an eye, not a guess". This is that eye.
+  - **Then decide whether the bake earns its cost**: ~4 minutes and about 15MB of cell data per full
+    run, against a building whose whole complaint was that it reads as a whitebox.
+  - Cycle1's baking set sits in `Assets/Settings/ProbeVolumes/` while the other three are in
+    `Assets/Scenes/<Scene>/`. Cosmetic - Unity finds them either way - but worth tidying if the
+    baked data is ever committed.
+
+Also from the same pass, and unlooked-at:
+
+- **MSAA is 2x, was 4x.** The player camera already runs SMAA, so 4x was buying the second half of a
+  job already being done, at four samples of bandwidth per pixel. Watch the panel grooves - long
+  straight dark edges are exactly what MSAA is for, and if they crawl in motion this is why.
+- **Shadow resolution is back to 1024 per caster** (it was briefly 2048, for the player's shadow that
+  no longer exists) and the atlas to 2048. Four casters, an exact fit.
+- **`PlayerLookup.Occluded` no longer allocates.** It was `Physics.RaycastAll` - a fresh array per
+  call, per candidate, per frame - which in a room like the chess board is a dozen allocations a frame
+  for the collector to charge for later as a hitch.
+
+
 ## The ROOMS cast shadows now, and nobody has looked at those either (2026-08-24)
 
 **The player's own shadow is gone** - removed after play, because four attempts in one day all came

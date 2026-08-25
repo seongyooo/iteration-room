@@ -906,3 +906,207 @@ it is one rig playing one clip and two sets of them would drift.
 **The general form: when a component depends on an import setting nobody set deliberately, own the
 thing instead of the setting.**
 
+
+## A mesh with no triangles hangs the GI bake, and the error you can see is not the error (2026-08-25)
+
+`chess.glb` ships a mesh named `Material3` carrying no triangle sub-mesh. The day `ContributeGI` was
+switched on for every non-moving renderer, that mesh went into APV's **Virtual Offset** stage, which
+builds a ray tracing acceleration structure out of the GI set.
+`HardwareRayTracingAccelStruct.AddInstance` refuses a mesh with no triangle topology — and then
+registers a zero handle for it anyway, so the *second* such mesh throws `ArgumentException: An item
+with the same key has already been added. Key: 0`.
+
+That aborts `DefaultVirtualOffset.Initialize` half-built, `Step()` NREs on what it left behind, and
+the wreckage surfaces six stages later as a `NullReferenceException` in
+`AdaptiveProbeVolumes.GenerateScenesCellLists`.
+
+**The last one is the only one anybody saw, and it is not the bug.** Unity's `FinalizeBake` wraps
+`ApplyPostBakeOperations` in a `catch` that logs and swallows, then calls `CleanBakeData()`, which
+throws `ObjectDisposedException` *out* of the bake delegate. `done` is therefore never set, Unity
+calls the delegate again on the next tick, and the pair repeats at hundreds a second: 29,757
+exceptions, a 129MB log, and an Editor that has to be killed from Task Manager.
+
+Three diagnoses were made off the tail of that log and all three were wrong — including "this is a
+Unity bug in 6000.5.7f1", which stood in `docs/rendering-notes.md` for three days with a workaround
+plan attached to it. The stale-data theory was cheap to test and was disproved outright: a bake from
+a freshly created baking set crashed identically.
+
+**Cycle1 was the only scene that crashed because Room2West is the only room with chess pieces.** The
+symptom is scene-shaped and the cause is asset-shaped, which is why "what is different about this
+scene's *geometry*" was the question that solved it and "what is different about this scene's
+*volume*" — the obvious one, since Cycle1's is a 17 × 15 × 73m splinter — was a dead end.
+
+Three things to carry:
+
+- **When a bake hangs, read the FIRST error after `'<Scene>': baking.`** A crash loop's tail tells you
+  what the wreckage looks like, never what hit it. `awk 'NR>start && /Exception/ {print NR; exit}'`.
+- **A released engine having an obvious bug is a claim that needs evidence.** Thousands of projects
+  bake APV. "It would have been fixed already" was the right instinct and it came from the user, not
+  from here.
+- **`MarkReflectionProbeStatic` now asks `HasTriangles(r)` before granting ContributeGI.** A mesh with
+  no triangles bounces nothing and blocks nothing, so holding it out costs the bake exactly zero — and
+  the count is logged, because otherwise the next one to slip in has no symptom until the hang.
+
+## APV's sampling noise is a TAA feature, and this project has no TAA (2026-08-25)
+
+The hour Adaptive Probe Volumes were switched on, every wall panel in the building started pulsing —
+reported from play as brightness popping, not as seams or z-fighting. Nothing was wrong with the
+bake. It was the **sampler**.
+
+APV dithers the probe sampling position to hide the seams between subdivision levels, and Unity's
+`ProbeVolumesOptions` defaults are `samplingNoise = 0.1` with **`animateSamplingNoise = true`**. The
+tooltip on that second one says what it is for: *"Whether to animate the noise **when TAA is
+enabled**, smoothing potentially out the noise pattern introduced."*
+
+**The player camera runs SMAA** (`BuildPlayer`), which resolves a single frame and cannot average
+anything across frames. So the dither was re-rolled every frame with nothing to resolve it, on every
+flat white surface in a building made of flat white surfaces.
+
+`BuildPostProcessing` now writes a `ProbeVolumesOptions` override with the noise off and the
+animation off. `leakReductionMode` is left at `Quality`, which is already the right one.
+
+**The general form: a default tuned for a temporal antialiaser is a bug in a project that does not
+run one.** Anything whose documentation contains the words "when TAA is enabled" needs checking
+against `BuildPlayer` before it is left at its default — the noise is the one that was found, not
+necessarily the only one.
+
+If a visible STEP in brightness ever appears partway along a wall — a subdivision seam, which is what
+the noise exists to hide — raise `samplingNoise` back toward 0.1 and leave the animation off.
+
+## APV ships with dilation OFF, and a building of thin panels needs it ON (2026-08-25)
+
+The bake worked, the ambient was rebalanced, and the wall panels still rendered as hard-edged black
+wedges with dithered borders — in rooms whose **floor and ceiling looked perfectly fine**.
+
+That asymmetry is the whole diagnosis. A floor and a ceiling are single large slabs with probes well
+clear of them. A wall here is a grid of 25mm-proud panels with grooves between them, and probes sit
+on a 1m lattice, so a large share of them land *inside* a panel, inside the backing slab, or in the
+gap between the two. A probe inside geometry is **invalid** — it has no useful irradiance — and the
+panels sampling it came out black.
+
+Two features exist to handle that, and only one was on:
+
+| | state | what it does |
+|---|---|---|
+| Virtual Offset | on (Unity default) | pushes an invalid probe out of geometry — by `outOfGeoOffset`, which defaults to **1cm** |
+| **Dilation** | **off (Unity default)** | fills whatever is still invalid from valid neighbours |
+
+1cm does not get a probe out of a wall it is 30cm inside, so Virtual Offset rescued the easy cases
+and nothing caught the rest. `ProbeDilationSettings.SetDefaults()` sets `enableDilation = false`;
+Unity's own tooltip for it is *"Replace invalid probe data with valid data from neighboring probes
+during baking."* `BakeLighting.ConfigureBakingSet` now turns it on before every bake, through
+`SerializedObject` because all of these types are `internal`.
+
+Cost: about 10% on bake time (IterationRoom 5.3s → 7.3s, Cycle2 214s → 190s — inside the noise).
+
+**If black or wildly dark patches ever appear on one CLASS of surface while the others are fine, look
+at probe validity before anything else.** The instinct is to suspect the material or the lights; the
+tell is that the surfaces which are fine are the ones probes have room around.
+
+## The building shipped inside out for a day, and three good theories died first (2026-08-25)
+
+`ChamferedPanelMesh` wound every quad `(0,2,1) / (0,3,2)` from corners supplied counter-clockwise as
+seen from outside. Unity treats **clockwise-from-the-front** as front-facing, so every quad faced
+backwards, and `RecalculateNormals` — which derives normals from exactly that winding — gave every
+wall panel in the game a normal pointing **into the wall**. The face the room can see was then shaded
+as though it faced away from every light in the room.
+
+**Result: a white building with pure black walls.** Floors, ceilings, furniture and props were
+untouched, because they are plain slabs and primitives that never go through this function.
+
+### What made it expensive
+
+The regression landed on the same day Adaptive Probe Volumes were first made to bake, so the black
+walls looked like a lighting-bake problem and were diagnosed as one three times over:
+
+| Theory | Why it was plausible | How it died |
+|---|---|---|
+| APV sampling noise | Panels flickered, and `animateSamplingNoise` really is a TAA default this project should not have | Fixed the *flicker*; the black stayed |
+| APV dilation off | Unity really does default it off, and invalid probes really do read black | Turned on, re-baked, no change |
+| `ContributeGI` | Added the same day; lightmap-static really does change how ambient reaches a surface | Withheld for one build, no change |
+
+Each of those was a real defect and each fix was kept. **None of them was this one.**
+
+### What actually found it
+
+Bisection against a reference, using a render nobody had to be asked for. `MenuBackground.png` is a
+render of the room, regenerated on every build, so `git show HEAD:Assets/Textures/MenuBackground.png`
+is a picture of the room BEFORE the day's changes — bright white panels — and the working copy is a
+picture of it after. From there it was one variable per build: APV off (still black), ContributeGI
+off (still black), ambient restored (still black), panels swapped back to plain cubes (**bright**).
+
+Three lessons, in order of how much they would have saved:
+
+- **A build that renders is a test you can run yourself.** Four of these builds cost about ten
+  minutes total and needed nobody to look at anything. The three dead theories all came from
+  reasoning about the last screenshot instead.
+- **Bisect against a committed artefact.** The single most useful object in this whole hunt was the
+  old `MenuBackground.png` sitting in git.
+- **Do not reason about winding from a comment.** The comment above this function asserted the
+  winding was correct and cited `BevelledPrismMesh` learning it the hard way — the identical mistake,
+  in this project, caught the first time only because that mesh happened to be emissive. A hand
+  computation agreed with the comment and was also wrong. Build it and look at it.
+
+## A tiled detail map repeats, and no amount of noise design fixes that (2026-08-25)
+
+Reported from play, twice: pale grey squares in a regular grid across the walls and floor, worst at
+grazing angles, clean head-on. It was the **wear map** (`MakeSmoothnessMap`), and turning it off
+removed it completely.
+
+**Two wrong diagnoses first, both plausible, both mine:**
+
+1. *Block compression.* The map carries smoothness in ALPHA and was importing at Unity's default
+   `Compressed`; DXT5 quantises alpha in 4x4 blocks. Real defect, wrong culprit - **decoding the
+   source PNG showed its alpha was perfectly smooth** (184..255, no blocking). The uncompressed
+   import was kept because a data texture should not be block-compressed regardless, but it changed
+   nothing on screen.
+2. *Correlated octaves.* The noise ran two octaves at periods 4 and 12, and 12 is 3x4, so both sit on
+   the same lattice. Simulating a decorrelated version (coprime periods, three octaves) side by side
+   showed **no improvement at all** - which is what finally pointed at the real cause.
+
+**The cause is the tiling.** URP/Lit drives every secondary map from `_BaseMap`'s single UV
+transform, so the wear map is locked to the (5,3)-per-panel tiling the NORMAL map needs for its fine
+grain. Fifteen copies of one tile on every panel, and the same fifteen on all 88 panels. Value noise
+puts its extrema on a lattice, so what repeats is a regular grid of soft blobs. At grazing angles the
+specular is strongest and the grid becomes obvious; head-on it never showed, which is why every
+head-on render looked clean.
+
+**A tiled texture cannot carry variation at a scale LARGER than its tile.** Wear wants patches bigger
+than a panel; the tile is a fifth of one. That is not a tuning problem, it is the wrong mechanism -
+and in a building made of discrete panels the right one is one value PER PANEL through a property
+block, which has no tiling to repeat.
+
+### What made it findable
+
+`MenuBackground.png` is re-rendered by every build and its side walls are at a grazing angle - the
+same view the artifact needs. Crop that region, upscale, boost contrast, and the pattern is plainly
+there; disable the wear map, rebuild, crop again, and it is plainly gone. **A build that renders is a
+test you can run yourself**, and the same trick had already solved the inside-out panels earlier the
+same day.
+
+Also worth having: the noise generator was reproduced in ~30 lines of Python to compare candidate
+octave settings as images, without Unity in the loop at all. Three minutes, and it killed the
+octave theory before a single rebuild was spent on it.
+
+## The build writes a cross-scene reference report, and it is only useful if it is read (2026-08-25)
+
+`LightingTuner` was built where the calibration room is built — inside cycle 1 — while the room
+itself is lifted out into the core scene by `ExtractCalibrationRoom`. Unity **nulls every serialised
+reference that crosses a scene boundary on save**, so the panel opened with its sliders attached to
+nothing.
+
+It did not look broken. Every group falls back to a plausible default when its array is empty, so it
+displayed `albedo 1, smoothness 0.5, bump 1` and `intensity 0` — and those numbers were read off and
+reported as though they were the room's values.
+
+**`cross-scene-report.txt` had named all ninety-odd of them on the build that introduced them**, and
+the comment on `ExtractCalibrationRoom` already describes this exact failure happening once before,
+to `CalibrationWall`. It was made a second time by not reading the report.
+
+Two things came out of it:
+
+- **Read `cross-scene-report.txt` after any build that wires a new component to scene objects.** It
+  is written every time, and a component that spans the boundary is broken in a way that only shows
+  at runtime.
+- **A fallback default is a lie when the wiring is missing.** `LightingTuner.Seed` now logs a warning
+  naming the empty groups, because a panel that quietly shows defaults is worse than one that fails.

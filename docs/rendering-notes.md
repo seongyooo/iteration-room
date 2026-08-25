@@ -196,7 +196,7 @@ of that number; (c) see the paragraph above — there is no error to correct. If
 is ever too loud, the lever is the fixtures' emission (3.5 in `MakeEmissiveMaterial`), which does not
 touch room brightness at all.
 
-### How the numbers were found, and the tool that is gone
+### How the numbers were found, and the tool that is BACK (2026-08-25)
 
 A rebuild-look-guess cycle is four minutes a step, so these were found at a **live dial** built into
 the calibration room for the day: three columns (wall, floor, ceiling), a slider each for albedo,
@@ -216,6 +216,27 @@ things that made it work:
 - **The cursor was the whole awkwardness.** That room keeps the pointer captured, because that is what
   the sensitivity step measures, while a slider needs it loose. It took a TAB toggle and a hook in
   `FirstPersonController` to stop the first click at a handle taking the lock back.
+
+**It has been rebuilt** (`Assets/Scripts/Dev/LightingTuner.cs`), because the bake landing invalidated
+the balance every one of those numbers sat on: ambient was halved the same day, and the six surface
+values were chosen against walls that turned out to be rendering inside out. It carries all four
+rules above, plus two the first one did not need:
+
+- **`DynamicGI.UpdateEnvironment()` after every ambient write**, or the values never reach a shader.
+- **The shadow biases live on the URP ASSET**, which is the one thing here that is not per-instance -
+  so the panel seeds them on open and puts them back on close. A rebuild would restore them anyway
+  (`ConfigureUrpAsset` authors both every time), but that would leave the Editor sitting on a dirty
+  asset until somebody happened to build.
+
+**It is disarmed in a release player** (`Application.isEditor || Debug.isDebugBuild`, `CaptureRig`'s
+bargain) rather than deleted this time. Groups on it: ambient x3, fixture intensity and cone, both
+shadow biases, and the six surface numbers.
+
+**AND IT LIES ABOUT EVERYTHING THAT IS BAKED.** The fixtures are Mixed - direct realtime, bounce
+baked - so ambient, intensity and albedo show their direct half live and their indirect half frozen
+at the last bake. The panel gets you to the right neighbourhood; the loop is still **type the numbers
+in, rebuild, RE-BAKE, look again**. Only the shadow biases are honest live, having no baked
+component at all.
 
 ## Shadows: what the rooms cast, and why the player casts nothing (2026-08-24)
 
@@ -252,6 +273,40 @@ worth writing down, because a fifth shape will not help:
 Resolution was ruled out on the way: the atlas was given to a single caster at 2048, which halves the
 ~2cm texel a 1024 map spreads over a 130-degree cone from 5.4m.
 
+### What the rooms kept, and the three numbers that are one decision (2026-08-25)
+
+Play reported two separate faults on the same day and they pull in opposite directions: shadows read
+as **blurred blobs** (a 20cm key throwing a 10cm smudge), and shadows **only appeared once you got
+close**, on objects already visible on screen.
+
+The second one was not the shadow system at all — it was `m_ShadowDistance`, **15**, which is a radius
+around the CAMERA. Raised to 30. The argument for 15 had been that halving it doubles the effective
+texel density, and **that argument is false in this project**: cascade resolution is a directional
+light property, every directional light is deleted at build, `m_MainLightShadowsSupported` is off and
+the cascade count is 1. Every shadow here comes from a spot, whose map is sized by its cone and its
+resolution tier and does not know that number exists. 15 was buying nothing and paying for it in
+pop-in. What it still does is stop a corridor of lit rooms all rendering maps at once, so it is the
+number to watch if the frame rate moves.
+
+The first one is an **atlas budget**, and the atlas, `ShadowBudget.maxCasters` and
+`m_AdditionalLightsShadowResolutionTierHigh` are **one decision**. A 130° cone from 5.41m spreads its
+map over 23.2m of floor, so the tier is what sets the texel:
+
+| atlas | casters x tier | texel | verdict |
+|---|---|---|---|
+| 2048 | 4 x 1024 | 22.7mm | blurred — a key is thinner than one texel |
+| 2048 | 1 x 2048 | 11.3mm | sharp, but the shadow JUMPS as you cross the room |
+| **4096** | **4 x 2048** | **11.3mm** | sharp and stable — chosen |
+
+The middle row failed for a reason worth keeping: the single caster is whichever fixture is **nearest
+the player**, so walking across a room swaps it and every shadow swings to a new angle. `range` (10m)
+is sized precisely so the casting SET does not change while you are inside a room — and that
+guarantee only holds if the whole room's ceiling is in the set.
+
+**4096 is four times the shadow pixels this game drew before, and this number was 4096 once already
+and came down after play reported lag.** It is the first thing to put back if the frame rate suffers.
+The suspected cause then was full-screen passes rather than this, but that was never measured.
+
 ### What the rooms kept
 
 Every room's four fixtures are eligible, and `ShadowBudget` (one per `Cycle`, on the cycle's own
@@ -267,3 +322,172 @@ Two details that cost a build each to find:
 - **The sweep switches every fixture off before `BakeReflectionProbes`.** A probe cubemap renders 360
   degrees and sees most of the corridor, so with all 64 eligible it asked for 24–42 shadow maps a face
   and URP logged its atlas-reduction warning 76 times in one build.
+
+## Three passes at making it look less like a whitebox (2026-08-25)
+
+Asked for after play: the game works, but the graphics wanted lifting. What was actually wrong was
+not resolution or textures — it was that **every surface in the building was mathematically perfect**.
+Three passes, in the order they are worth doing.
+
+### 1. Chamfered panel rims
+
+**The argument was already in this project and had only ever been applied to three objects.**
+`BevelledPrismMesh`, written for the escape objects, states it: a Unity cube's faces meet at
+perfectly sharp edges, so each face is one flat shade under any lighting, "and no material fixes it,
+because there is no geometry near the edge for a highlight to run along."
+
+The building is made of some three thousand cubes. `ChamferedPanelMesh` gives every wall panel a 6mm
+chamfer on its front rim — four edges, not twelve; the back is buried against the backing slab and
+the sides are the groove.
+
+It is worth more on the architecture than on the props, because of what the panels already are: each
+stands `GrooveDepth` (25mm) proud of its backing, so the building is a grid of raised rectangles each
+with a shadow line around it. The chamfer puts a **lit** line inside every one of those shadow lines.
+
+- **True size, not a scaled unit cube.** A panel is 1.72 × 1.32 × 0.025m. A chamfer written as a
+  fraction and scaled with the box comes out 100mm across the face and 1.5mm through the depth —
+  a wedge, not a chamfer. The metres have to survive into the vertices, which is why this is a mesh
+  per size rather than one mesh scaled.
+- **20 distinct sizes for the whole game**, cached as assets, so batching is unaffected. The grid's
+  identical cells share one; the partial panels around doorways mint the rest. The build logs the
+  count — hundreds would mean the sizes had stopped repeating.
+- UVs are an XY projection across the whole panel rather than per-face 0..1, which reproduces what
+  the cube gave the material to tile against and runs the grain continuously over the rim.
+
+### 2. Roughness variation — BUILT, THEN TURNED OFF THE SAME DAY
+
+`ApplySurfaceDetail` gave the walls a normal map but **one smoothness number**, so every square metre
+of the building reflected exactly as sharply as every other. Perfectly uniform roughness is one of
+the strongest tells that something is rendered.
+
+`MakeSmoothnessMap` generates a wear map from the same tileable noise the normal map uses, and
+`ApplyWear` puts it on every material that gets a normal map — the two are halves of one idea, so
+they are applied in one place and a new surface cannot get one without the other.
+
+- **Low frequency on purpose.** The normal map wants near-pixel grain because it stands in for
+  plaster. This wants patches the size of a hand, because it stands in for wear. Fine noise in
+  roughness reads as sparkle, which is the opposite of the intent.
+- **It only ever dulls.** URP multiplies (`specGloss.a *= _Smoothness` in `LitInput.hlsl`), so the
+  alpha is a fraction of the authored smoothness. The walls' 0.85 becomes a range of about 0.61–0.83.
+  Nothing can come out glossier than the number somebody chose.
+- **`_METALLICSPECGLOSSMAP` is the whole of it.** URP's `SampleMetallicSpecGloss` is wrapped in
+  `#ifdef` — assign the texture without enabling the keyword and it costs memory and is never read.
+  Third time this project has been bitten by a URP keyword (transparency needs
+  `_SURFACE_TYPE_TRANSPARENT`; `_BumpScale` only works because `_NORMALMAP` is compiled in).
+- The map carries **metallic in red**, read off the material, so applying it cannot silently un-metal
+  something. One texture per distinct metallic value.
+
+**And it is OFF (`WearFloor` 1.0), because it replaced one rendering tell with a worse one.** Play
+reported pale grey squares repeating across the walls and floor. The cause is not the noise and not
+the compression - both were investigated and neither was it - but the **tiling**: URP/Lit gives every
+secondary map `_BaseMap`'s single UV transform, so the wear map is locked to the (5,3)-per-panel
+repeat the normal map's grain needs. Fifteen copies of one tile per panel, identical on all 88, and
+value noise's lattice makes that repeat legible as a grid. Worst at grazing angles. Full account, and
+the two wrong diagnoses that came first, in `docs/gotchas.md`.
+
+**If it is wanted back, it cannot be a tiled texture.** One smoothness value PER PANEL through the
+property block `WallPanelDisplay` already owns is the shape that fits: no tiling to repeat, and
+variation at the scale the building is actually built at.
+
+### 3. Bounce light — WORKING, 2026-08-25
+
+**All four scenes bake, in about four minutes total** (IterationRoom 5.3s, Cycle1 12.6s, Cycle2
+214.4s, Cycle3 18.0s), with no exceptions in the log. Before this the bake had never once completed.
+
+No object set `ContributeGI`, so a white room — where most of what the eye sees is light off the
+walls — was lit by four downlights and a flat Trilight ambient constant standing in for all of it.
+That is most of why it read as a whitebox.
+
+**Adaptive Probe Volumes, not lightmaps, and there is no choice about it.** A lightmap needs a second
+UV set per mesh; every surface here is generated from script, so lightmapping would mean unwrapping
+several thousand objects first. APV stores irradiance in a grid in space and needs no UVs. It also
+lights what a lightmap cannot: ghosts, carryables and the player's body sample the same volumes.
+
+`BakeLighting` is a **separate menu item, not part of `Build`** — see that file for the argument.
+Scenes are disposable output regenerated in seconds (CLAUDE.md §1.1) and a GI bake does not fit in
+that loop.
+
+Four things had to be true before a bake produced anything, and each failed silently first:
+
+| Symptom | Cause |
+|---|---|
+| "It is not possible to generate lighting" | APV bakes **one scene at a time**; all four were loaded |
+| `0 lights` in the bake snapshot | Fixtures were **Realtime**, which contributes nothing to a bake. Now **Mixed** — direct light and its shadow stay live for `ShadowBudget` to switch, only the bounce is baked |
+| `0 instances` for Cycle1 and Cycle2 | `SleepCycle` leaves a cycle's world root **inactive**, and an inactive renderer is invisible to the baker. Woken for the bake and put back before the save — world roots only, never props that are deliberately off |
+| Editor **crash**, 32k exceptions, 129MB log | No **baking set**. `AdaptiveProbeVolumes` dereferences it unconditionally while writing results. The Lighting window creates one as part of drawing its UI; nothing draws that UI in batchmode |
+
+#### The fifth fault, and the three days spent blaming Unity for it
+
+**After all four, it still crashed — and the diagnosis was wrong.** `IterationRoom` (107 instances)
+and `Cycle3` (1,137) baked cleanly in seconds; `Cycle1` threw a `NullReferenceException` out of
+`AdaptiveProbeVolumes.GenerateScenesCellLists` tens of thousands of times and took the Editor down.
+A baking set existed, the scene was awake, one scene was loaded, the lights were Mixed, and the
+snapshot extracted correctly (868 instances, 24 lights). It was recorded here as a Unity bug in
+6000.5.7f1, with a suggested workaround of splitting Cycle1's volume per room.
+
+**It was not a Unity bug. It was `chess.glb`.** That file ships a mesh named `Material3` with no
+triangle sub-mesh at all. The `ContributeGI` pass added the same day handed it, like every other
+non-moving renderer, to APV's **Virtual Offset** stage — which builds a ray tracing acceleration
+structure. `HardwareRayTracingAccelStruct.AddInstance` refuses a mesh with no triangle topology and
+then registers a zero handle for it anyway, so the second such mesh throws `ArgumentException: An
+item with the same key has already been added. Key: 0`. That aborts `DefaultVirtualOffset.Initialize`
+half-built, `Step()` NREs on the wreckage, and the `GenerateScenesCellLists` NRE everyone was looking
+at is what the damage looks like six stages downstream.
+
+**Chess pieces are Room2West, which is Cycle1 — and no other scene has them.** A scene-shaped symptom
+with an asset-shaped cause, which is exactly why "what is different about Cycle1's geometry" was the
+question that solved it and "what is different about Cycle1's volume" was not.
+
+Two lessons worth more than the fix:
+
+- **When a bake hangs, read the FIRST error after `'<Scene>': baking.`, never the tail.** Unity's
+  `FinalizeBake` wraps `ApplyPostBakeOperations` in a `catch` that logs and swallows, then calls
+  `CleanBakeData()`, which throws `ObjectDisposedException` *out* of the bake delegate — so `done` is
+  never set and Unity calls the delegate again every tick, forever. The log fills with the same two
+  exceptions at hundreds a second (29,757 of them, 129MB) and the one line that names the cause is
+  30,000 lines above the noise. Three separate diagnoses were made off the tail and all three were
+  wrong.
+- **"A released engine would have this fixed already" was the right instinct and it was the user's.**
+  The stale-baking-set theory was tested first and disproved — a bake from a freshly created set
+  crashed identically — and only then was the log read from the top.
+
+Things tried that did **not** help, and are not worth trying again: waking the world root before
+rather than after volume placement; creating the baking set explicitly rather than letting Unity find
+one; single-scene mode; deleting the baking set and its cell data.
+
+#### Two things that had to change the moment APV came on
+
+- **The ambient was halved** — 0.155 / 0.644 / 0.719 → 0.078 / 0.322 / 0.360. Every one of those
+  numbers was found while ambient stood in for a bounce that did not exist; with a real bounce
+  underneath they were the same light counted twice, which makes the building brighter and *flatter*.
+  This is the prescribed starting point, not a settled value: compare a corner against a wall centre,
+  and if the corner is not visibly darker, ambient is still winning and they go down again.
+- **The panel meshes were wound inside out**, which is what actually blacked out every wall in the
+  building the day APV came on — a `ChamferedPanelMesh` bug, not a lighting one, though it wore a
+  lighting one's clothes for most of a day and killed three good theories on the way. Full account,
+  and the bisection method that found it, in `docs/gotchas.md`.
+- **APV's sampling noise was turned off**, because it is a TAA feature and this project runs SMAA.
+  Left at Unity's defaults it re-rolls a dither on the probe sample position every frame with nothing
+  to resolve it, and every wall panel in the building visibly pulses. Full account in
+  `docs/gotchas.md`. `BuildPostProcessing` owns the override.
+
+#### `m_LightProbeSystem` follows the data now
+
+It used to be pinned to `LegacyLightProbes` on every build as a safety catch — APV with no baked data
+is *worse* than no APV, because every renderer is marked `ReceiveGI.LightProbes` and would sample a
+grid that does not exist — with a note that the two halves would have to move together if a bake were
+ever made to stick.
+
+**They now do.** `ConfigureUrpAsset` asks `AnyBakedProbeVolumes()` and sets the probe system to match:
+baked data anywhere in the project leaves APV on, none pins it back to legacy. The catch is intact,
+only asked rather than assumed. Leaving it pinned would have thrown away every cell of a good bake on
+the next rebuild — a failure quieter and worse than the crash, because nothing would announce it.
+
+`HasBeenBaked()` is `internal`, so this goes through checked reflection, the same wall and the same
+answer as `BakeLighting.EnsureBakingSet`: a Unity version that renames it makes the check return
+false, which lands on legacy probes — the wrong answer in the safe direction.
+
+**And the ambient will need rebalancing when it does.** `SetupLighting` carries almost all of the
+room's light on flat ambient precisely *because* there was no bounce. Once the walls bounce, that
+constant is a second helping — left alone, a successful bake makes the building brighter and
+**flatter** rather than richer.

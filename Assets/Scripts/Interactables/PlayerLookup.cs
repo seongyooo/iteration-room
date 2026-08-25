@@ -373,10 +373,23 @@ namespace IterationRoom
 
             Transform ownerRoot = owner != null ? owner.root : null;
 
-            foreach (RaycastHit hit in Physics.RaycastAll(from, delta / distance, distance,
-                                                          ~0, QueryTriggerInteraction.Ignore))
+            // **NonAlloc, BECAUSE THIS RUNS PER CANDIDATE PER FRAME.** `RaycastAll` returns a fresh
+            // array every call, and this is asked of every fixture and every takeable the player is
+            // standing near - so in a room like the chess board it was allocating a dozen arrays a
+            // frame, for the garbage collector to hand back as a hitch later. The buffer is reused and
+            // the cast is otherwise identical.
+            //
+            // The cap can in principle drop a hit, and it does not matter here: this returns on the
+            // FIRST occluder it finds, so losing one only changes the answer if all `occluders.Length`
+            // of the hits that came back were the owner or the player. Sized far past that.
+            int count = Physics.RaycastNonAlloc(from, delta / distance, occluders, distance,
+                                                ~0, QueryTriggerInteraction.Ignore);
+
+            for (int i = 0; i < count; i++)
             {
-                Transform t = hit.collider.transform;
+                Collider c = occluders[i].collider;
+                if (c == null) continue;
+                Transform t = c.transform;
                 // The thing being looked at cannot hide itself.
                 if (ownerRoot != null && t.root == ownerRoot) continue;
                 // Nor can the player, whose own capsule the camera sits inside.
@@ -386,6 +399,11 @@ namespace IterationRoom
 
             return false;
         }
+
+        // Shared by every occlusion test in the building. Static because `Occluded` is, and one
+        // buffer is safe here for the reason it usually is not: the cast, the scan and the answer all
+        // happen inside one synchronous call with nothing re-entering it.
+        private static readonly RaycastHit[] occluders = new RaycastHit[32];
 
         private static bool Resolve()
         {

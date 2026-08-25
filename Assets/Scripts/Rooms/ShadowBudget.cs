@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace IterationRoom
 {
-    // WHICH CEILING FIXTURE CASTS - the one nearest the player, and only that one.
+    // WHICH CEILING FIXTURES CAST - the ones near the player, and no more than `maxCasters` of them.
     //
     // **THIS IS ABOUT THE ROOMS, NOT ABOUT THE PLAYER.** It was built on 2026-08-24 to fix the
     // player's own shadow and outlived it by an afternoon: the player's shadow was removed the same
@@ -13,16 +13,17 @@ namespace IterationRoom
     // It is still worth having, because the state it replaced was worse for those too: until that day
     // exactly ONE light in the whole building cast anything - Room1's, and within Room1 a fixed CORNER
     // fixture of the 2x2 ceiling grid. Thirteen of fourteen rooms had no shadows at all, and the
-    // fourteenth threw them sideways from one corner. **The nearest fixture is very nearly the one
-    // overhead**, so every room gets shadows that fall where the ceiling says they should, at the same
-    // cost as the one caster the game already paid for.
+    // fourteenth threw them sideways from one corner.
     //
-    // ONE CASTER, and the reason it is one is now historical rather than binding. It was forced by the
-    // player: four ceiling fixtures gave one pair of feet four full-body silhouettes and play called
-    // it "like a skeleton". With no player shadow left, **raising `maxCasters` is available again** -
-    // ordinary objects multiply into a soft pool rather than into extra limbs. What to fix first, if
-    // more of them ever look muddy, is that these are POINT lights standing in for 1.4m emissive
-    // panels: a real area source gives a penumbra where a point gives a hard edge.
+    // **SO WHY A BUDGET AT ALL, IF EVERY FIXTURE IN A ROOM IS ALLOWED TO CAST?** Because "every
+    // fixture in a room" and "every fixture" are not the same number. The building is one corridor of
+    // six shells with doors between them, so a view down it puts twenty-plus fixtures in the frustum
+    // and each one that casts is another whole render of the geometry near it. The cap is what makes
+    // the bill a property of the ROOM rather than of how far you can see - four, wherever you stand.
+    //
+    // What to fix first if the shadows ever look muddy rather than merely plural: these are POINT
+    // lights standing in for 1.4m emissive panels, and a real area source of that size gives a wide
+    // penumbra where a point gives a hard edge. That is a lighting-model problem, not a count.
     //
     // Gated on distance and refreshed a few times a second rather than every frame, the same shape
     // `CctvFeed` uses for the same reason: nothing here changes fast enough to be worth a frame.
@@ -32,16 +33,32 @@ namespace IterationRoom
         // runtime (CLAUDE.md §2).
         public Light[] fixtures;
 
-        // A LITTLE OVER HALF A ROOM'S DIAGONAL. The shell is 8.75 x 10.5 and the fixtures sit at
-        // +-1.75 x, +-2.6 z from its centre, so the furthest a player can stand from the nearest one
-        // inside their own room is about 5.5m. Past this nothing casts at all - which is correct
-        // rather than a saving: a shadow thrown from further than this is the long raking one the
-        // whole change exists to get rid of.
-        public float range = 7.5f;
+        // **FAR ENOUGH TO HOLD A WHOLE ROOM'S CEILING, and that is the point of the number.**
+        //
+        // Derived: the shell is 8.75 x 10.5, its fixtures sit at +-1.75 x and +-2.6 z, and the eye is
+        // 3.8m below them. From the worst corner of the room the FURTHEST of the four is 9.61m away,
+        // so 10 keeps all four of the room you are standing in lit wherever you stand in it.
+        //
+        // That stability is worth more than the saving a tighter number would give. At 7.5 - which was
+        // right when only ONE fixture cast - the far corners of the room dropped in and out of range
+        // as the player walked, which is a shadow appearing and vanishing rather than a shadow moving.
+        // With the whole room in range the SET does not change until you leave the room.
+        public float range = 10f;
 
-        // **ONE.** Forced by the player's shadow, which no longer exists - see the note above before
-        // raising it, and expect to pay one extra shadow-map render per fixture if you do.
-        public int maxCasters = 1;
+        // **FOUR: one per ceiling fixture, which is what the room actually has** (2026-08-24, by
+        // request). Every object gets four shadows, dark where all four overlap under it and faint
+        // where only one reaches - which is what a ceiling of four panels does.
+        //
+        // It was ONE until the player's shadow was removed, and only because of it: four human
+        // silhouettes radiating from one pair of feet read as eight limbs. Nothing else in the
+        // building has limbs to multiply.
+        //
+        // **RAISING THIS COSTS ATLAS AS WELL AS FRAMES**, and the atlas half is silent. Four casters
+        // is four extra shadow-map renders a frame, and four maps that have to FIT: at
+        // `m_AdditionalLightsShadowResolutionTierHigh` 2048 that is 4 x 2048 into a 4096 atlas, an
+        // exact fit. Raise this again without raising the atlas and URP quietly halves every map and
+        // says so once - see `ConfigureUrpAsset`.
+        public int maxCasters = 4;
 
         // HOW MUCH CLOSER A RIVAL HAS TO BE BEFORE THE SHADOW MOVES TO IT.
         //
@@ -55,7 +72,11 @@ namespace IterationRoom
         public float refreshRate = 5f;
 
         private float nextCheck;
-        private int current = -1;
+        // Which fixtures are casting right now. Kept because `switchMargin` needs to know what it is
+        // defending: a light already on has to be BEATEN, not merely matched.
+        private bool[] on;
+        private float[] scores;
+        private bool[] reachable;
 
         private void Update()
         {
@@ -71,33 +92,54 @@ namespace IterationRoom
 
         private void Apply(Vector3 from)
         {
-            int best = -1;
-            float bestDistance = range * range;
-
-            for (int i = 0; i < fixtures.Length; i++)
+            int count = fixtures.Length;
+            if (on == null || on.Length != count)
             {
-                if (fixtures[i] == null) continue;
+                on = new bool[count];
+                scores = new float[count];
+                reachable = new bool[count];
+            }
+
+            // **RANGE IS TESTED ON THE TRUE DISTANCE, RANKING ON A DISCOUNTED ONE.** A fixture that is
+            // already casting gets its distance multiplied by `switchMargin`, which makes it look
+            // nearer than it is and so takes a clear win to displace - that is the whole hysteresis,
+            // and doing it as a discount rather than as a special case keeps it working for any
+            // `maxCasters`. Being out of range is not a contest and is never damped.
+            float limit = range * range;
+            for (int i = 0; i < count; i++)
+            {
+                if (fixtures[i] == null) { reachable[i] = false; continue; }
                 float d = (fixtures[i].transform.position - from).sqrMagnitude;
-                if (d <= bestDistance) { bestDistance = d; best = i; }
+                reachable[i] = d <= limit;
+                scores[i] = on[i] ? d * switchMargin : d;
             }
 
-            // HOLD THE CURRENT ONE unless the challenger is clearly closer - and unless the current one
-            // has gone out of range entirely, which is not a contest and must not be damped.
-            if (current >= 0 && current < fixtures.Length && fixtures[current] != null && best != current)
+            // The `maxCasters` best scores, by selection rather than by sorting: the cap is small, the
+            // fixture count is not worth allocating for, and this runs a few times a second.
+            bool changed = false;
+            int wanted = Mathf.Max(0, maxCasters);
+            for (int i = 0; i < count; i++)
             {
-                float held = (fixtures[current].transform.position - from).sqrMagnitude;
-                if (held <= range * range && bestDistance > held * switchMargin) best = current;
+                bool pick = false;
+                if (reachable[i])
+                {
+                    int better = 0;
+                    for (int j = 0; j < count; j++)
+                        if (j != i && reachable[j] && scores[j] < scores[i]) better++;
+                    pick = better < wanted;
+                }
+
+                if (pick != on[i]) { on[i] = pick; changed = true; }
             }
 
-            if (best == current) return;
-            current = best;
+            if (!changed) return;
 
-            for (int i = 0; i < fixtures.Length; i++)
+            for (int i = 0; i < count; i++)
             {
                 if (fixtures[i] == null) continue;
-                LightShadows want = i == best ? LightShadows.Soft : LightShadows.None;
+                LightShadows want = on[i] ? LightShadows.Soft : LightShadows.None;
                 // Assigned only on a change. Writing `shadows` is not free - it dirties the light -
-                // and all but one of these is the same answer as last time.
+                // and most of these are the same answer as last time.
                 if (fixtures[i].shadows != want) fixtures[i].shadows = want;
             }
         }

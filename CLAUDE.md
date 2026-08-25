@@ -375,6 +375,66 @@ Script-by-script detail: `docs/architecture.md`.
   bury each other's corners. Build one between two things that are NOT walls and that overrun stands
   out in the open — it cost three wrong diagnoses in room3-1 because it reads as a texture, not as
   geometry. Work out where the overrun lands before building. `docs/gotchas.md`.
+- **A GENERATED MESH'S WINDING DECIDES ITS NORMALS, AND GETTING IT BACKWARDS DOES NOT LOOK LIKE A
+  GEOMETRY BUG.** Unity treats **clockwise-from-the-front** as front-facing, and `RecalculateNormals`
+  derives every normal from the winding - so an inside-out mesh renders as a surface shaded as if it
+  faced away from every light, i.e. **BLACK**, not as a hole. `ChamferedPanelMesh` shipped that way
+  for a day and turned every wall in a white building black, on the same day the GI bake started
+  working, which sent three separate lighting theories chasing it. **Build a new mesh and LOOK at it
+  before trusting the winding** - `MenuBackground.png` is a render of the room regenerated on every
+  build, and `git show HEAD:Assets/Textures/MenuBackground.png` is the same room before your change.
+  `docs/gotchas.md`.
+- **A WALL PANEL IS A GENERATED MESH AT TRUE SIZE, NEVER A SCALED CUBE.** `ChamferedPanelMesh` bakes
+  a 6mm chamfer into the front rim, and a chamfer written as a fraction and scaled with the box comes
+  out a wedge - so the metres live in the mesh and `localScale` stays at 1. Meshes are cached per
+  size (20 for the whole game); the build logs the count, and hundreds would mean the sizes have
+  stopped repeating and batching has been lost.
+- **A DATA TEXTURE IS NOT A PICTURE: no gamma curve AND no block compression.** Both halves, every
+  time. The wear map carries smoothness in its ALPHA, and DXT5 stores alpha in 4x4 blocks. The HUD
+  icons already carried this rule ("block compression frays something that is nothing but alpha") and
+  the wear map went through a different importer path without it, which is how a known rule gets
+  missed. (It was *not* what put the grid of squares on the walls - see the next rule - but it is
+  still wrong and is now fixed.)
+- **A TILED DETAIL MAP CANNOT CARRY VARIATION LARGER THAN ITS TILE, and URP gives you ONE UV
+  transform for all of them.** `_BaseMap`'s tiling drives the normal map, the wear map and everything
+  else, so a map wanting hand-sized patches is stuck with whatever repeat the grain needs - (5,3) per
+  panel here, i.e. fifteen copies per panel and the same fifteen on all 88. Value noise has its
+  extrema on a lattice, so that repeat reads as a regular grid of soft blobs, worst at GRAZING angles
+  where the specular is strongest. **The wear map is off (`WearFloor` 1.0) for exactly this.** If
+  per-surface variation is wanted, it has to come from somewhere untiled - one value per panel through
+  a property block, which is also the scale this architecture actually has.
+- **READ `cross-scene-report.txt` AFTER WIRING A NEW COMPONENT TO SCENE OBJECTS.** The build writes it
+  every time. Unity NULLS every serialised reference that crosses a scene boundary on save, and the
+  cycles each become their own scene (`ExtractCalibrationRoom`, `Cycle*.unity`) - so a component built
+  on the wrong side of that line loses its whole wiring silently, at runtime only. `LightingTuner` did
+  it after the report had already named all ninety of them.
+- **A NEW SURFACE GOES THROUGH `ApplySurfaceDetail`, which gives it TWO things** - the normal map and
+  the roughness variation (`ApplyWear`). They are halves of one idea and are applied in one place so
+  a surface cannot get one without the other. **A URP map needs its KEYWORD**: the wear map is inert
+  without `_METALLICSPECGLOSSMAP`, exactly as transparency is without `_SURFACE_TYPE_TRANSPARENT`.
+- **CEILING FIXTURES ARE `Mixed`, AND MUST STAY THAT WAY.** Realtime contributes nothing to a GI bake
+  (the bake log reports `0 lights` and the result is black indirect); fully Baked has no runtime
+  shadow for `ShadowBudget` to switch. Mixed keeps the direct light live and bakes only the bounce.
+- **THE BAKE WORKS, SINCE 2026-08-25 - all four scenes, no exceptions.** It had never once completed
+  before that. What was killing it was **not** a Unity bug, which is what it was recorded as for three
+  days: `chess.glb` ships a mesh (`Material3`) with **no triangle sub-mesh**, and the `ContributeGI`
+  pass added that same day handed it to APV's Virtual Offset, whose ray tracing structure cannot
+  accept one. Cycle1 is the only scene with chess pieces in it, which is the whole of why it was the
+  only scene that crashed. `MarkReflectionProbeStatic` now holds triangle-less meshes out of
+  ContributeGI - they bounce nothing, so it costs the bake nothing.
+  - **A MESH WITH NO TRIANGLES MUST NEVER GET `ContributeGI`.** It does not fail the bake, it HANGS
+    THE EDITOR - the real error is swallowed by a `catch` in Unity's `FinalizeBake` and the cleanup
+    after it throws out of the bake delegate instead, so `done` is never set and the delegate is
+    called again every tick. 29,757 exceptions, and the one readable cause 30,000 lines above them.
+    **When a bake hangs, read the FIRST error after `'<Scene>': baking.`, never the tail.**
+  - **`m_LightProbeSystem` now FOLLOWS THE BAKED DATA rather than being pinned off.** The safety catch
+    it used to be is intact, only asked as a question: `AnyBakedProbeVolumes()` - no data anywhere (a
+    fresh clone, or nobody has baked yet) still lands on `LegacyLightProbes`, which is what renders
+    correctly without a bake. Pinning it off now would silently discard every cell of a good bake.
+  - **The ambient has NOT been rebalanced, and until it is the bake makes the building FLATTER, not
+    richer.** `SetupLighting` carries most of the room's light on flat Trilight ambient precisely
+    because there was no bounce; that constant is now a second helping. This is a judgement made by
+    looking, so it is a job for a human - `docs/rendering-notes.md` says where to start.
 - **Nothing may be exactly the size of the hole it sits in.** Coplanar faces flicker. Clearances are
   asymmetric on purpose: too little and it z-fights, too much and the lit surface behind shows
   through the groove as a bright edge.

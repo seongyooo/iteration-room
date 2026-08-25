@@ -20,6 +20,22 @@ namespace IterationRoom
         public Color offColor = new Color(0.13f, 0.135f, 0.15f);
         public Color onColor = Color.white;
 
+        // **PER-PANEL SMOOTHNESS, WHICH IS WHAT REPLACED THE WEAR MAP** (2026-08-25).
+        //
+        // Perfectly uniform roughness across a whole building is one of the strongest tells that a
+        // surface is rendered, and the first answer to it - a tiled noise map on `_MetallicGlossMap` -
+        // failed for a reason that has nothing to do with the noise: URP gives every secondary map
+        // `_BaseMap`'s single UV transform, so it was locked to the grain's (5,3)-per-panel repeat and
+        // read as a grid of pale squares. See `SceneBuilder.WearFloor`.
+        //
+        // A panelled wall does not want variation INSIDE a panel anyway. It wants panel-to-panel
+        // variation, which is what a wall of separately-made displays would actually have - and that
+        // has no tile to repeat, because it is one number per object.
+        //
+        // Kept small: this is a wall of identical units, and the point is to break the perfect match,
+        // not to make some panels look dirty. +/- this much on the material's own smoothness.
+        public float smoothnessJitter = 0.06f;
+
         public float sweepDuration = 1.4f;
         // How long a single panel takes to come up, as a fraction of the whole sweep. Larger
         // values overlap the panels more and soften the wave.
@@ -79,6 +95,8 @@ namespace IterationRoom
         public float deadChanceBurst = 0.18f;
 
         private float[] onsets;
+        private float[] smoothness;
+        private float baseSmoothness;
         private float powered;
         private float flare;
 
@@ -110,6 +128,7 @@ namespace IterationRoom
         // The panel material tiles its plaster grain 5x3 across a face. A card left on that tiling
         // comes out as a grid of fifteen tiny test cards, so this is written per panel too.
         private static readonly int BaseMapStId = Shader.PropertyToID("_BaseMap_ST");
+        private static readonly int SmoothnessId = Shader.PropertyToID("_Smoothness");
 
         // Lazily, not in Awake: a MaterialPropertyBlock is not serialized, so recompiling a script
         // while play mode is running nulls it without Awake ever running again, and every
@@ -155,6 +174,19 @@ namespace IterationRoom
             float ceiling = Mathf.Max(0f, 1f - panelFade);
             float ramp = Mathf.Max(0f, ceiling - onsetJitter);
 
+            // **READ OFF THE MATERIAL, NOT WRITTEN DOWN.** The wall, floor and ceiling do not share a
+            // smoothness, and this component is put on all three; seeding from a constant would make
+            // opening the game quietly repaint two of them. Same rule `LightingTuner` follows.
+            smoothness = new float[panels.Length];
+            baseSmoothness = 0.85f;
+            foreach (Renderer r in panels)
+            {
+                if (r == null || r.sharedMaterial == null) continue;
+                if (r.sharedMaterial.HasProperty(SmoothnessId))
+                    baseSmoothness = r.sharedMaterial.GetFloat(SmoothnessId);
+                break;
+            }
+
             Random.State previous = Random.state;
             // Fixed seed: the scatter should be arbitrary but identical on every run.
             Random.InitState(20260810);
@@ -163,6 +195,11 @@ namespace IterationRoom
                 if (panels[i] == null) continue;
                 float height = (panels[i].bounds.center.y - minY) / span;
                 onsets[i] = Mathf.Clamp(height * ramp + Random.Range(-onsetJitter, onsetJitter), 0f, ceiling);
+                // Clamped BELOW 1: a smoothness of exactly 1 is a mirror, and one panel in a wall
+                // suddenly mirroring the room would be a worse artifact than the uniformity this is
+                // breaking up.
+                smoothness[i] = Mathf.Clamp(
+                    baseSmoothness + Random.Range(-smoothnessJitter, smoothnessJitter), 0f, 0.97f);
             }
             Random.state = previous;
         }
@@ -236,6 +273,10 @@ namespace IterationRoom
 
                 b.SetColor(BaseColorId, albedo);
                 b.SetColor(EmissionId, flareColor);
+                // Rides along in the block that was going to be written anyway, so it costs nothing
+                // extra - and it has to be written HERE rather than once at startup, because this
+                // branch replaces the whole block every time it paints.
+                if (smoothness != null && i < smoothness.Length) b.SetFloat(SmoothnessId, smoothness[i]);
                 panels[i].SetPropertyBlock(b);
             }
         }

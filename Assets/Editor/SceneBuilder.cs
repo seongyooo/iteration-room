@@ -1,4 +1,6 @@
 using System.IO;
+using System.Reflection;
+using IterationRoom.Dev;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -188,6 +190,9 @@ namespace IterationRoom.EditorTools
         // board dims them and brings them back up as its reward. Held here rather than found by name
         // later, because a lookup by name is a second statement of what BuildCeilingLights called them.
         private static Light[] Room2WestLights;
+        // The calibration room's own fixtures, kept because `LightingTuner` drives them - that room
+        // is where the lighting is tuned, so it is the one room whose lights something else holds.
+        private static Light[] CalibrationLights;
         private static Renderer[] Room2WestPanels;
 
         private const string TexturesDir = "Assets/Textures";
@@ -271,6 +276,45 @@ namespace IterationRoom.EditorTools
         // Deep enough to catch ambient occlusion, shallow enough that the panels' white side faces
         // don't wash the seam out when you view a wall at a grazing angle.
         private const float GrooveDepth = 0.025f;
+
+        // HOW WIDE THE CHAMFER ON A PANEL'S FRONT RIM IS - see `ChamferedPanelMesh`.
+        //
+        // 6mm against the panel's own 25mm of relief. Large enough that the band is a line the eye
+        // reads rather than an aliased pixel at the far end of a room, and small enough that 19mm of
+        // straight side is left to be the groove wall - a chamfer that ate the whole depth would turn
+        // every panel into a shallow pyramid and lose the flat face the room is made of.
+        private const float PanelChamfer = 0.006f;
+
+        // HOW FAR THE WEAR PASS IS ALLOWED TO DULL A SURFACE, as a fraction of its authored
+        // smoothness - see `MakeSmoothnessMap`. 0.72 means the dullest patch reflects about three
+        // quarters as sharply as the cleanest, which on the walls' 0.85 is a range of 0.61 to 0.85.
+        //
+        // Deliberately modest. This is a pass that should be impossible to point at and easy to miss
+        // when it is switched off; a wide range reads as dirt, and the facility is not dirty, it is
+        // used. Turn it toward 1.0 to disable the effect without removing the texture.
+        // **1.0 MEANS THE WEAR MAP IS OFF, AND THAT IS DELIBERATE (2026-08-25).**
+        //
+        // It was added the same day to break up "perfectly uniform roughness", which really is one of
+        // the strongest tells that a surface is rendered. It replaced that tell with a worse one:
+        // reported from play, twice, as pale grey squares repeating across the walls and floor.
+        //
+        // **The cause is the TILING, not the noise, and it cannot be tuned out.** URP/Lit drives every
+        // secondary map from `_BaseMap`'s single UV transform, so the wear map is locked to the
+        // (5,3)-per-panel tiling the NORMAL map needs for its fine grain. That puts fifteen copies of
+        // the same tile on every panel and the same fifteen on all 88 of them - and value noise has
+        // its extrema on a lattice, so what repeats is a regular grid of soft blobs. Decorrelating the
+        // octaves (coprime periods, a third octave) was simulated and does not help: the repeat is the
+        // artifact, not the octave design. It shows worst at GRAZING angles, where the specular is
+        // strongest, which is why the head-on walls always looked fine.
+        //
+        // **If per-surface variation is wanted back, it has to come from somewhere that is not a
+        // tiled texture.** The building is made of discrete panels, so the shape that fits is one
+        // smoothness value PER PANEL through the property block `WallPanelDisplay` already owns - no
+        // tiling, and variation at the scale the architecture actually has.
+        //
+        // The map is still generated and still carries metallic in red; only its alpha is now a flat
+        // 1.0, which multiplies smoothness by nothing. Set this back below 1 to re-enable it.
+        private const float WearFloor = 1.0f;
 
         // Natural door proportions, deliberately NOT snapped to the grid - the panelling is cut
         // around it instead, so it reads as a doorway rather than a missing panel.
@@ -1487,6 +1531,12 @@ namespace IterationRoom.EditorTools
             // asking for thirty shadow maps apiece. See `ShadowBudget`.
             WireShadowBudget();
 
+            Debug.Log($"[SceneBuilder] Panel meshes: {panelMeshNames.Count} distinct sizes in use "
+                    + $"({panelMeshesBuilt} generated this run, the rest served from disk). Identical "
+                    + "grid cells share one asset, so the building goes on batching; the partial "
+                    + "panels around doorways are what mint new ones. Hundreds here would mean the "
+                    + "sizes have stopped repeating - see ChamferedPanelMesh.");
+
             BakeReflectionProbes();
 
             // ASLEEP UNTIL ITS TURN - and AFTER the bake, which is the whole reason this is here
@@ -2011,6 +2061,34 @@ namespace IterationRoom.EditorTools
             color.contrast.overrideState = true;
             color.contrast.value = 8f;
 
+            // **APV'S SAMPLING NOISE IS A TAA FEATURE, AND THIS PROJECT HAS NO TAA.**
+            //
+            // Adaptive Probe Volumes dither the probe sampling position to hide the seams between
+            // subdivision levels, and Unity's own tooltip on `animateSamplingNoise` says what it is
+            // for: *"Whether to animate the noise WHEN TAA IS ENABLED, smoothing potentially out the
+            // noise pattern introduced."* It defaults to **on**, with 0.1 of noise.
+            //
+            // The player camera runs **SMAA** (`BuildPlayer`), which resolves one frame at a time and
+            // cannot smooth anything across frames. So the dither was simply re-rolled every frame
+            // with nothing to average it out, and every wall panel in the building visibly pulsed the
+            // instant APV was turned on (2026-08-25, reported from play as "밝기가 튀는" - brightness
+            // popping). Nothing was wrong with the bake; this is the sampler.
+            //
+            // **Noise to zero as well, not just un-animated.** A static dither is a fixed grain, and
+            // this project has already learnt once what fine grain does to a white room - the SSAO
+            // radius note calls 0.12 a halo that "on white walls reads as *dirt*". Clinical evenness
+            // is the look. **If seams appear between subdivision levels** - a visible step in
+            // brightness partway along a wall, which is what the noise exists to hide - raise this
+            // toward 0.1 rather than turning the animation back on.
+            //
+            // `leakReductionMode` is left at Unity's default (`Quality`), which is already the good
+            // one; it is named here only so the next person knows it was considered.
+            ProbeVolumesOptions probes = GetOrAddOverride<ProbeVolumesOptions>(profile);
+            probes.animateSamplingNoise.overrideState = true;
+            probes.animateSamplingNoise.value = false;
+            probes.samplingNoise.overrideState = true;
+            probes.samplingNoise.value = 0f;
+
             EditorUtility.SetDirty(profile);
             AssetDatabase.SaveAssets();
 
@@ -2068,27 +2146,105 @@ namespace IterationRoom.EditorTools
             // Also an enum, not a pixel count - assigning 2048 as an int throws "enum index is out
             // of range". One shared atlas holds every additional light's shadow map.
             //
-            // **2048, HOLDING EXACTLY ONE MAP OF 2048** (2026-08-24).
+            // **4096, HOLDING EXACTLY FOUR MAPS OF 2048** (2026-08-25, by request, after play).
             //
-            // `ShadowBudget` lets one fixture cast at a time - see the note there for why more is the
-            // skeleton - so the atlas has one tenant and there is no reason to divide it. This is the
-            // opposite trade to the one this line has carried before: it was 4096 back when SIX
-            // fixtures shared it, and 2048 then made URP log "Reduced additional punctual light
-            // shadows resolution by 2 to make 6 shadow maps fit" and cut each to 512.
+            // The atlas, `ShadowBudget.maxCasters` and the tier below are ONE decision and must move
+            // together. A 2048 atlas is 4.2M texels, which buys either four maps of 1024 or one of
+            // 2048 - and play rejected BOTH: four of 1024 gave 22.7mm texels and a 20cm key threw a
+            // 10cm smudge, while one of 2048 was sharp but made the shadow JUMP as the player crossed
+            // the room, because the single caster is whichever fixture is nearest and that changes.
             //
-            // **The whole atlas on one caster is a fix, not a saving.** At 1024 over a 130-degree cone
-            // from 5.4m a texel is about 2cm, and a person's arm is three of them - which is how a
-            // silhouette comes apart into something ragged and spindly. 2048 halves that.
+            // 4096 is 16.8M and takes four maps of 2048: sharp AND stable, plus the soft overlap a
+            // ceiling of four panels genuinely produces. **The cost is four times the shadow pixels
+            // this game drew before**, and this number was 4096 once before and came down after play
+            // reported lag - so it is the first thing to put back if the frame rate suffers. The
+            // suspected cause then was full-screen passes rather than this, but that was never
+            // measured.
+            // **If the console ever prints "Reduced additional punctual light shadows resolution ...
+            // to make N shadow maps fit" again, either `maxCasters` went up or something is casting
+            // that this does not know about.** That line is the only warning URP gives before it
+            // silently halves every map in the building.
             //
-            // **If the console ever prints that reduction line again, something is casting that this
-            // does not know about**, because one 2048 map in a 2048 atlas is an exact fit and nothing
-            // else in the building is allowed shadows.
-            SetEnumByName(so, "m_AdditionalLightsShadowmapResolution", "_2048");
+            // **2048 PER LIGHT.** A 130-degree cone from 5.41m spreads its map over 23.2m of floor, so
+            // this is what sets the texel: 1024 gave 22.7mm and a key's shank is thinner than one of
+            // those, which is how a 20cm key came out as a 10cm smudge. 2048 halves it to 11.3mm.
+            //
+            // **Paired with `maxCasters` 4 and a 4096 atlas above** - raise either without the other
+            // and URP silently halves every map in the building, warning once.
+            SetEnumByName(so, "m_AdditionalLightsShadowmapResolution", "_4096");
             // The per-light tiers URP picks from. `UniversalAdditionalLightData` defaults a light to
-            // the HIGH one, so raising it is what actually reaches the fixtures - and with a single
-            // caster it can have the lot.
+            // the HIGH one, so this is what actually reaches the fixtures.
             SetIfPresent(so, "m_AdditionalLightsShadowResolutionTierHigh", 2048);
             SetIfPresent(so, "m_SoftShadowsSupported", true);
+
+            // **THE PROBE SYSTEM FOLLOWS THE DATA - it is not a constant, and it used to be.**
+            //
+            // `BakeLighting` switches this to APV as the first step of a bake, because APV is the only
+            // GI this project can use (nothing here has lightmap UVs; see that file). But **APV with
+            // no baked data is worse than no APV**: every renderer marked `ReceiveGI.LightProbes` -
+            // which is all 3,432 of them - samples a grid that does not exist.
+            //
+            // So this was pinned to `LegacyLightProbes` on every build, as a safety catch, with a note
+            // saying that IF A BAKE WERE EVER MADE TO STICK THE TWO HALVES WOULD HAVE TO MOVE
+            // TOGETHER. **They now do** (2026-08-25): the bake works, so pinning it off would silently
+            // throw away every cell of it on the next rebuild - a bake nobody could see the result of,
+            // which is a worse failure than the crash was, because it does not announce itself.
+            //
+            // **The catch is kept, only asked as a QUESTION rather than assumed.** No baked data
+            // anywhere - a fresh clone, or a bake that has not been run yet - still lands on legacy,
+            // which is the state that renders correctly without one.
+            //
+            // BY NAME, because this is a serialised enum and `SetIfPresent(int)` refuses those on
+            // purpose - the same guard that silently ignored the first attempt at `m_MSAA`. The
+            // values are `LegacyLightProbes = 0` and `ProbeVolumes = 1`.
+            bool haveBakedProbes = AnyBakedProbeVolumes();
+            SetEnumByName(so, "m_LightProbeSystem",
+                haveBakedProbes ? "ProbeVolumes" : "LegacyLightProbes");
+            Debug.Log(haveBakedProbes
+                ? "[SceneBuilder] Baked probe volumes found - URP left on Adaptive Probe Volumes."
+                : "[SceneBuilder] No baked probe volumes - URP pinned to LegacyLightProbes. Run "
+                + "'Iteration Room/Bake Lighting (slow)' to get bounce light.");
+
+            // **MSAA 2, NOT 4** (2026-08-25, after play reported lag). Authored here rather than left
+            // in the asset for the reason every tuned value is (CLAUDE.md §2) - it was 4 and nothing
+            // anywhere said why, which is how a number nobody has examined survives.
+            //
+            // **THIS GAME ALREADY HAS A SECOND ANTIALIASER.** The player camera runs SMAA
+            // (`BuildPlayer`), so MSAA is not carrying the picture on its own - it is buying extra
+            // coverage on geometric edges, which this building does have a lot of in the panel
+            // grooves. 4x at 1080p in HDR is four full colour and depth samples per pixel of
+            // bandwidth for the second half of a job already being done.
+            //
+            // 2 keeps the geometric coverage that SMAA cannot give (SMAA only sees the resolved
+            // image) at half the bandwidth. **Use "Disabled" to turn MSAA off entirely** - that is the
+            // bigger saving and the one to try next if the frame rate is still short.
+            //
+            // BY NAME, because `m_MSAA` is an enum and `SetIfPresent(int)` refuses those on purpose:
+            // MsaaQuality's values are 1/2/4/8 and its INDICES are 0/1/2/3, so assigning the number
+            // you want picks a different mode. The first attempt at this line did exactly that and
+            // was silently ignored by the guard, which is the guard working.
+            SetEnumByName(so, "m_MSAA", "_2x");
+
+            // **DEPTH BIAS 0.5, NOT URP'S DEFAULT 1** (2026-08-24, by request). Authored here rather
+            // than left to the asset for the reason every tuned value is (CLAUDE.md §2) - the asset is
+            // rewritten on every build, so a number only an inspector knows is a number that survives
+            // by luck.
+            //
+            // What it trades: a shadow map stores one depth per texel, so a surface whose depth varies
+            // within a texel shadows ITSELF in stripes - acne. Depth bias pushes the stored depth away
+            // from the light to stop that, and the side effect is that the whole shadow shifts, which
+            // reads as the object floating above its own shadow (peter-panning). **Too low is acne,
+            // too high is a detached shadow, and both are visible on the floor of any room here.**
+            //
+            // Halved because detachment is the fault this building actually reported and 2048 maps
+            // over a 130-degree cone need less bias than 1024 did. Normal bias is left at 1: it buys
+            // the same protection by moving the SAMPLE along the surface normal instead, which costs
+            // thin shadows rather than contact, so it is the wrong one to spend first.
+            //
+            // **Neither number is verified by eye.** If the floor develops stripes, this is what did
+            // it. See docs/rendering-notes.md.
+            SetFloatIfPresent(so, "m_ShadowDepthBias", 0.5f);
+            SetFloatIfPresent(so, "m_ShadowNormalBias", 1f);
 
             // OFF, because there is no main light. URP's main light is the brightest DIRECTIONAL
             // light and this project deletes the scene's - the rooms are sealed boxes with a
@@ -2096,16 +2252,26 @@ namespace IterationRoom.EditorTools
             // and a shadow pass for a light that does not exist.
             SetIfPresent(so, "m_MainLightShadowsSupported", false);
 
-            // 15, not 30. A room is 10.5m deep, so this covers the one the player is standing in and
-            // a little of the next through an open door; 30m was reaching two rooms past anything
-            // worth shadowing. Halving it also doubles the effective texel density of what is left,
-            // so this is a quality gain as much as a cost one.
+            // **30, RAISED BACK FROM 15** (2026-08-25, after play: "a shadow only appears once you
+            // get close, even though the object is already on screen"). That is precisely what this
+            // number does - URP draws shadows within it OF THE CAMERA and fades them out before the
+            // edge, so past it an object on screen simply has none.
             //
-            // **STILL 15 now that every room casts** (2026-08-24, was written when only Room1 did).
-            // It is doing more work than it was - it is now what stops a corridor of lit rooms all
-            // rendering shadow maps at once - and 15 against a 10.5m room is the right side of that
-            // trade. Raise it only if a shadow is ever wanted across a doorway.
-            SetFloatIfPresent(so, "m_ShadowDistance", 15f);
+            // **The argument for 15 was that halving it doubles the effective texel density, and that
+            // argument is FALSE HERE.** Cascade resolution is a DIRECTIONAL-light property, and this
+            // project has no directional light: it is deleted at build, `m_MainLightShadowsSupported`
+            // is off and the cascade count is 1. Every shadow in the game comes from a spot, whose
+            // map is sized by its cone angle and its resolution tier and does not know this number
+            // exists. So the "quality gain" half of that trade was never being collected - 15 was
+            // buying nothing and paying for it in pop-in.
+            //
+            // The other half of the old reasoning has also expired: it was written when **only Room1
+            // cast**, so "30m reaches two rooms past anything worth shadowing" was true. Every room
+            // casts now.
+            //
+            // What it still genuinely does is stop a whole corridor of lit rooms rendering shadow
+            // maps at once, and that is the thing to watch if the frame rate moves.
+            SetFloatIfPresent(so, "m_ShadowDistance", 30f);
 
             // GhostFaint samples _CameraDepthTexture to fade where a ghost crosses solid geometry,
             // and that texture only exists if something asks for it. SSAO happens to request depth
@@ -2197,10 +2363,20 @@ namespace IterationRoom.EditorTools
             // evenness it is supposed to have. So the shape of it is: floor lowest (0.155, the
             // spots already hammer it), walls and ceiling high and close together (0.644 / 0.719),
             // which is what a room lit by recessed panels and white paint actually looks like.
+            // **RE-TUNED ON THE DIAL, 2026-08-25, once the bake worked and the walls stopped being
+            // black.** Halving all three was the starting point the rendering notes prescribe; it was
+            // not where they landed. Read off `LightingTuner` in the calibration room, which is why
+            // the numbers are not round.
+            //
+            // The shape that came out is NOT a uniform reduction, and that is the finding: the FLOOR
+            // band came down hard (0.155 -> 0.028) while the walls (0.644 -> 0.659) and the ceiling
+            // (0.719 -> 0.843) held or ROSE. The floor is the one surface the downlights already
+            // hammer, so bounce off it is the term that was being double-counted; the ceiling gets no
+            // direct light at all and turned out to want MORE, not less.
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor     = new Color(0.155f, 0.155f, 0.175f);
-            RenderSettings.ambientEquatorColor = new Color(0.644f, 0.644f, 0.664f);
-            RenderSettings.ambientGroundColor  = new Color(0.719f, 0.719f, 0.739f);
+            RenderSettings.ambientSkyColor     = new Color(0.028f, 0.028f, 0.038f);
+            RenderSettings.ambientEquatorColor = new Color(0.659f, 0.659f, 0.669f);
+            RenderSettings.ambientGroundColor  = new Color(0.843f, 0.843f, 0.853f);
             RenderSettings.ambientIntensity = 1f;
             // Assigning the colours does NOT rebuild the ambient probe. Without this they are
             // stored and never reach a shader, and every tweak looks like it did nothing.
@@ -2313,9 +2489,22 @@ namespace IterationRoom.EditorTools
                     // better-aimed single shadow cannot produce it at all.
                     //
                     // The old reasoning here was that four overlapping shadows "read as a smear, not
-                    // as a figure". That is true of four EQUALLY dark ones; at `shadowStrength` 0.75
-                    // a region shadowed from one fixture only loses about 19% and is faint, so the
-                    // smear is the gradient and it is the point. The other half of the old argument -
+                    // as a figure". That is true of four EQUALLY dark ones; the gradient is the point.
+                    //
+                    // **0.45, DOWN FROM 0.75** (2026-08-25, after play: four scattered shadows under a
+                    // held object read as wrong). They are in the RIGHT PLACE - a point light at
+                    // (+-1.75, 5.41, +-2.6) throws an object held at 1.3m onto the floor 0.99m from
+                    // its own footprint, so the four sit on a 1.11 x 1.65m rectangle, which is exactly
+                    // what the screen shows. What is wrong is the EDGE: these stand in for 1.4m
+                    // emissive panels, and a real source that size would blur each shadow over 0.44m
+                    // at that height - half their separation - so the four would melt into one soft
+                    // pool. A point light gives four crisp copies instead, and URP has no realtime
+                    // area light to fix that with.
+                    //
+                    // So the lever is CONTRAST, not geometry. Each fixture carries about a quarter of
+                    // the light, so one shadow alone removes strength/4: at 0.75 that was 19% and read
+                    // as a distinct copy, at 0.45 it is 11% and reads as a smudge. Under the object
+                    // all four still stack to 45%, which is the contact cue this is really for. The other half of the old argument -
                     // that four casters a room is a budget nobody has - was written for the WebGL
                     // build. The target is Steam, and six shadowed fixtures is a configuration this
                     // project has already shipped (see the atlas note in `ConfigureUrpAsset`).
@@ -2324,8 +2513,19 @@ namespace IterationRoom.EditorTools
                     // not in `visibleLights` and costs nothing, so this is four casters in the room
                     // you are standing in and up to eight seen through an open door - never fourteen
                     // rooms' worth.
+                    // **MIXED, SO THE BOUNCE CAN BE BAKED WITHOUT GIVING UP THE DIRECT LIGHT**
+                    // (2026-08-25). Left at the default Realtime these contribute NOTHING to a GI
+                    // bake - the bake log said so in as many words, "0 lights" - so a building lit
+                    // entirely by them bakes pitch black indirect and the whole exercise is wasted.
+                    //
+                    // Mixed rather than Baked because the direct half has to stay live: `ShadowBudget`
+                    // switches these fixtures' shadows on and off as the player moves, and a fully
+                    // baked light has no runtime shadow to switch. Mixed keeps the direct light and
+                    // its shadow realtime and bakes only what bounces, which is exactly the split
+                    // this room wants.
+                    light.lightmapBakeType = LightmapBakeType.Mixed;
                     light.shadows = castShadows ? LightShadows.Soft : LightShadows.None;
-                    light.shadowStrength = 0.75f;
+                    light.shadowStrength = 0.45f;
                     light.renderMode = LightRenderMode.ForcePixel;
                     built.Add(light);
                 }
@@ -2478,6 +2678,89 @@ namespace IterationRoom.EditorTools
                 importer.npotScale = TextureImporterNPOTScale.None;
                 // Block colour with hard edges is the worst case for DXT, and this is nothing else.
                 importer.textureCompression = TextureImporterCompression.Uncompressed;
+                importer.SaveAndReimport();
+            }
+
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+
+        // HOW SHINY THE SURFACE IS, VARYING ACROSS IT - the other half of what the normal map does.
+        //
+        // **PERFECTLY UNIFORM ROUGHNESS IS ONE OF THE STRONGEST TELLS THAT SOMETHING IS RENDERED.**
+        // `ApplySurfaceDetail` gives the walls a normal map, so light already breaks up on the
+        // micro-relief - but it also hands them ONE smoothness number, so every square metre of the
+        // building reflects exactly as sharply as every other. Real paint does not: it is duller
+        // where it has been touched, cleaned, or run down a wall, and the eye reads that unevenness
+        // long before it can name it.
+        //
+        // **LOW FREQUENCY ON PURPOSE, and that is the whole difference between this and the normal
+        // map.** That one wants near-pixel grain, because it is standing in for plaster texture. This
+        // wants broad soft patches the size of a hand or a body, because it is standing in for wear -
+        // fine noise in roughness reads as sparkle, which is the opposite of the intent.
+        //
+        // **IT ONLY EVER DULLS.** URP multiplies (`specGloss.a *= _Smoothness` in LitInput.hlsl), so
+        // the alpha here is a fraction of the material's authored smoothness and 1.0 means "as
+        // authored". Nothing can come out glossier than the number somebody chose, which keeps this a
+        // detail pass rather than a second place the surface is defined.
+        //
+        // R CARRIES METALLIC, because the same texture supplies both and a zero red channel would
+        // silently un-metal anything this is applied to. Read off the material rather than assumed.
+        private static Texture2D MakeSmoothnessMap(string name, int size, float metallic, float floor)
+        {
+            string path = $"{TexturesDir}/{name}.png";
+
+            float[] wear = new float[size * size];
+            // Two coarse octaves only - 4 and 12 periods across the tile. The normal map's finest is
+            // 64; going anywhere near that here is what turns wear into glitter.
+            AddNoiseOctave(wear, size, 4, 0.65f, 4801);
+            AddNoiseOctave(wear, size, 12, 0.35f, 5779);
+
+            float min = float.MaxValue, max = float.MinValue;
+            foreach (float v in wear) { if (v < min) min = v; if (v > max) max = v; }
+            float span = Mathf.Max(0.0001f, max - min);
+
+            Color[] pixels = new Color[size * size];
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                // Normalised to the noise's ACTUAL range rather than an assumed one, so `floor` means
+                // the same depth of dulling whatever the octave weights above are changed to.
+                float t = (wear[i] - min) / span;
+                pixels[i] = new Color(metallic, 0f, 0f, Mathf.Lerp(floor, 1f, t));
+            }
+
+            Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false, true);
+            tex.SetPixels(pixels);
+            tex.Apply();
+
+            Directory.CreateDirectory(TexturesDir);
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (importer != null)
+            {
+                importer.textureType = TextureImporterType.Default;
+                // **sRGB OFF.** This is data, not a picture - a gamma curve applied to a roughness
+                // value is a different roughness. The same reason the normal map is created with
+                // `linear: true`.
+                importer.sRGBTexture = false;
+                // **AND ALPHA MUST SURVIVE THE IMPORT.** The smoothness lives in it, and Unity will
+                // happily compress a texture whose alpha it thinks is unused.
+                importer.alphaSource = TextureImporterAlphaSource.FromInput;
+                importer.alphaIsTransparency = false;
+                // **AND IT MUST NOT BE BLOCK-COMPRESSED.** DXT5 stores alpha in 4x4 blocks, and the
+                // smoothness lives in alpha - so a smooth low-frequency field gets quantised per
+                // block and the walls come out wearing a faint grid of small squares, visible across
+                // a room. Reported from play as "연한 회색 사각형들", 2026-08-25.
+                //
+                // Same rule the HUD icons already carry for the same reason ("block compression
+                // frays something that is nothing but alpha"), which this map did not inherit
+                // because it goes through a different importer path. **A DATA texture is not a
+                // picture: it gets no gamma curve and no block compression.**
+                importer.textureCompression = TextureImporterCompression.Uncompressed;
+                importer.wrapMode = TextureWrapMode.Repeat;
+                importer.anisoLevel = 4;
                 importer.SaveAndReimport();
             }
 
@@ -3375,7 +3658,50 @@ namespace IterationRoom.EditorTools
             // the relief only shows in diffuse shading and barely reads. Still well short of the
             // 0.5 default that mirrors the skybox onto the walls.
             SetSmoothness(mat, smoothness);
+
+            // **AND THE SMOOTHNESS VARIES ACROSS IT NOW** - see `MakeSmoothnessMap`. Every surface
+            // that gets a normal map gets this, because the two are halves of one idea: the normal
+            // map breaks the light up, this breaks up how sharply it comes back.
+            //
+            // Applied HERE rather than at each call site so a new surface cannot get one without the
+            // other - the same reason `AddFallingToEveryCarryable` is a sweep.
+            ApplyWear(mat);
+
             EditorUtility.SetDirty(mat);
+        }
+
+        // The smoothness variation, on one material.
+        //
+        // **THE KEYWORD IS THE WHOLE OF IT.** Assigning `_MetallicGlossMap` and stopping is the exact
+        // shape of mistake this project has recorded twice already - transparency needing
+        // `_SURFACE_TYPE_TRANSPARENT` as well as the blend modes, and `_BumpScale` only being
+        // drivable because `_NORMALMAP` was already compiled in. URP's `SampleMetallicSpecGloss` is
+        // wrapped in `#ifdef _METALLICSPECGLOSSMAP`: without it the texture is set, costs memory, and
+        // is never read.
+        //
+        // ONE TEXTURE PER METALLIC VALUE, cached by name, because the map carries metallic in its red
+        // channel - two materials that differ only in colour share one, and a metal and a non-metal
+        // cannot.
+        private static void ApplyWear(Material mat)
+        {
+            if (mat == null) return;
+
+            float metallic = mat.HasProperty("_Metallic") ? mat.GetFloat("_Metallic") : 0f;
+
+            // Named off the metallic value so the cache key and the file name are the same fact.
+            Texture2D wear = MakeSmoothnessMap($"SurfaceWear_{Mathf.RoundToInt(metallic * 100f)}",
+                                               256, metallic, WearFloor);
+
+            if (wear == null) return;
+
+            mat.EnableKeyword("_METALLICSPECGLOSSMAP");
+            mat.SetTexture("_MetallicGlossMap", wear);
+            // The alpha channel of the metallic map, not of the base map. It is URP's default, and
+            // stating it is cheap against a material that arrives with the other one set.
+            mat.SetFloat("_SmoothnessTextureChannel", 0f);
+            // The wear tiles on its OWN scale, much broader than the grain - `_BaseMap`'s tiling is
+            // tuned to make the normal map read as plaster, and wear at that rate is glitter.
+            mat.SetTextureScale("_MetallicGlossMap", Vector2.one);
         }
 
         // A glossy surface is only as good as what it has to reflect, and the only reflection
@@ -3659,6 +3985,31 @@ namespace IterationRoom.EditorTools
 
             GameObject holder = new GameObject("CalibrationRoom_Root");
             foreach (Transform t in move) t.SetParent(holder.transform, true);
+
+            // **THE TUNER IS BUILT HERE, INSIDE THE LIFT, AND NOT WHERE THE ROOM IS BUILT.** It holds
+            // a reference to every wall panel, floor, ceiling and fixture in this room, so built with
+            // the rest of cycle 1 it lands in `Cycle1.unity` pointing at objects that stay in the core
+            // scene - ninety-odd cross-scene references, every one of them silently NULLED on save.
+            // The panel then opened with its sliders attached to nothing and reported the fallback
+            // defaults as though they were the room's values. Exactly the failure the comment above
+            // describes for `CalibrationWall`, made a second time.
+            BuildLightingTuner(holder.transform);
+
+            // **AND ITS OWN SHADOW BUDGET**, for the same reason the tuner is built here: these
+            // fixtures live in this scene now, and the component that switches them has to as well.
+            // `WireShadowBudget` deliberately skips them - see there.
+            var calibLights = new System.Collections.Generic.List<Light>();
+            foreach (Light l in holder.GetComponentsInChildren<Light>(true))
+                if (l.shadows != LightShadows.None) calibLights.Add(l);
+
+            if (calibLights.Count > 0)
+            {
+                ShadowBudget calibBudget = holder.AddComponent<ShadowBudget>();
+                calibBudget.fixtures = calibLights.ToArray();
+                calibBudget.maxCasters = 4;
+                Debug.Log($"[SceneBuilder] ShadowBudget on the calibration room: {calibLights.Count} "
+                        + "fixture(s), in the scene they actually live in.");
+            }
             Debug.Log($"[SceneBuilder] Calibration room lifted out of cycle 1 ({move.Count} object(s)); "
                     + "it runs before any cycle exists and stays in the core scene.");
         }
@@ -3734,16 +4085,129 @@ namespace IterationRoom.EditorTools
         private static int MarkReflectionProbeStatic()
         {
             int flagged = 0;
+            int skipped = 0;
             Renderer[] renderers = UnityEngine.Object.FindObjectsByType<Renderer>(
                 FindObjectsInactive.Include);
 
             foreach (Renderer r in renderers)
             {
                 if (MovesDuringPlay(r.transform)) continue;
-                GameObjectUtility.SetStaticEditorFlags(r.gameObject, StaticEditorFlags.ReflectionProbeStatic);
+
+                // **CONTRIBUTE GI AS WELL, since 2026-08-25** - and the paragraph above, which used to
+                // say ONLY the reflection flag is set, was right at the time and is what changed.
+                //
+                // Without this there is no bounce light anywhere in the building: a white room lit by
+                // four downlights and a constant ambient term, which is most of why it reads as a
+                // whitebox. Real white walls throw most of their light back at each other.
+                //
+                // The flag is inert until something bakes. It marks this renderer as a surface light
+                // BOUNCES OFF and is BLOCKED BY - see `BakeLighting`.
+                //
+                // **BUT NOT ON A MESH WITH NO TRIANGLES, AND THAT IS NOT A NICETY - IT IS WHY CYCLE1
+                // COULD NOT BE BAKED.** `chess.glb` ships a mesh named `Material3` with no triangle
+                // sub-mesh at all. It bounces nothing and blocks nothing, so leaving it out costs the
+                // bake exactly nothing; putting it IN took the Editor down. APV's Virtual Offset pass
+                // builds a ray tracing acceleration structure out of every ContributeGI renderer, and
+                // `HardwareRayTracingAccelStruct.AddInstance` refuses a mesh with no triangle topology
+                // and then registers a zero handle for it anyway - so the second such mesh throws
+                // `ArgumentException: An item with the same key has already been added. Key: 0`. That
+                // aborts `DefaultVirtualOffset.Initialize` half-built, `Step()` NREs on what it left
+                // behind, and the wreckage surfaces much later in `FinalizeBake`, where the real
+                // exception is swallowed by a `catch` and the cleanup after it throws out of the bake
+                // delegate instead - so `done` is never set and Unity calls the delegate again every
+                // tick, forever. 29,757 exceptions and a hung Editor, with the only readable cause
+                // 30,000 lines above the noise.
+                //
+                // **The chess pieces are in Room2West, which is why CYCLE1 ALONE crashed** while
+                // IterationRoom and Cycle3 baked in seconds. A scene-shaped symptom with an
+                // asset-shaped cause. `docs/gotchas.md`.
+                bool bouncesLight = HasTriangles(r);
+                if (!bouncesLight) skipped++;
+
+                GameObjectUtility.SetStaticEditorFlags(r.gameObject,
+                    bouncesLight
+                        ? StaticEditorFlags.ReflectionProbeStatic | StaticEditorFlags.ContributeGI
+                        : StaticEditorFlags.ReflectionProbeStatic);
+
+                // **AND IT TAKES ITS GI FROM PROBES, NOT FROM A LIGHTMAP.** That is not a quality
+                // compromise here, it is the only option: a lightmap needs a second UV set, and every
+                // piece of this building is generated from script - Unity's primitives have no UV2
+                // and a generated mesh has whatever it was given. Adaptive Probe Volumes need none,
+                // which is why the bake goes that way.
+                //
+                // It also buys something lightmaps cannot: the ghosts, the carryables and the
+                // player's own body sample the same volumes, so a past self walking through a room
+                // is lit by that room instead of by a global constant.
+                //
+                // `receiveGI` is a `MeshRenderer` property, not a `Renderer` one - a skinned mesh has
+                // no such choice to make, because it is never lightmapped in the first place. The
+                // cast is the test, so nothing here needs to also ask what kind of renderer it is.
+                if (r is MeshRenderer mesh) mesh.receiveGI = ReceiveGI.LightProbes;
                 flagged++;
             }
+
+            // **SAID OUT LOUD, because the failure it prevents has no other symptom.** A triangle-less
+            // mesh that slips back into the GI set does not warn - it hangs the Editor twenty minutes
+            // later inside Unity's own code. A count here means the next one is a line in the build
+            // log rather than an afternoon.
+            if (skipped > 0)
+                Debug.Log($"[SceneBuilder] {skipped} renderer(s) held out of ContributeGI - no "
+                        + "triangles to bounce light off. See MarkReflectionProbeStatic.");
+
             return flagged;
+        }
+
+        // Whether any probe volume in the project has actually been baked - the question the URP
+        // asset's probe system now follows. See `ConfigureUrpAsset`.
+        //
+        // **REFLECTION, RELUCTANTLY, AND FAILING SAFE.** `ProbeVolumeBakingSet.HasBeenBaked()` is
+        // `internal`, the same wall `BakeLighting.EnsureBakingSet` runs into and answers the same way:
+        // look the member up, and report rather than assume when it is gone. A Unity version that
+        // renames it makes this return false, which pins URP to legacy probes - the state that renders
+        // correctly with no bake. The wrong answer in the safe direction.
+        private static bool AnyBakedProbeVolumes()
+        {
+            MethodInfo baked = typeof(ProbeVolumeBakingSet).GetMethod("HasBeenBaked",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (baked == null)
+            {
+                Debug.LogWarning("[SceneBuilder] ProbeVolumeBakingSet.HasBeenBaked is gone - this "
+                               + "Unity version has moved the API. Assuming no baked probe data.");
+                return false;
+            }
+
+            foreach (string guid in AssetDatabase.FindAssets("t:ProbeVolumeBakingSet"))
+            {
+                var set = AssetDatabase.LoadAssetAtPath<ProbeVolumeBakingSet>(
+                    AssetDatabase.GUIDToAssetPath(guid));
+                if (set != null && baked.Invoke(set, null) is true) return true;
+            }
+
+            return false;
+        }
+
+        // Whether a renderer has a surface the GI bake can actually use.
+        //
+        // **ASKED OF THE SUB-MESH TOPOLOGY, not the triangle count**, because that is the question
+        // the ray tracing structure asks: a mesh can carry lines or points, report plenty of
+        // vertices, and still have nothing to intersect. `GetTopology` reads the sub-mesh descriptor
+        // rather than the index buffer, so it does not need the mesh to be readable - which matters,
+        // since the imported `.glb` meshes are not.
+        //
+        // A renderer with no mesh at all (a line, a trail, a particle system) answers false, which is
+        // the right answer for the same reason: nothing for light to bounce off.
+        private static bool HasTriangles(Renderer r)
+        {
+            Mesh mesh = null;
+            if (r is SkinnedMeshRenderer skinned) mesh = skinned.sharedMesh;
+            else if (r.TryGetComponent(out MeshFilter filter)) mesh = filter.sharedMesh;
+
+            if (mesh == null) return false;
+
+            for (int i = 0; i < mesh.subMeshCount; i++)
+                if (mesh.GetTopology(i) == MeshTopology.Triangles) return true;
+
+            return false;
         }
 
         // Walks up, because the thing that moves is usually a parent of the thing that renders - a
@@ -9914,7 +10378,8 @@ namespace IterationRoom.EditorTools
             BuildCeilingLights(parent, "Room2East", 3f * RoomPitch, fixtureMat, castShadows: true);
             BuildCeilingLights(parent, "Room3", 4f * RoomPitch, fixtureMat, castShadows: true);
             BuildCeilingLights(parent, "Room4", 5f * RoomPitch, fixtureMat, castShadows: true);
-            BuildCeilingLights(parent, CalibrationRoomName, CalibrationRoomZ, fixtureMat, castShadows: true);
+            (CalibrationLights, _) =
+                BuildCeilingLights(parent, CalibrationRoomName, CalibrationRoomZ, fixtureMat, castShadows: true);
 
             // Built after the lights, so the probes capture the rooms already lit. The calibration
             // room needs its own: the walls are at 0.85 smoothness, and without a probe to reflect
@@ -10196,11 +10661,13 @@ namespace IterationRoom.EditorTools
                             + rightDir * part.center.x
                             + Vector3.up * part.center.y
                             - inward * (GrooveDepth / 2f);
-                        Vector3 scale = widthAxis * part.width
-                            + Vector3.up * part.height
-                            + depthAxis * GrooveDepth;
-
-                        Prim(PrimitiveType.Cube, $"Panel_{piece++}", panels.transform, pos, scale, panelMat, removeCollider: true);
+                        // **A CHAMFERED MESH, NOT A CUBE** - see `ChamferedPanelMesh` for what the
+                        // rim buys and why it has to be built at true size rather than scaled.
+                        // Collisionless either way: the backing slab behind these is what the player
+                        // walks into, which is why the cube this replaces was made with
+                        // `removeCollider: true`.
+                        ChamferedPanel($"Panel_{piece++}", panels.transform, pos,
+                                       part.width, part.height, GrooveDepth, inward, panelMat);
                     }
                 }
             }
@@ -13008,13 +13475,15 @@ namespace IterationRoom.EditorTools
                     float top = Mathf.Min(bottom + GridCellHeight, GateHeight);
                     float upCentre = (bottom + top) / 2f;
 
-                    Prim(PrimitiveType.Cube, $"Panel_{row}", leafRoot.transform,
+                    // Chamfered like every other panel in the building, and that consistency is the
+                    // reason rather than the look on its own: a gate leaf is meant to read as a
+                    // piece of wall until it moves, and a leaf whose panels had sharp rims beside a
+                    // wall whose panels did not would announce every door in the game.
+                    ChamferedPanel($"Panel_{row}", leafRoot.transform,
                         rightDir * (cellCentre - openCentre)
                             + Vector3.up * (upCentre - GateHeight / 2f)
                             - inward * (GrooveDepth / 2f),
-                        widthAxis * (leafWidth - groove) + Vector3.up * (top - bottom - groove)
-                            + depthAxis * GrooveDepth,
-                        panelMat, removeCollider: true);
+                        leafWidth - groove, top - bottom - groove, GrooveDepth, inward, panelMat);
                 }
 
                 // THE BACKING, which is what a groove has at the bottom of it everywhere else in the
@@ -14972,6 +15441,20 @@ namespace IterationRoom.EditorTools
                                                                     FindObjectsSortMode.None))
             {
                 if (light.shadows == LightShadows.None) continue;
+
+                // **THE CALIBRATION ROOM IS NOT A CYCLE'S BUSINESS, and enrolling it here was a
+                // silent bug.** This runs long before `ExtractCalibrationRoom` lifts that room into
+                // the core scene, so its four fixtures were being written into CYCLE 1's budget - and
+                // then the lift put them in a different scene from the component holding them. Unity
+                // nulls a serialised reference across a scene boundary, so those four were never
+                // switched by anything and kept the `Soft` the builder gave them: four permanent
+                // casters nobody was counting. With four more in the player's own room that is eight
+                // maps wanting a four-map atlas, which is the one thing `ConfigureUrpAsset` warns
+                // about. `cross-scene-report.txt` had named all four.
+                //
+                // They get their own budget instead, in `ExtractCalibrationRoom`, where they end up.
+                if (LiftedWithCalibrationRoom(light.transform)) continue;
+
                 light.shadows = LightShadows.None;
 
                 Cycle owner = null;
@@ -15004,6 +15487,21 @@ namespace IterationRoom.EditorTools
             {
                 ShadowBudget budget = pair.Key.gameObject.AddComponent<ShadowBudget>();
                 budget.fixtures = pair.Value.ToArray();
+
+                // **FOUR CASTERS, AT 2048 EACH IN A 4096 ATLAS** (2026-08-25, by request). Authored
+                // here rather than left to the component's own default, which is what CLAUDE.md §2
+                // asks and which this had been quietly relying on.
+                //
+                // **ONE caster was tried for a day and play rejected it**, and the reason is worth
+                // keeping: the single caster is whichever fixture is NEAREST THE PLAYER, so walking
+                // across a room swaps it and every shadow in the room jumps to a new angle. `range`
+                // is sized (10m) precisely so the casting SET does not change while you are inside a
+                // room - and that guarantee only holds when the whole room's ceiling is in the set.
+                // With one, the set changes constantly and the guarantee is worthless.
+                //
+                // Four also restores what a ceiling of four panels actually does: overlapping soft
+                // shadows, dark where all four meet under an object and faint where only one reaches.
+                budget.maxCasters = 4;
 
                 Debug.Log($"[SceneBuilder] ShadowBudget on '{pair.Key.name}': {pair.Value.Count} "
                         + $"eligible ceiling fixtures, at most {budget.maxCasters} casting within "
@@ -17633,6 +18131,173 @@ namespace IterationRoom.EditorTools
             return AssetDatabase.LoadAssetAtPath<Mesh>(path);
         }
 
+        // A WALL PANEL WITH ITS FRONT RIM CHAMFERED, at true size.
+        //
+        // **THE ARGUMENT IS ALREADY IN THIS FILE, one screen down, and it was only ever applied to
+        // three objects.** `BevelledPrismMesh` says it: a Unity cube's faces meet at perfectly sharp
+        // edges, so each face is one flat shade under any lighting, "and no material fixes it,
+        // because there is no geometry near the edge for a highlight to run along". That was written
+        // about the escape objects. The building is made of some three thousand cubes.
+        //
+        // Here it is worth more than it is there, because of what the panels already are: each one
+        // stands `GrooveDepth` proud of its backing, so the building is a grid of raised rectangles
+        // with a shadow line around every one. Chamfering the front rim puts a lit line inside every
+        // one of those shadow lines - thousands of them - and that pairing is most of what separates
+        // a photographed wall from an extruded one.
+        //
+        // **ONLY THE FRONT RIM.** The back face is buried against the backing slab and the four side
+        // walls are the groove itself; neither is where the light is. Four edges, not twelve.
+        //
+        // **TRUE SIZE, NOT A SCALED UNIT CUBE, and that is the whole reason this exists as a mesh per
+        // size.** A panel is 1.72 x 1.32 x 0.025: a chamfer written as a fraction and scaled with the
+        // box comes out 100mm across the face and 1.5mm through the depth, which is not a chamfer, it
+        // is a wedge. The metres have to survive into the vertices.
+        //
+        // Cached by size, so the grid's identical cells share one asset and go on batching - the
+        // partial panels around doorways are the only ones that mint new ones. The build logs how
+        // many distinct meshes it ended up with; if that number is ever in the hundreds, the sizes
+        // have stopped repeating and this trade needs looking at again.
+        private static Mesh ChamferedPanelMesh(float width, float height, float depth, float chamfer)
+        {
+            // Rounded to the tenth of a millimetre BEFORE it becomes a key, or floating point turns
+            // one panel size into a dozen assets that differ in the seventh decimal.
+            int kw = Mathf.RoundToInt(width * 10000f);
+            int kh = Mathf.RoundToInt(height * 10000f);
+            int kd = Mathf.RoundToInt(depth * 10000f);
+            int kc = Mathf.RoundToInt(chamfer * 10000f);
+
+            string assetName = $"Panel_{kw}_{kh}_{kd}_{kc}";
+            string path = GeneratedDir + "/" + assetName + ".mesh";
+            panelMeshNames.Add(assetName);
+
+            Mesh existing = AssetDatabase.LoadAssetAtPath<Mesh>(path);
+            if (existing != null) return existing;
+
+            float hx = width / 2f, hy = height / 2f, hz = depth / 2f;
+            // Never eat the whole panel. A sliver beside a doorway can be narrower than the chamfer
+            // wants to be, and a chamfer wider than half the piece inverts it.
+            float c = Mathf.Min(chamfer, Mathf.Min(hx, hy) * 0.45f);
+            c = Mathf.Min(c, depth * 0.5f);
+
+            // The front face, inset by the chamfer, and the rim it meets the sides at. Connecting two
+            // concentric rectangles corner to corner gives four quads and needs no corner facet - the
+            // twist at each corner IS the mitre.
+            Vector3[] front =
+            {
+                new Vector3(-(hx - c), -(hy - c), hz), new Vector3(hx - c, -(hy - c), hz),
+                new Vector3(hx - c, hy - c, hz), new Vector3(-(hx - c), hy - c, hz),
+            };
+            Vector3[] rim =
+            {
+                new Vector3(-hx, -hy, hz - c), new Vector3(hx, -hy, hz - c),
+                new Vector3(hx, hy, hz - c), new Vector3(-hx, hy, hz - c),
+            };
+            Vector3[] back =
+            {
+                new Vector3(-hx, -hy, -hz), new Vector3(hx, -hy, -hz),
+                new Vector3(hx, hy, -hz), new Vector3(-hx, hy, -hz),
+            };
+
+            var verts = new System.Collections.Generic.List<Vector3>();
+            var uvs = new System.Collections.Generic.List<Vector2>();
+            var tris = new System.Collections.Generic.List<int>();
+
+            // **UV IS AN XY PROJECTION ACROSS THE WHOLE PANEL, not a face-by-face 0-1.** The cube this
+            // replaces gave its front face exactly 0..1 and the panel materials tile against that
+            // (`ApplySurfaceDetail(panelMat, ..., new Vector2(5f, 3f), ...)`). This reproduces it to
+            // within the chamfer - 6mm on a 1.72m panel is three thousandths of a UV - and has the
+            // advantage of running continuously over the rim, so the grain does not break at the
+            // edge the way per-face mapping would.
+            void Quad(Vector3 a, Vector3 b, Vector3 cc, Vector3 d)
+            {
+                int at = verts.Count;
+                foreach (Vector3 v in new[] { a, b, cc, d })
+                {
+                    verts.Add(v);
+                    uvs.Add(new Vector2((v.x + hx) / width, (v.y + hy) / height));
+                }
+                // **WOUND THIS WAY ROUND BECAUSE THE OTHER WAY BUILT THE BUILDING INSIDE OUT**, and
+                // it shipped that way for a day (2026-08-25). `a,b,cc,d` arrive counter-clockwise
+                // seen from OUTSIDE the solid, and Unity treats clockwise-from-the-front as
+                // front-facing - so `(0,2,1) / (0,3,2)`, which is what this was, faces every quad
+                // backwards. `RecalculateNormals` derives normals from exactly this, so every panel
+                // in the game got a normal pointing INTO the wall and the face the room can see was
+                // shaded as though it faced away from every light in it. **Result: a white building
+                // with pure black walls**, floors and ceilings untouched because they are plain
+                // slabs and never came through here.
+                //
+                // The comment that used to sit here claimed the winding was correct and cited
+                // `BevelledPrismMesh` learning it the hard way - the same mistake, in the same
+                // project, caught the first time only because that mesh was emissive. **Do not
+                // reason about winding from the comment. Build it and look at it.**
+                tris.Add(at); tris.Add(at + 1); tris.Add(at + 2);
+                tris.Add(at); tris.Add(at + 2); tris.Add(at + 3);
+            }
+
+            Quad(front[0], front[1], front[2], front[3]);                 // the face
+            for (int i = 0; i < 4; i++)                                   // the chamfer, four quads
+            {
+                int j = (i + 1) % 4;
+                Quad(rim[i], rim[j], front[j], front[i]);
+            }
+            for (int i = 0; i < 4; i++)                                   // the groove walls
+            {
+                int j = (i + 1) % 4;
+                Quad(back[i], back[j], rim[j], rim[i]);
+            }
+            Quad(back[3], back[2], back[1], back[0]);                     // the buried face
+
+            Mesh mesh = new Mesh { name = assetName };
+            mesh.SetVertices(verts);
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(tris, 0);
+            // Every face has its own vertices, so this leaves the edges hard - a chamfer smoothed
+            // into the face it borders is a rounded-off cube, not a bevelled one. Same rule
+            // `BevelledPrismMesh` states for Square and Triangle.
+            mesh.RecalculateNormals();
+            mesh.RecalculateTangents();
+            mesh.RecalculateBounds();
+
+            if (!Directory.Exists(GeneratedDir)) Directory.CreateDirectory(GeneratedDir);
+            AssetDatabase.CreateAsset(mesh, path);
+            panelMeshesBuilt++;
+            return AssetDatabase.LoadAssetAtPath<Mesh>(path);
+        }
+
+        // WHICH distinct panel sizes the building turned out to have, and how many of them this run
+        // had to generate. The two differ on every build after the first - the meshes are assets, so
+        // a rebuild serves them from disk - and reporting only the second reads as "0 panels" on a
+        // healthy build. See `ChamferedPanelMesh` for why the count is worth watching at all.
+        private static readonly System.Collections.Generic.HashSet<string> panelMeshNames =
+            new System.Collections.Generic.HashSet<string>();
+        private static int panelMeshesBuilt;
+
+        // One chamfered panel, in place of the cube `Prim` would have made.
+        //
+        // **SCALE STAYS AT ONE, and the rotation is what places it.** The metres live in the mesh -
+        // that is the whole point of a mesh per size - so the transform may not stretch it. What the
+        // transform does instead is turn it to face the way the wall does.
+        //
+        // `inward` points INTO the room from the wall face, and the mesh is built facing +Z, so
+        // that is the look direction. NOT the `depthAxis` the wall also carries: that one is
+        // componentwise absolute, so it has the panel's thickness but no idea which side of the wall
+        // the room is on, and a panel built against it faces out of the building half the time.
+        private static GameObject ChamferedPanel(string name, Transform parent, Vector3 localPos,
+                                                 float width, float height, float depth,
+                                                 Vector3 inward, Material mat)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = Quaternion.LookRotation(inward, Vector3.up);
+            go.transform.localScale = Vector3.one;
+
+            go.AddComponent<MeshFilter>().sharedMesh =
+                ChamferedPanelMesh(width, height, depth, PanelChamfer);
+            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            return go;
+        }
+
         private static Mesh BevelledPrismMesh(SlotShape shape, float chamfer)
         {
             // The chamfer is in the asset name, so a shape and its bevelled twin are two assets and
@@ -19446,6 +20111,69 @@ namespace IterationRoom.EditorTools
             rect.anchoredPosition = anchoredPosition;
 
             return text;
+        }
+
+        // THE LIVE DIAL, in the calibration room, behind TAB. See `LightingTuner` for the four rules
+        // that make it safe and the one thing it lies about.
+        //
+        // **DISARMED IN A RELEASE PLAYER.** A development panel on the first screen every player sees
+        // is exactly why the first one was deleted; this one checks
+        // `Application.isEditor || Debug.isDebugBuild` in `Awake` and goes inert if neither holds -
+        // `CaptureRig`'s bargain, for the same reason. The object is still built, because the scene
+        // is built once and serves both.
+        //
+        // Surfaces are gathered BY MATERIAL rather than by name, because that is the question being
+        // asked - "everything wearing PanelWhite in this room" is precisely the set a wall slider
+        // should move, and it survives any renaming of the objects themselves.
+        private static void BuildLightingTuner(Transform parent)
+        {
+            var walls = new System.Collections.Generic.List<Renderer>();
+            var floors = new System.Collections.Generic.List<Renderer>();
+            var ceilings = new System.Collections.Generic.List<Renderer>();
+
+            foreach (Renderer r in parent.GetComponentsInChildren<Renderer>(true))
+            {
+                if (!InCalibrationRoom(r.transform)) continue;
+                Material m = r.sharedMaterial;
+                if (m == null) continue;
+
+                if (m.name == "PanelWhite") walls.Add(r);
+                else if (m.name == "FloorWhite") floors.Add(r);
+                else if (m.name == "CeilingWhite") ceilings.Add(r);
+            }
+
+            GameObject go = new GameObject("LightingTuner");
+            go.transform.SetParent(parent, false);
+            LightingTuner tuner = go.AddComponent<LightingTuner>();
+            // The controller is found at runtime rather than wired: the player is not in this room's
+            // hierarchy, and one serialised reference across a scene boundary is all it takes.
+            tuner.fixtures = CalibrationLights;
+            tuner.wallPanels = walls.ToArray();
+            tuner.floors = floors.ToArray();
+            tuner.ceilings = ceilings.ToArray();
+
+            Debug.Log($"[SceneBuilder] LightingTuner wired: {walls.Count} wall, {floors.Count} floor, "
+                    + $"{ceilings.Count} ceiling renderer(s), "
+                    + $"{(CalibrationLights != null ? CalibrationLights.Length : 0)} fixture(s). TAB in play mode.");
+        }
+
+        // **WHAT `ExtractCalibrationRoom` WILL TAKE, WHICH IS NOT THE SAME SET AS `InCalibrationRoom`.**
+        //
+        // That method matches the shell exactly - a parent named `CalibrationRoom` - and the lift
+        // matches a PREFIX, because the room is several siblings: the shell, `CalibrationWall`, its
+        // start button, and `CalibrationRoom_CeilingLights`. Ask the exact question about a fixture
+        // and the answer is no, because its parent is the last of those and not the first.
+        //
+        // The comment on `ExtractCalibrationRoom` records this trap costing a bug once already, for
+        // `CalibrationWall`. It cost a second one here: `WireShadowBudget` used the exact test, missed
+        // all four fixtures, and enrolled them in cycle 1's budget anyway.
+        //
+        // **Anything asking "will the lift take this?" must ask THIS, not the other one.**
+        private static bool LiftedWithCalibrationRoom(Transform t)
+        {
+            for (Transform p = t; p != null; p = p.parent)
+                if (p.name.StartsWith("Calibration")) return true;
+            return false;
         }
 
         private static bool InCalibrationRoom(Transform t)
