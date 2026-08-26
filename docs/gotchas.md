@@ -1110,3 +1110,159 @@ Two things came out of it:
   at runtime.
 - **A fallback default is a lie when the wiring is missing.** `LightingTuner.Seed` now logs a warning
   naming the empty groups, because a panel that quietly shows defaults is worse than one that fails.
+
+## "A sealed room has no ambient" is true physics and a black building (2026-08-26)
+
+The argument is airtight and it does not survive contact. This building has no windows and no sky,
+so every photon in it leaves a ceiling panel: ambient light is a fiction, and once the GI bake worked
+and the bounce count was raised to eight, `RenderSettings.ambient*` was taken to **zero** on exactly
+that reasoning.
+
+Measured off play screenshots afterwards:
+
+| surface | value (of 255) |
+|---|---|
+| walls | **4–8** |
+| ceiling | ~5 |
+| floor | 67 |
+| emissive fixtures | 255 |
+
+**Not dark. Black.** And the floor being lit is the whole diagnosis: the downlights reach it directly,
+and everything else in the building lives on bounce that the bake does not deliver enough of. The
+ceiling is the extreme — the spots point down, so it has no direct term at all.
+
+**Raising the light intensity cannot fix it, and the numbers say why.** 10.5 → 17 took the floor from
+39% to **65.7% of its pixels clipped** while the walls stayed at 4–8. Multiplying almost nothing by
+2.4 is still almost nothing; all the extra light went where there was already too much.
+
+### What this cost, and the shape of the mistake
+
+Three settings were changed on the way to this, and two of them are keepers:
+
+- **Bounce count 2 → 8: KEEP.** Unity's default of two captures about a fifth of the indirect light
+  in a room this white, and that really was throttling the bake. Costs about 20% of bake time on the
+  big scene (Cycle2 190s → 228s), not the multiple that was feared.
+- **Wall and ceiling albedo 1.0 → 0.85: KEEP.** At 1.0 a surface returns every photon and the
+  indirect series **diverges** — brightness became a function of the bounce COUNT rather than of the
+  lighting, which is why two bounces looked fine and sixteen was "over-bright". The floor had been
+  dropped to 0.85 for this exact reason once already and the other two were left behind.
+- **Ambient 0: REVERT.** The physics is right and the renderer cannot cash it.
+
+**The shape of the mistake was trusting an argument over a measurement.** "A sealed room has no
+ambient" describes reality; it does not describe what a bake with finite probe density, a finite
+bounce count and four point lights standing in for area panels actually produces. The two changes
+that survived were both ones where the physics and the measurement agreed.
+
+**Why the bounce does not reach the walls is still open** — probe validity against 25mm panels,
+reflection probes captured in an unlit room, or simply four downlights not making much wall bounce
+across 8.75 x 10.5m. Worth answering; not worth answering with the game unusable. `TODO.md`.
+
+## RenderSettings is per SCENE, and three of this game's four scenes never had any (2026-08-26)
+
+`SetupLighting` writes `RenderSettings` — ambient mode, the three Trilight bands, the reflection
+mode — while the core scene is open. `SplitCyclesIntoScenes` then creates each cycle with
+`EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, …)`, **and a new scene arrives with Unity's
+defaults**. Nothing copied the environment across.
+
+So from the day the cycles were split until this was found, **every tuned lighting value in this
+project existed in `IterationRoom.unity` alone.** Cycle1, Cycle2 and Cycle3 ran on:
+
+```
+m_AmbientMode: 0            (Skybox, not Trilight)
+m_AmbientSkyColor:     0.212, 0.227, 0.259     ← nobody chose these
+m_AmbientEquatorColor: 0.114, 0.125, 0.133
+m_AmbientGroundColor:  0.047, 0.043, 0.035
+m_DefaultReflectionMode: Skybox
+```
+
+### It hid because it looks like lighting, not like a bug
+
+And it invalidated every attempt to tune the room, for a day:
+
+- **Walls that would not respond to the lights.** With the reflection mode left at Skybox, panels at
+  smoothness 0.85 were mirroring the PROCEDURAL SKY — a constant no ceiling fixture can move. This is
+  the anomaly that finally gave it away: the menu render's floor tracked fixture intensity exactly
+  (140 / 173 / 211 for 7 / 10.5 / 17) while the wall beside it sat at 115 / 117 / 122. **A surface
+  lit by those lights cannot do that.**
+- **Everything measured came out blue.** Blue minus red was +34 to +36 on every sample, in a white
+  room lit by white panels. That was the sky, it was on screen the whole time, and it was in every
+  number recorded that day without being questioned once.
+- **Setting ambient to zero blacked out the calibration room and left the cycle rooms alone**, because
+  the calibration room is the only room that lives in the core scene. That inconsistency sent three
+  separate diagnoses in the wrong direction.
+
+### What fixed it, and what it was worth
+
+`ApplyEnvironment()` is now a method of its own, and `SplitCyclesIntoScenes` calls it for each cycle
+scene — after making it active, because `RenderSettings` writes to the ACTIVE scene and nothing warns
+you when that is the wrong one.
+
+| surface | before | after |
+|---|---|---|
+| back wall | 117, 131, 153 (blue +36) | **149, 150, 155** (blue +6) |
+| left wall | 155, 169, 189 | **189, 191, 197** |
+| floor | 173, 197, 219, **39% clipped** | **183, 191, 197, 0% clipped** |
+| ceiling | 98, 94, 92 | **169, 169, 174** |
+
+The ceiling nearly doubled — it is the surface with no direct light at all, so it was the one most
+starved by an environment nobody had set. And the floor got BRIGHTER while its clipping went to zero,
+because what had been clipping was the sky's green and blue.
+
+**The general form: anything written to `RenderSettings`, `Lightmapping`, or any other per-scene
+singleton has to be written to EVERY scene the build produces.** `SceneBuilder` makes five. Ask of
+any such setting: which of the five did this land in?
+
+## APV was made to work, measured, and switched off (2026-08-26)
+
+Two days went into Adaptive Probe Volumes. The bake works, every bug in the way of it was real and
+is fixed, and the feature is **off**. The switch is `SceneBuilder.AnyBakedProbeVolumes`, which
+returns false with the reasoning beside it. This is the evidence, so that retrying it starts from
+here rather than from scratch.
+
+### What was genuinely broken, and is now fixed
+
+Each of these was a real defect that would have hurt regardless of APV:
+
+| Fault | Effect |
+|---|---|
+| `chess.glb` mesh with no triangles given `ContributeGI` | Hung the Editor with 29,757 exceptions |
+| `RenderSettings` never applied to the cycle scenes | 3 of 4 scenes on skybox ambient; whole game tinted blue |
+| `ChamferedPanelMesh` wound inside out | **Every wall in the building black** |
+| Wear map locked to the grain's tiling | Grid of pale squares on every surface |
+| Probe volume created by the bake, deleted by the next build | Baked data on disk that nothing could load |
+| Calibration room's fixtures enrolled in cycle 1's shadow budget | Four permanent uncounted shadow casters |
+| `m_ShadowDistance` 15 | Shadows appearing only when you got close |
+
+### Why APV is off anyway
+
+**It does not light the walls.** With ambient at zero — bounce as the only indirect light — the walls
+measured **13** of 255 and the ceiling **9**, against a floor at **100**. In linear terms the walls
+are 4.6% of the floor where form-factor maths says 25–30%. Switching APV on adds **+101** to the
+floor and **+166** to a dynamic prop while giving the walls **+2**: it piles light where there is
+already too much and leaves the dark surfaces dark. The room's four downlights point straight down,
+and the bounce follows the light.
+
+Things tried against this, none of which moved the walls: raising bounces 2→8→16; dropping wall and
+ceiling albedo 1.0→0.85; `Shadowmask`→`Baked Indirect`; dilation on; Virtual Offset 0.01→0.05 with
+the search multiplier at 1.0 (the best hypothesis — probes sealed in the cavity behind 25mm panels);
+per-room probe volumes; emissive ceiling panels as baked area lights.
+
+**And the menu background can never match the game while APV is on.** `CaptureMenuBackground` renders
+during the build, before probe data loads, and its output is provably identical with APV on and off.
+Same room, same build: capture **81/89/141** against in-game **114/72/181**. The title screen would
+show a room the game does not render, and every lighting tweak widens the gap. **Solve this first if
+APV is retried** — there is no point tuning against a picture that cannot see the thing being tuned.
+
+### The methodological lesson, which cost more than any single bug
+
+Two measurement mistakes ran through the whole exercise and produced several confident, wrong
+diagnoses:
+
+- **`MenuBackground.png` cannot see APV**, and it was used to judge APV changes anyway — for hours
+  after that limitation had been demonstrated. A tool that cannot observe the variable under test is
+  worse than no tool, because it returns numbers.
+- **Screenshots came from different camera positions** and were compared as if they were the same
+  measurement. Brightness at a point depends on the angle it is viewed from.
+
+**Before trusting a measurement, state what it can and cannot see.** The one measurement that stayed
+honest all along was the player's own judgement, which picked APV-off three times out of three.

@@ -61,6 +61,20 @@ namespace IterationRoom.EditorTools
         public static void RunBatch()
         {
             string[] scenes = { "IterationRoom", "Cycle1", "Cycle2", "Cycle3" };
+
+            // **`-bakeScenes A,B` BAKES ONLY THOSE**, because tuning light is a loop and the loop is
+            // one room. A full run is four scenes and about four minutes at two bounces, and more at
+            // sixteen; the calibration room lives in `IterationRoom` and bakes in seconds, which makes
+            // it the right place to answer "did that setting do anything" before paying for the rest.
+            string[] args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (args[i] != "-bakeScenes") continue;
+                scenes = args[i + 1].Split(',');
+                Debug.Log($"[BakeLighting] -bakeScenes: {string.Join(", ", scenes)}");
+                break;
+            }
+
             int baked = 0;
 
             foreach (string name in scenes)
@@ -157,9 +171,15 @@ namespace IterationRoom.EditorTools
                 Debug.Log($"[BakeLighting] Woke {asleep.Count} sleeping world root(s) for the bake: "
                         + string.Join(", ", asleep.ConvertAll(g => g.name)));
 
-            if (EnsureVolumeFor(scene) == 0)
+            // **THE VOLUME IS THE BUILD'S, NOT THIS TOOL'S** (2026-08-26). Creating it here is what
+            // broke the feature for days: `SceneBuilder.Build()` rebuilds a scene from nothing, so
+            // the next build after a bake deleted the volume and the `ProbeVolumePerSceneData` beside
+            // it, leaving tens of megabytes of baked cells on disk with nothing to load them. See
+            // `SceneBuilder.EnsureProbeVolume`.
+            if (Object.FindAnyObjectByType<ProbeVolume>() == null)
             {
-                Debug.LogError($"[BakeLighting] '{scene.name}' has nothing to put a volume around.");
+                Debug.LogError($"[BakeLighting] '{scene.name}' has no ProbeVolume. Run "
+                             + "'Iteration Room/Build Whitebox Scene' first - the build creates it.");
                 return false;
             }
 
@@ -226,6 +246,77 @@ namespace IterationRoom.EditorTools
             // **BOUNCES ARE THE WHOLE POINT, so this is not the place to economise.** One bounce in a
             // white room is most of the effect and two is nearly all of it; the surfaces here are
             // bright enough that light does not run out as fast as it would in a normal interior.
+            // **EIGHT BOUNCES, AGAINST UNITY'S DEFAULT OF TWO** (2026-08-25).
+            //
+            // Two is a sane default and it is badly wrong for THIS building. Light loses almost
+            // nothing per bounce here: the walls and ceiling are albedo 1.0 and the floor 0.85, so
+            // the indirect is a geometric series that barely decays. Against the infinite sum, two
+            // bounces captures about **19%** of the real indirect light in this room; four gets 34%,
+            // eight 57%, sixteen 81%. **Sixteen was tried first and play called it over-bright**, so
+            // eight is not a compromise for speed - it is where the room wanted to sit.
+            //
+            // **That is most of why the bake looked like it was not working.** Its first outing left
+            // the walls and ceiling so dark that the ambient fudge standing in for them had to go UP
+            // (equator 0.644 -> 0.659, ground 0.719 -> 0.843) even as the floor's came down 82%. The
+            // floor is lit directly and bounces once; the walls and ceiling live entirely on the tail
+            // of that series, which is exactly the part two bounces throws away.
+            //
+            // **It costs less bake time than expected**: `IterationRoom` went 5.3s at two bounces to
+            // 6.8s at sixteen, so this is not the binding cost on a small scene. Watch Cycle2, which
+            // is the big one, before assuming that holds everywhere.
+            //
+            // Written through `SerializedObject` rather than a property: the serialised name is known
+            // from the asset (`m_PVRBounces`) and the C# one is not documented in this version's XML,
+            // so this is the spelling that can actually be checked. Same mechanism, and the same
+            // report-rather-than-assume, as `ConfigureBakingSet` and `SceneBuilder.ConfigureUrpAsset`.
+            var so = new SerializedObject(settings);
+
+            // **BAKED INDIRECT, NOT SHADOWMASK - because Shadowmask was eating the direct light off
+            // every wall in the building** (2026-08-26).
+            //
+            // Unity defaults a Mixed light to Shadowmask. In that mode a lightmap-static renderer -
+            // which is every surface here, since `MarkReflectionProbeStatic` sets `ContributeGI` on
+            // all of them - does not simply receive a Mixed light's direct contribution: it receives
+            // it multiplied by an OCCLUSION MASK, and with Adaptive Probe Volumes that mask comes out
+            // of the probe occlusion data rather than a lightmap.
+            //
+            // **The measurement that found it.** With ambient at zero and APV switched off entirely,
+            // so that realtime direct light was the only thing left, the editor's own render of the
+            // room put the walls at **117-155 of 255** - lit, and exactly where the cosine falloff
+            // from a 130-degree cone at 5.41m says they should be. In PLAY, with APV on, the same
+            // walls measured **4-8**. More light sources available, and less light arriving: the
+            // direct term was being multiplied away.
+            //
+            // That is also why the room could never be lit without a flat ambient constant, and why
+            // raising the fixtures to 17 only clipped the floor - the walls were not short of light,
+            // they were being denied the light they already had.
+            //
+            // `IndirectOnly` is the mode that bakes only what bounces and leaves direct light fully
+            // realtime, with no mask over it. It is what this project's Mixed lights were always
+            // meant to be doing: `SceneBuilder` chose Mixed so `ShadowBudget` could keep switching a
+            // REAL shadow at runtime, which is a statement about direct light staying live.
+            //
+            // MixedLightingMode: 0 = IndirectOnly, 1 = Subtractive, 2 = Shadowmask.
+            SerializedProperty mixed = so.FindProperty("m_MixedBakeMode");
+            if (mixed == null)
+                Debug.LogWarning("[BakeLighting] m_MixedBakeMode is gone - this Unity version has "
+                               + "moved it. If the walls go dark, that is this.");
+            else
+                mixed.intValue = 0;
+
+            SerializedProperty bounces = so.FindProperty("m_PVRBounces");
+            if (bounces == null)
+            {
+                Debug.LogWarning("[BakeLighting] m_PVRBounces is gone - this Unity version has moved "
+                               + "it. The bake will run at Unity's default of 2, which in a room this "
+                               + "white captures about a fifth of the real indirect light.");
+            }
+            else
+            {
+                bounces.intValue = 8;
+                so.ApplyModifiedPropertiesWithoutUndo();
+            }
+
             settings.indirectResolution = 2f;
             settings.lightmapMaxSize = 1024;
             settings.ao = false;   // SSAO already runs, and two occlusion passes double-darken corners
@@ -358,7 +449,32 @@ namespace IterationRoom.EditorTools
                 return;
             }
 
-            if (dilate.boolValue) return;
+            // **VIRTUAL OFFSET HAS TO REACH PAST A PANEL, AND UNITY'S DEFAULT REACHES 1cm**
+            // (2026-08-26). A wall here is not a flat surface: it is a 25mm panel standing proud of a
+            // backing slab with a groove between them, so the gap behind each panel is a SEALED
+            // CAVITY. A probe that lands in one correctly receives no light - and a wall surface
+            // sampling that probe comes out black.
+            //
+            // Virtual Offset exists to push such a probe back out into the room, but
+            // `outOfGeoOffset` defaults to **0.01m**, which cannot clear a 25mm panel, and
+            // `searchMultiplier` 0.2 barely looks for a way out. Dilation then fills from neighbours
+            // that are often in the same cavity.
+            //
+            // **The measurement that motivates this**: converted to linear, the walls sit at 4.6% of
+            // the floor's brightness. Form-factor maths for a room this shape says a wall should
+            // receive 25-30% of what the floor does. About six times the light is going missing, and
+            // "downlights point at the floor" does not account for a factor of six.
+            //
+            // 0.05m clears the panel and the groove; 1.0 searches a full probe spacing for open air.
+            SerializedProperty geoOffset = so.FindProperty("settings.virtualOffsetSettings.outOfGeoOffset");
+            SerializedProperty search = so.FindProperty("settings.virtualOffsetSettings.searchMultiplier");
+            if (geoOffset != null) geoOffset.floatValue = 0.05f;
+            if (search != null) search.floatValue = 1.0f;
+            if (geoOffset == null || search == null)
+                Debug.LogWarning("[BakeLighting] virtualOffsetSettings fields have moved - probes "
+                               + "stuck inside wall panels will not be rescued.");
+
+            if (dilate.boolValue && geoOffset == null) return;
 
             dilate.boolValue = true;
             so.ApplyModifiedPropertiesWithoutUndo();

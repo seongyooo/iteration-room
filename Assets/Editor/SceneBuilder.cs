@@ -186,6 +186,44 @@ namespace IterationRoom.EditorTools
         // Kept well clear of GrooveDark (0.04) so the seams still read against it.
         private static readonly Color WallPanelColor = new Color(0.13f, 0.135f, 0.15f);
 
+        // **WHAT A LIT PANEL'S ALBEDO IS, AND WHY IT IS NOT 1.0** (2026-08-25).
+        //
+        // Albedo 1.0 is a surface that returns every photon it receives and absorbs none. Nothing
+        // does; fresh white paint is about 0.85, which is what the FLOOR was already set to when play
+        // reported it as "too white" - and the walls and ceiling were left at 1.0, because with no
+        // bounce being computed it made no difference.
+        //
+        // **It makes all the difference now, and it is a DIVERGENCE.** Indirect light is a geometric
+        // series in albedo: at 0.85 it converges to 1/(1-0.85) = 6.7x the direct light, and adding
+        // bounces past about eight changes nothing. At 1.0 it does not converge at all - every bounce
+        // adds the SAME amount again, forever - so the room's brightness became a function of the
+        // bounce COUNT rather than of its lighting. That is exactly what play saw: two bounces looked
+        // fine, eight was bright, sixteen was "over-bright". The count was never the problem.
+        //
+        // **This must match `WallPanelDisplay.onColor`, which is why it is one constant.** The bake
+        // reads the material and the runtime paints the property block, so if they disagree the room
+        // is lit for one wall and rendered as another.
+        private static readonly Color PanelLitColor = new Color(0.85f, 0.85f, 0.86f);
+
+        // **HOW BRIGHT A CEILING FIXTURE IS - and since the ambient went to zero, this is the ONLY
+        // thing that sets how bright the building is** (2026-08-25).
+        //
+        // It was 10.5 in three separate literals and one derivation, which is three places to forget.
+        // 10.5 was itself derived - `9 x (5.408/5.0)^2` - to hold the floor where it had been signed
+        // off at a lower ceiling, back when flat ambient was carrying most of the room.
+        //
+        // **7, because 10.5 was measurably blowing the floor out.** Sampling the menu render's floor
+        // gave (241, 255, 255) with 39% of its pixels at or past 254 - clipped, not bright. This is
+        // the second time that has been measured on this exact surface; the first was answered by
+        // dropping the floor's albedo to 0.85, which is now as low as it should go.
+        //
+        // **This is the right lever and the other two are not.** Bounces are converged at eight now
+        // that albedo is below 1, so cutting them would deliberately under-compute light to hide
+        // having too much of it; and albedo below ~0.8 stops being white paint and makes the cell
+        // grey. Intensity scales the direct light and everything that bounces off it TOGETHER, which
+        // is the only change that dims the room without changing what it looks like.
+        private const float CeilingLightIntensity = 10.5f;
+
         // Room2West's ceiling fixtures, filled in by BuildShell and read by one thing: the chess
         // board dims them and brings them back up as its reward. Held here rather than found by name
         // later, because a lookup by name is a second statement of what BuildCeilingLights called them.
@@ -795,7 +833,7 @@ namespace IterationRoom.EditorTools
             Material floorMat = MakeColorMaterial("FloorWhite", new Color(0.85f, 0.85f, 0.86f));
             Material grooveMat = MakeColorMaterial("GrooveDark", new Color(0.04f, 0.04f, 0.045f));
             Material propMat = MakeColorMaterial("PropLight", new Color(0.85f, 0.85f, 0.85f));
-            Material panelMat = MakeColorMaterial("PanelWhite", Color.white);
+            Material panelMat = MakeColorMaterial("PanelWhite", PanelLitColor);
             Texture2D surfaceGrain = MakeNoiseNormalMap("SurfaceGrain", 512, 2.5f);
             ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), 0.85f);
             // SMOOTHNESS 0.65, UP FROM 0.3, and BUMP 0.6, DOWN FROM 1.8. Settled 2026-08-20. They are
@@ -900,7 +938,7 @@ namespace IterationRoom.EditorTools
             // White is the resting state - what the panels are for all but the first seconds of an
             // iteration, and what the reflection probes bake against. WallPanelDisplay drives them
             // to WallPanelColor and back through a property block at runtime.
-            Material panelMat = MakeColorMaterial("PanelWhite", Color.white);
+            Material panelMat = MakeColorMaterial("PanelWhite", PanelLitColor);
             // Emission is enabled with a black colour: the keyword has to be compiled in for
             // WallPanelDisplay's collapse flare to have anything to drive, and a property block
             // cannot turn a shader keyword on. Black means it contributes nothing until then.
@@ -1538,6 +1576,12 @@ namespace IterationRoom.EditorTools
                     + "sizes have stopped repeating - see ChamferedPanelMesh.");
 
             BakeReflectionProbes();
+
+            // The core scene's own probe volume - it holds the calibration room, which is a room like
+            // any other and wants bounce like any other. The cycles get theirs in
+            // `SplitCyclesIntoScenes`. See `EnsureProbeVolume` for why the BUILD owns these and the
+            // bake does not.
+            EnsureProbeVolume(SceneManager.GetActiveScene(), onlyCalibrationRoom: true);
 
             // ASLEEP UNTIL ITS TURN - and AFTER the bake, which is the whole reason this is here
             // rather than beside the rest of cycle 2's wiring.
@@ -2363,29 +2407,29 @@ namespace IterationRoom.EditorTools
             // evenness it is supposed to have. So the shape of it is: floor lowest (0.155, the
             // spots already hammer it), walls and ceiling high and close together (0.644 / 0.719),
             // which is what a room lit by recessed panels and white paint actually looks like.
-            // **RE-TUNED ON THE DIAL, 2026-08-25, once the bake worked and the walls stopped being
-            // black.** Halving all three was the starting point the rendering notes prescribe; it was
-            // not where they landed. Read off `LightingTuner` in the calibration room, which is why
-            // the numbers are not round.
+            // **AMBIENT IS BACK, AND ZERO WAS TRIED AND FAILED** (2026-08-25/26).
             //
-            // The shape that came out is NOT a uniform reduction, and that is the finding: the FLOOR
-            // band came down hard (0.155 -> 0.028) while the walls (0.644 -> 0.659) and the ceiling
-            // (0.719 -> 0.843) held or ROSE. The floor is the one surface the downlights already
-            // hammer, so bounce off it is the term that was being double-counted; the ceiling gets no
-            // direct light at all and turned out to want MORE, not less.
-            RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor     = new Color(0.028f, 0.028f, 0.038f);
-            RenderSettings.ambientEquatorColor = new Color(0.659f, 0.659f, 0.669f);
-            RenderSettings.ambientGroundColor  = new Color(0.843f, 0.843f, 0.853f);
-            RenderSettings.ambientIntensity = 1f;
-            // Assigning the colours does NOT rebuild the ambient probe. Without this they are
-            // stored and never reach a shader, and every tweak looks like it did nothing.
-            DynamicGI.UpdateEnvironment();
-
-            // Reflections now come from per-room probes that see the actual white room, so this no
-            // longer has to be crushed to 0.1 to stop the blue sky bleeding onto the panels.
-            RenderSettings.defaultReflectionMode = DefaultReflectionMode.Skybox;
-            RenderSettings.reflectionIntensity = 1f;
+            // A sealed windowless room physically HAS no ambient light: there is no sky, and every
+            // photon leaves a ceiling panel. So once the bake worked and the bounce count was raised
+            // to eight, this was taken to zero on exactly that argument.
+            //
+            // **It produced a black building.** Measured off play screenshots: walls at 4-8 out of
+            // 255 - not dark, BLACK - with the floor still lit at 67 and the emissive fixtures at 255.
+            // The floor is the one surface the downlights reach directly; everything else in this
+            // building lives on bounce, and the bake does not deliver enough of it to stand alone.
+            // The ceiling is the extreme case, with no direct light at all.
+            //
+            // Raising `CeilingLightIntensity` to 17 did not help and could not: it took the floor from
+            // 39% to 65.7% of its pixels CLIPPED while the walls stayed black, because 2.4 times
+            // almost nothing is still almost nothing.
+            //
+            // **So the constant stays, and it is still a fudge - just an honest one now.** The bake
+            // carries the floor's share (this is why the sky band is 0.028 and not 0.155), and this
+            // carries the walls and ceiling that the bake cannot reach. Why it cannot is a real open
+            // question - probe validity against 25mm panels, reflection probes capturing an unlit
+            // room, or simply four downlights not making much wall bounce in a 8.75 x 10.5m room -
+            // and it is worth answering, but not while the game is unusable. `TODO.md`.
+            ApplyEnvironment();
 
             // The default Directional Light is deleted, not dimmed. These rooms are sealed boxes
             // with a ceiling slab over them - a sun has no way in, so it contributed exactly
@@ -2393,6 +2437,160 @@ namespace IterationRoom.EditorTools
             // seams and the door pocket were closed.)
             foreach (Light light in Object.FindObjectsByType<Light>(FindObjectsInactive.Exclude))
                 if (light.type == LightType.Directional) Object.DestroyImmediate(light.gameObject);
+        }
+
+        // **THE PROBE VOLUME IS PART OF THE SCENE, SO THE BUILD OWNS IT** (2026-08-26).
+        //
+        // It used to be created by `BakeLighting` just before baking, and that quietly broke the
+        // whole feature: `SceneBuilder.Build()` rebuilds a scene from nothing, so the next build
+        // after a bake DELETED the volume and the `ProbeVolumePerSceneData` that Unity attaches
+        // beside it. The baked cell data stayed on disk, tens of megabytes of it, with nothing in the
+        // scene left to load it.
+        //
+        // **The workflow made it invisible.** Every run was build -> bake -> build, so the last step
+        // always threw the result away. The bake logged success, the files were there, and the game
+        // was lit entirely by the flat ambient constant - which is exactly what the measurements
+        // showed and nobody could explain: `LightProbes.GetInterpolatedProbe` returned the SAME value
+        // 30cm under the ceiling as 30cm above the floor (DC 0.3748 at every point in the room),
+        // because it was reading the ambient probe rather than any baked field. A real irradiance
+        // field cannot be constant in space.
+        //
+        // Sized off the renderers rather than written down, for the reason every size here is: the
+        // cycles are different shapes, and a box written for one is wrong for the others.
+        private const float ProbeVolumePadding = 4f;
+
+        // `onlyCalibrationRoom` boxes JUST that room rather than everything in the scene. The core
+        // scene is built with the entire building still in it - the cycles are moved out afterwards -
+        // so measuring every renderer there gives a 48 x 52 x 193m box, **25.6 times the volume of a
+        // cycle's**, for one 8.75 x 10.5m room. APV spreads a fixed cell budget over whatever box it
+        // is given, so that room got a far coarser field than the identical rooms in the cycles, and
+        // play saw it: Room1 read grey while the calibration room blew out to pure white, from one
+        // global ambient value that cannot do both.
+        private static void EnsureProbeVolume(Scene scene, bool onlyCalibrationRoom = false)
+        {
+            Bounds bounds = default;
+            bool any = false;
+
+            foreach (GameObject root in scene.GetRootGameObjects())
+            {
+                foreach (Renderer r in root.GetComponentsInChildren<Renderer>(true))
+                {
+                    // Particle systems report wandering bounds; only the built world should decide
+                    // how big the lit volume is.
+                    if (r is ParticleSystemRenderer) continue;
+                    // The prefix test, not the exact one - the room is several siblings and the
+                    // shell is only the first. See `LiftedWithCalibrationRoom`.
+                    if (onlyCalibrationRoom && !LiftedWithCalibrationRoom(r.transform)) continue;
+                    if (!any) { bounds = r.bounds; any = true; }
+                    else bounds.Encapsulate(r.bounds);
+                }
+            }
+
+            if (!any) return;
+
+            const string volumeName = "AdaptiveProbeVolume";
+            GameObject go = null;
+            foreach (GameObject root in scene.GetRootGameObjects())
+                if (root.name == volumeName) { go = root; break; }
+
+            if (go == null)
+            {
+                go = new GameObject(volumeName);
+                EditorSceneManager.MoveGameObjectToScene(go, scene);
+            }
+
+            ProbeVolume volume = go.GetComponent<ProbeVolume>();
+            if (volume == null) volume = go.AddComponent<ProbeVolume>();
+
+            go.transform.position = bounds.center;
+            go.transform.rotation = Quaternion.identity;
+            volume.mode = ProbeVolume.Mode.Local;
+            volume.size = bounds.size + Vector3.one * (ProbeVolumePadding * 2f);
+
+            EditorSceneManager.MarkSceneDirty(scene);
+            Debug.Log($"[SceneBuilder] '{scene.name}': probe volume {volume.size} at {bounds.center}.");
+        }
+
+        // **THE LIGHTING ENVIRONMENT, AND IT HAS TO BE APPLIED TO EVERY SCENE SEPARATELY.**
+        //
+        // `RenderSettings` is PER SCENE. `SetupLighting` writes it while the core scene is open, and
+        // `SplitCyclesIntoScenes` then makes each cycle with `NewScene(EmptyScene)` - which arrives
+        // with Unity's DEFAULTS and no way to inherit anything. Nothing copied them across, so from
+        // the day the cycles were split until 2026-08-26 **every tuned lighting value in this project
+        // existed in `IterationRoom.unity` alone**, and Cycle1/2/3 ran on skybox ambient at
+        // (0.212, 0.227, 0.259) that nobody chose.
+        //
+        // **It hid for months because it looks like lighting, not like a bug**, and it invalidated
+        // every attempt to tune the room:
+        //
+        // - `m_DefaultReflectionMode` defaulted to Skybox in those scenes, so walls at smoothness
+        //   0.85 were mirroring the PROCEDURAL SKY - a constant no ceiling light can move. That is
+        //   the anomaly that finally gave it away: the menu render's floor tracked fixture intensity
+        //   exactly (140 / 173 / 211 for 7 / 10.5 / 17) while the wall beside it did not move at all
+        //   (115 / 117 / 122).
+        // - Everything measured came out BLUE - B greater than G greater than R in every single
+        //   sample, in a white room lit by white panels. That was the sky, and it was on screen the
+        //   whole time.
+        // - Setting ambient to zero blacked out the calibration room (which lives in the core scene
+        //   and does get these values) while the cycle rooms carried on, which made the result look
+        //   inconsistent and sent three separate diagnoses in the wrong direction.
+        //
+        // **Anything else added to the environment must go in HERE, not in `SetupLighting`.**
+        private static void ApplyEnvironment()
+        {
+            RenderSettings.ambientMode = AmbientMode.Trilight;
+
+            // **AMBIENT IS A FUDGE THIS BUILDING CANNOT DO WITHOUT, AND IT WAS TESTED TWICE.**
+            //
+            // A sealed windowless room physically has no ambient light: no sky, and every photon
+            // leaves a ceiling panel. Zero was tried on that argument, gave a black building, and was
+            // tried AGAIN after `ApplyEnvironment` fixed the three cycle scenes that had been running
+            // on skybox ambient - because the first attempt had measured an inconsistency rather than
+            // the idea. On the corrected baseline it still gives black walls and a black ceiling.
+            //
+            // **The measurement that settles it**: with ambient at zero the walls read 13 and the
+            // ceiling 9 out of 255, against 149 and 169 with it on. Direct light from the fixtures
+            // barely reaches a wall at all - the spots point DOWN, so the floor takes 100 and the
+            // vertical surfaces get the tail of the cone - and eight bounces of that tail is not
+            // enough to light a room. This constant is doing almost all of the wall and ceiling
+            // lighting, and it has been all along.
+            //
+            // Raising the fixtures does not substitute for it either: 10.5 -> 17 took the floor from
+            // 39% to 65.7% of its pixels CLIPPED while the walls stayed dark. The light is not
+            // missing, it is pointing somewhere else.
+            //
+            // **If this is ever to go, the fixtures have to stop being downlights** - a source that
+            // actually faces the walls, or an emissive panel that contributes to the bake (these are
+            // `RealtimeEmissive`, so their glow lights nothing). `TODO.md`.
+            // **HALVED AGAIN 2026-08-26, THE MOMENT THE BAKE STARTED ACTUALLY APPLYING.**
+            //
+            // Until the probe volume survived a rebuild (see `EnsureProbeVolume`) the baked bounce
+            // reached nothing, and these numbers were tuned to carry the whole room by themselves.
+            // Now the bounce arrives as well and the two are ADDED, which showed up first on the
+            // things that take all their light from probes: play reported the bed as blown out, and
+            // it measured 255,255,255 across its whole frame - 100% clipped - with the sheet at 92%
+            // while the walls beside it sat at 100 and were called too dark.
+            //
+            // Static surfaces and dynamic objects were being lit by different amounts of the same
+            // double count, so no single brightness fixed both. Taking ambient down is what removes
+            // the duplication rather than trading one complaint for the other.
+            //
+            // Was 0.028 / 0.659 / 0.843, itself already halved from the pre-bake 0.155 / 0.644 /
+            // 0.719. **If the room now reads flat rather than dim, this is still too high** - the
+            // whole point is for the bake to be what lights the walls.
+            RenderSettings.ambientSkyColor     = new Color(0.014f, 0.014f, 0.019f);
+            RenderSettings.ambientEquatorColor = new Color(0.330f, 0.330f, 0.335f);
+            RenderSettings.ambientGroundColor  = new Color(0.420f, 0.420f, 0.427f);
+            RenderSettings.ambientIntensity = 1f;
+            // Assigning the colours does NOT rebuild the ambient probe. Without this they are
+            // stored and never reach a shader, and every tweak looks like it did nothing.
+            DynamicGI.UpdateEnvironment();
+
+            // Reflections come from per-room probes that see the actual white room. **This being
+            // left at Unity's default in the cycle scenes is what painted the sky onto the walls**,
+            // so it is set here rather than assumed.
+            RenderSettings.defaultReflectionMode = DefaultReflectionMode.Skybox;
+            RenderSettings.reflectionIntensity = 1f;
         }
 
         // Recessed ceiling fixtures - the actual light in the room.
@@ -2469,7 +2667,7 @@ namespace IterationRoom.EditorTools
                     // signed off at the lower ceiling. Inverse square is an approximation here -
                     // the cone also spreads wider from higher up - so treat it as a starting point
                     // and check it by eye.
-                    light.intensity = 10.5f;
+                    light.intensity = CeilingLightIntensity;
                     // Barely off white - clinical rather than domestic, without tinting the room.
                     light.color = new Color(0.99f, 0.99f, 1f);
                     // **ALL FOUR CAST** (2026-08-24, after play called the player's shadow detached -
@@ -3798,6 +3996,17 @@ namespace IterationRoom.EditorTools
                 string name = CycleSceneNames[i];
                 Scene cycleScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
                 EditorSceneManager.MoveGameObjectToScene(cycle.gameObject, cycleScene);
+
+                // **THE NEW SCENE HAS UNITY'S LIGHTING, NOT THIS GAME'S, AND NOTHING INHERITS IT.**
+                // `RenderSettings` is per scene and these are born empty, so without this a cycle
+                // runs on skybox ambient nobody chose - see `ApplyEnvironment` for what that cost.
+                // The write goes to the ACTIVE scene, so it has to be made active first and put back
+                // after, or the settings land on whichever scene happened to be active.
+                Scene wasActive = SceneManager.GetActiveScene();
+                SceneManager.SetActiveScene(cycleScene);
+                ApplyEnvironment();
+                EnsureProbeVolume(cycleScene);
+                SceneManager.SetActiveScene(wasActive);
                 EditorSceneManager.SaveScene(cycleScene, CycleScenePath(name));
                 Debug.Log($"[SceneBuilder] Cycle scene '{name}' written to {CycleScenePath(name)}");
             }
@@ -4165,8 +4374,34 @@ namespace IterationRoom.EditorTools
         // look the member up, and report rather than assume when it is gone. A Unity version that
         // renames it makes this return false, which pins URP to legacy probes - the state that renders
         // correctly with no bake. The wrong answer in the safe direction.
+        // **RETURNS FALSE ON PURPOSE: APV IS OFF** (2026-08-26, after two days of trying it).
+        //
+        // Everything needed to switch it back on is intact - the volumes are built, the bake works,
+        // the data is on disk. This one line is the switch. What it is NOT is an accident, so the
+        // reasoning has to live where the switch is:
+        //
+        // **1. It never lit the walls.** With ambient at zero, so bounce was the only indirect light,
+        // the walls measured 13 of 255 and the ceiling 9, against a floor at 100. Converted to
+        // linear that is 4.6% of the floor, where form-factor maths for a room this shape says
+        // 25-30%. Switching APV on adds +101 to the floor and +166 to a dynamic prop while giving
+        // the walls +2 - it piles light where there is already too much. Raising Virtual Offset past
+        // the 25mm panels (the best hypothesis for why) changed nothing.
+        //
+        // **2. The menu background can never match the game while it is on.** `CaptureMenuBackground`
+        // renders during the build, before any probe data is loaded, and its output is provably
+        // identical with APV on and off. Measured on the same room: capture 81/89/141 against
+        // in-game 114/72/181. The title screen would show a room the game does not render, and every
+        // lighting tweak widens the gap. **This is the blocker to solve first if APV is retried.**
+        //
+        // **3. Play preferred it off, three separate times.** That is the strongest evidence here and
+        // it outranks the theory.
+        //
+        // The `LegacyLightProbes` path this falls back to is what the building has always rendered
+        // with: direct light from the fixtures plus the Trilight ambient constant.
         private static bool AnyBakedProbeVolumes()
         {
+            return false;
+#pragma warning disable 162
             MethodInfo baked = typeof(ProbeVolumeBakingSet).GetMethod("HasBeenBaked",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             if (baked == null)
@@ -4184,6 +4419,7 @@ namespace IterationRoom.EditorTools
             }
 
             return false;
+#pragma warning restore 162
         }
 
         // Whether a renderer has a surface the GI bake can actually use.
@@ -4274,7 +4510,7 @@ namespace IterationRoom.EditorTools
         {
             if (ceilingMaterial != null) return ceilingMaterial;
 
-            ceilingMaterial = MakeColorMaterial("CeilingWhite", Color.white);
+            ceilingMaterial = MakeColorMaterial("CeilingWhite", PanelLitColor);
             // The floor's grain, at the floor's scale. It is the same slab built the same way; at the
             // 0.3 above it shows in the diffuse as the faint tooth a painted ceiling has, and now also
             // breaks up the probe's reflection so that reflection is not a second flat field.
@@ -4301,6 +4537,27 @@ namespace IterationRoom.EditorTools
             // the emission pass compiled out, so the panel renders as plain white.
             mat.EnableKeyword("_EMISSION");
             mat.SetColor("_EmissionColor", color * emission);
+
+            // **REALTIME, WHICH IN THIS PROJECT MEANS "CONTRIBUTES NOTHING TO THE BAKE" - AND THAT
+            // IS CORRECT, BECAUSE THE FIXTURE IS ALREADY IN THE BAKE AS A LIGHT.**
+            //
+            // Every ceiling fixture is TWO objects: this emissive panel, which is what you see, and a
+            // spot light at `CeilingLightIntensity` inside it, which is what lights the room. They
+            // are one physical thing modelled twice, so exactly one of them may contribute to GI.
+            //
+            // Switching this to `BakedEmissive` (2026-08-26) made both contribute, and the result was
+            // a room lit about twice over: a 1.4m panel radiating 3.5 - three and a half times white -
+            // stacked on top of a spot at 10.5. **It did not show up immediately**, because at the
+            // time the probe volume was being deleted by every rebuild, so no baked data reached the
+            // screen at all. The moment `EnsureProbeVolume` fixed that, the double count arrived with
+            // it: play reported the bed blown to 255 across its whole frame and the calibration room
+            // clipped to pure white, while APV switched off looked correct.
+            //
+            // **The panel is a light FIXTURE, not a light.** If these are ever to be real area
+            // sources - which is the right fix for the hard-edged shadows `docs/rendering-notes.md`
+            // complains about - the spot lights have to come out at the same time, and `ShadowBudget`
+            // needs a different answer, since a baked emissive surface has no runtime shadow to
+            // switch.
             mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
 
             EditorUtility.SetDirty(mat);
@@ -5685,7 +5942,7 @@ namespace IterationRoom.EditorTools
             WallPanelDisplay display = go.AddComponent<WallPanelDisplay>();
             display.panels = panels;
             display.offColor = WallPanelColor;
-            display.onColor = Color.white;
+            display.onColor = PanelLitColor;   // must equal PanelWhite's albedo - see PanelLitColor
             display.testCard = testCard;
             display.staticNoise = staticNoise;
             return display;
@@ -8568,7 +8825,7 @@ namespace IterationRoom.EditorTools
                 light.range = 11f;
                 // The same intensity every other fixture in the building carries - see
                 // BuildCeilingLights for how that number was derived and why it is not re-tuned here.
-                light.intensity = 10.5f;
+                light.intensity = CeilingLightIntensity;
                 light.shadows = LightShadows.None;
 
                 // The stem up to the real ceiling, which is three times further away than this
@@ -13696,7 +13953,7 @@ namespace IterationRoom.EditorTools
                     // Far enough to reach the floor with the cone's edge, not just its axis.
                     light.range = Mathf.Sqrt(height * height + (width / 3f) * (width / 3f)) * 1.15f;
                     // The same inverse-square move that took 9 to 10.5 when the ceiling rose 8%.
-                    light.intensity = 10.5f * heightRatio * heightRatio;
+                    light.intensity = CeilingLightIntensity * heightRatio * heightRatio;
                     light.color = new Color(0.99f, 0.99f, 1f);
                     // NO SHADOWS AT ALL in here. Every additional light's shadow shares one atlas, and
                     // nine casters in one room would take the whole of it from the rest of the cycle.

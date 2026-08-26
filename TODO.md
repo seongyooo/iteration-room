@@ -370,6 +370,31 @@ every dead end are in `docs/rendering-notes.md`.
     them into `SceneBuilder` - it saves nothing on purpose. **It cannot show you bounce**: the
     fixtures are Mixed, so anything feeding the bake is live in its direct half and stale in its
     indirect one. Rebuild and RE-BAKE before believing a result.
+  - **APV IS OFF AND THE INFRASTRUCTURE IS KEPT.** If it is retried, in this order: (1) make
+    `CaptureMenuBackground` able to see probe data, or accept that the title screen will not match
+    the game - everything else is unmeasurable until this is true; (2) answer why the walls take +2
+    while the floor takes +101; (3) only then tune. `docs/gotchas.md` lists seven things already
+    tried against (2), none of which worked.
+  - **THE WALLS ARE LIT BY A CONSTANT, NOT BY THE LIGHTS, AND THAT IS THE REAL PROBLEM.** Ambient at
+    zero leaves them at 13 of 255. The building's four fixtures are downlights: they hammer the floor
+    and give a wall a grazing cosine. **The cheap fix is not GI, it is a light that faces the wall** -
+    real architectural lighting uses wall washers for exactly this, and a facility corridor would
+    plausibly have them. Costs no bake, no frame budget, and works with the renderer this project
+    already has.
+  - **WHY DOES THE BOUNCE NOT REACH THE WALLS AND CEILING?** This is the open question the whole
+    lighting pass ran into. With ambient at zero the walls measure **4-8 out of 255** and the ceiling
+    the same, while the floor sits at 67 - so the bake lights what the downlights already light and
+    almost nothing else. Ambient has been put back because a black building is unusable, but it is
+    carrying a job that a working bake should be doing. Three suspects, none tested:
+    - **Probe validity against 25mm panels.** Dilation is on and Virtual Offset moves a probe 1cm;
+      neither may be enough for a wall built of thin plates with grooves between them.
+    - **Reflection probes captured in an unlit room.** The walls are smoothness 0.85 and the notes
+      already say gloss only works because of the probes - if `BakeReflectionProbes` renders before
+      APV data applies, they are mirroring black.
+    - **There may simply be little wall bounce to find.** Four downlights in a 8.75 x 10.5m room aim
+      at the floor; the walls get a grazing cosine and the ceiling nothing at all.
+    **Measure before changing anything** - `MenuBackground.png` is re-rendered by every build and can
+    be sampled with a few lines of Python, which is how all of the numbers above were got.
   - **THE SHADOW ATLAS IS AT 4096 AND NOBODY HAS MEASURED THE COST** (2026-08-25). Four casters at
     2048 each was chosen for sharpness plus stability, and it is four times the shadow pixels the
     game drew the day before. This exact number was reduced to 2048 once already, after play reported
