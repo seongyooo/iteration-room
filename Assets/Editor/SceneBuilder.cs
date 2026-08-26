@@ -222,7 +222,18 @@ namespace IterationRoom.EditorTools
         // having too much of it; and albedo below ~0.8 stops being white paint and makes the cell
         // grey. Intensity scales the direct light and everything that bounces off it TOGETHER, which
         // is the only change that dims the room without changing what it looks like.
-        private const float CeilingLightIntensity = 10.5f;
+        // Read off `LightingTuner` 2026-08-26, with the ambient bands above. It came DOWN from 10.5
+        // as the ambient went up - see there. 10.5 was itself derived (`9 x (5.408/5.0)^2`) to hold
+        // the floor at a brightness signed off under a lower ceiling; this replaces that derivation
+        // with a look.
+        private const float CeilingLightIntensity = 7.022f;
+
+        // **155 DEGREES, WIDENED FROM 130** (same pass). A wider cone from 5.41m spreads the same
+        // flux over more floor, so the bright pool under each fixture softens and the room reads
+        // evenly lit rather than spotted. It is the other half of the same decision as the intensity
+        // above and they move together: widening alone would dim the floor, dimming alone would keep
+        // the pools.
+        private const float CeilingSpotAngle = 156.798f;
 
         // Room2West's ceiling fixtures, filled in by BuildShell and read by one thing: the chess
         // board dims them and brings them back up as its reward. Held here rather than found by name
@@ -2578,9 +2589,25 @@ namespace IterationRoom.EditorTools
             // Was 0.028 / 0.659 / 0.843, itself already halved from the pre-bake 0.155 / 0.644 /
             // 0.719. **If the room now reads flat rather than dim, this is still too high** - the
             // whole point is for the bake to be what lights the walls.
-            RenderSettings.ambientSkyColor     = new Color(0.014f, 0.014f, 0.019f);
-            RenderSettings.ambientEquatorColor = new Color(0.330f, 0.330f, 0.335f);
-            RenderSettings.ambientGroundColor  = new Color(0.420f, 0.420f, 0.427f);
+            // **FOUND ON THE DIAL, 2026-08-26, IN TWO PASSES - AND THE SECOND PASS IS THE IMPORTANT
+            // ONE.** The first got the room properly white (0.036 / 0.836 / 0.729) and play's verdict
+            // was that it HURT TO LOOK AT. These are the numbers that came back from making it
+            // comfortable instead of maximally white.
+            //
+            // The shape of that second correction: the FLOOR band came up tenfold (0.036 -> 0.356)
+            // while the ceiling came down (0.729 -> 0.521) and the walls eased slightly. The three
+            // bands are now much closer together, which is the whole point - the eye reads a room by
+            // the RATIOS between its surfaces, and pushing every one of them toward white removes the
+            // ratios and leaves a glare.
+            //
+            // **The lesson for anyone retuning this: brightness is not the target, comfort is.** Two
+            // days went into trying to replace this constant with something physically derived - baked
+            // bounce, then wall washers - and both failed on the same point. They add brightness where
+            // light already is; what this room wants is EVENNESS, at a level that can be looked at.
+            // That is an eye's judgement and it was only ever going to be found by looking.
+            RenderSettings.ambientSkyColor     = new Color(0.356f, 0.356f, 0.361f);
+            RenderSettings.ambientEquatorColor = new Color(0.763f, 0.763f, 0.768f);
+            RenderSettings.ambientGroundColor  = new Color(0.521f, 0.521f, 0.528f);
             RenderSettings.ambientIntensity = 1f;
             // Assigning the colours does NOT rebuild the ambient probe. Without this they are
             // stored and never reach a shader, and every tweak looks like it did nothing.
@@ -2650,7 +2677,7 @@ namespace IterationRoom.EditorTools
                     Light light = lightGO.AddComponent<Light>();
                     light.type = LightType.Spot;
                     // Wide and soft-edged, so it behaves like a panel rather than a torch.
-                    light.spotAngle = 130f;
+                    light.spotAngle = CeilingSpotAngle;
                     light.innerSpotAngle = 45f;
                     light.range = 11f;
                     // Found by eye against Neutral tonemapping, in play mode.
@@ -8820,7 +8847,7 @@ namespace IterationRoom.EditorTools
                 lightGO.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
                 Light light = lightGO.AddComponent<Light>();
                 light.type = LightType.Spot;
-                light.spotAngle = 130f;
+                light.spotAngle = CeilingSpotAngle;
                 light.innerSpotAngle = 45f;
                 light.range = 11f;
                 // The same intensity every other fixture in the building carries - see
@@ -13948,7 +13975,7 @@ namespace IterationRoom.EditorTools
 
                     Light light = lightGO.AddComponent<Light>();
                     light.type = LightType.Spot;
-                    light.spotAngle = 130f;
+                    light.spotAngle = CeilingSpotAngle;
                     light.innerSpotAngle = 45f;
                     // Far enough to reach the floor with the cone's edge, not just its axis.
                     light.range = Mathf.Sqrt(height * height + (width / 3f) * (width / 3f)) * 1.15f;
