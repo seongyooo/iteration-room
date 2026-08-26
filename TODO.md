@@ -5,6 +5,20 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
 
 ---
 
+## Before this can be sold
+
+Two hard blockers. Neither is graphics, and neither goes away by being postponed.
+
+- **`cctv_camera.glb` is CC-BY-NC-4.0** — three of them in room3-2N. NonCommercial cannot be sold and
+  attribution does not cure it: **replace the model, or keep the game free.** `CheckModelLicences`
+  fails the build loudly on every run. Detail at item 7.
+- **Cycle 3 has no puzzles** — four rooms, a beam that drives nothing, and no way onto either
+  mezzanine. The third act does not exist. Detail at item 1.
+
+Everything else below is quality, not permission.
+
+---
+
 ## Next steps
 
 1. **CYCLE 3: FOUR EMPTY ROOMS AND NO PUZZLE IN ANY OF THEM.** `room3-1` is the bed room under

@@ -197,6 +197,17 @@ namespace IterationRoom.EditorTools
 
             ConfigureBake();
 
+            // **SAY SO IF THE RESULT WILL BE IGNORED.** APV is off (`SceneBuilder.AnyBakedProbeVolumes`),
+            // and a bake takes four minutes across the four scenes. Without this line the menu item
+            // runs, reports success, writes tens of megabytes - and changes nothing on screen, which
+            // is a very expensive way to learn where the switch is.
+            var urp = GraphicsSettings.defaultRenderPipeline;
+            if (urp != null && new SerializedObject(urp).FindProperty("m_LightProbeSystem")?.intValue == 0)
+                Debug.LogWarning("[BakeLighting] URP is on LegacyLightProbes, so NOTHING BAKED HERE "
+                               + "WILL BE VISIBLE. Adaptive Probe Volumes are switched off in "
+                               + "SceneBuilder.AnyBakedProbeVolumes - see the comment there for why, "
+                               + "and docs/gotchas.md for what was tried. Baking anyway.");
+
             Debug.Log($"[BakeLighting] '{scene.name}': baking.");
             Lightmapping.Bake();
 

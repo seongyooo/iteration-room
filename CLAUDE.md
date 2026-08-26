@@ -423,41 +423,24 @@ Script-by-script detail: `docs/architecture.md`.
 - **CEILING FIXTURES ARE `Mixed`, AND MUST STAY THAT WAY.** Realtime contributes nothing to a GI bake
   (the bake log reports `0 lights` and the result is black indirect); fully Baked has no runtime
   shadow for `ShadowBudget` to switch. Mixed keeps the direct light live and bakes only the bounce.
-- **APV IS OFF (2026-08-26), AND THE SWITCH IS `SceneBuilder.AnyBakedProbeVolumes`.** The bake works
-  and everything feeding it is intact; the feature was measured and did not earn its cost. It gives
-  the FLOOR +101 and a dynamic prop +166 while giving the WALLS +2 - the downlights point down and
-  the bounce follows them - and `CaptureMenuBackground` renders before probe data loads, so the title
-  screen shows a room the game does not render (capture 81/89/141 vs in-game 114/72/181). **That
-  capture blocker is the thing to solve first if APV is ever retried.** Play chose APV-off three
-  times out of three. `docs/gotchas.md`.
-- **THE BAKE WORKS, SINCE 2026-08-25 - all four scenes, no exceptions.** It had never once completed
-  before that. What was killing it was **not** a Unity bug, which is what it was recorded as for three
-  days: `chess.glb` ships a mesh (`Material3`) with **no triangle sub-mesh**, and the `ContributeGI`
-  pass added that same day handed it to APV's Virtual Offset, whose ray tracing structure cannot
-  accept one. Cycle1 is the only scene with chess pieces in it, which is the whole of why it was the
-  only scene that crashed. `MarkReflectionProbeStatic` now holds triangle-less meshes out of
-  ContributeGI - they bounce nothing, so it costs the bake nothing.
-  - **A MESH WITH NO TRIANGLES MUST NEVER GET `ContributeGI`.** It does not fail the bake, it HANGS
-    THE EDITOR - the real error is swallowed by a `catch` in Unity's `FinalizeBake` and the cleanup
-    after it throws out of the bake delegate instead, so `done` is never set and the delegate is
-    called again every tick. 29,757 exceptions, and the one readable cause 30,000 lines above them.
-    **When a bake hangs, read the FIRST error after `'<Scene>': baking.`, never the tail.**
-  - **`m_LightProbeSystem` now FOLLOWS THE BAKED DATA rather than being pinned off.** The safety catch
-    it used to be is intact, only asked as a question: `AnyBakedProbeVolumes()` - no data anywhere (a
-    fresh clone, or nobody has baked yet) still lands on `LegacyLightProbes`, which is what renders
-    correctly without a bake. Pinning it off now would silently discard every cell of a good bake.
-  - **AMBIENT IS A FUDGE THAT CANNOT BE REMOVED, AND IT WAS TRIED.** A sealed windowless room
-    physically has none, and setting it to zero produced walls and a ceiling measuring **4-8 out of
-    255** with the floor still lit at 67 - the bake reaches what the downlights already reach and
-    little else. Raising light intensity cannot compensate: 10.5 -> 17 clipped 65.7% of the floor's
-    pixels and left the walls black. `docs/gotchas.md`. **Two changes from that attempt were kept
-    because they measured as well as argued**: bounce count 2 -> 8 (two captures a fifth of the
-    indirect in a room this white) and wall/ceiling albedo 1.0 -> 0.85 (at 1.0 the indirect series
-    diverges, so brightness tracked the bounce COUNT instead of the lighting).
-  - **The ambient has NOT been rebalanced, and until it is the bake makes the building FLATTER, not
-    richer.** `SetupLighting` carries most of the room's light on flat Trilight ambient precisely
-    because there was no bounce; that constant is now a second helping. This is a judgement made by
-    looking, so it is a job for a human - `docs/rendering-notes.md` says where to start.
+- **APV IS OFF, AND ONE LINE TURNS IT BACK ON** - `SceneBuilder.AnyBakedProbeVolumes` (2026-08-26).
+  The bake works and everything feeding it is kept; it was measured and did not earn its cost. It
+  gives the FLOOR +101 and a dynamic prop +166 while giving the WALLS +2, because the fixtures point
+  down and bounce follows the light. **If it is retried, fix the capture first**:
+  `CaptureMenuBackground` renders before probe data loads and is provably blind to APV, so the title
+  screen would show a room the game does not render. Everything tried, and why each failed:
+  `docs/gotchas.md`.
+- **A MESH WITH NO TRIANGLES MUST NEVER GET `ContributeGI`.** It does not fail a bake, it HANGS THE
+  EDITOR - Unity swallows the real error and the cleanup after it throws out of the bake delegate, so
+  `done` is never set and the delegate runs again every tick. 29,757 exceptions from one mesh in
+  `chess.glb`. `MarkReflectionProbeStatic` holds them out. **When a bake hangs, read the FIRST error
+  after `'<Scene>': baking.`, never the tail.**
+- **THE AMBIENT CONSTANT IS DOING ART DIRECTION, NOT JUST FILLING A HOLE.** A sealed windowless room
+  physically has none, and zeroing it was tried twice: the walls measure 13 of 255 without it, and
+  raising the fixtures to compensate only clips the floor. It is what makes the room read EVENLY lit,
+  which is exactly what baked bounce and wall washers both failed to reproduce. The values live in
+  `ApplyEnvironment` and are retuned on `LightingTuner` (TAB in the calibration room) - **aim for
+  comfort, not brightness**: the first pass at "properly white" was reported as painful to look at.
 - **Nothing may be exactly the size of the hole it sits in.** Coplanar faces flicker. Clearances are
   asymmetric on purpose: too little and it z-fights, too much and the lit surface behind shows
   through the groove as a bright edge.

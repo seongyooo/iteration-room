@@ -89,6 +89,11 @@ Captures/
 # it says what the CURRENT scenes look like, so a committed copy would only ever be someone else's.
 cross-scene-report.txt
 
+# Screenshots dropped into docs/ while diagnosing something. They are the raw material for a
+# `gotchas.md` entry, not the entry - once the finding is written up the picture has done its job.
+docs/*.png
+docs/*.jpg
+
 # Byte-cache from the Tools/ generator scripts.
 __pycache__/
 
@@ -96,5 +101,7 @@ __pycache__/
 # Build output, not source - the same category as Build/.
 /Data/
 
-# Trailer captures. Recorder writes 1080p60 MP4 here; none of it belongs in git.
+# Trailer captures. Recorder writes 1080p60 MP4 here; none of it belongs in git - and Unity's
+# Recorder sometimes drops one at the project root instead, so catch those too.
 /Recordings/
+/*.mp4

@@ -14,8 +14,16 @@ Fixture placement and ambient tuning, materials, probes, and the art rules the r
 - **Only Room1's fixtures cast shadows.** Every additional light's shadow shares one atlas, and the rooms past the first hold nothing worth the map.
 - **The default Directional Light is deleted, not dimmed** — sealed boxes with a ceiling slab, so a sun contributed nothing while still costing a shadow pass.
 - **Ambient is `Trilight`, not `Flat`**, demoted to standing in for the bounce URP is not computing. Trilight lights a surface by which way it *faces*, which maps onto the one thing downlights get wrong — they hammer the floor and never touch the ceiling.
-  - `ambientGroundColor` **0.719** lights **downward** faces, i.e. the ceiling — nothing else in the room lights an upward-facing surface at all. `ambientEquatorColor` **0.644** → the walls. `ambientSkyColor` **0.155** lights the floor, which the spots already cover; raise it and the floor blows out.
-  - Tuned by eye over two passes from 0.22 / 0.40 / 0.88. The shape that came out: floor lowest by a long way, walls and ceiling high and close together. The walls went *down* to 0.138 and back **up** to 0.644 — at 0.138 the falloff toward the corners read as gloom rather than shape and the room lost its clinical evenness. Fixtures came 15 → 9 across the same passes: the fill had been carrying more than it looked.
+  - **0.356 (sky) / 0.763 (equator) / 0.521 (ground)**, tuned on `LightingTuner` 2026-08-26. Each
+    band lights the faces pointing a different way: sky → upward faces (the FLOOR), equator →
+    sideways (the WALLS), ground → downward (the CEILING).
+  - **The three bands sit close together on purpose, and that is the whole finding.** An earlier pass
+    pushed all of them toward white to get a "properly white" room and play reported it as painful to
+    look at. The eye reads a room by the RATIOS between its surfaces; flattening the ratios leaves a
+    glare rather than a bright room. **Aim for comfort, not brightness.**
+  - It carries the walls and ceiling almost entirely. That is a fudge and it cannot be removed - two
+    attempts are written up in `docs/gotchas.md` - but it is also doing art direction, because
+    "evenly lit" is what this room is.
   - Expect the ground colour to bleed onto the walls — that is spherical harmonics doing what bounce would, and it is why the walls read lit rather than painted.
   - **`DynamicGI.UpdateEnvironment()` must be called after assigning these**, or the values never reach a shader and every tweak looks like it did nothing. This cost a full tuning pass.
 - **`ConfigureLightingPipeline()` sets URP enums by name, never by index.** `m_AdditionalLightsRenderingMode` serialises as `[Disabled, PerPixel, PerVertex]`, so PerPixel is index **1**, not the 2 you would guess — picking 2 silently gives per-vertex lighting, which washes the room into flat blocks. `m_AdditionalLightsShadowmapResolution` is likewise an enum (`_256`…`_8192`), so assigning `2048` as an int throws. Set to `_4096`, since six shadowed fixtures at `_2048` make URP quietly drop each map to 512.
@@ -307,7 +315,7 @@ guarantee only holds if the whole room's ceiling is in the set.
 and came down after play reported lag.** It is the first thing to put back if the frame rate suffers.
 The suspected cause then was full-screen passes rather than this, but that was never measured.
 
-### What the rooms kept
+### How the casters are chosen
 
 Every room's four fixtures are eligible, and `ShadowBudget` (one per `Cycle`, on the cycle's own
 GameObject so it survives the per-cycle scene split) keeps the **nearest one to the player** casting
@@ -389,105 +397,32 @@ the two wrong diagnoses that came first, in `docs/gotchas.md`.
 property block `WallPanelDisplay` already owns is the shape that fits: no tiling to repeat, and
 variation at the scale the building is actually built at.
 
-### 3. Bounce light — WORKING, 2026-08-25
+### 3. Bounce light — BUILT, MEASURED, TURNED OFF
 
-**All four scenes bake, in about four minutes total** (IterationRoom 5.3s, Cycle1 12.6s, Cycle2
-214.4s, Cycle3 18.0s), with no exceptions in the log. Before this the bake had never once completed.
+Baked global illumination via Adaptive Probe Volumes. It works — all four scenes bake clean in about
+four minutes — and it is **off**, at `SceneBuilder.AnyBakedProbeVolumes`, which is one line.
 
-No object set `ContributeGI`, so a white room — where most of what the eye sees is light off the
-walls — was lit by four downlights and a flat Trilight ambient constant standing in for all of it.
-That is most of why it read as a whitebox.
+**Why it is off.** With ambient at zero, so bounce was the only indirect light, the walls measured 13
+of 255 and the ceiling 9 against a floor at 100. Switching APV on adds **+101** to the floor and
+**+166** to a dynamic prop while giving the walls **+2**: indirect light follows the direct light,
+and every fixture here points at the floor. Two further blockers: `CaptureMenuBackground` renders
+during the build, before probe data loads, so the menu shows a room the game does not render; and
+play chose APV-off in all three direct comparisons.
 
-**Adaptive Probe Volumes, not lightmaps, and there is no choice about it.** A lightmap needs a second
-UV set per mesh; every surface here is generated from script, so lightmapping would mean unwrapping
-several thousand objects first. APV stores irradiance in a grid in space and needs no UVs. It also
-lights what a lightmap cannot: ghosts, carryables and the player's body sample the same volumes.
+**Kept from the attempt**, because both measured as well as argued:
 
-`BakeLighting` is a **separate menu item, not part of `Build`** — see that file for the argument.
-Scenes are disposable output regenerated in seconds (CLAUDE.md §1.1) and a GI bake does not fit in
-that loop.
+- **Bounce count 8**, against Unity's default of 2 — two captures about a fifth of the indirect light
+  in a room this white.
+- **Wall and ceiling albedo 1.0 → 0.85.** At 1.0 a surface returns every photon and the indirect
+  series *diverges*, so room brightness tracked the bounce COUNT rather than the lighting.
 
-Four things had to be true before a bake produced anything, and each failed silently first:
+**A wall washer was tried next and also reverted** — a lamp facing the wall is the textbook answer,
+and a single point spot makes a blob rather than a wash. A row of them is barred by
+`m_AdditionalLightsPerObjectLimit` being 8, of which the ceiling fixtures already take four.
 
-| Symptom | Cause |
-|---|---|
-| "It is not possible to generate lighting" | APV bakes **one scene at a time**; all four were loaded |
-| `0 lights` in the bake snapshot | Fixtures were **Realtime**, which contributes nothing to a bake. Now **Mixed** — direct light and its shadow stay live for `ShadowBudget` to switch, only the bounce is baked |
-| `0 instances` for Cycle1 and Cycle2 | `SleepCycle` leaves a cycle's world root **inactive**, and an inactive renderer is invisible to the baker. Woken for the bake and put back before the save — world roots only, never props that are deliberately off |
-| Editor **crash**, 32k exceptions, 129MB log | No **baking set**. `AdaptiveProbeVolumes` dereferences it unconditionally while writing results. The Lighting window creates one as part of drawing its UI; nothing draws that UI in batchmode |
+Both attempts failed on the same point, which is the useful conclusion: **they add brightness where
+light already is, and what this room needs is evenness.** The full account of each, and of the six
+bugs found on the way, is in `docs/gotchas.md`.
 
-#### The fifth fault, and the three days spent blaming Unity for it
-
-**After all four, it still crashed — and the diagnosis was wrong.** `IterationRoom` (107 instances)
-and `Cycle3` (1,137) baked cleanly in seconds; `Cycle1` threw a `NullReferenceException` out of
-`AdaptiveProbeVolumes.GenerateScenesCellLists` tens of thousands of times and took the Editor down.
-A baking set existed, the scene was awake, one scene was loaded, the lights were Mixed, and the
-snapshot extracted correctly (868 instances, 24 lights). It was recorded here as a Unity bug in
-6000.5.7f1, with a suggested workaround of splitting Cycle1's volume per room.
-
-**It was not a Unity bug. It was `chess.glb`.** That file ships a mesh named `Material3` with no
-triangle sub-mesh at all. The `ContributeGI` pass added the same day handed it, like every other
-non-moving renderer, to APV's **Virtual Offset** stage — which builds a ray tracing acceleration
-structure. `HardwareRayTracingAccelStruct.AddInstance` refuses a mesh with no triangle topology and
-then registers a zero handle for it anyway, so the second such mesh throws `ArgumentException: An
-item with the same key has already been added. Key: 0`. That aborts `DefaultVirtualOffset.Initialize`
-half-built, `Step()` NREs on the wreckage, and the `GenerateScenesCellLists` NRE everyone was looking
-at is what the damage looks like six stages downstream.
-
-**Chess pieces are Room2West, which is Cycle1 — and no other scene has them.** A scene-shaped symptom
-with an asset-shaped cause, which is exactly why "what is different about Cycle1's geometry" was the
-question that solved it and "what is different about Cycle1's volume" was not.
-
-Two lessons worth more than the fix:
-
-- **When a bake hangs, read the FIRST error after `'<Scene>': baking.`, never the tail.** Unity's
-  `FinalizeBake` wraps `ApplyPostBakeOperations` in a `catch` that logs and swallows, then calls
-  `CleanBakeData()`, which throws `ObjectDisposedException` *out* of the bake delegate — so `done` is
-  never set and Unity calls the delegate again every tick, forever. The log fills with the same two
-  exceptions at hundreds a second (29,757 of them, 129MB) and the one line that names the cause is
-  30,000 lines above the noise. Three separate diagnoses were made off the tail and all three were
-  wrong.
-- **"A released engine would have this fixed already" was the right instinct and it was the user's.**
-  The stale-baking-set theory was tested first and disproved — a bake from a freshly created set
-  crashed identically — and only then was the log read from the top.
-
-Things tried that did **not** help, and are not worth trying again: waking the world root before
-rather than after volume placement; creating the baking set explicitly rather than letting Unity find
-one; single-scene mode; deleting the baking set and its cell data.
-
-#### Two things that had to change the moment APV came on
-
-- **The ambient was halved** — 0.155 / 0.644 / 0.719 → 0.078 / 0.322 / 0.360. Every one of those
-  numbers was found while ambient stood in for a bounce that did not exist; with a real bounce
-  underneath they were the same light counted twice, which makes the building brighter and *flatter*.
-  This is the prescribed starting point, not a settled value: compare a corner against a wall centre,
-  and if the corner is not visibly darker, ambient is still winning and they go down again.
-- **The panel meshes were wound inside out**, which is what actually blacked out every wall in the
-  building the day APV came on — a `ChamferedPanelMesh` bug, not a lighting one, though it wore a
-  lighting one's clothes for most of a day and killed three good theories on the way. Full account,
-  and the bisection method that found it, in `docs/gotchas.md`.
-- **APV's sampling noise was turned off**, because it is a TAA feature and this project runs SMAA.
-  Left at Unity's defaults it re-rolls a dither on the probe sample position every frame with nothing
-  to resolve it, and every wall panel in the building visibly pulses. Full account in
-  `docs/gotchas.md`. `BuildPostProcessing` owns the override.
-
-#### `m_LightProbeSystem` follows the data now
-
-It used to be pinned to `LegacyLightProbes` on every build as a safety catch — APV with no baked data
-is *worse* than no APV, because every renderer is marked `ReceiveGI.LightProbes` and would sample a
-grid that does not exist — with a note that the two halves would have to move together if a bake were
-ever made to stick.
-
-**They now do.** `ConfigureUrpAsset` asks `AnyBakedProbeVolumes()` and sets the probe system to match:
-baked data anywhere in the project leaves APV on, none pins it back to legacy. The catch is intact,
-only asked rather than assumed. Leaving it pinned would have thrown away every cell of a good bake on
-the next rebuild — a failure quieter and worse than the crash, because nothing would announce it.
-
-`HasBeenBaked()` is `internal`, so this goes through checked reflection, the same wall and the same
-answer as `BakeLighting.EnsureBakingSet`: a Unity version that renames it makes the check return
-false, which lands on legacy probes — the wrong answer in the safe direction.
-
-**And the ambient will need rebalancing when it does.** `SetupLighting` carries almost all of the
-room's light on flat ambient precisely *because* there was no bounce. Once the walls bounce, that
-constant is a second helping — left alone, a successful bake makes the building brighter and
-**flatter** rather than richer.
+**If APV is retried**, in this order: make the menu capture able to see probe data (or accept the
+mismatch); then answer why the walls take +2 while the floor takes +101; only then tune.

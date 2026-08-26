@@ -973,36 +973,6 @@ necessarily the only one.
 If a visible STEP in brightness ever appears partway along a wall — a subdivision seam, which is what
 the noise exists to hide — raise `samplingNoise` back toward 0.1 and leave the animation off.
 
-## APV ships with dilation OFF, and a building of thin panels needs it ON (2026-08-25)
-
-The bake worked, the ambient was rebalanced, and the wall panels still rendered as hard-edged black
-wedges with dithered borders — in rooms whose **floor and ceiling looked perfectly fine**.
-
-That asymmetry is the whole diagnosis. A floor and a ceiling are single large slabs with probes well
-clear of them. A wall here is a grid of 25mm-proud panels with grooves between them, and probes sit
-on a 1m lattice, so a large share of them land *inside* a panel, inside the backing slab, or in the
-gap between the two. A probe inside geometry is **invalid** — it has no useful irradiance — and the
-panels sampling it came out black.
-
-Two features exist to handle that, and only one was on:
-
-| | state | what it does |
-|---|---|---|
-| Virtual Offset | on (Unity default) | pushes an invalid probe out of geometry — by `outOfGeoOffset`, which defaults to **1cm** |
-| **Dilation** | **off (Unity default)** | fills whatever is still invalid from valid neighbours |
-
-1cm does not get a probe out of a wall it is 30cm inside, so Virtual Offset rescued the easy cases
-and nothing caught the rest. `ProbeDilationSettings.SetDefaults()` sets `enableDilation = false`;
-Unity's own tooltip for it is *"Replace invalid probe data with valid data from neighboring probes
-during baking."* `BakeLighting.ConfigureBakingSet` now turns it on before every bake, through
-`SerializedObject` because all of these types are `internal`.
-
-Cost: about 10% on bake time (IterationRoom 5.3s → 7.3s, Cycle2 214s → 190s — inside the noise).
-
-**If black or wildly dark patches ever appear on one CLASS of surface while the others are fine, look
-at probe validity before anything else.** The instinct is to suspect the material or the lights; the
-tell is that the surfaces which are fine are the ones probes have room around.
-
 ## The building shipped inside out for a day, and three good theories died first (2026-08-25)
 
 `ChamferedPanelMesh` wound every quad `(0,2,1) / (0,3,2)` from corners supplied counter-clockwise as
@@ -1111,52 +1081,6 @@ Two things came out of it:
 - **A fallback default is a lie when the wiring is missing.** `LightingTuner.Seed` now logs a warning
   naming the empty groups, because a panel that quietly shows defaults is worse than one that fails.
 
-## "A sealed room has no ambient" is true physics and a black building (2026-08-26)
-
-The argument is airtight and it does not survive contact. This building has no windows and no sky,
-so every photon in it leaves a ceiling panel: ambient light is a fiction, and once the GI bake worked
-and the bounce count was raised to eight, `RenderSettings.ambient*` was taken to **zero** on exactly
-that reasoning.
-
-Measured off play screenshots afterwards:
-
-| surface | value (of 255) |
-|---|---|
-| walls | **4–8** |
-| ceiling | ~5 |
-| floor | 67 |
-| emissive fixtures | 255 |
-
-**Not dark. Black.** And the floor being lit is the whole diagnosis: the downlights reach it directly,
-and everything else in the building lives on bounce that the bake does not deliver enough of. The
-ceiling is the extreme — the spots point down, so it has no direct term at all.
-
-**Raising the light intensity cannot fix it, and the numbers say why.** 10.5 → 17 took the floor from
-39% to **65.7% of its pixels clipped** while the walls stayed at 4–8. Multiplying almost nothing by
-2.4 is still almost nothing; all the extra light went where there was already too much.
-
-### What this cost, and the shape of the mistake
-
-Three settings were changed on the way to this, and two of them are keepers:
-
-- **Bounce count 2 → 8: KEEP.** Unity's default of two captures about a fifth of the indirect light
-  in a room this white, and that really was throttling the bake. Costs about 20% of bake time on the
-  big scene (Cycle2 190s → 228s), not the multiple that was feared.
-- **Wall and ceiling albedo 1.0 → 0.85: KEEP.** At 1.0 a surface returns every photon and the
-  indirect series **diverges** — brightness became a function of the bounce COUNT rather than of the
-  lighting, which is why two bounces looked fine and sixteen was "over-bright". The floor had been
-  dropped to 0.85 for this exact reason once already and the other two were left behind.
-- **Ambient 0: REVERT.** The physics is right and the renderer cannot cash it.
-
-**The shape of the mistake was trusting an argument over a measurement.** "A sealed room has no
-ambient" describes reality; it does not describe what a bake with finite probe density, a finite
-bounce count and four point lights standing in for area panels actually produces. The two changes
-that survived were both ones where the physics and the measurement agreed.
-
-**Why the bounce does not reach the walls is still open** — probe validity against 25mm panels,
-reflection probes captured in an unlit room, or simply four downlights not making much wall bounce
-across 8.75 x 10.5m. Worth answering; not worth answering with the game unusable. `TODO.md`.
-
 ## RenderSettings is per SCENE, and three of this game's four scenes never had any (2026-08-26)
 
 `SetupLighting` writes `RenderSettings` — ambient mode, the three Trilight bands, the reflection
@@ -1212,89 +1136,69 @@ because what had been clipping was the sky's green and blue.
 singleton has to be written to EVERY scene the build produces.** `SceneBuilder` makes five. Ask of
 any such setting: which of the five did this land in?
 
-## APV was made to work, measured, and switched off (2026-08-26)
+## The walls are lit by a constant, and two attempts to replace it both failed (2026-08-26)
 
-Two days went into Adaptive Probe Volumes. The bake works, every bug in the way of it was real and
-is fixed, and the feature is **off**. The switch is `SceneBuilder.AnyBakedProbeVolumes`, which
-returns false with the reasoning beside it. This is the evidence, so that retrying it starts from
-here rather than from scratch.
+The fixtures in this building are downlights: a 130-degree cone pointed at the floor from 5.41m.
+Measured with the ambient constant switched off, so the lamps were the only light, the **floor read
+100 of 255 and the walls 13, the ceiling 9**. The white walls this game is made of have never been
+lit by a lamp - they are lit by `RenderSettings.ambient`, a flat constant.
 
-### What was genuinely broken, and is now fixed
+Two ways to fix that properly were built, measured and reverted. Both are worth knowing about before
+a third attempt.
 
-Each of these was a real defect that would have hurt regardless of APV:
+### Attempt 1 — baked global illumination (Adaptive Probe Volumes)
 
-| Fault | Effect |
-|---|---|
-| `chess.glb` mesh with no triangles given `ContributeGI` | Hung the Editor with 29,757 exceptions |
-| `RenderSettings` never applied to the cycle scenes | 3 of 4 scenes on skybox ambient; whole game tinted blue |
-| `ChamferedPanelMesh` wound inside out | **Every wall in the building black** |
-| Wear map locked to the grain's tiling | Grid of pale squares on every surface |
-| Probe volume created by the bake, deleted by the next build | Baked data on disk that nothing could load |
-| Calibration room's fixtures enrolled in cycle 1's shadow budget | Four permanent uncounted shadow casters |
-| `m_ShadowDistance` 15 | Shadows appearing only when you got close |
+It works. All four scenes bake clean in about four minutes. **Switching it on adds +101 to the floor
+and +166 to a dynamic prop, and +2 to the walls** - indirect light follows the direct light, and the
+direct light is all on the floor. Also, `CaptureMenuBackground` renders during the build before probe
+data loads and is provably blind to APV, so the menu would show a room the game does not render
+(capture 81/89/141 vs in-game 114/72/181).
 
-### Why APV is off anyway
+Tried against the +2, none of which moved it: bounces 2→8→16; wall/ceiling albedo 1.0→0.85;
+Shadowmask→Baked Indirect; dilation on (Unity ships it **off**, and a building of thin panels wants
+it on); Virtual Offset 0.01→0.05 with the search multiplier at 1.0, on the theory that probes were
+sealed in the cavity behind the 25mm panels; per-room probe volumes; emissive ceiling panels as baked
+area lights.
 
-**It does not light the walls.** With ambient at zero — bounce as the only indirect light — the walls
-measured **13** of 255 and the ceiling **9**, against a floor at **100**. In linear terms the walls
-are 4.6% of the floor where form-factor maths says 25–30%. Switching APV on adds **+101** to the
-floor and **+166** to a dynamic prop while giving the walls **+2**: it piles light where there is
-already too much and leaves the dark surfaces dark. The room's four downlights point straight down,
-and the bounce follows the light.
+**Kept from it, because both measured as well as argued:** bounce count 8 (Unity's default of 2
+captures about a fifth of the indirect light in a room this white) and wall/ceiling albedo 0.85 (at
+1.0 the indirect series *diverges*, so room brightness tracked the bounce COUNT rather than the
+lighting - which is why 2 bounces looked fine and 16 was "over-bright").
 
-Things tried against this, none of which moved the walls: raising bounces 2→8→16; dropping wall and
-ceiling albedo 1.0→0.85; `Shadowmask`→`Baked Indirect`; dilation on; Virtual Offset 0.01→0.05 with
-the search multiplier at 1.0 (the best hypothesis — probes sealed in the cavity behind 25mm panels);
-per-room probe volumes; emissive ceiling panels as baked area lights.
+Zeroing the ambient to let the bounce stand alone gave a **black building**: walls 4-8 of 255.
+Raising the fixtures cannot compensate - 10.5→17 clipped 65.7% of the floor's pixels and left the
+walls black, because 2.4 times almost nothing is still almost nothing.
 
-**And the menu background can never match the game while APV is on.** `CaptureMenuBackground` renders
-during the build, before probe data loads, and its output is provably identical with APV on and off.
-Same room, same build: capture **81/89/141** against in-game **114/72/181**. The title screen would
-show a room the game does not render, and every lighting tweak widens the gap. **Solve this first if
-APV is retried** — there is no point tuning against a picture that cannot see the thing being tuned.
+### Attempt 2 — a lamp that faces the wall
 
-### The methodological lesson, which cost more than any single bug
+The textbook answer, and what real architectural lighting uses. Four spots per room aimed back at the
+walls, with an emissive slot as the visible fixture. **It measured well and looked bad**: the back
+wall went 81→199 with the floor and ceiling unmoved, and the render showed a bright BLOB rather than
+a wash, an emissive slot reading as a fluorescent tube stuck to a dark panel, and a grey room once
+the ambient bands it was meant to replace were retired.
 
-Two measurement mistakes ran through the whole exercise and produced several confident, wrong
-diagnoses:
+A single point source cannot wash a wall evenly, and the fix - a row of them - is barred by
+`m_AdditionalLightsPerObjectLimit` being 8, of which the four ceiling fixtures already take half.
 
-- **`MenuBackground.png` cannot see APV**, and it was used to judge APV changes anyway — for hours
-  after that limitation had been demonstrated. A tool that cannot observe the variable under test is
-  worse than no tool, because it returns numbers.
-- **Screenshots came from different camera positions** and were compared as if they were the same
-  measurement. Brightness at a point depends on the angle it is viewed from.
+### What both failures share, and what actually worked
 
-**Before trusting a measurement, state what it can and cannot see.** The one measurement that stayed
-honest all along was the player's own judgement, which picked APV-off three times out of three.
+**They add brightness where light already is. What this room needs is EVENNESS.** That is why the
+ambient constant survives: it is not only filling a hole, it is doing art direction, because "evenly
+lit" is what a clinical white cell looks like.
 
-## A point light cannot wash a wall, and this room cannot afford a row of them (2026-08-26)
+What settled it was `LightingTuner` (TAB in the calibration room) and an eye. The numbers that came
+out - ambient 0.356 / 0.763 / 0.521, fixtures 7.02 at a 157-degree cone - are a room lit by FILL
+rather than by beams, and they took two passes: the first got it properly white and was reported as
+painful to look at. **Comfort, not brightness.**
 
-After baked GI failed to light the walls, the obvious alternative was the one real architectural
-lighting uses: **a lamp that faces the wall**. Four spots per room, mounted near the ceiling, aimed
-back at each wall, with a thin emissive slot as the visible fixture. Direct light, no bake, works
-with the renderer this project already has.
+### Three measurement lessons, which cost more than any single bug
 
-**It measured well and looked bad.** The build's own render put the back wall at 199 against 81
-before, with the floor and ceiling unmoved — exactly the wanted result, and the numbers said so.
-Looking at the render showed three things no measurement had:
+- **`MenuBackground.png` cannot see APV**, and it was used to judge APV changes for hours after that
+  had been demonstrated. A tool that cannot observe the variable under test is worse than no tool,
+  because it returns numbers.
+- **Screenshots from different camera positions were compared as one measurement.** Brightness at a
+  point depends on where it is viewed from.
+- **Measuring a change and looking at it are different tests.** The wall washer passed the first and
+  failed the second: the wall really did get brighter, and it also got a spotlight blob on it that no
+  brightness sample could report.
 
-- **A single spot aimed at a wall makes a BLOB**, not a wash — a bright disc with the wall dark
-  around it. Inverse-square from 2.2m does that, and moving further back or widening the cone only
-  trades the blob for dimness.
-- **The emissive slot read as a fluorescent tube stuck to the wall**, floating in the middle of a
-  dark panel rather than belonging to the architecture.
-- **Retiring the ambient bands the washers were meant to replace turned the room GREY**, which is the
-  opposite of the clinical white cell this game is.
-
-**The fix for the blob is a row of lamps, and it is barred.** `m_AdditionalLightsPerObjectLimit` is
-8, of which the four ceiling fixtures already take half; a wall surface reached by more silently
-loses the extras.
-
-Reverted whole. Two things worth carrying:
-
-- **Measuring a change and looking at it are different tests, and this one passed the first and
-  failed the second.** The wall really did get brighter. It also got a spotlight blob on it, which no
-  brightness sample at any point could have reported.
-- **The ambient constant is not only a fudge - it is doing art direction.** It is what makes the room
-  read as evenly lit and clinical. Anything replacing it has to reproduce the *evenness*, not just
-  the brightness, and four point sources cannot.
