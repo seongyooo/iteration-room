@@ -1266,3 +1266,35 @@ diagnoses:
 
 **Before trusting a measurement, state what it can and cannot see.** The one measurement that stayed
 honest all along was the player's own judgement, which picked APV-off three times out of three.
+
+## A point light cannot wash a wall, and this room cannot afford a row of them (2026-08-26)
+
+After baked GI failed to light the walls, the obvious alternative was the one real architectural
+lighting uses: **a lamp that faces the wall**. Four spots per room, mounted near the ceiling, aimed
+back at each wall, with a thin emissive slot as the visible fixture. Direct light, no bake, works
+with the renderer this project already has.
+
+**It measured well and looked bad.** The build's own render put the back wall at 199 against 81
+before, with the floor and ceiling unmoved — exactly the wanted result, and the numbers said so.
+Looking at the render showed three things no measurement had:
+
+- **A single spot aimed at a wall makes a BLOB**, not a wash — a bright disc with the wall dark
+  around it. Inverse-square from 2.2m does that, and moving further back or widening the cone only
+  trades the blob for dimness.
+- **The emissive slot read as a fluorescent tube stuck to the wall**, floating in the middle of a
+  dark panel rather than belonging to the architecture.
+- **Retiring the ambient bands the washers were meant to replace turned the room GREY**, which is the
+  opposite of the clinical white cell this game is.
+
+**The fix for the blob is a row of lamps, and it is barred.** `m_AdditionalLightsPerObjectLimit` is
+8, of which the four ceiling fixtures already take half; a wall surface reached by more silently
+loses the extras.
+
+Reverted whole. Two things worth carrying:
+
+- **Measuring a change and looking at it are different tests, and this one passed the first and
+  failed the second.** The wall really did get brighter. It also got a spotlight blob on it, which no
+  brightness sample at any point could have reported.
+- **The ambient constant is not only a fudge - it is doing art direction.** It is what makes the room
+  read as evenly lit and clinical. Anything replacing it has to reproduce the *evenness*, not just
+  the brightness, and four point sources cannot.

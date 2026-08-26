@@ -375,12 +375,16 @@ every dead end are in `docs/rendering-notes.md`.
     the game - everything else is unmeasurable until this is true; (2) answer why the walls take +2
     while the floor takes +101; (3) only then tune. `docs/gotchas.md` lists seven things already
     tried against (2), none of which worked.
-  - **THE WALLS ARE LIT BY A CONSTANT, NOT BY THE LIGHTS, AND THAT IS THE REAL PROBLEM.** Ambient at
-    zero leaves them at 13 of 255. The building's four fixtures are downlights: they hammer the floor
-    and give a wall a grazing cosine. **The cheap fix is not GI, it is a light that faces the wall** -
-    real architectural lighting uses wall washers for exactly this, and a facility corridor would
-    plausibly have them. Costs no bake, no frame budget, and works with the renderer this project
-    already has.
+  - **THE WALLS ARE LIT BY A CONSTANT, NOT BY THE LIGHTS.** Ambient at zero leaves them at 13 of 255;
+    the four fixtures are downlights and give a wall only the grazing tail of the cone. Two answers
+    have now been tried and reverted: **baked GI** (bounce follows the direct light, so it went to the
+    floor) and **wall washers** (a point spot makes a blob, and a row of them is barred by the
+    8-lights-per-object limit). Both are written up in `docs/gotchas.md`.
+    **What has NOT been tried**: a light shaped like the thing it stands for. URP has no realtime area
+    light, but a long thin *row* of very weak points along a cove, or an emissive strip with the
+    ceiling fixtures thinned out to make room under the 8-light limit, would attack the evenness
+    problem rather than the brightness one. **Evenness is the requirement** - the ambient constant is
+    doing art direction, not just filling a hole.
   - **WHY DOES THE BOUNCE NOT REACH THE WALLS AND CEILING?** This is the open question the whole
     lighting pass ran into. With ambient at zero the walls measure **4-8 out of 255** and the ceiling
     the same, while the floor sits at 67 - so the bake lights what the downlights already light and
