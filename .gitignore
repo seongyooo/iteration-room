@@ -85,6 +85,35 @@ Captures/
 [Aa]ssets/[Ss]ettings/ProbeVolumes/
 [Aa]ssets/[Ss]ettings/ProbeVolumes.meta
 
+# **THE GHOST ANIMATOR IS BUILD OUTPUT, FOR THE SAME REASON THE SCENES ARE.**
+# `SceneBuilder.GhostAnimatorController()` clears every state and rebuilds Walk/Idle/Swing on each
+# run - adding is not idempotent, so a retried build would otherwise stack duplicates - and Unity
+# issues fresh fileIDs each time. The result is a permanent 56-line diff in which nothing has
+# changed: the states, the clips and the default are identical, only the IDs move. It was dirty in
+# every working tree that had ever built, which is noise that teaches you to ignore `git status`.
+#
+# The `.meta` stays tracked, exactly as the scenes' do, so the GUID other assets reference is pinned.
+# `Ghost.prefab` beside it is also generated but does not churn, so it stays committed - if it ever
+# starts showing the same no-op diff, it belongs here too.
+[Aa]ssets/[Pp]refabs/GhostAnimator.controller
+
+# Same failure, different asset: `TreeBark_Cut.mat` carries two MonoBehaviour sub-assets (one more
+# than any other generated material) and Unity renumbers both on every rebuild. Content identical,
+# fourteen lines of diff, every time. Its `.meta` stays tracked for the GUID.
+[Aa]ssets/[Mm]aterials/TreeBark_Cut.mat
+
+# **THE REFLECTION CUBEMAPS ARE BAKED BY EVERY BUILD.** `BakeReflectionProbes()` runs last in
+# `Build()` and re-renders all of them, so twenty-one binary files show as modified after a build
+# that changed nothing - proven by a build whose only edit was to this file. They are the same
+# category as the scenes: expensive-looking output that is cheap to regenerate and impossible to
+# review in a diff.
+#
+# The `.meta` files stay tracked. The probes are `Custom` mode with `customBakedTexture` pointing at
+# these by GUID, so pinning the GUID is what lets a fresh clone wire up correctly the moment it
+# builds. Without a build there are no cubemaps and every glossy surface reflects nothing - which is
+# exactly the bargain the scenes already make.
+[Aa]ssets/[Tt]extures/*_Reflection.exr
+
 # What the cross-scene reference check writes on every build. Build output about build output -
 # it says what the CURRENT scenes look like, so a committed copy would only ever be someone else's.
 cross-scene-report.txt
