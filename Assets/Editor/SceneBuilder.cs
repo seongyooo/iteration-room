@@ -2257,8 +2257,8 @@ namespace IterationRoom.EditorTools
                 haveBakedProbes ? "ProbeVolumes" : "LegacyLightProbes");
             Debug.Log(haveBakedProbes
                 ? "[SceneBuilder] Baked probe volumes found - URP left on Adaptive Probe Volumes."
-                : "[SceneBuilder] No baked probe volumes - URP pinned to LegacyLightProbes. Run "
-                + "'Iteration Room/Bake Lighting (slow)' to get bounce light.");
+                : "[SceneBuilder] URP on LegacyLightProbes - Adaptive Probe Volumes are OFF by "
+                + "choice, not for want of a bake. See SceneBuilder.AnyBakedProbeVolumes.");
 
             // **MSAA 2, NOT 4** (2026-08-25, after play reported lag). Authored here rather than left
             // in the asset for the reason every tuned value is (CLAUDE.md §2) - it was 4 and nothing
