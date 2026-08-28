@@ -164,18 +164,26 @@ namespace IterationRoom
             else HideKey();
         }
 
+        // **THIS ROOM OWNS ITS CUBE ONLY WHILE THE CUBE IS STILL ON THE PLINTH** - the same rule and
+        // the same fix as `RewardPlinth`, which carries the full reasoning.
+        //
+        // The teleport half was never possible here (this reveals the cube at its OWN position, not
+        // at a seat), but the disappearing half was exactly the same: a cube set down anywhere and a
+        // room that fell back to unsolved deleted it from the world.
+        private bool OwnsKey => key != null && plinth != null && key.transform.IsChildOf(plinth);
+
         private void ShowKey()
         {
-            if (offered || key == null) return;
+            if (offered || !OwnsKey) return;
             offered = true;
-            // RevealAt refuses while the item is carried, so this cannot pull it out of anyone's
-            // hands, and it is called once on the change rather than every frame.
+            // RevealAt refuses while the item is carried as well, so between the two there is no path
+            // by which this reaches an object that has left the plinth.
             key.RevealAt(key.transform.position);
         }
 
         private void HideKey()
         {
-            if (key == null) return;
+            if (!OwnsKey) return;
             offered = false;
             // NOT while someone is holding it - Hide() knows nothing about custody, and sinking the
             // plinth under a player who has just picked the cube up would make what they are

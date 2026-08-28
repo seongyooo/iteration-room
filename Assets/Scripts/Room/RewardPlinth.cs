@@ -49,6 +49,33 @@ namespace IterationRoom
         public CarryableItem key;
         public Transform keySeat;
 
+
+        // **THE PLINTH OWNS ITS OBJECT ONLY WHILE THE OBJECT IS STILL ON IT** (2026-08-29, after play
+        // reported the yellow triangle teleporting back here).
+        //
+        // It used to own it forever, and both halves of that were wrong:
+        //
+        //   - `HideKey` hid the object whenever the plinth was down. Put the triangle down anywhere
+        //     in the building and let a past self step off a pad, and it VANISHED - a carryable
+        //     nobody was holding, deleted from the world by a fixture two rooms away.
+        //   - `ShowKey` revealed it at the seat whenever the plinth came back up. `RevealAt` refuses
+        //     while the item is CARRIED, which is why holding it felt safe - but the moment it was
+        //     set down, a past self stepping back onto the pads yanked it across the building and
+        //     put it on the plinth again. That is the teleport play found, and for an escape object
+        //     carried toward a console it can undo a whole iteration's work.
+        //
+        // `LoopManager` already knew about this and worked around it: its test-jump nulls
+        // `plinth.key` before revealing an object elsewhere, with a comment explaining that a plinth
+        // which is not raised calls `Hide()` on what it carries every frame. That was the bug being
+        // routed around rather than fixed.
+        //
+        // **PARENTAGE, NOT POSITION.** The reward is authored as a CHILD of the plinth, so it is
+        // parented here exactly while it is home: `AttachTo` moves it to a hand, a drop moves it to
+        // `dropParent`, and `ReturnToOrigin` brings it back here at the top of an iteration. That
+        // keeps this class's whole design intact - state derived every frame, no reset hook to
+        // forget - and it is an identity test rather than a distance one (CLAUDE.md 1.4).
+        private bool OwnsKey => key != null && plinth != null && key.transform.IsChildOf(plinth);
+
         private Vector3 upPosition, downPosition;
         private float blend;
         private bool offered;
@@ -87,20 +114,21 @@ namespace IterationRoom
 
         private void ShowKey()
         {
-            if (offered || key == null || keySeat == null) return;
+            if (offered || !OwnsKey || keySeat == null) return;
             offered = true;
-            // RevealAt refuses while the item is carried, so this cannot pull it out of anyone's
-            // hands - and it is called once on the change rather than every frame.
+            // RevealAt refuses while the item is carried as well, so between the two there is no
+            // path by which this pulls an object out of anybody's hands or in from anywhere else.
             key.RevealAt(keySeat.position);
         }
 
         private void HideKey()
         {
-            if (key == null) return;
+            if (!OwnsKey) return;
             offered = false;
             // NOT while someone is holding it. Hide() knows nothing about custody, and the plinth
             // sinking under a player who has just picked the object up would make what they are
-            // carrying invisible for the rest of the run.
+            // carrying invisible for the rest of the run. The ownership test above already covers
+            // this; kept because it is the cheaper question and states the rule at the point of use.
             if (!key.IsCarried) key.Hide();
         }
     }

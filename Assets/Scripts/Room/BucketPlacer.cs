@@ -20,7 +20,21 @@ namespace IterationRoom
     {
         public PlayerHand hand;
         public string bucketItemId = "Bucket";
+        // **HOW FAR YOU CAN BE AND STILL PLACE A BUCKET ON A STAND.** Short, because a stand is a
+        // spot the width of a pail under one particular tap: at this range the aim is unambiguous,
+        // and a longer one would offer stands across the room that the player is only looking past.
         public float reach = 3.2f;
+
+        // **AND HOW FAR YOU CAN BE AND STILL POUR INTO A TANK, which is a different question**
+        // (split out 2026-08-29, by request: the pour prompt wanted reaching from further back).
+        //
+        // The two shared one number and should not. A tank is metres of glass you cannot mistake for
+        // anything else and cannot miss; there is exactly one of them in reach at a time, so nothing
+        // is being arbitrated. And the act is different: placing is putting a thing DOWN somewhere
+        // precise, where pouring is emptying it AT something big. Standing back far enough to watch
+        // the level rise is what a player naturally does, and at 3.2 the prompt went out exactly
+        // when they did it.
+        public float tankReach = 5.5f;
 
         // THIS CYCLE'S STANDS AND TANKS, handed over by `CycleBinding` when the cycle wakes.
         //
@@ -111,7 +125,7 @@ namespace IterationRoom
             // which is placed against the camera.
             Camera cam = PlayerLookup.Eye;
             Vector3 eye = cam != null ? cam.transform.position : transform.position;
-            float bestStand = reach * reach, bestTank = reach * reach;
+            float bestStand = reach * reach, bestTank = tankReach * tankReach;
 
             if (stands != null)
                 foreach (BucketStand s in stands)
