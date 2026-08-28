@@ -48,6 +48,23 @@ namespace IterationRoom
         // disables the controller inside one frame, so exit callbacks are not reliable here.
         public Collider rideVolume;
 
+        // **WHAT HOLDS IT UP.** A glass column standing on the floor of the shaft with the deck on
+        // top of it, stretched every frame so it always spans the two - a piston, in effect.
+        //
+        // It exists because play reported the deck as "floating, not connected to anything", which it
+        // was: a slab moving through air with no mechanism under it reads as a bug in the physics
+        // rather than as a lift. **Glass rather than steel** so a column standing in the middle of a
+        // room three storeys tall does not become the thing you look at, and so the deck above it is
+        // still visible through it from below.
+        //
+        // Unity's cylinder is 2 units tall at scale 1, which is why the y scale is a HALF-length.
+        public Transform shaft;
+        // The floor the column stands on, as local Y - 0 for the lift off the ground floor, deck A's
+        // surface for the one above it. Not derived from `loweredY`: that is where the DECK rests,
+        // which is a step higher, and a column that started there would hang in the air by exactly
+        // the amount that was supposed to keep the two slabs out of each other.
+        public float shaftBaseY;
+
         public AudioSource audioSource;
         public AudioClip moveClip;
 
@@ -103,6 +120,8 @@ namespace IterationRoom
             if (travelled != 0f && PlayerLookup.InReach(rideVolume))
                 PlayerLookup.Controller?.Carry(Vector3.up * travelled);
 
+            StretchShaft();
+
             // ONCE PER TRIP, on the rising edge of motion, exactly as `CrushingBarrier` announces
             // itself - and with the same clip, because it is the same event: a slab that travels.
             // Retriggered every frame it would be a buzz; looped it would need stopping in three
@@ -116,6 +135,29 @@ namespace IterationRoom
 
         private void Quieten() => moving = false;
 
+        // **THE COLUMN IS DERIVED FROM THE DECK, NEVER ANIMATED ALONGSIDE IT.** Two things moving on
+        // the same clock is two things that can disagree; one thing moving and one thing measuring it
+        // cannot. This runs after every write to `panel.localPosition` - including the snap in
+        // `ResetLift`, which is why it is a method and not four lines inside `LateUpdate`.
+        private void StretchShaft()
+        {
+            if (shaft == null || panel == null) return;
+
+            // Up to the deck's UNDERSIDE. The panel's own origin is the middle of its slab, so half a
+            // slab has to come off or the column would end inside the thing it is carrying.
+            float top = panel.localPosition.y - PanelHalfThickness;
+            float span = Mathf.Max(0.001f, top - shaftBaseY);
+
+            shaft.localPosition = new Vector3(0f, shaftBaseY + span / 2f, 0f);
+            Vector3 scale = shaft.localScale;
+            // Unity's cylinder is 2 units tall, hence the half.
+            shaft.localScale = new Vector3(scale.x, span / 2f, scale.z);
+        }
+
+        // Half the slab's thickness, written by `SceneBuilder` from the same number it built the slab
+        // with rather than re-measured here off a renderer - the rims would be in that measurement.
+        public float PanelHalfThickness = 0.12f;
+
         // SNAPPED, NOT DRIVEN, at the top of an iteration - the same treatment `CrushingBarrier` gets
         // and for the same two reasons: a slab left partway is world state the loop forgot to rewind,
         // and letting it travel there under its own power would be heard through the blackout.
@@ -125,6 +167,7 @@ namespace IterationRoom
             Vector3 local = panel.localPosition;
             local.y = raisedY;
             panel.localPosition = local;
+            StretchShaft();
             Quieten();
         }
     }

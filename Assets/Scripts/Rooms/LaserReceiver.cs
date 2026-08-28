@@ -18,6 +18,11 @@ namespace IterationRoom
         public Color offColour = new Color(0.22f, 0.22f, 0.24f);
         public Color onColour = new Color(1f, 0.35f, 0.28f);
 
+        // **~~A run of conduit that lit up while this plate was live~~ GONE, 2026-08-28, by request.**
+        // The line from a plate to the lift it works is still there and still answers the question it
+        // was built for - which switch drives which platform - but it is PAINT now, drawn on the wall
+        // and the floor, and paint does not glow. See `SceneBuilder.BuildCallConduit`.
+
         // How near the beam's landing point has to be to count. **Generous on purpose**: the mirror
         // is aimed by turning your body, and the law of reflection doubles every wobble - turn the
         // glass one degree and the far end of the beam moves two. At twenty metres that is 70cm of
@@ -54,6 +59,7 @@ namespace IterationRoom
 
             Lit = lit;
             if (lamp != null) lamp.material.color = lit ? onColour : offColour;
+
 
             // Silent while the clock is stopped, for the reason every other fixture in this building
             // is: the loop puts the mirrors back during the blackout, and a plate going out behind

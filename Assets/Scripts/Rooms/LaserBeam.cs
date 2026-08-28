@@ -32,6 +32,12 @@ namespace IterationRoom
         // One per possible segment: `maxBounces` reflections need `maxBounces + 1` runs of beam.
         // Built by `SceneBuilder` rather than pooled here, so the scene shows what it contains.
         public LineRenderer[] segments;
+
+        // **~~A second wide additive pass behind the core~~ GONE, 2026-08-28, by request.** It was
+        // built to make the beam read as light in air rather than as a line in a diagram, which is a
+        // real difference and was not worth what it cost here: a hot white core inside a red bloom
+        // stops being RED, and the one thing this beam has to be is instantly findable in a white
+        // room. One saturated line is. **The simpler thing was already the better thing.**
         // The bright spot where the beam lands. The whole aiming loop is watching this move.
         public Transform terminalDot;
 

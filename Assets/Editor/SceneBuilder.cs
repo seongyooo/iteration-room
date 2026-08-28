@@ -20,7 +20,15 @@ namespace IterationRoom.EditorTools
         private const string MenuScenePath = "Assets/Scenes/MainMenu.unity";
         // How far in from the left edge the title and the button column sit, at the canvas's 1920
         // reference width. One number, so the two cannot drift apart.
-        private const float MenuLeftMargin = 132f;
+        // **HOW FAR THE TITLE SCREEN'S COLUMN SITS FROM THE LEFT EDGE.** 132 -> 84 on 2026-08-28,
+        // by request ("버튼 위치를 좀더 사이드로 붙여도 좋아").
+        //
+        // The margin is doing one job: keeping the words off the edge of the frame. Past that, every
+        // pixel it spends is picture it takes away - and the picture here is a render of the room the
+        // game is set in. Tighter reads as a title card with a menu at its edge rather than as a menu
+        // laid over a photograph, which is the arrangement this screen has been moving toward since
+        // the title was pushed off-centre.
+        private const float MenuLeftMargin = 84f;
 
         // ONE SCENE PER CYCLE, on top of the core one. `IterationRoom` keeps the player, the HUD, the
         // loop and the join between storeys; everything a cycle IS moves out into these.
@@ -259,6 +267,12 @@ namespace IterationRoom.EditorTools
         private static readonly Color SymbolInk = new Color(0.07f, 0.07f, 0.09f);
         private const string IconsDir = TexturesDir + "/Icons";
         private const string MenuBackgroundPath = TexturesDir + "/MenuBackground.png";
+        // **THE SAME SHOT WITH HALF THE ROOM'S FIXTURES OFF.** The title screen flickers by fading
+        // this over the one above - see `MenuFlicker` for why a photograph cannot do it any other
+        // way, and `CaptureMenuBackground` for the one rule that keeps the pair usable: both frames
+        // are taken from the same camera in the same pose, so nothing between them moves except the
+        // light.
+        private const string MenuBackgroundDarkPath = TexturesDir + "/MenuBackgroundDark.png";
         // The menu capture's tripwire colour, and how much of it a frame is allowed to show.
         // Magenta because the room is white panelling and black grooves and cannot produce it; the
         // threshold is 1% against a measured 0 stray pixels out of 1920x1080, so the margin is
@@ -1466,7 +1480,7 @@ namespace IterationRoom.EditorTools
             // the thing being exercised, and a puzzle would be in the way of testing it.
             (Transform cycleThreeRoot, Transform cycleThreeBedSpawn, ParticleSystem[] cycleThreeGas,
              Transform cycleThreeRoom, GhostInteractable[] cycleThreeSignals,
-             CrushingBarrier cycleThreeBarrier, BeamLift cycleThreeLift) =
+             CrushingBarrier cycleThreeBarrier, BeamLift[] cycleThreeLifts) =
                 BuildCycleThreeShell(floorMat, grooveMat, panelMat, propMat);
 
             // THE JOIN BETWEEN CYCLE 2 AND CYCLE 3, and it is in the CORE scene for the reason
@@ -1489,7 +1503,7 @@ namespace IterationRoom.EditorTools
 
             (Cycle cycleThree, WallPanelDisplay cycleThreeDisplay) = AssembleCycleThree(
                 cycleThreeRoot, cycleThreeBedSpawn, cycleThreeGas, cycleThreeSignals,
-                testCard, staticNoise, cycleThreeBarrier, cycleThreeLift);
+                testCard, staticNoise, cycleThreeBarrier, cycleThreeLifts);
 
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
@@ -1755,7 +1769,7 @@ namespace IterationRoom.EditorTools
                 Debug.Log($"[SceneBuilder] Menu background: square to the north wall from {eye}, fov {shotFov}");
             }
 
-            CaptureMenuBackground(shotCam);
+            CaptureMenuBackground(shotCam, room.transform);
             room.SetActive(wasAwake);
 
             BuildMainMenuScene();
@@ -1834,7 +1848,44 @@ namespace IterationRoom.EditorTools
             return result;
         }
 
-        private static void CaptureMenuBackground(Camera cam)
+        // **TWO FRAMES, ONE POSE.** The lit room, and the same room with the fixtures on one side
+        // switched off - `MenuFlicker` cross-cuts between them on the title screen.
+        //
+        // The pair only works because NOTHING moves between the two exposures: same camera, same
+        // position, same lens, same frame. Anything that shifted - a drifting prop, a re-framed
+        // camera - would read as a jump cut rather than as a light going out, which is the one way
+        // this effect can look broken rather than absent.
+        private static void CaptureMenuBackground(Camera cam, Transform room)
+        {
+            CaptureMenuFrame(cam, MenuBackgroundPath);
+
+            // **THE LIGHTS ONLY, NEVER THE EMISSIVE PANELS.** A fixture's glowing face wears
+            // `CeilingFixture`, which is ONE material shared by every fixture in the building - dim it
+            // and every ceiling in the game goes with it. The `Light` components are per-object and
+            // are what actually paints the walls and floor, which is the whole of what this shot is
+            // of: the framing deliberately excludes the ceiling (see the note at the call site), so
+            // the panels are barely in frame anyway.
+            var doused = new System.Collections.Generic.List<Light>();
+            if (room != null)
+                foreach (Light light in room.GetComponentsInChildren<Light>(true))
+                {
+                    // ONE SIDE OF THE ROOM. `BuildCeilingLights` lays a 2x2 grid either side of the
+                    // room's centreline, so everything at negative x is the left-hand pair - which is
+                    // the side the menu's column of text sits over, so the fault is behind the words
+                    // rather than out on the open right where the eye is resting.
+                    if (!light.enabled || light.transform.position.x >= 0f) continue;
+                    light.enabled = false;
+                    doused.Add(light);
+                }
+
+            try { CaptureMenuFrame(cam, MenuBackgroundDarkPath); }
+            finally { foreach (Light light in doused) light.enabled = true; }
+
+            Debug.Log($"[SceneBuilder] Menu background: two frames, {doused.Count} fixture(s) doused "
+                    + "for the dark one. Zero would mean the flicker has nothing to show.");
+        }
+
+        private static void CaptureMenuFrame(Camera cam, string path)
         {
             if (cam == null)
             {
@@ -1956,10 +2007,10 @@ namespace IterationRoom.EditorTools
                 return;
             }
 
-            File.WriteAllBytes(MenuBackgroundPath, png);
+            File.WriteAllBytes(path, png);
 
-            AssetDatabase.ImportAsset(MenuBackgroundPath, ImportAssetOptions.ForceUpdate);
-            if (AssetImporter.GetAtPath(MenuBackgroundPath) is TextureImporter importer)
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            if (AssetImporter.GetAtPath(path) is TextureImporter importer)
             {
                 importer.textureType = TextureImporterType.Sprite;
                 importer.spriteImportMode = SpriteImportMode.Single;
@@ -1975,7 +2026,7 @@ namespace IterationRoom.EditorTools
                 importer.SaveAndReimport();
             }
 
-            Debug.Log($"[SceneBuilder] Menu background captured to {MenuBackgroundPath}");
+            Debug.Log($"[SceneBuilder] Menu background captured to {path}");
         }
 
         // What fraction of the frame is still wearing the camera's clear colour. Compared with a
@@ -4213,7 +4264,7 @@ namespace IterationRoom.EditorTools
         private static (Cycle cycle, WallPanelDisplay display) AssembleCycleThree(
             Transform root, Transform bedSpawn, ParticleSystem[] gasEmitters,
             GhostInteractable[] signals, Texture2D testCard, Texture2D staticNoise,
-            CrushingBarrier northBarrier, BeamLift lift)
+            CrushingBarrier northBarrier, BeamLift[] lifts)
         {
             // ONE DISPLAY PER CYCLE, gathered by parent name exactly as cycle 2's is: the ERROR
             // spreading from a console means *this bed's cycle is over*, so a panel in a cycle the
@@ -4236,7 +4287,7 @@ namespace IterationRoom.EditorTools
             // a leaf left open is a wall with a hole in it at the top of the next iteration.
             cycle.doors = root.GetComponentsInChildren<Door>(true);
             cycle.barriers = northBarrier != null ? new[] { northBarrier } : new CrushingBarrier[0];
-            cycle.lifts = lift != null ? new[] { lift } : new BeamLift[0];
+            cycle.lifts = lifts ?? new BeamLift[0];
             cycle.drawers = root.GetComponentsInChildren<Drawer>(true);
             cycle.gasEmitters = gasEmitters;
             CheckGhostSignals("Cycle 3", signals);
@@ -6576,7 +6627,7 @@ namespace IterationRoom.EditorTools
         // (see `AssembleCycleTwo`). The loop simply keeps iterating here, which is the honest state of
         // a cycle with no puzzles in it.
         private static (Transform root, Transform bedSpawn, ParticleSystem[] gas, Transform room,
-                        GhostInteractable[] signals, CrushingBarrier northBarrier, BeamLift lift)
+                        GhostInteractable[] signals, CrushingBarrier northBarrier, BeamLift[] lifts)
             BuildCycleThreeShell(Material floorMat, Material grooveMat, Material panelMat,
                                  Material propMat)
         {
@@ -6739,7 +6790,16 @@ namespace IterationRoom.EditorTools
             // holding one is a `CarryEvent` and a recorded position, both of which already exist.
             LaserBeam beam = BuildLaserEmitter(rE, propMat);
             CarryableItem[] mirrors = BuildMirrorRack(rW, propMat);
-            LaserReceiver receiver = BuildLaserReceiver(rN, bigWidth, propMat);
+            // THE WEST PLATE, which is where the beam has had to arrive since 2026-08-21.
+            LaserReceiver receiver = BuildLaserReceiver(rN, "LaserReceiver",
+                new Vector3(-bigWidth / 2f + 0.18f, BeamHeight, 5f), Vector3.right, propMat);
+            // **AND ONE DIRECTLY OPPOSITE IT** (2026-08-28, by request). Same height, same z, the
+            // other wall - so one pane held between them answers either by turning round, and which
+            // storey the player is buying is a decision made with their body rather than with a
+            // different object. Neither plate can be lit by the same beam as the other: each is a
+            // solid that stops the light, so a beam has one of them or the other and never both.
+            LaserReceiver receiverEast = BuildLaserReceiver(rN, "LaserReceiver_East",
+                new Vector3(bigWidth / 2f - 0.18f, BeamHeight, 5f), Vector3.left, propMat);
 
             // THE ROUTE AS NUMBERS, because "does the light have anywhere to go" is exactly the kind
             // of thing that is obvious in a plan and wrong in a build. Every figure here is read off
@@ -6787,7 +6847,57 @@ namespace IterationRoom.EditorTools
             // since 2026-08-21 and nothing at the far end of it - `Lit` was deliberately left driving
             // nothing until somebody had bounced the light by hand. That has happened, so the plate
             // gets its consumer rather than a second plate being built beside it.
-            BeamLift lift = BuildBeamLift(rN, bigWidth, bigHeight, propMat, grooveMat, receiver);
+            // THE CEILING CALL, over the first shaft. Only the riser pane can reach it.
+            LaserReceiver ceilingCall = BuildCeilingCall(rN, "LaserReceiver_High",
+                new Vector3(DeckALiftX, bigHeight - 0.18f, DeckALiftZ), propMat);
+
+            // **LIFT 1: THE FLOOR TO DECK A.** Butted against deck A's inner edge - deck A is an L two
+            // cells deep down the west wall, so its edge is at `-width/2 + 2 * GridCellWidth` and
+            // anywhere else lands the ride BESIDE the deck instead of on it.
+            BeamLift liftA = BuildBeamLift(rN, "BeamLift_A",
+                new Vector2(DeckALiftX, DeckALiftZ), DeckALiftPad,
+                LiftRestingStep, DeckARows * GridCellHeight,
+                propMat, grooveMat, shaftFootY: null, receiver, ceilingCall);
+
+            // **LIFT 2: DECK A TO DECK B, AND IT RISES THROUGH THE HOLE THAT WAS ALREADY THERE.**
+            //
+            // Deck B has a 1.75 x 3.5 void cut clean out of it, put there in 2026-08-21 so that
+            // standing on deck B you look through onto deck A and past deck A's open side to the floor
+            // - three storeys in one glance. A shaft between the two decks has to come up through
+            // SOMETHING, and a hole whose whole purpose is to be looked down is the one place in this
+            // room where a rising slab is not an intrusion. So the shaft is the void, and no geometry
+            // had to be cut for it.
+            //
+            // **WHERE INSIDE THE VOID IS FORCED, not chosen.** The panel is pushed to the void's NORTH
+            // end so that at the top its north edge meets deck B's slab and you step off across.
+            // Centred, it would arrive surrounded by hole on the south and 7.5cm gaps elsewhere -
+            // standing on a platform you cannot get off. Its footprint also has to have deck A UNDER
+            // it at the bottom, and deck A only reaches this x through its north strip (z >= 7).
+            BeamLift liftB = BuildBeamLift(rN, "BeamLift_B",
+                new Vector2(DeckBLiftX, DeckBVoidMaxZ - DeckBLiftPad / 2f), DeckBLiftPad,
+                DeckARows * GridCellHeight + LiftRestingStep, DeckBRows * GridCellHeight,
+                // **ITS COLUMN GOES ALL THE WAY DOWN TO THE GROUND, THROUGH DECK A** (2026-08-28, by
+                // request). It stood on deck A, which is honest engineering and reads as a lift with
+                // no visible reason to exist - a machine that begins one storey up begs the question
+                // of what holds THAT up. Taken to the floor it becomes the room's one full-height
+                // object, and standing under deck A you can see the thing that serves the storey
+                // above you. `PlanMezzanines` cuts deck A open for it.
+                propMat, grooveMat, shaftFootY: 0f, receiverEast);
+
+            // AND THE LINES THAT SAY WHICH PLATE WORKS WHICH LIFT. Painted on the wall under each
+            // plate and along the floor to the lift it calls - the east one has to cross most of a
+            // 17.5m room to reach lift B, which is exactly why the mapping needed saying.
+            //
+            // The ceiling call gets none: it drives lift A, whose line is already drawn, and a second
+            // stripe to the same slab would suggest a second machine.
+            BuildCallConduit(rN, "Marking_A",
+                new Vector3(-bigWidth / 2f + 0.18f, BeamHeight, 5f), Vector3.right,
+                new Vector2(DeckALiftX, DeckALiftZ));
+            BuildCallConduit(rN, "Marking_B",
+                new Vector3(bigWidth / 2f - 0.18f, BeamHeight, 5f), Vector3.left,
+                new Vector2(DeckBLiftX, DeckBVoidMaxZ - DeckBLiftPad / 2f));
+
+            BeamLift[] lifts = { liftA, liftB };
 
             CarryableItem riser = BuildMirror(rS, MirrorRiserName,
                 new Vector3(0f, 0f, -RoomDepth / 2f + 1.4f), 0f, MirrorRiserIcon(),
@@ -6834,7 +6944,7 @@ namespace IterationRoom.EditorTools
             for (int i = 0; i < drawers.Length; i++) signals[i] = drawers[i];
             for (int i = 0; i < pads.Length; i++) signals[drawers.Length + i] = pads[i];
 
-            return (root.transform, spawn, gas, r1, signals, northBarrier, lift);
+            return (root.transform, spawn, gas, r1, signals, northBarrier, lifts);
         }
 
         // THE BED A PLAYER FALLS INTO HAS TO BE UNDER THE HATCH THEY FELL THROUGH, and nothing else in
@@ -13946,7 +14056,7 @@ namespace IterationRoom.EditorTools
                 Vector3.forward, Vector3.left, depth, grooveMat, panelMat, Rect.zero, height);
 
             BuildTallRoomLights(t, name, width, depth, height, fixtureMat);
-            BuildMezzanines(t, width, depth, floorMat, panelMat, fixtureMat);
+            BuildMezzanines(t, width, depth, floorMat, panelMat);
 
             // Sized to the room rather than to `RoomWidth`/`RoomDepth`, and centred at half its own
             // height. A probe left at the standard size would capture a box a fraction of this one and
@@ -13975,11 +14085,22 @@ namespace IterationRoom.EditorTools
             GameObject root = new GameObject(roomName + "_CeilingLights");
             root.transform.SetParent(parent, false);
 
-            // A 3x3 rather than the standard 2x2: four fixtures over four times the floor area would
-            // be four pools with dark between them, and this is a room the player has to read a route
-            // across from the far end of a CCTV feed.
-            float[] xs = { -width / 3f, 0f, width / 3f };
-            float[] zs = { -depth / 3f, 0f, depth / 3f };
+            // **BACK TO THE STANDARD 2x2, FROM 3x3** (2026-08-28, by request: the decks were too
+            // bright).
+            //
+            // The nine were justified by a thing that no longer exists - "this is a room the player
+            // has to read a route across from the far end of a CCTV feed" - and the feeds were deleted
+            // with the staircase they were watching. What is left is a room with two decks in it, read
+            // by standing on them.
+            //
+            // **THE COUNT IS NOT THE WHOLE OF WHY IT WAS BRIGHT UP THERE, and this is only the half
+            // that was asked for.** The intensity below is multiplied by the SQUARE of the height
+            // ratio - nine times - to get light down to a floor three storeys away. Deck B is 5.4m
+            // under the ceiling, which is an ordinary room's height, so a fixture over it runs nine
+            // times brighter than the number this building was tuned at. Halving the count takes out
+            // the fill between the cones; it does not touch what is directly overhead. `TODO.md`.
+            float[] xs = { -width / 4f, width / 4f };
+            float[] zs = { -depth / 4f, depth / 4f };
 
             const float panelSize = 1.4f, panelThickness = 0.04f;
             float heightRatio = height / RoomHeight;
@@ -14006,13 +14127,15 @@ namespace IterationRoom.EditorTools
                     light.type = LightType.Spot;
                     light.spotAngle = CeilingSpotAngle;
                     light.innerSpotAngle = 45f;
-                    // Far enough to reach the floor with the cone's edge, not just its axis.
-                    light.range = Mathf.Sqrt(height * height + (width / 3f) * (width / 3f)) * 1.15f;
+                    // Far enough to reach the floor with the cone's edge, not just its axis. Taken
+                    // from the fixtures' own spacing, so it followed the grid from 3x3 to 2x2 without
+                    // having to be retuned.
+                    light.range = Mathf.Sqrt(height * height + (width / 4f) * (width / 4f)) * 1.15f;
                     // The same inverse-square move that took 9 to 10.5 when the ceiling rose 8%.
                     light.intensity = CeilingLightIntensity * heightRatio * heightRatio;
                     light.color = new Color(0.99f, 0.99f, 1f);
                     // NO SHADOWS AT ALL in here. Every additional light's shadow shares one atlas, and
-                    // nine casters in one room would take the whole of it from the rest of the cycle.
+                    // several casters in one room would take the whole of it from the rest of the cycle.
                     light.shadows = LightShadows.None;
                     light.renderMode = LightRenderMode.ForcePixel;
                 }
@@ -14030,6 +14153,30 @@ namespace IterationRoom.EditorTools
         // of ROWS off the floor, a block's footprint is a whole CELL, and a block's travel is a whole
         // number of rows. That is what lets the coloured stairs arrive exactly on a deck without
         // either layout ever being measured against the other.
+
+        // ROOM3-2N'S TWO LIFT SHAFTS, placed off the decks rather than eyeballed.
+        //
+        // Lift A stands beside deck A's inner edge on the open side; lift B stands inside deck B's
+        // void. Both are written here rather than inside the builder because they are facts about
+        // THIS ROOM's floor plan, and the builder is about what a lift is.
+        private const float DeckALiftPad = 2.0f;
+        // Deck A is two cells deep down the west wall; its edge plus half a pad puts the panel's west
+        // face on that edge.
+        private const float DeckALiftX = -RoomWidth + 2f * GridCellWidth + DeckALiftPad / 2f;
+        private const float DeckALiftZ = 2.0f;
+        // **HOW HIGH A PANEL SITS ABOVE THE FLOOR IT RESTS ON, and it is not decoration.** A slab
+        // whose top face were exactly flush with the deck below it would occupy the same space as that
+        // deck's own slab - `DeckSlab` is 0.25 thick - which is the coplanar-faces rule broken in the
+        // worst way, two solids sharing a volume. A step clears it, reads as a platform rather than as
+        // a seam in the floor, and is well under the 0.72m the controller walks up.
+        private const float LiftRestingStep = 0.20f;
+
+        // Deck B's void is 1.75 wide (one cell) and runs z 5.25 to 8.75. 1.6 leaves 7.5cm of daylight
+        // on each side - enough that the slab is never scraping the deck it passes through, tight
+        // enough that the gap is not a place to fall down.
+        private const float DeckBLiftPad = 1.6f;
+        private const float DeckBLiftX = -3f * GridCellWidth;
+        private const float DeckBVoidMaxZ = 8.75f;
 
         private const float DeckSlab = 0.25f;
         // How far a deck runs INTO the wall it lands on. Not zero, because a deck that stops exactly
@@ -14070,7 +14217,24 @@ namespace IterationRoom.EditorTools
                         Rect.MinMaxRect(-wx, -7f, -width / 2f + 2f * GridCellWidth, 7f),
                         Rect.MinMaxRect(-wx, 7f, wx, wz),
                     },
-                    voids = new Rect[0],
+                    // **ONE HOLE, FOR THE SECOND LIFT'S COLUMN TO PASS THROUGH.** That lift runs
+                    // between the two decks and its glass column is carried to the ground floor, so
+                    // it has to cross this one. Cut rather than clipped: a tube intersecting a slab
+                    // is two solids sharing a volume, and this deck is already built by subtracting
+                    // rectangles, so a hole costs one entry.
+                    //
+                    // Sized off the column rather than chosen - `DeckBLiftPad * 0.28` is the tube's
+                    // own diameter, and a quarter-metre of daylight round it keeps the two surfaces
+                    // from grazing. It sits under the panel's rest position, so when the lift is down
+                    // the hole is covered by the thing that made it.
+                    voids = new[]
+                    {
+                        Rect.MinMaxRect(
+                            DeckBLiftX - DeckBLiftPad * 0.14f - 0.25f,
+                            DeckBVoidMaxZ - DeckBLiftPad / 2f - DeckBLiftPad * 0.14f - 0.25f,
+                            DeckBLiftX + DeckBLiftPad * 0.14f + 0.25f,
+                            DeckBVoidMaxZ - DeckBLiftPad / 2f + DeckBLiftPad * 0.14f + 0.25f),
+                    },
                 },
 
                 // DECK B, two storeys up, over the north-west quarter, with a square cut clean out of
@@ -14098,7 +14262,7 @@ namespace IterationRoom.EditorTools
         }
 
         private static void BuildMezzanines(Transform room, float width, float depth,
-                                            Material floorMat, Material panelMat, Material fixtureMat)
+                                            Material floorMat, Material panelMat)
         {
             GameObject root = new GameObject("Mezzanines");
             root.transform.SetParent(room, false);
@@ -14122,9 +14286,17 @@ namespace IterationRoom.EditorTools
             }
 
             BuildDeckColumns(root.transform, panelMat);
-            BuildUnderDeckLights(root.transform, fixtureMat);
         }
 
+        // **~~A dark edge beam on every exposed deck edge~~ REMOVED 2026-08-28, by request.** It was
+        // built to make a bare slab read as a floor sitting on something, and what it actually did was
+        // draw a heavy black outline round both mezzanines - in a white building whose only other dark
+        // lines are the wall grooves, that read as a diagram of the decks rather than as structure.
+        //
+        // **The lifts keep their black rims**, and the difference is worth keeping straight: a rim on
+        // a 2m platform is a mark on a thing you stand on, and an outline round a 17m mezzanine is a
+        // border round the room. Same material, same idea, opposite result at opposite scales.
+        //
         // THE COLUMNS UNDER THEM. A deck hung off two walls needs no support to stand up in a game
         // engine, and does need one to look like it is standing up.
         private static void BuildDeckColumns(Transform parent, Material mat)
@@ -14147,47 +14319,12 @@ namespace IterationRoom.EditorTools
             Column("Column_B1", -2.25f, 9.8f, aTop, bUnder);
         }
 
-        // A deck is a ceiling for whatever is under it, and the nine fixtures overhead cannot reach
-        // through one. Four small ones underneath, so walking below deck A is not walking into a
-        // shadow the size of a room.
-        private static void BuildUnderDeckLights(Transform parent, Material emissiveMat)
-        {
-            float aUnder = DeckARows * GridCellHeight - DeckSlab;
-            float bUnder = DeckBRows * GridCellHeight - DeckSlab;
-
-            void Lamp(string name, float x, float z, float y)
-            {
-                GameObject fixture = new GameObject(name);
-                fixture.transform.SetParent(parent, false);
-                fixture.transform.localPosition = new Vector3(x, y, z);
-
-                Prim(PrimitiveType.Cube, "Panel", fixture.transform, new Vector3(0f, -0.02f, 0f),
-                    new Vector3(0.9f, 0.04f, 0.9f), emissiveMat, removeCollider: true);
-
-                GameObject lightGO = new GameObject("Light");
-                lightGO.transform.SetParent(fixture.transform, false);
-                lightGO.transform.localPosition = new Vector3(0f, -0.05f, 0f);
-                lightGO.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-
-                Light light = lightGO.AddComponent<Light>();
-                light.type = LightType.Spot;
-                light.spotAngle = 120f;
-                light.innerSpotAngle = 40f;
-                light.range = 12f;
-                light.intensity = 6f;
-                light.color = new Color(0.99f, 0.99f, 1f);
-                // No shadows, for the reason `BuildTallRoomLights` gives: one atlas, and this room
-                // already asks for nine.
-                light.shadows = LightShadows.None;
-                light.renderMode = LightRenderMode.ForcePixel;
-            }
-
-            Lamp("UnderA0", -7f, 0f, aUnder);
-            Lamp("UnderA1", 0f, 9f, aUnder);
-            Lamp("UnderB0", -5f, 4.6f, bUnder);
-            Lamp("UnderB1", -5f, 9.6f, bUnder);
-        }
-
+        // **~~The four spots under the decks~~ GONE 2026-08-28, by request.** They were four
+        // fixtures at a flat intensity of 6, on the reasoning that "a deck is a ceiling for whatever
+        // is under it". True, and they were adding to the same complaint the 3x3 overhead grid was:
+        // the upper storeys were too bright. A deck's underside reading as shade is what tells you
+        // there is a floor over your head, and this room's problem was never too little light.
+        //
         // ==================================================== CYCLE 3'S BEAM, AND THE MIRRORS THAT BEND IT
         //
         // A laser leaves room3-2E and has to arrive in room3-2N. Nothing between the two is a switch:
@@ -14217,6 +14354,29 @@ namespace IterationRoom.EditorTools
         // THE ONE PANE THAT LEAVES THE PLANE. Named rather than numbered because it is not one of the
         // rack's five and must never be mistaken for one - by a reader or by a ghost, which is why it
         // carries its own id.
+        // THE SOCKET, IN TWO SIZES, AND THEY DO DIFFERENT JOBS.
+        //
+        // `SocketFace` is the grey disc: what the player FINDS, from the far end of a room seventeen
+        // metres across and three storeys tall. It wants to be big.
+        //
+        // `SocketBore` is the notch cut in the middle of it: what the player AIMS AT. It wants to be
+        // small, because a hole only reads as drilled while it is much smaller than the plate it is
+        // drilled in - at 0.34 against a 0.44 collar the two were nearly the same circle, which is
+        // why the last version read as a dark disc rather than as a hole.
+        //
+        // **NEITHER IS `LaserReceiver.radius`, and that is deliberate.** The hit is judged on 0.7m,
+        // which is generous on purpose: a mirror is aimed by turning your body and the law of
+        // reflection doubles every wobble, so at twenty metres one degree of hand is 70cm of travel
+        // and a target measured in centimetres is one nobody could hold. **The cost is that a beam can
+        // land visibly outside the notch and still count** - worth knowing before anybody "fixes" it
+        // by tightening the tolerance to match the picture. `TODO.md`.
+        private const float SocketFace = 1.15f;
+        private const float SocketBore = 0.20f;
+        // How deep the bore is. Deep relative to its own WIDTH is what reads as a hole - at 0.20
+        // across, 0.13 down is two thirds of a diameter, so the wall of the bore is visible from any
+        // angle a player approaches it at rather than only dead ahead.
+        private const float SocketDepth = 0.13f;
+
         private const string MirrorRiserName = "Mirror_Riser";
         // **45, AND THE DOUBLING IS THE REASON.** A pane tilted up by t turns a level beam through 2t,
         // so this and only this angle sends the light straight up. Anything else is a beam that climbs
@@ -14641,14 +14801,33 @@ namespace IterationRoom.EditorTools
             // until somebody stands in it with a mirror.
             root.transform.localRotation = Quaternion.LookRotation(Vector3.forward, Vector3.up);
 
+            // **DARK, AND THAT IS THE WHOLE OF IT** (simplified 2026-08-28, by request: it had got
+            // "조잡" - cluttered).
+            //
+            // The one thing this object needed was to stop being white: built out of `propMat` it was
+            // a pale box against a pale wall in a pale room, and the only part you could find was the
+            // 6mm aperture. A dark housing fixes that completely.
+            //
+            // **Everything ELSE that was added along with the dark - heat-sink fins, a hazard band, a
+            // recessed throat, a flare at the mouth - was solving a problem nobody had**, and three
+            // of the four introduced one: the band shared a plane with the housing's front face and
+            // the flare's radius exactly matched the barrel's, which is what play saw as a black
+            // wedge across the muzzle. A box, a barrel and a lit aperture say "this fires something"
+            // without any of that.
+            Material shell = MakeColorMaterial("LaserShell", new Color(0.12f, 0.12f, 0.14f));
+            SetSmoothness(shell, 0.55f);
+
             Prim(PrimitiveType.Cube, "Housing", root.transform, new Vector3(0f, 0f, -0.16f),
-                new Vector3(0.42f, 0.42f, 0.44f), propMat);
-            Prim(PrimitiveType.Cylinder, "Barrel", root.transform, new Vector3(0f, 0f, 0.08f),
-                new Vector3(0.12f, 0.1f, 0.12f), propMat)
+                new Vector3(0.42f, 0.42f, 0.44f), shell);
+            Prim(PrimitiveType.Cylinder, "Barrel", root.transform, new Vector3(0f, 0f, 0.10f),
+                new Vector3(0.13f, 0.09f, 0.13f), shell)
                 .transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
 
+            // The lit mouth. Past 1.0 on purpose: `ConfigureVolume` puts the bloom threshold at 1.2
+            // precisely so this building's near-white walls do NOT bloom, so a thing that should has
+            // to be given a value that clears it.
             Material glow = MakeEmissiveMaterial("LaserGlow", new Color(1f, 0.28f, 0.22f), 6f);
-            Prim(PrimitiveType.Cylinder, "Aperture", root.transform, new Vector3(0f, 0f, 0.185f),
+            Prim(PrimitiveType.Cylinder, "Aperture", root.transform, new Vector3(0f, 0f, 0.192f),
                 new Vector3(0.075f, 0.006f, 0.075f), glow, removeCollider: true)
                 .transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
 
@@ -14659,9 +14838,15 @@ namespace IterationRoom.EditorTools
             LaserBeam beam = root.AddComponent<LaserBeam>();
             beam.muzzle = muzzle.transform;
 
-            // ONE LINE RENDERER PER POSSIBLE SEGMENT, built here rather than pooled at runtime so the
-            // scene says what it contains. Unlit: a beam is a light source, not a lit surface.
-            Material beamMat = MakeColorMaterial("LaserBeamLine", new Color(1f, 0.3f, 0.24f));
+            // ONE LINE RENDERER PER POSSIBLE SEGMENT, built here rather than pooled at runtime so
+            // the scene says what it contains. Unlit: a beam is a light source, not a lit surface.
+            //
+            // **ONE PLAIN RED LINE, and it went two passes and came back** (2026-08-28). A hot white
+            // core inside a red halo is what a laser in air actually looks like, and in this room it
+            // was worse: the thing has to be findable at a glance across seventeen metres of white,
+            // and what makes it findable is being RED - which a white-cored beam is not, and a wide
+            // soft one has an edge instead of a colour.
+            Material beamMat = MakeColorMaterial("LaserBeamLine", new Color(1f, 0.22f, 0.16f));
             Shader unlit = Shader.Find("Universal Render Pipeline/Unlit");
             if (unlit != null) beamMat.shader = unlit;
 
@@ -14683,6 +14868,9 @@ namespace IterationRoom.EditorTools
             }
             beam.segments = lines;
 
+            // WHERE IT LANDS. Two spheres for the same reason the beam is two lines: a hot point and
+            // the scatter around it. This is the thing the whole aiming loop is watching move, so it
+            // has to be findable across a room three storeys tall.
             GameObject dot = Prim(PrimitiveType.Sphere, "TerminalDot", root.transform,
                 Vector3.zero, Vector3.one * 0.09f, glow, removeCollider: true);
             beam.terminalDot = dot.transform;
@@ -14699,6 +14887,70 @@ namespace IterationRoom.EditorTools
         // interface; whether the beam runs a machine or opens the way out of the cycle is a design
         // decision that has not been taken, and taking it in code before it is taken in play is what
         // put a CCTV system in this cycle before there was a puzzle for it to watch.
+        // **A LINE PAINTED ON THE WALL AND THE FLOOR, FROM A CALL PLATE TO THE LIFT IT WORKS**
+        // (2026-08-28, by request).
+        //
+        // Two plates on opposite walls and two lifts elsewhere in the room is four possible pairings
+        // and no way to tell which is real - the only way to learn it was to fire the beam and see
+        // what moved, which makes the room a guess rather than a puzzle. A line answers it before
+        // anything is tried, and answers it from across the room.
+        //
+        // **PAINT, NOT CONDUIT.** It was a run of 75mm tube that lit up while its plate was live,
+        // which is a fine idea and the wrong object: a pipe standing off a floor is a THING IN THE
+        // ROOM, and the room already has enough of those - it read as another mechanism to work out
+        // rather than as a label on the two that exist. Paint is flat, is obviously not machinery,
+        // and is what a real plant marks a circuit with.
+        //
+        // **FLAT ENOUGH TO BE 2D, WITHOUT BEING A DECAL.** There is no decal system here and one is
+        // not worth building for two lines, so these are boxes 8mm thick lying against the surface -
+        // thin enough to have no visible side, offset just clear of it so nothing z-fights. The rule
+        // this project keeps relearning is that a face laid EXACTLY on another face flickers, and the
+        // offset is the whole of avoiding it.
+        //
+        // **ORTHOGONAL, IN THREE RUNS: down the wall, along X, along Z.** Not a straight line between
+        // the two points - a stripe slanting across a floor reads as an annotation somebody drew,
+        // where one that turns square corners reads as a marking that belongs to the building. It is
+        // also easier to follow: the eye tracks a right angle and loses a diagonal among the wall
+        // grid's own lines.
+        private static void BuildCallConduit(Transform room, string name, Vector3 plateAt,
+                                             Vector3 inward, Vector2 toXZ)
+        {
+            const float ink = 0.055f;      // how wide the line is painted
+            const float leaf = 0.008f;     // how thick the paint is
+            const float clear = 0.006f;    // how far it stands off the surface it is painted on
+
+            GameObject root = new GameObject(name);
+            root.transform.SetParent(room, false);
+
+            Material paint = MakeColorMaterial("MarkingPaint", new Color(0.09f, 0.09f, 0.10f));
+            SetSmoothness(paint, 0.18f);
+
+            void Bar(string barName, Vector3 at, Vector3 size) =>
+                Prim(PrimitiveType.Cube, barName, root.transform, at, size, paint,
+                     removeCollider: true);
+
+            // ON THE WALL: from just under the plate down to the floor. Placed off the PLATE rather
+            // than off a wall coordinate - the plate is mounted a known distance proud of the wall it
+            // is bolted to, so this cannot drift if the fixture moves.
+            float wallX = plateAt.x - inward.x * (0.13f - clear);
+            float wallZ = plateAt.z - inward.z * (0.13f - clear);
+            float top = plateAt.y - 0.80f;
+
+            Bar("Wall", new Vector3(wallX, (top + clear) / 2f, wallZ),
+                new Vector3(Mathf.Abs(inward.x) > 0.5f ? leaf : ink, top - clear,
+                            Mathf.Abs(inward.z) > 0.5f ? leaf : ink));
+
+            // ON THE FLOOR: out from the wall, then along to the lift. The corner is where the two
+            // runs overlap, which is also what stops a hairline gap showing at the turn.
+            float fromX = wallX + inward.x * 0.02f;
+            float fromZ = wallZ + inward.z * 0.02f;
+
+            Bar("Floor_X", new Vector3((fromX + toXZ.x) / 2f, clear, fromZ),
+                new Vector3(Mathf.Abs(toXZ.x - fromX) + ink, leaf, ink));
+            Bar("Floor_Z", new Vector3(toXZ.x, clear, (fromZ + toXZ.y) / 2f),
+                new Vector3(ink, leaf, Mathf.Abs(toXZ.y - fromZ) + ink));
+        }
+
         // A DECK ON A SHAFT, PULLED DOWN BY THE BEAM AND RISING WHEN IT GOES. See `BeamLift` for why
         // it runs that way round rather than the obvious one.
         //
@@ -14706,47 +14958,78 @@ namespace IterationRoom.EditorTools
         // down the west wall, so its inner edge is at `-width/2 + 2 * GridCellWidth`; the shaft is
         // butted against that edge on the open side, and the panel at rest is flush with the deck's
         // surface. Anywhere else and the ride ends beside the deck rather than on it.
-        private static BeamLift BuildBeamLift(Transform room, float width, float height,
+        // ONE STOREY OF LIFT. Both of room3-2N's are this, and the only things that differ are where
+        // the shaft stands, how big the deck is, and which two surfaces it runs between - so they are
+        // arguments and there is one description of what a lift IS.
+        //
+        // `lowerSurface` and `upperSurface` are the FLOORS it joins, not slab positions: the panel's
+        // top face lands flush with each. Everything about the slab's own thickness is dealt with
+        // here, so a caller never has to think about it.
+        private static BeamLift BuildBeamLift(Transform room, string name, Vector2 shaftXZ, float pad,
+                                              float lowerSurface, float upperSurface,
                                               Material propMat, Material grooveMat,
-                                              LaserReceiver lowCall)
+                                              float? shaftFootY, params LaserReceiver[] calls)
         {
-            const float pad = 2.0f;             // the deck the player stands on, square
             const float thickness = 0.24f;      // thick enough to read as a floor rather than a card
-            const float restingStep = 0.20f;    // how high it sits when it is DOWN - a step, not a lip
 
-            float deckSurface = DeckARows * GridCellHeight;
-            float deckEdge = -width / 2f + 2f * GridCellWidth;
-            // Butted against the deck with the panel's west face on its edge, so stepping off at the
-            // top is a step across rather than a step over a gap.
-            float shaftX = deckEdge + pad / 2f;
-            const float shaftZ = 2.0f;
-
-            GameObject root = new GameObject("BeamLift");
+            GameObject root = new GameObject(name);
             root.transform.SetParent(room, false);
-            root.transform.localPosition = new Vector3(shaftX, 0f, shaftZ);
+            root.transform.localPosition = new Vector3(shaftXZ.x, 0f, shaftXZ.y);
 
             GameObject panel = new GameObject("Deck");
             panel.transform.SetParent(root.transform, false);
 
             Prim(PrimitiveType.Cube, "Slab", panel.transform, Vector3.zero,
                 new Vector3(pad, thickness, pad), propMat);
-            // A dark rim, so the edge of a floor five metres up is visible from on top of it. There is
-            // no parapet anywhere in this room by decision, which makes the edge itself the only
-            // warning there is.
+            // A dark rim, so the edge of a floor several metres up is visible from on top of it.
+            // There is no parapet anywhere in this room by decision, which makes the edge itself the
+            // only warning there is.
+            //
+            // **ALL FOUR SIDES** (2026-08-28, by request). The west band was left off because that is
+            // the side butted against the deck, and a band there marks an edge you cannot fall off -
+            // which was reasoning about the DECK'S geometry from inside a builder that knows nothing
+            // about it, and is wrong for the second lift anyway. Three sides read as an unfinished
+            // object rather than as a considered omission, which is what play reported.
             const float rim = 0.06f;
-            Prim(PrimitiveType.Cube, "RimN", panel.transform,
-                new Vector3(0f, thickness / 2f, pad / 2f - rim / 2f),
-                new Vector3(pad, 0.02f, rim), grooveMat, removeCollider: true);
-            Prim(PrimitiveType.Cube, "RimS", panel.transform,
-                new Vector3(0f, thickness / 2f, -pad / 2f + rim / 2f),
-                new Vector3(pad, 0.02f, rim), grooveMat, removeCollider: true);
-            Prim(PrimitiveType.Cube, "RimE", panel.transform,
-                new Vector3(pad / 2f - rim / 2f, thickness / 2f, 0f),
-                new Vector3(rim, 0.02f, pad), grooveMat, removeCollider: true);
+            void Rim(string rimName, Vector3 at, Vector3 size) =>
+                Prim(PrimitiveType.Cube, rimName, panel.transform, at, size, grooveMat,
+                    removeCollider: true);
 
-            // WHO IS ON IT. Inset by a third of a metre all round, so somebody standing on deck A
-            // beside the panel at the top is not dragged along with it; two metres tall, because what
-            // is being asked is "are your feet on this", and a standing capsule's bounds are.
+            Rim("RimN", new Vector3(0f, thickness / 2f, pad / 2f - rim / 2f),
+                new Vector3(pad, 0.02f, rim));
+            Rim("RimS", new Vector3(0f, thickness / 2f, -pad / 2f + rim / 2f),
+                new Vector3(pad, 0.02f, rim));
+            Rim("RimE", new Vector3(pad / 2f - rim / 2f, thickness / 2f, 0f),
+                new Vector3(rim, 0.02f, pad));
+            Rim("RimW", new Vector3(-pad / 2f + rim / 2f, thickness / 2f, 0f),
+                new Vector3(rim, 0.02f, pad));
+
+            // **AND THE COLUMN THAT HOLDS IT UP.** Play reported the deck as floating - which it was,
+            // a slab travelling through air with no mechanism under it, and that reads as something
+            // broken rather than as a lift.
+            //
+            // Glass, for two reasons that pull the same way: a solid column standing in a room three
+            // storeys tall would become the thing the eye goes to, and the whole point of deck B's
+            // void is being able to look down through it. `BeamLift.StretchShaft` scales this to span
+            // the floor and the deck's underside every frame, so it is measured off the lift rather
+            // than animated beside it.
+            //
+            // Its collider stays: the column is a real object standing in the room, and a player at
+            // the bottom of a raised shaft should meet it rather than walk through it.
+            Material tube = MakeTranslucentMaterial("LiftShaftGlass",
+                new Color(0.62f, 0.70f, 0.76f, 0.20f), 0.92f);
+            GameObject shaft = Prim(PrimitiveType.Cylinder, "Shaft", root.transform,
+                Vector3.zero, new Vector3(pad * 0.28f, 1f, pad * 0.28f), tube);
+
+            // A collar at the foot, so the column lands ON something rather than stopping at a plane.
+            float footY = shaftFootY ?? lowerSurface - LiftRestingStep;
+            Prim(PrimitiveType.Cylinder, "ShaftCollar", root.transform,
+                new Vector3(0f, footY + 0.06f, 0f),
+                new Vector3(pad * 0.42f, 0.06f, pad * 0.42f), grooveMat, removeCollider: true);
+
+            // WHO IS ON IT. Inset by a third of a metre all round, so somebody standing on the deck
+            // beside the panel at either end is not dragged along with it; two metres tall, because
+            // what is being asked is "are your feet on this", and a standing capsule's bounds are.
             GameObject rideGO = new GameObject("Rider");
             rideGO.transform.SetParent(panel.transform, false);
             BoxCollider ride = rideGO.AddComponent<BoxCollider>();
@@ -14754,38 +15037,20 @@ namespace IterationRoom.EditorTools
             ride.center = new Vector3(0f, thickness / 2f + 1.0f, 0f);
             ride.size = new Vector3(pad - 0.6f, 2.0f, pad - 0.6f);
 
-            // **THE HIGH CALL, IN THE CEILING.** A lift needs a button on each floor, and the low
-            // plate is on a wall at 1.2m - five metres below anybody standing on deck A, and not
-            // reachable by a level beam from up there in any case.
-            //
-            // It is in the CEILING rather than on a wall because of how it has to be lit: the only
-            // thing that can reach it is the riser pane, and a pane tilted 45 degrees turns a level
-            // beam through 90 - straight up. A vertical beam lands on the ceiling, so that is where
-            // the target has to be.
-            GameObject highGO = new GameObject("LaserReceiver_High");
-            highGO.transform.SetParent(root.transform, false);
-            highGO.transform.localPosition = new Vector3(0f, height - 0.18f, 0f);
-
-            Prim(PrimitiveType.Cube, "Plate", highGO.transform, new Vector3(0f, 0.06f, 0f),
-                new Vector3(1.5f, 0.14f, 1.5f), propMat);
-
-            Material highLamp = MakeEmissiveMaterial("LaserReceiverLamp", Color.white, 1f);
-            GameObject lens = Prim(PrimitiveType.Cylinder, "Lens", highGO.transform,
-                new Vector3(0f, -0.02f, 0f), new Vector3(0.9f, 0.03f, 0.9f), highLamp,
-                removeCollider: true);
-
-            LaserReceiver highCall = highGO.AddComponent<LaserReceiver>();
-            highCall.lamp = lens.GetComponent<Renderer>();
-            highCall.radius = 0.7f;
-            highCall.audioSource = MakeSource(highGO.transform, "ReceiverAudio",
-                                              spatialBlend: 1f, volume: 0.8f);
-            highCall.onClip = LoadClip(SfxDir, "sfx_switch_on");
-
             BeamLift lift = root.AddComponent<BeamLift>();
             lift.panel = panel.transform;
-            lift.calls = lowCall != null ? new[] { lowCall, highCall } : new[] { highCall };
-            lift.raisedY = deckSurface - thickness / 2f;
-            lift.loweredY = restingStep - thickness / 2f;
+            lift.calls = calls;
+            lift.shaft = shaft.transform;
+            // The floor the column stands on. Usually a resting step below where the deck rests -
+            // but the second lift is asked to carry its column PAST the deck it starts from and down
+            // to the ground, so the caller can say where the floor is.
+            lift.shaftBaseY = shaftFootY ?? lowerSurface - LiftRestingStep;
+            lift.PanelHalfThickness = thickness / 2f;
+            // Half a slab under each surface, so the TOP FACE lands flush with the floor it is joining
+            // at either end. Getting this off by the thickness is a step at the top and a lip at the
+            // bottom, and both read as the lift being broken rather than as a number being wrong.
+            lift.raisedY = upperSurface - thickness / 2f;
+            lift.loweredY = lowerSurface - thickness / 2f;
             lift.speed = 2.2f;
             lift.rideVolume = ride;
             lift.audioSource = MakeSource(root.transform, "LiftAudio", spatialBlend: 1f, volume: 0.5f);
@@ -14796,31 +15061,116 @@ namespace IterationRoom.EditorTools
             // Starts where the loop will always put it back.
             lift.ResetLift();
 
-            Debug.Log($"[SceneBuilder] Cycle 3 lift: {pad:0.##}m deck at local x={shaftX:0.##}, "
-                    + $"z={shaftZ:0.##}, travelling y {lift.loweredY:0.##} -> {lift.raisedY:0.##} "
-                    + $"(deck A surface {deckSurface:0.##}m) at {lift.speed:0.#}m/s. High call in the "
-                    + $"ceiling at y={height - 0.18f:0.##}, target radius {highCall.radius:0.##}m; "
-                    + $"low call is the west-wall plate. Two calls, either one lowers it.");
+            Debug.Log($"[SceneBuilder] Cycle 3 {name}: {pad:0.##}m deck at local "
+                    + $"({shaftXZ.x:0.##}, {shaftXZ.y:0.##}), surfaces {lowerSurface:0.##} -> "
+                    + $"{upperSurface:0.##} ({upperSurface - lowerSurface:0.##}m of travel) at "
+                    + $"{lift.speed:0.#}m/s, {calls.Length} call(s) - any one lowers it.");
             return lift;
         }
 
-        private static LaserReceiver BuildLaserReceiver(Transform room, float width, Material propMat)
+        // **A CALL PLATE IN THE CEILING**, which is where one has to be if the riser pane is the only
+        // thing that can reach it: a pane tilted 45 degrees turns a level beam through 90, and a
+        // vertical beam lands on the ceiling. Face down, so `Covers` is asked about a point directly
+        // under it.
+        private static LaserReceiver BuildCeilingCall(Transform room, string name, Vector3 localPos,
+                                                      Material propMat)
         {
-            GameObject root = new GameObject("LaserReceiver");
+            GameObject root = new GameObject(name);
             root.transform.SetParent(room, false);
-            root.transform.localPosition = new Vector3(-width / 2f + 0.18f, BeamHeight, 5f);
+            root.transform.localPosition = localPos;
 
-            Vector3 inward = Vector3.right;
-            Prim(PrimitiveType.Cube, "Plate", root.transform, -inward * 0.06f,
-                new Vector3(0.14f, 1.5f, 1.5f), propMat);
+            // The same pale plate with a small bore drilled in it that the wall sockets have - one
+            // kind of object, one look, whichever surface it is bolted to.
+            Material bezel = MakeColorMaterial("LaserBezel", new Color(0.58f, 0.59f, 0.61f));
+            SetSmoothness(bezel, 0.62f);
+
+            Prim(PrimitiveType.Cube, "Plate", root.transform, new Vector3(0f, 0.06f, 0f),
+                new Vector3(1.5f, 0.14f, 1.5f), bezel);
+            MakeRing(root.transform, "Face", new Vector3(0f, -0.055f, 0f), Vector3.down,
+                SocketFace / 2f, SocketBore / 2f, SocketDepth,
+                MakeColorMaterial("LaserCollar", new Color(0.74f, 0.75f, 0.77f)));
+
+            Prim(PrimitiveType.Cylinder, "BoreFloor", root.transform,
+                new Vector3(0f, -0.055f + SocketDepth + 0.008f, 0f),
+                new Vector3(SocketBore * 0.99f, 0.008f, SocketBore * 0.99f),
+                MakeColorMaterial("LaserBore", new Color(0.05f, 0.05f, 0.055f)), removeCollider: true);
 
             Material lampMat = MakeEmissiveMaterial("LaserReceiverLamp", Color.white, 1f);
-            GameObject lamp = Prim(PrimitiveType.Cylinder, "Lens", root.transform, inward * 0.02f,
-                new Vector3(0.9f, 0.03f, 0.9f), lampMat, removeCollider: true);
-            lamp.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+            GameObject lens = Prim(PrimitiveType.Cylinder, "Lens", root.transform,
+                new Vector3(0f, -0.055f + SocketDepth - 0.004f, 0f),
+                new Vector3(SocketBore * 0.80f, 0.006f, SocketBore * 0.80f), lampMat,
+                removeCollider: true);
+
+            LaserReceiver call = root.AddComponent<LaserReceiver>();
+            call.lamp = lens.GetComponent<Renderer>();
+            call.offColour = new Color(0.30f, 0.055f, 0.045f);
+            call.radius = 0.7f;
+            call.audioSource = MakeSource(root.transform, "ReceiverAudio",
+                                          spatialBlend: 1f, volume: 0.8f);
+            call.onClip = LoadClip(SfxDir, "sfx_switch_on");
+            return call;
+        }
+
+        // A PLATE ON A WALL. `inward` is the way it faces, which is also the axis its body is thin
+        // on - so the same builder makes a west plate and an east one without a second copy of it.
+        private static LaserReceiver BuildLaserReceiver(Transform room, string name, Vector3 localPos,
+                                                       Vector3 inward, Material propMat)
+        {
+            GameObject root = new GameObject(name);
+            root.transform.SetParent(room, false);
+            root.transform.localPosition = localPos;
+            // **A PLATE WITH A SMALL HOLE IN THE MIDDLE OF IT, AND THE BEAM GOES IN THE HOLE**
+            // (2026-08-28, by request).
+            //
+            // This has now been three things. White on a white wall - invisible. Then a dark bezel
+            // round a dark bore - "온통 검은색이여서 레이저를 넣는 구멍으로 안보여", all black, so it
+            // does not read as somewhere you put a laser. Both failures are the same failure: **a
+            // hole is read from the CONTRAST between its rim and its inside, and each version had
+            // only one of the two.**
+            //
+            // So: a pale steel plate, and a small dark bore drilled in the centre of it. The plate is
+            // what you find from across the room; the bore is what you aim at; and a hole a good deal
+            // smaller than the plate is what makes it look drilled rather than painted on.
+            Material bezel = MakeColorMaterial("LaserBezel", new Color(0.58f, 0.59f, 0.61f));
+            SetSmoothness(bezel, 0.62f);
+
+            Prim(PrimitiveType.Cube, "Plate", root.transform, -inward * 0.06f,
+                new Vector3(0.14f, 1.5f, 1.5f), bezel);
+
+            Quaternion facing = Quaternion.LookRotation(inward) * Quaternion.Euler(90f, 0f, 0f);
+
+            // **THE GREY DISC, WITH A REAL HOLE IN IT.** A `Cylinder` primitive here is what made the
+            // last version's notch invisible - a solid disc hides whatever is behind it, and no
+            // arrangement of primitives puts a hole in one. `MakeRing` is an annulus with the bore's
+            // wall included, so what you look into is geometry rather than a darker circle.
+            GameObject face = MakeRing(root.transform, "Face", inward * 0.055f, inward,
+                SocketFace / 2f, SocketBore / 2f, SocketDepth,
+                MakeColorMaterial("LaserCollar", new Color(0.74f, 0.75f, 0.77f)));
+
+            // THE BOTTOM OF THE BORE, seen down the hole. Dark, and deliberately not black: a
+            // zero-value surface takes no light at all and reads as a hole cut in the SCREEN, with
+            // nothing for the eye to place in space.
+            GameObject well = Prim(PrimitiveType.Cylinder, "BoreFloor", root.transform,
+                inward * (0.055f - SocketDepth - 0.008f),
+                new Vector3(SocketBore * 0.99f, 0.008f, SocketBore * 0.99f),
+                MakeColorMaterial("LaserBore", new Color(0.05f, 0.05f, 0.055f)), removeCollider: true);
+            well.transform.localRotation = facing;
+
+            // And the lens sitting on it, which is the part that lights.
+            Material lampMat = MakeEmissiveMaterial("LaserReceiverLamp", Color.white, 1f);
+            GameObject lamp = Prim(PrimitiveType.Cylinder, "Lens", root.transform,
+                inward * (0.055f - SocketDepth + 0.004f),
+                new Vector3(SocketBore * 0.80f, 0.006f, SocketBore * 0.80f), lampMat,
+                removeCollider: true);
+            lamp.transform.localRotation = facing;
 
             LaserReceiver receiver = root.AddComponent<LaserReceiver>();
             receiver.lamp = lamp.GetComponent<Renderer>();
+            // A DARK RED LENS WHEN IT IS OFF, not a grey one. The default here is a neutral charcoal,
+            // which inside a dark bore is indistinguishable from the bore - so the socket had no
+            // pupil. A red glass that is merely unlit says both what the fixture is FOR and that it
+            // is currently not receiving.
+            receiver.offColour = new Color(0.30f, 0.055f, 0.045f);
             receiver.radius = 0.7f;
             receiver.audioSource = MakeSource(root.transform, "ReceiverAudio", spatialBlend: 1f, volume: 0.8f);
             receiver.onClip = LoadClip(SfxDir, "sfx_switch_on");
@@ -18538,6 +18888,123 @@ namespace IterationRoom.EditorTools
         // partial panels around doorways are the only ones that mint new ones. The build logs how
         // many distinct meshes it ended up with; if that number is ever in the hundreds, the sizes
         // have stopped repeating and this trade needs looking at again.
+        // **A DISC WITH A HOLE THROUGH IT - and it has to be a generated mesh, because nothing else
+        // here can make a hole.**
+        //
+        // The socket's grey face was a `Cylinder` primitive with a dark cylinder behind it, and play
+        // reported the obvious consequence: "홈이 안보여" - the notch is invisible. Of course it is. A
+        // solid disc in front of a dark one hides it completely; there is no CSG in this project, so
+        // "put the dark thing behind" can never produce a hole. Either the geometry has a hole in it
+        // or the picture does not.
+        //
+        // `SymbolSlot` solves the same problem for a SQUARE recess by standing four bars proud of the
+        // wall and putting the glyph at the bottom of the well between them - a real hollow made out
+        // of what a primitive can do. A round one has no such trick: forty bars in a circle is a
+        // polygon nobody asked for. So this is an annulus, extruded, with its inner wall facing the
+        // axis so you can see down the bore from in front.
+        //
+        // **THE WINDING IS EXPLICIT AND THE NORMALS ARE SET BY HAND**, rather than left to
+        // `RecalculateNormals`. CLAUDE.md records what a backwards winding costs here: it does not
+        // read as a geometry bug, it renders BLACK, and it cost this project a day of chasing
+        // lighting theories. Each of the three surfaces is derived from Unity's own convention -
+        // normal = (v1-v0) x (v2-v0), checked against the built-in Quad - and written down below.
+        private static Mesh RingMesh(float outerRadius, float innerRadius, float depth)
+        {
+            int ko = Mathf.RoundToInt(outerRadius * 10000f);
+            int ki = Mathf.RoundToInt(innerRadius * 10000f);
+            int kd = Mathf.RoundToInt(depth * 10000f);
+
+            string assetName = $"Ring_{ko}_{ki}_{kd}";
+            string path = GeneratedDir + "/" + assetName + ".mesh";
+
+            Mesh existing = AssetDatabase.LoadAssetAtPath<Mesh>(path);
+            if (existing != null) return existing;
+
+            // Enough that the bore reads as round at the half-metre the player gets to it, and few
+            // enough that the whole fixture is under a thousand triangles.
+            const int segments = 48;
+
+            var verts = new System.Collections.Generic.List<Vector3>();
+            var norms = new System.Collections.Generic.List<Vector3>();
+            var tris = new System.Collections.Generic.List<int>();
+
+            // Local +Z is OUT of the wall, and the ring is extruded back to -Z. The caller orients it
+            // with `LookRotation(inward)`, which maps local +Z onto the direction the socket faces.
+            Vector3 At(float radius, int i, float z)
+            {
+                float a = 2f * Mathf.PI * i / segments;
+                return new Vector3(Mathf.Cos(a) * radius, Mathf.Sin(a) * radius, z);
+            }
+            Vector3 Radial(int i)
+            {
+                float a = 2f * Mathf.PI * i / segments;
+                return new Vector3(Mathf.Cos(a), Mathf.Sin(a), 0f);
+            }
+
+            void Tri(Vector3 a, Vector3 b, Vector3 c, Vector3 na, Vector3 nb, Vector3 nc)
+            {
+                int at = verts.Count;
+                verts.Add(a); verts.Add(b); verts.Add(c);
+                norms.Add(na); norms.Add(nb); norms.Add(nc);
+                tris.Add(at); tris.Add(at + 1); tris.Add(at + 2);
+            }
+
+            for (int i = 0; i < segments; i++)
+            {
+                int j = (i + 1) % segments;
+                Vector3 ri = Radial(i), rj = Radial(j);
+                Vector3 outI = At(outerRadius, i, 0f), outJ = At(outerRadius, j, 0f);
+                Vector3 inI = At(innerRadius, i, 0f), inJ = At(innerRadius, j, 0f);
+                Vector3 outIb = At(outerRadius, i, -depth), outJb = At(outerRadius, j, -depth);
+                Vector3 inIb = At(innerRadius, i, -depth), inJb = At(innerRadius, j, -depth);
+
+                // THE FRONT FACE, an annulus whose normal points out of the wall. The order is
+                // checked rather than guessed: with normal = (v1-v0) x (v2-v0) - Unity's own
+                // convention, verified against its built-in Quad - (outer_i, inner_j, inner_i)
+                // crosses to +Z and the reverse of it to -Z.
+                Tri(outI, inJ, inI, Vector3.forward, Vector3.forward, Vector3.forward);
+                Tri(outI, outJ, inJ, Vector3.forward, Vector3.forward, Vector3.forward);
+
+                // THE BORE'S WALL, facing the axis - the surface that says the hole has DEPTH, and
+                // the whole reason this is a mesh rather than a flat ring.
+                Tri(inI, inJb, inIb, -ri, -rj, -ri);
+                Tri(inI, inJ, inJb, -ri, -rj, -rj);
+
+                // THE OUTER WALL, facing away from the axis: the rim's own thickness seen from the
+                // side, which is what makes the face read as standing PROUD of the plate.
+                Tri(outI, outIb, outJb, ri, ri, rj);
+                Tri(outI, outJb, outJ, ri, rj, rj);
+            }
+
+            Mesh mesh = new Mesh { name = assetName };
+            mesh.SetVertices(verts);
+            mesh.SetNormals(norms);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateTangents();
+            mesh.RecalculateBounds();
+
+            if (!Directory.Exists(GeneratedDir)) Directory.CreateDirectory(GeneratedDir);
+            AssetDatabase.CreateAsset(mesh, path);
+            return AssetDatabase.LoadAssetAtPath<Mesh>(path);
+        }
+
+        // A ring standing on a surface, with a genuine hole through it. `inward` is the way the face
+        // points; the mesh is built about local +Z and turned onto it.
+        private static GameObject MakeRing(Transform parent, string name, Vector3 localPos,
+                                           Vector3 inward, float outerRadius, float innerRadius,
+                                           float depth, Material mat)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = Quaternion.LookRotation(inward);
+
+            go.AddComponent<MeshFilter>().sharedMesh = RingMesh(outerRadius, innerRadius, depth);
+            MeshRenderer renderer = go.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = mat;
+            return go;
+        }
+
         private static Mesh ChamferedPanelMesh(float width, float height, float depth, float chamfer)
         {
             // Rounded to the tenth of a millimetre BEFORE it becomes a key, or floating point turns
@@ -19259,7 +19726,7 @@ namespace IterationRoom.EditorTools
 
         private static Button MakeMenuButtonInk(Transform parent, string name, string label,
                                                 Vector2 anchoredPosition) =>
-            MakeMenuButton(parent, name, label, anchoredPosition, MenuInk, "Medium");
+            MakeMenuButton(parent, name, label, anchoredPosition, MenuInk, "Bold");
 
         private static Text MakeRowLabel(Transform parent, string name, string content,
                                          Vector2 anchoredPosition, Vector2 size, TextAnchor alignment)
@@ -19429,6 +19896,38 @@ namespace IterationRoom.EditorTools
             // It overscans the canvas, so the `Stretch` above sets the size it slides WITHIN.
             backgroundGO.AddComponent<MenuBackdrop>();
 
+            // **AND ONE SIDE OF IT GOES OUT.** The same shot with the left-hand fixtures doused, laid
+            // over the lit one at an alpha `MenuFlicker` cuts between - see that script for why a
+            // photograph cannot flicker any other way, and why the pattern is hard cuts rather than a
+            // fade.
+            //
+            // **A CHILD OF THE BACKGROUND, WHICH IS WHAT KEEPS THE TWO REGISTERED.** `MenuBackdrop`
+            // slides the picture around to stop it reading as a loading screen; a sibling would sit
+            // still while the lit frame drifted under it, and the flicker would arrive as a picture
+            // jumping half a metre sideways. Stretched to the parent, it inherits every pixel of that
+            // motion for free.
+            Sprite darkShot = AssetDatabase.LoadAssetAtPath<Sprite>(MenuBackgroundDarkPath);
+            if (darkShot != null)
+            {
+                GameObject darkGO = new GameObject("BackgroundDark");
+                darkGO.transform.SetParent(backgroundGO.transform, false);
+                Image darkImage = darkGO.AddComponent<Image>();
+                darkImage.sprite = darkShot;
+                // Transparent at rest - the room is whole until the fault takes it.
+                darkImage.color = new Color(1f, 1f, 1f, 0f);
+                darkImage.raycastTarget = false;
+                Stretch(darkImage.GetComponent<RectTransform>());
+                darkGO.AddComponent<MenuFlicker>();
+            }
+            else
+            {
+                // Said rather than skipped silently: a menu with no flicker looks exactly like a menu
+                // whose second capture failed, and the two want telling apart.
+                Debug.LogWarning($"[SceneBuilder] {MenuBackgroundDarkPath} is missing, so the title "
+                               + "screen will not flicker. Rebuild from the Editor with a graphics "
+                               + "device.");
+            }
+
             // THE SCRIM IS A THIRD OF WHAT IT WAS, and it is a gradient rather than a flat wash.
             //
             // At 0.5 flat it was doing two jobs badly: darkening the whole picture to make red text
@@ -19461,7 +19960,16 @@ namespace IterationRoom.EditorTools
             titleGO.transform.SetParent(menuGO.transform, false);
             Text title = titleGO.AddComponent<Text>();
             title.font = UIFont();
-            // **EXTRABOLD AT 86, UP FROM EXTRALIGHT** (2026-08-28, by request: "글자가 얇아").
+            // **AND BACK TO LIGHT AT 86** (2026-08-28, by request: thin suits the game).
+            //
+            // It went ExtraLight -> ExtraBold earlier the same day on the reasoning below, which was
+            // about the game's SUBJECT - a facility, whose lettering would be painted and heavy. That
+            // reasoning was sound and lost to something better: the game's LOOK is a white room, thin
+            // black grooves and a lot of empty space, and a title has to belong to what is on screen
+            // rather than to what the fiction is about. Light is what the room is made of.
+            //
+            // Kept because it is the argument that will be made again -
+            // **~~EXTRABOLD AT 86, UP FROM EXTRALIGHT~~** (was: "글자가 얇아").
             //
             // The thin setting was a real argument and it was the wrong one for this game. Thin at a
             // large size is the elegant-product voice - it reads as a design tool or a streaming
@@ -19475,7 +19983,7 @@ namespace IterationRoom.EditorTools
             // The hierarchy the old note wanted is kept and inverted: the title is now the heaviest
             // thing on the screen and the five labels stay Medium at 26, so the ratio is still weight
             // and not four sizes with nothing between them.
-            title.font = UIFont("ExtraBold");
+            title.font = UIFont("Light");
             title.fontSize = 86;
             // CENTRED, while the buttons stay down the left edge. The two were moved together and
             // that was one step too far: a left-hung title over a left-hung column leaves the whole
@@ -19512,33 +20020,23 @@ namespace IterationRoom.EditorTools
             titleRect.sizeDelta = new Vector2(1400f, 140f);
             titleRect.anchoredPosition = new Vector2(0f, 268f);
 
-            // THREE ECHOES, UP AND TO THE LEFT, EACH A THIRD OF THE ONE IN FRONT.
+            // **~~Three fading echoes behind the word~~ ONE TITLE, 2026-08-28, by request.**
+            // The idea was the ghost afterimage as a logotype, and it was about the right thing;
+            // what it looked like on a real screen was the word printed four times. At 86pt with the
+            // letters a cell apart there is no offset that clears its own NEIGHBOUR without also
+            // being far enough to read as a separate word - which is a fact about a monospace face
+            // set this large, and not something a smaller step would have fixed.
             //
-            // **EVERY NUMBER HERE WAS RENDERED AND LOOKED AT** - the font, the size, the offsets and
-            // the alpha ramp, drawn with the project's own TTF at 86pt. That was not fussiness: the
-            // first attempt was a purely horizontal 22px step, and at this size with the letters
-            // spaced a cell apart it put every echo on top of its NEIGHBOUR rather than behind itself.
-            // The word came out an unreadable picket fence. A trail needs a vertical component to
-            // clear the letters beside it, and that is not visible in a plan.
-            //
-            // UP, not down. Down reads as a reflection in a wet floor and lands the trail across ROOM,
-            // which is the one red word on the screen. Up recedes - things further away sit higher in
-            // a frame - so the solid word stays planted on its line and its past selves stand behind
-            // it, which is the arrangement the game is about.
-            //
-            // Three, because two is a printing fault and four is a smudge; and 0.275 falling by a
-            // third puts the last one at 3% - present, not countable.
-            MakeTitleAfterimage(title, 3, new Vector2(-26f, 18f), 0.275f, 0.34f);
+            // `MakeTitleAfterimage` is kept for whatever wants a trail at a size where one works.
 
             GameObject subtitleGO = new GameObject("TitleRoom");
             subtitleGO.transform.SetParent(menuGO.transform, false);
             Text subtitle = subtitleGO.AddComponent<Text>();
-            // BOLD, a step under the title's ExtraBold. It used to be Medium against an ExtraLight
-            // title - the smaller word carrying the weight, which is what let it hold its own. That
-            // reverses now the title is the heavy one: ROOM set at Medium under an ExtraBold
-            // ITERATION reads as a caption rather than the second half of a name. One step down keeps
-            // the pair reading as one title, and the red is what separates them instead.
-            subtitle.font = UIFont("Bold");
+            // MEDIUM against the title's Light, which is the pairing this started with and the one
+            // that works: the smaller word carries the weight, and that is what lets it hold its own
+            // beneath the larger one without being set any larger. The buttons stay Bold - they are
+            // the thing you click, and they are not the title.
+            subtitle.font = UIFont("Medium");
             // Smaller, and spaced WIDER, so the shorter word spans a similar width to the one above
             // it. Letter-spaced in the string for the reason IterationLabel is: uGUI's Text has no
             // tracking control, and in a monospace face a space is exactly one cell.
@@ -19571,17 +20069,20 @@ namespace IterationRoom.EditorTools
             // shuffling the column up would move PLAY under the player's cursor between sessions.
             // THREE WAYS IN, AND EACH MEANS ONE THING: resume, start from the beginning, jump to a
             // cycle. The two a player uses have no page in between; only the rare one does.
-            // CHARCOAL, AND MEDIUM. The plate under each of these is transparent until the pointer
-            // is on it (see MakeMenuButton), so what the player sees at rest is five words printed on
-            // a white wall - which is what the room is, and what this screen was not.
+            // **CHARCOAL, AND BOLD** (2026-08-28, by request: the words were too thin). The plate
+            // under each of these is transparent until the pointer is on it (see `MakeMenuButton`),
+            // so what the player sees at rest is five words printed on a white wall - which is what
+            // the room is. Words printed on a wall with nothing around them have only their own
+            // weight to hold the screen with, which is exactly why Medium was not enough here and
+            // would have been fine inside a box.
             Button continueButton = MakeMenuButton(menuGO.transform, "ContinueButton",
-                                                   "CONTINUE", new Vector2(0f, -30f), MenuInk, "Medium");
+                                                   "CONTINUE", new Vector2(0f, -30f), MenuInk, "Bold");
             Localize(continueButton, "menu.continue", "  ");
             Button playButton = MakeMenuButton(menuGO.transform, "PlayButton", "PLAY",
-                                               new Vector2(0f, -118f), MenuInk, "Medium");
+                                               new Vector2(0f, -118f), MenuInk, "Bold");
             Localize(playButton, "menu.play", "  ");
             Button cycleSelectButton = MakeMenuButton(menuGO.transform, "CycleSelectButton",
-                                                      "CYCLE SELECT", new Vector2(0f, -206f), MenuInk, "Medium");
+                                                      "CYCLE SELECT", new Vector2(0f, -206f), MenuInk, "Bold");
             Localize(cycleSelectButton, "menu.cycleSelect", "  ");
             // THE LAST RUN'S BILL, IN THE BOTTOM-RIGHT CORNER rather than in the column.
             //
@@ -19590,7 +20091,7 @@ namespace IterationRoom.EditorTools
             // screen edge. Cornered, it reads as what it is: a thing the facility keeps, off to one
             // side of the choices.
             Button recordButton = MakeMenuButton(menuGO.transform, "RecordButton",
-                                                 "RECORD", Vector2.zero, MenuInk, "Medium");
+                                                 "RECORD", Vector2.zero, MenuInk, "Bold");
             Localize(recordButton, "menu.record", "  ");
             // ONE ROW UP: CREDITS is the bottom of this pair (2026-08-24, by request).
             CornerBottomRight(recordButton.GetComponent<RectTransform>(), 78f);
@@ -19605,13 +20106,13 @@ namespace IterationRoom.EditorTools
             //
             // QUIT moves up into the gap rather than leaving a hole in the column.
             Button settingsButton = MakeMenuButton(menuGO.transform, "SettingsButton",
-                                                   "SETTINGS", new Vector2(0f, -294f), MenuInk, "Medium");
+                                                   "SETTINGS", new Vector2(0f, -294f), MenuInk, "Bold");
             Localize(settingsButton, "menu.settings", "  ");
             // -382 AGAIN, now that CREDITS has left the column for the bottom-right corner. It was
             // slid to -470 to make room for it; the column's pitch is 88 throughout and this closes
             // the gap rather than leaving a hole where a button used to be.
             Button quitButton = MakeMenuButton(menuGO.transform, "QuitButton", "QUIT",
-                                               new Vector2(0f, -382f), MenuInk, "Medium");
+                                               new Vector2(0f, -382f), MenuInk, "Bold");
 
             // THE CYCLE PICKER, on a page of its own over the same background. A title screen that
             // grows a row every time the game grows a cycle stops being a title screen.
@@ -19633,7 +20134,7 @@ namespace IterationRoom.EditorTools
             for (int i = 0; i < CycleCount; i++)
                 cycleButtons[i] = MakeMenuButton(cycleGO.transform, $"CycleButton_{i + 1}",
                                                  $"CYCLE {i + 1}", new Vector2(0f, -30f - i * 88f),
-                                                 MenuInk, "Medium");
+                                                 MenuInk, "Bold");
 
             // AND ONE "END" ENTRY PER CYCLE THAT HAS A SUCCESSOR: start that cycle with its last room
             // already finished, so the hatch into the next one opens within seconds. A development
@@ -19646,12 +20147,12 @@ namespace IterationRoom.EditorTools
                 cycleEndButtons[i] = MakeMenuButton(cycleGO.transform, $"CycleEndButton_{i + 1}",
                                                     $"CYCLE {i + 1} END", 
                                                     new Vector2(0f, -30f - (CycleCount + i) * 88f),
-                                                    MenuInk, "Medium");
+                                                    MenuInk, "Bold");
 
             Button cycleBack = MakeMenuButton(cycleGO.transform, "CycleBackButton",
                                               "BACK",
                                               new Vector2(0f, -30f - (CycleCount + cycleEndButtons.Length) * 88f),
-                                              MenuInk, "Medium");
+                                              MenuInk, "Bold");
             Localize(cycleBack, "menu.back", "  ");
 
             // THE RECORD PAGE, over the same background as the cycle picker and laid out the same:
@@ -19822,7 +20323,7 @@ namespace IterationRoom.EditorTools
             // neither. Two of them now sit off to one side, which is where the things the facility
             // keeps belong.
             Button creditsButton = MakeMenuButton(menuGO.transform, "CreditsButton", "CREDITS",
-                                                  Vector2.zero, MenuInk, "Medium");
+                                                  Vector2.zero, MenuInk, "Bold");
             Localize(creditsButton, "menu.credits", "  ");
             // THE BOTTOM OF THE CORNER PAIR, with RECORD sitting on top of it.
             CornerBottomRight(creditsButton.GetComponent<RectTransform>());
@@ -20950,7 +21451,7 @@ namespace IterationRoom.EditorTools
             rect.anchorMin = new Vector2(0f, 0.5f);
             rect.anchorMax = new Vector2(0f, 0.5f);
             rect.pivot = new Vector2(0f, 0.5f);
-            rect.sizeDelta = new Vector2(340f, 66f);
+            rect.sizeDelta = new Vector2(340f, 60f);
             rect.anchoredPosition = new Vector2(MenuLeftMargin + anchoredPosition.x + 6f,
                                                 anchoredPosition.y);
 
@@ -20964,7 +21465,7 @@ namespace IterationRoom.EditorTools
             textGO.transform.SetParent(go.transform, false);
             Text text = textGO.AddComponent<Text>();
             text.font = weight != null ? UIFont(weight) : UIFont();
-            text.fontSize = 26;
+            text.fontSize = 28;
             // Left inside the plate too, so the words form one column down the edge rather than a
             // ragged one centred inside boxes of a single width.
             text.alignment = TextAnchor.MiddleLeft;
