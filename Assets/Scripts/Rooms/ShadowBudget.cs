@@ -26,7 +26,7 @@ namespace IterationRoom
     // penumbra where a point gives a hard edge. That is a lighting-model problem, not a count.
     //
     // Gated on distance and refreshed a few times a second rather than every frame, the same shape
-    // `CctvFeed` uses for the same reason: nothing here changes fast enough to be worth a frame.
+    // nothing here changes fast enough to be worth doing every frame.
     public class ShadowBudget : MonoBehaviour
     {
         // Every ceiling fixture in this cycle. Named by `SceneBuilder` rather than gathered by type at

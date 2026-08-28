@@ -55,29 +55,80 @@ namespace IterationRoom
         private void OnEnable() => all.Add(this);
         private void OnDisable() => all.Remove(this);
 
-        public Vector3 Centre => face != null ? face.position : transform.position;
-        public Vector3 Normal => face != null ? face.forward : transform.forward;
+        // **THE PANES, AND ONLY THE PANES** (2026-08-28, by request). The tilt used to be applied to
+        // `face`, which carries the WHOLE model - so the riser's stand, clamp and foot leaned over
+        // with it and the thing was held at forty-five degrees like a dropped tray. Play asked for the
+        // object to be carried upright exactly like the others and for the DISC alone to be tilted,
+        // which is also what a real adjustable mirror looks like: a pane turned in an upright clamp.
+        //
+        // So the pitch lives on a pivot sitting at the glass centre with the two `MIRROR` meshes under
+        // it, built once by `SceneBuilder`, and `face` goes back to being level. Null on every pane
+        // that is not tilted, where the face IS the glass and a pivot would be a wrapper around
+        // nothing.
+        public Transform glass;
 
-        // **WHILE SOMEBODY IS HOLDING IT, THE GLASS STAYS AT BEAM HEIGHT.**
+        // The optical plane. Both come off the pivot when there is one, so the light and the picture
+        // agree with the object the player can see - `MirrorReflection` reads exactly these two.
+        public Vector3 Centre =>
+            glass != null ? glass.position : face != null ? face.position : transform.position;
+        public Vector3 Normal =>
+            glass != null ? glass.forward : face != null ? face.forward : transform.forward;
+
+        // **WHILE SOMEBODY IS HOLDING IT, THE GLASS SITS AT A FIXED HEIGHT ABOVE THEIR FEET.**
         //
         // The hold anchor is parented under the camera (`PlayerHand`), so a held item rides the view -
         // look at your feet and it goes with them. For every other object in the building that is
         // exactly right. For this one it means the beam sails over the mirror the moment you glance
-        // down, which is not a puzzle, it is a fight with the mouse.
+        // down, which is not a puzzle, it is a fight with the mouse. So the face keeps the holder's x
+        // and z and takes its height from here instead.
         //
-        // So the face keeps the holder's x and z and takes its height from here. It costs nothing
-        // visually - there are no arms to look detached from - and it makes the horizontal beam an
-        // enforced rule rather than a hope: every mirror in play is on the beam's plane, so the puzzle
-        // is the floor plan and nothing else, which is what horizontal was chosen for.
+        // **IT IS RELATIVE TO THE HOLDER, NOT ABSOLUTE** (2026-08-28, by request). It used to be one
+        // world Y for the whole cycle - `CycleThreeFloorY + BeamHeight` - which made the horizontal
+        // plane an enforced rule while room3-2N was somewhere you only ever stood on the floor of.
+        // `BeamLift` ended that: carry a pane up onto deck A and its glass stayed five metres below,
+        // inside the deck. Measured off the holder, a mirror works wherever its holder is standing and
+        // the optics follow the architecture up.
         //
-        // Set by `SceneBuilder` from the same constant the emitter is placed at, so the two cannot
-        // drift apart.
-        public bool holdAtBeamHeight = true;
-        public float beamHeight = 1.2f;
+        // **THE HOLDER'S FEET, AND THAT IS WHAT KEEPS A GHOST EXACT.** The reference is the holder's
+        // TRANSFORM, whose origin is the soles of their shoes (`CharacterController.center` is
+        // (0, 0.9, 0) on a 1.8m capsule) - and a transform position is the first field in
+        // `RecordedFrame`. So a past self reproduces the height it held the glass at for free, from
+        // something already recorded. **The camera's height is NOT usable here** and that is the whole
+        // reason this is not simply "wherever the hand is": crouching moves the eye and nothing else,
+        // so it is not in a timeline, and a ghost would replay a crouched mirror standing up.
+        public bool holdAtCarryHeight = true;
+        // How far above the holder's feet, and the default is the beam's own height above a floor -
+        // so a player standing on the ground floor holds the glass exactly where the emitter fires.
+        public float carryHeight = 1.2f;
 
         // How far in front of the holder the glass sits. Both hands, chest height, out where it can
         // be seen past - not tucked into a fist.
         public float carryReach = 0.55f;
+
+        // **HOW FAR THIS PANE IS TILTED UP, AND IT IS A PROPERTY OF THE MIRROR RATHER THAN OF THE
+        // HAND** (2026-08-28, by request). Zero for the five on the rack; 45 for the one that sends
+        // the beam to the ceiling.
+        //
+        // **IT DOES NOT BREAK THE NO-PITCH RULE, and the distinction is the whole reason it is safe.**
+        // The rule above says a timeline holds `position`, `yaw` and `signals` and no pitch - so
+        // nothing the OPTICS depend on may come from how a holder is tipping their head. This angle
+        // comes from the object, not the holder: it is a constant welded into one mirror at build
+        // time. A ghost holding this reproduces it exactly from its recorded yaw, the same as any
+        // other mirror. What is still forbidden is a mirror the player can TILT.
+        //
+        // Head on, a pane tilted up by t turns a horizontal beam through 2t - so 45 sends it straight
+        // up, and that doubling is why the number is written here once rather than aimed by hand.
+        //
+        // **THIS IS THE DECLARED ANGLE, NOT THE THING THAT APPLIES IT.** `SceneBuilder` bakes it into
+        // the `glass` pivot at build time; what it is still read for at runtime is `KeepsBeamLevel`,
+        // which is a question about the pane rather than about its transform.
+        public float facePitchDegrees;
+
+        // Whether a beam leaving this pane is flattened back onto the horizontal plane. True for
+        // every mirror a person aims, which is what keeps a degree of drift in a hand from becoming a
+        // beam in the ceiling twenty metres later; false for a pane whose whole purpose is to leave
+        // that plane. `LaserBeam` asks this of the mirror it just bounced off.
+        public bool KeepsBeamLevel => Mathf.Abs(facePitchDegrees) < 0.01f;
 
         // **THE REACH VOLUME FOLLOWS THE GLASS.** `CarryableItem` finds its own trigger with
         // `GetComponent<Collider>()`, so it is on the root - which is a wrist bone while a ghost holds
@@ -134,12 +185,16 @@ namespace IterationRoom
 
             flat.Normalize();
             lastLevel = flat;
+            // **LEVEL, ALWAYS.** Yaw from the body and nothing else, so the object stands upright in
+            // anybody's hands. Any tilt this pane has is baked into the `glass` pivot below it and
+            // rides along with this rotation - which is what keeps the STAND upright while the DISC
+            // leans.
             face.rotation = Quaternion.LookRotation(flat, Vector3.up);
 
-            if (holder != null && holdAtBeamHeight)
+            if (holder != null && holdAtCarryHeight)
             {
                 Vector3 at = holder.position;
-                face.position = new Vector3(at.x, beamHeight, at.z) + flat * carryReach;
+                face.position = new Vector3(at.x, at.y + carryHeight, at.z) + flat * carryReach;
             }
             else face.position = transform.position;
 

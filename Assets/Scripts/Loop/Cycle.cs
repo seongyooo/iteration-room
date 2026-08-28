@@ -43,6 +43,11 @@ namespace IterationRoom
         // also what stops the reset being HEARD - it tracks its pads, so left alone it would slam
         // shut on its own a fraction after the ghosts are released, behind the closed eyelids.
         public CrushingBarrier[] barriers;
+        // Snapped beside the barriers and for the same two reasons: a deck left partway up is world
+        // state the loop forgot to rewind, and a slab that travelled home under its own power would
+        // be heard through the blackout. It would get there on its own - the mirrors are swept, so
+        // every receiver goes dark - which is exactly the slow, audible version this avoids.
+        public BeamLift[] lifts;
         public Drawer[] drawers;
         // Taps left running are world state exactly like an open drawer, and a good deal more visible:
         // a tap not shut here floods the next iteration on top of the last one's puddle.
@@ -98,6 +103,9 @@ namespace IterationRoom
         {
             if (barriers != null)
                 foreach (CrushingBarrier b in barriers) b?.ResetBarrier();
+
+            if (lifts != null)
+                foreach (BeamLift l in lifts) l?.ResetLift();
 
             // ~~THE COLOURED LEVERS AND PANELS~~ GONE 2026-08-21, replaced by the beam. Nothing
             // about that needs rewinding here: the mirrors are `CarryableItem`s, so

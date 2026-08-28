@@ -37,19 +37,22 @@ It was checked against the files for the first time and it was wrong in five way
 | `chess.glb` by **YarikLegendary** | by **xnicrox** |
 | `rubiks_cube.glb` by **Shivansh Singh** | by **DoobiDooba** |
 | `billiard_balls.glb` by **Yanez Designs** | by **Anthony Yanez** (`paulyanez`) |
-| `cctv_camera.glb` is **CC-BY** | **CC-BY-NC-4.0** — non-commercial |
+| `cctv_camera.glb` is **CC-BY** | **CC-BY-NC-4.0** — non-commercial. ~~The one blocker~~ **the file was deleted 2026-08-28 with the CCTV system it was in** |
 | "Every model row is resolved" | **thirteen models were missing from the table entirely** |
 
 Two of those are attributions to the wrong person, which is worse than no attribution. One is a
 licence class that cannot be sold. The lesson is the one `FloorButton`'s audio already recorded: a
 list of every instance of a thing, maintained by hand, is a list that will be wrong.
 
-### The two licences that are not plain CC-BY
+### The licence that is not plain CC-BY
 
-**`cctv_camera.glb` — CC-BY-NC-4.0. This cannot ship in a paid build.** Three of them are in
-room3-2N, one per CCTV feed. NonCommercial is not a formality and there is no attribution that cures
-it: either the model is replaced before the game is sold, or the game stays free. `SceneBuilder`
-now fails this loudly on every build (`CheckModelLicences`) so it cannot be forgotten again.
+**~~`cctv_camera.glb` — CC-BY-NC-4.0~~ GONE 2026-08-28, and how it went is the part worth keeping.**
+Three of them stood in room3-2N, one per CCTV feed, and NonCommercial cannot be bought off with
+attribution at any price. The fix was never sourcing a replacement camera: the feeds had been watching
+a coloured staircase deleted on 2026-08-21, so the whole system was a week past its subject and was
+being kept because it worked. Deleting it took the blocker with it. **A licence problem inside a
+feature nobody needs is a feature problem** — ask what the asset is FOR before going shopping for
+another one. `CheckModelLicences` stays, and fails the build the moment another NC file arrives.
 
 **`wooden_bucket.glb` — CC-BY-SA-4.0.** Room2-2's buckets, a core cycle-2 puzzle. ShareAlike permits
 commercial use, so this is not a blocker — but the model and any modification of it stay under
@@ -128,8 +131,11 @@ because it is the same kind of question: something in this project belongs to so
 | | |
 |---|---|
 | Work | ***Iteration 1*** (2016 short film) |
-| Written / directed by | **Jesse Lupini** — http://www.jesselupini.com/ |
-| Distributed by | **DUST** (Gunpowder + Sky) — http://www.watchdust.com |
+| Written by | **Jess Lupini** (she/her) **and Lucas Kavanagh** — both co-founders of Avo Media |
+| Directed by | **Jess Lupini** — https://jesslupini.com/ |
+| Produced by | Arshia Navabi, Mert Sari — made in 8 days for the 2016 **Crazy8s** festival (BC) |
+| Best contact | **`hello@avomedia.ca`** — https://www.avomedia.ca, the company Lupini and Kavanagh co-founded. One address, both authors |
+| Distributed by | **DUST** (Gunpowder + Sky) — https://www.watchdust.com (redirects to their YouTube channel), `contact@watchdust.com` |
 | BTS documentary | https://vimeo.com/257618651 |
 
 The film's own synopsis: *"Anna wakes up in a strange white room. She has 60 seconds to escape, and
@@ -165,8 +171,54 @@ disputes; they act on complaints. A page pulled in release week is the shape thi
 
 ### The cheapest resolution, and it is available right now
 
-**Write to Jesse Lupini.** A draft is ready to send in `docs/lupini-permission-email.md`. He is findable, the film is nine years old, and short-film directors are
-routinely pleased rather than threatened when someone builds on their work. Written permission —
+**WRITTEN. Scheduled to send 2026-08-27 09:05 KST** to `hello@avomedia.ca`, addressed to both
+writers — the letter and the full record are in `docs/lupini-permission-email.md`, which is also
+where a reply should be pasted when one comes. **Follow up once between 2026-09-10 and 2026-09-17,
+then leave it.** Until an answer arrives this section is still open, and silence still counts as no.
+
+The reasoning that got it sent, kept because it applies to the next one of these too: she is
+findable, the film is nine years old, and short-film directors are
+routinely pleased rather than threatened when someone builds on their work.
+
+**THE NAME AND THE URL IN THIS FILE WERE BOTH WRONG UNTIL 2026-08-26, and the name is the one that
+matters.** This document said "Jesse Lupini" and "he" throughout. Her own site
+(https://jesslupini.com/) describes her as "a queer, Vancouver-based comedian, writer, director",
+uses *she/her*, and claims the film as hers: "Her award-winning film work includes the viral short
+*Iteration 1*." The old domain `jesselupini.com` 301-redirects to the new one — a redirect she set up
+herself, which is what confirms this is one person rather than two. `www.jesselupini.com`, the
+address this file used to give, has no DNS record at all and cannot be reached.
+
+**Address her as Jess, with she/her.** Opening a letter that asks a favour with a name someone has
+moved away from is a bad first line and an avoidable one. Credit the film under the same name for the
+same reason: it is the name she presents the work under now.
+
+**YOU WILL FIND "JESSE" IN PLENTY OF PLACES. IT IS STALE, NOT CONTRADICTORY.** DUST's own YouTube
+description still reads *"Iteration 1" by Jesse Lupini* and still links `Jesse's Site:
+http://www.jesselupini.com/` — which is where this file's dead URL came from in the first place.
+IMDb, Letterboxd and the 2016 festival credits say the same. All of it is a third party's record of a
+2016 credit, none of it has been updated since, and none of it outranks the person's own current
+site. What settles it is that **she set up the redirect herself**: `jesselupini.com` 301s to
+`jesslupini.com`. That is not two names in parallel, it is one name superseding another.
+**Do not "correct" this back on finding an old credit.**
+
+**ASK THE WRITERS, NOT THE DISTRIBUTOR.** `contact@watchdust.com` is easy to find and is the wrong
+first door. DUST's channel says every film is "licensed directly from its creators" — a distribution
+licence, with the underlying rights still the creators' — so **DUST cannot grant permission to build a
+commercial game on the film's premise**, whatever they reply. It is a fallback for one purpose only:
+asking how to reach them, if they do not answer directly.
+
+**AND IT IS *WRITERS*, PLURAL — this was missed for as long as the file existed.** The credit is
+"written by Jess Lupini and **Lucas Kavanagh**, directed by Jess Lupini". Everything this game takes
+is PREMISE — the white room, the sixty-second loop, the past selves — and a premise belongs to the
+screenplay, which has two authors. A yes from the director alone is therefore a partial yes.
+**`hello@avomedia.ca` reaches both**, because the two of them co-founded that company: Kavanagh is
+its Content Director and Lupini its Creative Director. One email, both signatures, and a written
+record rather than a DM.
+
+**Crazy8s is a loose end, not a blocker.** The film was made in eight days on Crazy8s funding, and
+festival-funded shorts sometimes leave rights partly with the programme. Nothing found says so here,
+and it is not worth chasing before the writers have replied — but if they say yes and a store page
+starts to look real, that is the moment to ask them whether anyone else has a claim. Written permission —
 even an informal blessing over email — converts this entire section into a non-problem, and becomes a
 line on the store page worth more than it costs: *"made with the permission of the director."*
 

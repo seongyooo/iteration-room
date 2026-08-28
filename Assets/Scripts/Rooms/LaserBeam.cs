@@ -95,7 +95,14 @@ namespace IterationRoom
                 // round is the one way a mirror gets IN the way, and you can see exactly where.
                 if (bent != null && bentFront)
                 {
-                    dir = Flat(Vector3.Reflect(dir, bent.Normal));
+                    // **THE FLATTENING BELONGS TO THE MIRROR, NOT TO THE BEAM** (2026-08-28). It is a
+                    // guard against a hand: every pane a person aims is levelled every frame, and
+                    // re-flattening after the bounce means a degree of drift in an import rotation
+                    // cannot put the light in the ceiling twenty metres later. A pane built to leave
+                    // the horizontal plane is the one thing that guard must not touch, so it is asked
+                    // of the mirror rather than assumed of all of them.
+                    Vector3 bounced = Vector3.Reflect(dir, bent.Normal);
+                    dir = bent.KeepsBeamLevel ? Flat(bounced) : bounced.normalized;
                     origin = end;
                     continue;
                 }
@@ -161,9 +168,16 @@ namespace IterationRoom
             line.SetPosition(1, to);
         }
 
-        // Every direction in this system is horizontal. Flattening at each bounce rather than
-        // trusting the mirrors to be exactly upright means one degree of drift in a model's import
-        // rotation cannot send the beam into the ceiling twenty metres later.
+        // Levels a direction. Flattening at each bounce rather than trusting the mirrors to be
+        // exactly upright means one degree of drift in a model's import rotation cannot send the beam
+        // into the ceiling twenty metres later.
+        //
+        // **IT IS ABOUT DIRECTION, NEVER ABOUT HEIGHT** - a distinction that only started mattering
+        // in 2026-08-28, when a held pane stopped being pinned to one world Y and started sitting at
+        // its holder's own head height. A segment leaving a levelled pane is horizontal; WHICH
+        // horizontal plane it is on is wherever whoever is holding the thing happens to be standing,
+        // and a beam crossing the floor simply does not meet a mirror held on deck A. That is the
+        // architecture doing the work, and it is the point of letting the height go.
         private static Vector3 Flat(Vector3 v)
         {
             v.y = 0f;

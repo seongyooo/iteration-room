@@ -208,15 +208,39 @@ went on throwing it wrongly for the rest of the cycle, and no version of the lev
 meaningful and harmless. What replaced them is `docs/architecture.md`'s `Mirror`: a beam that crosses
 the whole building, bent only by mirrors that somebody has to be holding.
 
-**There is currently no way up to either deck.** That is honest rather than broken — the room is being
-redesigned around the beam and the climb was part of the thing that went.
+**DECK A IS REACHED BY A LIFT THE BEAM WORKS** (2026-08-28). `BeamLift` runs a 2m square deck up a
+shaft butted against deck A's inner edge — which is where it is, rather than a placement chosen: deck
+A is two cells deep down the west wall, so its edge is at `-width/2 + 2 * GridCellWidth` and anywhere
+else would land the ride beside the deck instead of on it.
+
+**Raised is its resting state, and the direction is the design.** The beam pulls the deck DOWN; the
+ride up is what happens when a past self LETS GO. A lift that rose while powered would be a past self
+standing still holding a mirror while the player watched, where this way the recording running out is
+the ride. It is the cycle's own premise — somebody has to be somewhere for you to get anywhere —
+pointed at a wall nobody could climb.
+
+Two call plates, either of which lowers it: the west wall's at beam height, and one in the CEILING at
+y≈16.04 which only the 45° riser pane can reach. **Deck B is still unreachable**, and so are the five
+columns.
 
 ### The beam, and why it needs the same people the player does
 
-A laser leaves room3-2E and has to arrive in room3-2N. Everything about it lives in one horizontal
-plane at 1.2m, and that is forced by the recording format rather than chosen for looks: a timeline
-holds `position`, `yaw` and `signals` and **no pitch anywhere**, so a mirror that could tilt would
-replay at the wrong angle in a ghost's hands. Level, a ghost's recorded yaw is exactly enough.
+A laser leaves room3-2E and has to arrive in room3-2N. Every segment of it is **horizontal**, and
+that is forced by the recording format rather than chosen for looks: a timeline holds `position`,
+`yaw` and `signals` and **no pitch anywhere**, so a mirror the holder could tilt would replay at the
+wrong angle in a ghost's hands. Level, a ghost's recorded yaw is exactly enough.
+
+**WHICH horizontal plane is no longer fixed** (2026-08-28). A held pane used to be pinned to one world
+Y for the whole cycle; it now sits 1.2m above its HOLDER'S FEET, so the light follows people up the
+building instead of staying on the ground floor — which is what `BeamLift` made necessary the moment a
+pane could be carried onto a deck. The recording is still exact, because feet are a transform position
+and a transform position is the first field in `RecordedFrame`; what is still forbidden is anything
+taken off the CAMERA, since crouching moves the eye and is not recorded.
+
+**One pane leaves the plane altogether.** `Mirror_Riser`, in room3-2S, is tilted 45° — a pane tilted by
+t turns a level beam through 2t, so this one sends it straight up, at the lift's ceiling call. The
+tilt is a property of the OBJECT rather than of the hand holding it, which is exactly why it does not
+break the no-pitch rule.
 
 | | |
 | --- | --- |

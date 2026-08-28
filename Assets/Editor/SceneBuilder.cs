@@ -61,6 +61,9 @@ namespace IterationRoom.EditorTools
         // THE POOL'S OWN CARRYABLES. Ids naming a SUPPLY, like the pins and the buckets: three ducks
         // and two beach balls share one id each, and every instance obeys the one-object rule and
         // returns to its own spot on the water (CLAUDE.md §1.2).
+        // **PREFIXES, NOT IDS.** `BuildFloatingProps` appends `_0`, `_1`... so each duck and each
+        // beach ball carries its own id - see the note at that assignment for why a shared one was a
+        // bug rather than a saving.
         private const string DuckItemId = "Duck2";
         private const string BeachBallItemId = "BeachBall2";
 
@@ -1463,7 +1466,7 @@ namespace IterationRoom.EditorTools
             // the thing being exercised, and a puzzle would be in the way of testing it.
             (Transform cycleThreeRoot, Transform cycleThreeBedSpawn, ParticleSystem[] cycleThreeGas,
              Transform cycleThreeRoom, GhostInteractable[] cycleThreeSignals,
-             CrushingBarrier cycleThreeBarrier) =
+             CrushingBarrier cycleThreeBarrier, BeamLift cycleThreeLift) =
                 BuildCycleThreeShell(floorMat, grooveMat, panelMat, propMat);
 
             // THE JOIN BETWEEN CYCLE 2 AND CYCLE 3, and it is in the CORE scene for the reason
@@ -1486,7 +1489,7 @@ namespace IterationRoom.EditorTools
 
             (Cycle cycleThree, WallPanelDisplay cycleThreeDisplay) = AssembleCycleThree(
                 cycleThreeRoot, cycleThreeBedSpawn, cycleThreeGas, cycleThreeSignals,
-                testCard, staticNoise, cycleThreeBarrier);
+                testCard, staticNoise, cycleThreeBarrier, cycleThreeLift);
 
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
@@ -3514,6 +3517,65 @@ namespace IterationRoom.EditorTools
             return SaveSprite(icon, "icon_pin");
         }
 
+        // A MIRROR: the round pane, its stand, and two glints across the glass.
+        //
+        // The glints are not decoration - a ring on a stem is a hand mirror, a lollipop or a road
+        // sign, and every one of those is a plausible thing to be carrying in this building. Two
+        // parallel bars across the inside is the one mark that says the circle is REFLECTIVE, and it
+        // is the same mark a mirror gets in every pictogram set for that reason.
+        //
+        // Both bars stay inside the ring's inner radius: they are placed by offsetting perpendicular
+        // to their own direction, so the pair stays parallel and centred however the angle is retuned.
+        private static Sprite MirrorIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 mid = new Vector2(0.5f, 0.585f);
+
+            icon.Ring(mid, 0.275f, 0.212f);
+
+            const float glintDegrees = -35f;
+            float rad = -glintDegrees * Mathf.Deg2Rad;
+            Vector2 perp = new Vector2(Mathf.Cos(rad), -Mathf.Sin(rad));
+
+            icon.Bar(mid - perp * 0.075f, new Vector2(0.024f, 0.145f), glintDegrees);
+            icon.Bar(mid + perp * 0.075f, new Vector2(0.024f, 0.085f), glintDegrees);
+
+            // The stem runs up into the ring rather than stopping at it - butted against the outside
+            // it reads as a circle balanced on a stick.
+            icon.Bar(new Vector2(0.5f, 0.235f), new Vector2(0.026f, 0.085f));
+            icon.Bar(new Vector2(0.5f, 0.155f), new Vector2(0.125f, 0.028f));
+            return SaveSprite(icon, "icon_mirror");
+        }
+
+        // THE RISER, and the arrow is the whole of the difference. The two panes are the same object
+        // to a glance and behave completely differently - one passes the light along the floor plan,
+        // one sends it to the ceiling - so the readout has to say WHICH ONE is in the hand. The ring
+        // and the glints are the mirror icon's, unchanged, because it is still a mirror; the arrow
+        // leaving the top is what it does.
+        private static Sprite MirrorRiserIcon()
+        {
+            var icon = new IconCanvas(128);
+            Vector2 mid = new Vector2(0.5f, 0.475f);
+
+            icon.Ring(mid, 0.235f, 0.180f);
+
+            const float glintDegrees = -35f;
+            float rad = -glintDegrees * Mathf.Deg2Rad;
+            Vector2 perp = new Vector2(Mathf.Cos(rad), -Mathf.Sin(rad));
+            icon.Bar(mid - perp * 0.064f, new Vector2(0.021f, 0.122f), glintDegrees);
+            icon.Bar(mid + perp * 0.064f, new Vector2(0.021f, 0.071f), glintDegrees);
+
+            icon.Bar(new Vector2(0.5f, 0.170f), new Vector2(0.023f, 0.072f));
+            icon.Bar(new Vector2(0.5f, 0.104f), new Vector2(0.108f, 0.025f));
+
+            // The arrow, off the top. Drawn clear of the ring so the two do not merge into a lollipop
+            // at readout size.
+            icon.Bar(new Vector2(0.5f, 0.800f), new Vector2(0.026f, 0.090f));
+            icon.Capsule(new Vector2(0.5f, 0.905f), new Vector2(0.408f, 0.795f), 0.026f);
+            icon.Capsule(new Vector2(0.5f, 0.905f), new Vector2(0.592f, 0.795f), 0.026f);
+            return SaveSprite(icon, "icon_mirror_riser");
+        }
+
         // ---- the figure pictograms: one body, six poses --------------------------------------------
         //
         // The calibration wall used to caption its controls in words (MOVE, JUMP, SPRINT...). These
@@ -4151,7 +4213,7 @@ namespace IterationRoom.EditorTools
         private static (Cycle cycle, WallPanelDisplay display) AssembleCycleThree(
             Transform root, Transform bedSpawn, ParticleSystem[] gasEmitters,
             GhostInteractable[] signals, Texture2D testCard, Texture2D staticNoise,
-            CrushingBarrier northBarrier)
+            CrushingBarrier northBarrier, BeamLift lift)
         {
             // ONE DISPLAY PER CYCLE, gathered by parent name exactly as cycle 2's is: the ERROR
             // spreading from a console means *this bed's cycle is over*, so a panel in a cycle the
@@ -4174,6 +4236,7 @@ namespace IterationRoom.EditorTools
             // a leaf left open is a wall with a hole in it at the top of the next iteration.
             cycle.doors = root.GetComponentsInChildren<Door>(true);
             cycle.barriers = northBarrier != null ? new[] { northBarrier } : new CrushingBarrier[0];
+            cycle.lifts = lift != null ? new[] { lift } : new BeamLift[0];
             cycle.drawers = root.GetComponentsInChildren<Drawer>(true);
             cycle.gasEmitters = gasEmitters;
             CheckGhostSignals("Cycle 3", signals);
@@ -6513,7 +6576,7 @@ namespace IterationRoom.EditorTools
         // (see `AssembleCycleTwo`). The loop simply keeps iterating here, which is the honest state of
         // a cycle with no puzzles in it.
         private static (Transform root, Transform bedSpawn, ParticleSystem[] gas, Transform room,
-                        GhostInteractable[] signals, CrushingBarrier northBarrier)
+                        GhostInteractable[] signals, CrushingBarrier northBarrier, BeamLift lift)
             BuildCycleThreeShell(Material floorMat, Material grooveMat, Material panelMat,
                                  Material propMat)
         {
@@ -6698,91 +6761,41 @@ namespace IterationRoom.EditorTools
                     + $"across. Receiver at {receiver.transform.position}, target radius "
                     + $"{receiver.radius:0.##}m.");
 
-            // SS8: THREE CAMERAS, AND A BANK OF THREE MONITORS IN EVERY LEVER ROOM.
+            // **THE CCTV SYSTEM IS GONE** (2026-08-28, by request), and with it the only asset in the
+            // project that could not be sold: `cctv_camera.glb` is CC-BY-NC-4.0. Three cameras in
+            // room3-2N and three screens on room3-2S's walls, watching a coloured staircase that was
+            // deleted in 2026-08-21 - the feeds had outlived their subject by a week and were being
+            // kept because they worked, not because anything needed them.
             //
-            // One camera was tried first, on the grounds that a second angle costs a whole extra scene
-            // render and shows the same staircase. That is true of the COST and wrong about the
-            // staircase: the climb runs along three different walls, so any one camera has two of them
-            // side-on or behind a corner - and the spec asks for the feed to show a route, not a room.
+            // WHAT ROOM3-2S IS FOR NOW: the pane that leaves the horizontal plane starts here. That
+            // keeps the four-rooms-four-jobs split the screens were bought to make -
             //
-            // Three feeds, and every room gets all three, because which wall a player needs to see
-            // depends on where they have climbed to and not on which lever they are holding.
+            //     room3-2E  the source          room3-2W  the flat mirrors
+            //     room3-2S  the riser           room3-2N  where the light has to arrive
             //
-            // The cost is paid only where it is used: `CctvFeed` renders nothing unless the player is
-            // near one of ITS screens, and then at twelve frames a second. Standing at a lever is three
-            // extra renders at 12fps; standing anywhere else in the building is none.
-            // ONE BIG SCREEN PER WALL (2026-08-21, by request). Three monitors in a row on one wall
-            // was a bank of small pictures; three walls with one large picture each is a control room,
-            // and it means a player can read a feed from wherever they happen to be standing.
+            // - and it turns the control room from somewhere you LOOK into somewhere you FETCH from,
+            // which is a better use of a room in a game whose currency is trips.
             //
-            // **THE PICTURE IS PLAIN AND IN COLOUR.** A monochrome-green CCTV filter was written and
-            // removed the same day: room3-2N's whole puzzle is which COLOUR of stair is out, and a
-            // shader that throws colour away throws the puzzle away with it. It looked like CCTV and
-            // was useless, which is the wrong trade for the one screen the room is solved through.
-            // Unlit rather than lit, because a monitor is a light source and not a poster of one.
-            const float monitorHeight = 2.4f;
-            const float monitorWidth = 2.6f;
+            // **IT IS CARRIED, NOT INSTALLED.** A pane bolted to room3-2S's wall would send the beam
+            // into a 5.4m ceiling and nothing else; carried, it goes wherever the player takes it,
+            // and the room that wants a beam going up is the 16.2m one down the corridor.
+            // §THE LIFT, AND THE FIRST THING `LaserReceiver.Lit` HAS EVER DRIVEN (2026-08-28, by
+            // request). Room3-2N is three storeys tall with two decks and no way onto either; this is
+            // the way onto deck A, and it is worked entirely by light.
+            //
+            // **THE LOW CALL IS THE PLATE THAT WAS ALREADY THERE.** The beam has had a destination
+            // since 2026-08-21 and nothing at the far end of it - `Lit` was deliberately left driving
+            // nothing until somebody had bounced the light by hand. That has happened, so the plate
+            // gets its consumer rather than a second plate being built beside it.
+            BeamLift lift = BuildBeamLift(rN, bigWidth, bigHeight, propMat, grooveMat, receiver);
 
-            Shader unlit = Shader.Find("Universal Render Pipeline/Unlit");
-            var feedMats = new Material[3];
-            for (int f = 0; f < feedMats.Length; f++)
-            {
-                feedMats[f] = MakeColorMaterial($"CctvFeed{f}", Color.white);
-                if (unlit != null) feedMats[f].shader = unlit;
-            }
-
-            // **ALL THREE SCREENS ARE IN ROOM3-2S, AND NOWHERE ELSE** (2026-08-22, by request; every
-            // room had a bank of three until then). That gives each of the four rooms a job instead of
-            // three of them having the same one:
-            //
-            //     room3-2E   the source        room3-2W   the mirrors
-            //     room3-2S   the control room  room3-2N   where the light has to arrive
-            //
-            // It is also most of what the feeds cost. Nine screens meant every lever room kept three
-            // cameras alive; three screens in one room means the whole system is asleep unless the
-            // player is standing in that room looking at a wall.
-            //
-            // Room3-2S's gate is in its NORTH wall, so the other three are exactly the three it can
-            // spare, and each takes one feed.
-            var walls = new (Transform room, string tag, Vector3 centre, Vector3 right, Vector3 inward)[]
-            {
-                (rS, "S0", new Vector3(0f, 0f, -RoomDepth / 2f), Vector3.right, Vector3.forward),
-                (rS, "S1", new Vector3(-RoomWidth / 2f, 0f, 0f), Vector3.forward, Vector3.right),
-                (rS, "S2", new Vector3(RoomWidth / 2f, 0f, 0f), Vector3.forward, Vector3.left),
-            };
-
-            var feedScreens = new System.Collections.Generic.List<Renderer>[3];
-            for (int f = 0; f < 3; f++) feedScreens[f] = new System.Collections.Generic.List<Renderer>();
-
-            float screenAspect = 0f;
-            for (int w = 0; w < walls.Length; w++)
-            {
-                int feed = w % 3;
-                Renderer screen = BuildCctvMonitor(walls[w].room, $"Monitor_{walls[w].tag}",
-                                                   walls[w].centre, walls[w].right, walls[w].inward,
-                                                   monitorHeight, 0f, feedMats[feed],
-                                                   monitorWidth, out float aspect);
-                if (screen == null) continue;
-                feedScreens[feed].Add(screen);
-                if (aspect > 0.1f) screenAspect = aspect;
-            }
-
-            // One camera per wall the staircase runs along - south, east, north - each looking back
-            // along its own run so the steps on it are seen face on rather than edge on.
-            var eyes = new[]
-            {
-                new Vector3(-bigWidth / 2f + 0.7f, bigHeight - 1.4f, -bigDepth / 2f + 0.7f),
-                new Vector3(bigWidth / 2f - 0.7f, bigHeight * 0.55f, -bigDepth / 2f + 0.7f),
-                new Vector3(bigWidth / 2f - 0.7f, bigHeight - 1.4f, bigDepth / 2f - 0.7f),
-            };
-            var looks = new[]
-            {
-                new Vector3(bigWidth * 0.2f, bigHeight * 0.25f, -bigDepth * 0.3f),
-                new Vector3(bigWidth * 0.3f, bigHeight * 0.6f, bigDepth * 0.2f),
-                new Vector3(-bigWidth * 0.1f, bigHeight * 0.7f, 0f),
-            };
-            for (int f = 0; f < 3; f++)
-                BuildCctvFeed(rN, $"Cctv_{f}", eyes[f], looks[f], feedScreens[f].ToArray(), screenAspect);
+            CarryableItem riser = BuildMirror(rS, MirrorRiserName,
+                new Vector3(0f, 0f, -RoomDepth / 2f + 1.4f), 0f, MirrorRiserIcon(),
+                facePitch: MirrorRiserPitch);
+            if (riser != null)
+                Debug.Log($"[SceneBuilder] Cycle 3 riser mirror '{riser.itemId}' in room3-2S at "
+                        + $"{riser.transform.position}, face tilted {MirrorRiserPitch:0.#}deg - turns a "
+                        + $"level beam through {MirrorRiserPitch * 2f:0.#}deg.");
 
             AssertWalkable(r1, "room3-1 north corridor mouth",
                 new Vector3(nsCentre, 0f, RoomDepth / 2f - 1.2f), new Vector3(nsCentre, 0f, RoomDepth / 2f + 4f));
@@ -6821,7 +6834,7 @@ namespace IterationRoom.EditorTools
             for (int i = 0; i < drawers.Length; i++) signals[i] = drawers[i];
             for (int i = 0; i < pads.Length; i++) signals[drawers.Length + i] = pads[i];
 
-            return (root.transform, spawn, gas, r1, signals, northBarrier);
+            return (root.transform, spawn, gas, r1, signals, northBarrier, lift);
         }
 
         // THE BED A PLAYER FALLS INTO HAS TO BE UNDER THE HATCH THEY FELL THROUGH, and nothing else in
@@ -7580,7 +7593,7 @@ namespace IterationRoom.EditorTools
                 spots: new[] { new Vector2(-2.35f, 2.60f), new Vector2(1.70f, -0.40f),
                                new Vector2(-0.90f, -3.40f) },
                 yaws: new[] { 34f, 205f, 128f },
-                itemId: DuckItemId, displayName: "RUBBER DUCK", kilograms: WeightDuck,
+                idPrefix: DuckItemId, displayName: "RUBBER DUCK", kilograms: WeightDuck,
                 icon: DuckIcon());
             if (ducks != null)
             {
@@ -7603,7 +7616,7 @@ namespace IterationRoom.EditorTools
                 PoolBeachBallSize, sinkFraction: 0.16f,
                 spots: new[] { new Vector2(2.60f, 3.30f), new Vector2(-2.90f, -1.60f) },
                 yaws: new[] { 62f, 241f },
-                itemId: BeachBallItemId, displayName: "BEACH BALL", kilograms: WeightBeachBall,
+                idPrefix: BeachBallItemId, displayName: "BEACH BALL", kilograms: WeightBeachBall,
                 icon: BeachBallIcon());
             if (beach != null)
             {
@@ -7643,7 +7656,7 @@ namespace IterationRoom.EditorTools
         private static FloatingBalls BuildFloatingProps(Transform poolRoot, string name, string file,
                                                         float size, float sinkFraction,
                                                         Vector2[] spots, float[] yaws,
-                                                        string itemId, string displayName,
+                                                        string idPrefix, string displayName,
                                                         float kilograms, Sprite icon)
         {
             string path = PlayDir + "/" + file;
@@ -7744,7 +7757,23 @@ namespace IterationRoom.EditorTools
                 // The physics sphere is also what makes it SOLID, so it is the blocker: switched off
                 // while it is in a hand, exactly like a cube's.
                 item.blocker = solid;
-                item.itemId = itemId;
+                // **ONE ID PER OBJECT, NOT ONE PER KIND** (2026-08-28, by request, after play found
+                // the beach balls swapping between hands). A shared id makes a SUPPLY, and
+                // `ItemRegistry` then resolves it to "any free one" - so a ghost replaying "took a
+                // BeachBall" takes whichever of the two is going spare rather than the one it
+                // actually took. With two of them adrift on moving water that reads as the pair
+                // trading places every iteration.
+                //
+                // A supply is the right shape for the three pins, where the id names a stock of
+                // interchangeable tools and CLAUDE.md §4 says so. It is the wrong shape here: these
+                // are two distinct objects a player picks out by eye, and §1.4's whole argument -
+                // identity, never position - wants the id to name the OBJECT. The chess pieces
+                // already do exactly this (`item.itemId = piece.gameObject.name`).
+                //
+                // `GhostReplayer.TryTake`'s "any free one" fallback simply stops applying, which is
+                // the honest outcome: a past self whose own ball is unavailable does not take a
+                // different one.
+                item.itemId = $"{idPrefix}_{i}";
                 item.displayName = displayName;
                 item.icon = icon;
                 item.floorY = radius;
@@ -14181,7 +14210,18 @@ namespace IterationRoom.EditorTools
         // A SUPPLY of five, sharing one id, exactly as the three pins share `"Tool"`. A recorded "took
         // a Mirror" has to be satisfiable by whichever one is going spare, and `CarryEvent`'s
         // `instanceName` is what keeps track of WHICH - see CLAUDE.md §1.4.
+        // The FIRST pane's name, and the stem the rest are numbered off. Each mirror's id is its own
+        // object name now - see the assignment in `BuildMirror`.
         private const string MirrorItemId = "Mirror";
+
+        // THE ONE PANE THAT LEAVES THE PLANE. Named rather than numbered because it is not one of the
+        // rack's five and must never be mistaken for one - by a reader or by a ghost, which is why it
+        // carries its own id.
+        private const string MirrorRiserName = "Mirror_Riser";
+        // **45, AND THE DOUBLING IS THE REASON.** A pane tilted up by t turns a level beam through 2t,
+        // so this and only this angle sends the light straight up. Anything else is a beam that climbs
+        // and eventually meets a wall, which is a different puzzle and not the one asked for.
+        private const float MirrorRiserPitch = 45f;
         private const int MirrorCount = 5;
 
         // Chest height. Under the 2.7038 gate opening by a mile, so the beam passes through every gate
@@ -14237,7 +14277,8 @@ namespace IterationRoom.EditorTools
         // fifteen degrees, which is what "make it stand up straight" was about. **So the head is
         // rotated back on its own clamp** - which is what the clamp is for - and both come out
         // upright.
-        private static CarryableItem BuildMirror(Transform parent, string name, Vector3 floorAt, float yaw)
+        private static CarryableItem BuildMirror(Transform parent, string name, Vector3 floorAt,
+                                                 float yaw, Sprite icon, float facePitch = 0f)
         {
             GameObject root = new GameObject(name);
             root.transform.SetParent(parent, false);
@@ -14400,8 +14441,15 @@ namespace IterationRoom.EditorTools
             reach.size = Vector3.one * 1.1f;
 
             CarryableItem item = root.AddComponent<CarryableItem>();
-            item.itemId = MirrorItemId;
+            // ONE ID PER PANE. Five mirrors sharing one id made a SUPPLY, and a ghost replaying
+            // "took a Mirror" would then take whichever was going spare - which for a puzzle made of
+            // people standing in a line is the route quietly rearranging itself. It matters more now
+            // that the panes are not interchangeable: one of them sends the beam to the ceiling, and
+            // a ghost handed THAT one where a flat one was recorded breaks the chain. Same reasoning
+            // as the pool props; see `BuildFloatingProps`.
+            item.itemId = name;
             item.displayName = "MIRROR";
+            item.icon = icon;
             item.floorY = glassAboveFoot;
             // **THE PROMPT HANGS OFF THE GLASS, NOT OFF THE ROOT, and that is how you take one off a
             // past self.** A carried item is parented to its holder's hand - a wrist bone, for a ghost
@@ -14421,7 +14469,66 @@ namespace IterationRoom.EditorTools
             mirror.frontRenderer = front;
             mirror.backRenderer = back;
             mirror.reach = reach;
-            mirror.beamHeight = CycleThreeFloorY + BeamHeight;
+            // ABOVE THE HOLDER'S FEET, not a world height. `BeamHeight` is how high the emitter
+            // fires above its own floor, so a holder standing on any floor in the cycle presents the
+            // glass exactly where a beam crossing that floor is - which on the ground floor is the
+            // height this used to be pinned to, and on deck A is five metres higher.
+            mirror.carryHeight = BeamHeight;
+            mirror.facePitchDegrees = facePitch;
+
+            // **THE DISC LEANS; THE STAND DOES NOT.**
+            //
+            // **TURNED ABOUT A SHARED POINT, NEVER REPARENTED - the same rule the stand-up correction
+            // above had to learn, and the first version of this broke it and looked like something
+            // else entirely.** `model` is a prefab INSTANCE, so `SetParent` across it is dropped
+            // without an exception: the panes and the frame did not move an inch. What DID move was
+            // the empty pivot they were supposed to hang under, and `Mirror.Normal` read that - so the
+            // optics tilted 45 degrees while the object stood up straight, and the mirror rendered a
+            // reflection of a plane it was not on. Play reported it as "the frame is not rotated, only
+            // the mirror inside it is", which is exactly what a 45-degree reflection painted onto an
+            // upright pane looks like.
+            //
+            // `tilting` is already the right set and was built for the same job one correction
+            // earlier: the topmost `FRAME` and `MIRROR` nodes and nothing else. Measured off
+            // `mirror_trensum.glb` rather than assumed, in model units:
+            //   FRAME        y 0.117 - 0.252    the rim, 0.138 across
+            //   MIRROR 2     y 0.119 - 0.248    glass
+            //   MIRROR 2.001 y 0.122 - 0.251    glass, the other face
+            //   C / CLAMP / FOOT / BASE / BOLT  y 0 - 0.198   the stand, which must NOT move
+            //   ring         y 0.005            **NOT the rim** - a 24mm ring lying on the base plate
+            //   IMG-1872     y 0.005            a flat label on the base
+            // `ring` is the one a name would get wrong, which is why the bounds are written down.
+            //
+            // The turn happens about the GLASS CENTRE, which is `face`'s own origin by construction -
+            // the model was slid to put it there. That point is within a millimetre of the clamp's
+            // centre (0.184 against 0.185), so the head turns on the hinge a real one turns on.
+            if (Mathf.Abs(facePitch) > 0.01f)
+            {
+                // An EMPTY marker, and it is only the optics. It carries no children - the visual
+                // parts cannot be reparented under it - and exists so `Mirror.Normal` has a transform
+                // to read that is driven by the same number as the geometry below.
+                GameObject glassPivot = new GameObject("GlassTilt");
+                glassPivot.transform.SetParent(face.transform, false);
+                glassPivot.transform.localRotation = Quaternion.Euler(-facePitch, 0f, 0f);
+                mirror.glass = glassPivot.transform;
+
+                // And the geometry, turned to match. `-facePitch` about the face's own +X is the same
+                // rotation the marker just took: both send the outward normal up by `facePitch`.
+                Vector3 hinge = face.transform.position;
+                Vector3 pitchAxis = face.transform.right;
+                foreach (Transform t in tilting) t.RotateAround(hinge, pitchAxis, -facePitch);
+
+                // **MEASURED OFF THE PANE, NOT COUNTED OFF THE LIST.** A log that says how many nodes
+                // it meant to turn is what let the reparent ship; this reads the front pane's actual
+                // world normal back and reports the angle it really makes with the horizontal, so a
+                // rotation that did not happen prints 0.
+                Vector3 paneNormal = front.transform.TransformDirection(thin).normalized;
+                float panePitch = 90f - Vector3.Angle(paneNormal, Vector3.up);
+                Debug.Log($"[SceneBuilder] {name}: head turned on the hinge - {tilting.Count} node(s), "
+                        + $"pane now **{Mathf.Abs(panePitch):0.#}deg** off vertical against "
+                        + $"{facePitch:0.#} asked for. Expects 3 nodes (two panes and the frame); the "
+                        + "stand is not among them.");
+            }
 
             BuildMirrorReflection(root.transform, mirror, front);
 
@@ -14510,10 +14617,14 @@ namespace IterationRoom.EditorTools
                 (-0.4f,  0.9f, 165f),
             };
 
+            // Drawn once and shared. `SaveSprite` writes a PNG and reimports it, so a glyph made
+            // inside the loop is the same file written five times over.
+            Sprite icon = MirrorIcon();
+
             var mirrors = new CarryableItem[MirrorCount];
             for (int i = 0; i < MirrorCount && i < spots.Length; i++)
                 mirrors[i] = BuildMirror(rack.transform, i == 0 ? "Mirror" : $"Mirror_{i}",
-                    new Vector3(spots[i].x, 0f, spots[i].z), spots[i].yaw);
+                    new Vector3(spots[i].x, 0f, spots[i].z), spots[i].yaw, icon);
 
             return mirrors;
         }
@@ -14588,6 +14699,111 @@ namespace IterationRoom.EditorTools
         // interface; whether the beam runs a machine or opens the way out of the cycle is a design
         // decision that has not been taken, and taking it in code before it is taken in play is what
         // put a CCTV system in this cycle before there was a puzzle for it to watch.
+        // A DECK ON A SHAFT, PULLED DOWN BY THE BEAM AND RISING WHEN IT GOES. See `BeamLift` for why
+        // it runs that way round rather than the obvious one.
+        //
+        // **WHERE IT STANDS IS DECIDED BY DECK A'S EDGE, not chosen.** Deck A is an L two cells deep
+        // down the west wall, so its inner edge is at `-width/2 + 2 * GridCellWidth`; the shaft is
+        // butted against that edge on the open side, and the panel at rest is flush with the deck's
+        // surface. Anywhere else and the ride ends beside the deck rather than on it.
+        private static BeamLift BuildBeamLift(Transform room, float width, float height,
+                                              Material propMat, Material grooveMat,
+                                              LaserReceiver lowCall)
+        {
+            const float pad = 2.0f;             // the deck the player stands on, square
+            const float thickness = 0.24f;      // thick enough to read as a floor rather than a card
+            const float restingStep = 0.20f;    // how high it sits when it is DOWN - a step, not a lip
+
+            float deckSurface = DeckARows * GridCellHeight;
+            float deckEdge = -width / 2f + 2f * GridCellWidth;
+            // Butted against the deck with the panel's west face on its edge, so stepping off at the
+            // top is a step across rather than a step over a gap.
+            float shaftX = deckEdge + pad / 2f;
+            const float shaftZ = 2.0f;
+
+            GameObject root = new GameObject("BeamLift");
+            root.transform.SetParent(room, false);
+            root.transform.localPosition = new Vector3(shaftX, 0f, shaftZ);
+
+            GameObject panel = new GameObject("Deck");
+            panel.transform.SetParent(root.transform, false);
+
+            Prim(PrimitiveType.Cube, "Slab", panel.transform, Vector3.zero,
+                new Vector3(pad, thickness, pad), propMat);
+            // A dark rim, so the edge of a floor five metres up is visible from on top of it. There is
+            // no parapet anywhere in this room by decision, which makes the edge itself the only
+            // warning there is.
+            const float rim = 0.06f;
+            Prim(PrimitiveType.Cube, "RimN", panel.transform,
+                new Vector3(0f, thickness / 2f, pad / 2f - rim / 2f),
+                new Vector3(pad, 0.02f, rim), grooveMat, removeCollider: true);
+            Prim(PrimitiveType.Cube, "RimS", panel.transform,
+                new Vector3(0f, thickness / 2f, -pad / 2f + rim / 2f),
+                new Vector3(pad, 0.02f, rim), grooveMat, removeCollider: true);
+            Prim(PrimitiveType.Cube, "RimE", panel.transform,
+                new Vector3(pad / 2f - rim / 2f, thickness / 2f, 0f),
+                new Vector3(rim, 0.02f, pad), grooveMat, removeCollider: true);
+
+            // WHO IS ON IT. Inset by a third of a metre all round, so somebody standing on deck A
+            // beside the panel at the top is not dragged along with it; two metres tall, because what
+            // is being asked is "are your feet on this", and a standing capsule's bounds are.
+            GameObject rideGO = new GameObject("Rider");
+            rideGO.transform.SetParent(panel.transform, false);
+            BoxCollider ride = rideGO.AddComponent<BoxCollider>();
+            ride.isTrigger = true;
+            ride.center = new Vector3(0f, thickness / 2f + 1.0f, 0f);
+            ride.size = new Vector3(pad - 0.6f, 2.0f, pad - 0.6f);
+
+            // **THE HIGH CALL, IN THE CEILING.** A lift needs a button on each floor, and the low
+            // plate is on a wall at 1.2m - five metres below anybody standing on deck A, and not
+            // reachable by a level beam from up there in any case.
+            //
+            // It is in the CEILING rather than on a wall because of how it has to be lit: the only
+            // thing that can reach it is the riser pane, and a pane tilted 45 degrees turns a level
+            // beam through 90 - straight up. A vertical beam lands on the ceiling, so that is where
+            // the target has to be.
+            GameObject highGO = new GameObject("LaserReceiver_High");
+            highGO.transform.SetParent(root.transform, false);
+            highGO.transform.localPosition = new Vector3(0f, height - 0.18f, 0f);
+
+            Prim(PrimitiveType.Cube, "Plate", highGO.transform, new Vector3(0f, 0.06f, 0f),
+                new Vector3(1.5f, 0.14f, 1.5f), propMat);
+
+            Material highLamp = MakeEmissiveMaterial("LaserReceiverLamp", Color.white, 1f);
+            GameObject lens = Prim(PrimitiveType.Cylinder, "Lens", highGO.transform,
+                new Vector3(0f, -0.02f, 0f), new Vector3(0.9f, 0.03f, 0.9f), highLamp,
+                removeCollider: true);
+
+            LaserReceiver highCall = highGO.AddComponent<LaserReceiver>();
+            highCall.lamp = lens.GetComponent<Renderer>();
+            highCall.radius = 0.7f;
+            highCall.audioSource = MakeSource(highGO.transform, "ReceiverAudio",
+                                              spatialBlend: 1f, volume: 0.8f);
+            highCall.onClip = LoadClip(SfxDir, "sfx_switch_on");
+
+            BeamLift lift = root.AddComponent<BeamLift>();
+            lift.panel = panel.transform;
+            lift.calls = lowCall != null ? new[] { lowCall, highCall } : new[] { highCall };
+            lift.raisedY = deckSurface - thickness / 2f;
+            lift.loweredY = restingStep - thickness / 2f;
+            lift.speed = 2.2f;
+            lift.rideVolume = ride;
+            lift.audioSource = MakeSource(root.transform, "LiftAudio", spatialBlend: 1f, volume: 0.5f);
+            // The same clip the crushing barrier moves on - the two are the same event, a slab
+            // that travels, and this building has one sound for that.
+            lift.moveClip = LoadClip(SfxDir, "sfx_door_open");
+
+            // Starts where the loop will always put it back.
+            lift.ResetLift();
+
+            Debug.Log($"[SceneBuilder] Cycle 3 lift: {pad:0.##}m deck at local x={shaftX:0.##}, "
+                    + $"z={shaftZ:0.##}, travelling y {lift.loweredY:0.##} -> {lift.raisedY:0.##} "
+                    + $"(deck A surface {deckSurface:0.##}m) at {lift.speed:0.#}m/s. High call in the "
+                    + $"ceiling at y={height - 0.18f:0.##}, target radius {highCall.radius:0.##}m; "
+                    + $"low call is the west-wall plate. Two calls, either one lowers it.");
+            return lift;
+        }
+
         private static LaserReceiver BuildLaserReceiver(Transform room, float width, Material propMat)
         {
             GameObject root = new GameObject("LaserReceiver");
@@ -14609,150 +14825,6 @@ namespace IterationRoom.EditorTools
             receiver.audioSource = MakeSource(root.transform, "ReceiverAudio", spatialBlend: 1f, volume: 0.8f);
             receiver.onClip = LoadClip(SfxDir, "sfx_switch_on");
             return receiver;
-        }
-
-        private const string CctvCameraModel = FurnitureDir + "/cctv_camera.glb";
-        private const string CctvMonitorModel = FurnitureDir + "/hanging_monitor.glb";
-
-        // A SCREEN ON A WALL, DRAWN ON THE MODEL'S OWN SCREEN (2026-08-21, by request).
-        //
-        // The first version hung a quad in front of the housing, on the reasoning that a glb's
-        // submeshes are named by whoever made it and matching a name this project does not control is
-        // fragile. That reasoning was sound and the conclusion was wrong: the answer was one command
-        // away. `CycleThreeDiagnostics.DumpModel` prints the hierarchy, and this model has exactly the
-        // mesh the guess was avoiding -
-        //
-        //     screen/screen_hanging_monitor_0   size (0.6574, 0.0421, 0.3226)   10 tris
-        //
-        // Ten triangles, its own transform, named `screen`. **Measure the model rather than working
-        // around it** - the same rule the chess set and the tree are placed by.
-        //
-        // The screen is thin in Y and offset below the housing's centre, so the glb is authored
-        // face-DOWN: it is a monitor slung under a ceiling. The rotation below turns that face into
-        // the room, and its bracket - which is the model's +Y - into the wall, where nobody sees it.
-        //
-        // **`Vector3.down` RATHER THAN `Vector3.up`, AND THAT IS THE UPSIDE-DOWN FIX** (2026-08-21,
-        // found by play). The two differ by a half turn about `inward`, which is a half turn IN THE
-        // SCREEN PLANE - so the glass still faces the room and the bracket is still buried either way,
-        // and the only thing that changes is which end of the picture is the top. The model's own
-        // screen runs top-to-bottom along its -Z, not its +Z, so mapping model +Z to world up stood
-        // every feed on its head.
-        private static Renderer BuildCctvMonitor(Transform parent, string name, Vector3 wallCentreAtBase,
-                                                 Vector3 rightDir, Vector3 inward, float height,
-                                                 float alongOffset, Material screenMat, float widthWanted,
-                                                 out float screenAspect)
-        {
-            GameObject root = new GameObject(name);
-            root.transform.SetParent(parent, false);
-            root.transform.localPosition = wallCentreAtBase + Vector3.up * height
-                                         + rightDir * alongOffset;
-
-            // **BIG** (2026-08-21, by request: "one per wall, large enough to read"). A 0.72m monitor
-            // was a thing on a wall you walked up to; at this size the feed is readable from the lever
-            // and from the doorway, which is what a room whose whole job is watching another room
-            // needs. Hung off the wall by a fraction of its own size so the housing never intersects
-            // the panelling.
-            screenAspect = 0f;
-            (GameObject housing, Bounds bounds) = PlaceModelLocal(
-                CctvMonitorModel, root.transform, "Housing", inward * (widthWanted * 0.2f),
-                Quaternion.LookRotation(Vector3.down, -inward), widthWanted);
-            if (housing == null) return null;
-
-            Renderer screen = null;
-            foreach (Renderer r in housing.GetComponentsInChildren<Renderer>(true))
-                if (r.name.StartsWith("screen")) { screen = r; break; }
-
-            if (screen == null)
-            {
-                Debug.LogError($"[SceneBuilder] {name}: no `screen` mesh in {CctvMonitorModel}. "
-                             + "Run Iteration Room/Diagnose Cycle 3 Geometry to see what is in it.");
-                return null;
-            }
-
-            // **THE SCREEN GETS ITS OWN MATERIAL AND THE HOUSING KEEPS THE MODEL'S.** They share one
-            // material in the glb, so assigning to `sharedMaterial` would put the feed on the plastic
-            // as well as on the glass.
-            screen.sharedMaterial = screenMat;
-
-            // HOW WIDE THE GLASS IS AGAINST HOW TALL, MEASURED. The feed's render texture is cut to
-            // this rather than to 16:9, because a picture rendered at one shape and shown at another
-            // is squeezed - and a squeezed picture reads as a badly made one long before anyone works
-            // out that nothing is actually blurry. The thin axis is the glass's thickness; of the
-            // other two, the model's X is the one that ends up horizontal on the wall.
-            MeshFilter mf = screen.GetComponent<MeshFilter>();
-            if (mf != null && mf.sharedMesh != null)
-            {
-                Vector3 ms = mf.sharedMesh.bounds.size;
-                if (ms.y < ms.x && ms.y < ms.z && ms.z > 0.0001f) screenAspect = ms.x / ms.z;
-            }
-            return screen;
-        }
-
-        // ONE FEED: a camera somewhere in room3-2N and the screens showing it.
-        private static CctvFeed BuildCctvFeed(Transform bigRoom, string name, Vector3 eye,
-                                              Vector3 lookAt, Renderer[] screens, float screenAspect)
-        {
-            GameObject rig = new GameObject(name);
-            rig.transform.SetParent(bigRoom, false);
-            rig.transform.localPosition = eye;
-            rig.transform.localRotation = Quaternion.LookRotation((lookAt - eye).normalized, Vector3.up);
-
-            Camera cam = rig.AddComponent<Camera>();
-            // Wide, because a feed has to hold a room three storeys tall in one frame.
-            cam.fieldOfView = 78f;
-            cam.nearClipPlane = 0.15f;
-            // The room's own diagonal and no further. 60 was a guess and it was reaching two rooms
-            // past anything a monitor can show.
-            cam.farClipPlane = 34f;
-            cam.allowHDR = false;
-            cam.allowMSAA = false;
-            cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = Color.black;
-            // The WHOLE player, not the headless one they are looking out of. A security monitor that
-            // showed a decapitated figure would be a memorable bug. The shadow body goes for the same
-            // reason it goes from the mirrors - the world body is already casting on this feed.
-            cam.cullingMask &= ~(1 << EnsureLayer(PlayerBodyViewLayer));
-            cam.cullingMask &= ~(1 << EnsureLayer(PlayerBodyShadowLayer));
-
-            // **A SECURITY MONITOR DOES NOT NEED THE PIPELINE THE GAME NEEDS, and saying so is most of
-            // what made cycle 3 playable again** (2026-08-21: play reported the whole cycle starting
-            // to stutter). Every one of these is a whole extra render of the room, and by default it
-            // was a whole extra render WITH shadow maps, post-processing and a depth prepass - three
-            // costs that buy a 2.6m picture of a white room precisely nothing.
-            //
-            // Shadows are the big one: the feed camera was making the additional lights re-render
-            // their shadow maps, and room3-2N has thirteen lights in it.
-            UniversalAdditionalCameraData feedData = cam.GetUniversalAdditionalCameraData();
-            feedData.renderShadows = false;
-            feedData.renderPostProcessing = false;
-            feedData.requiresColorOption = CameraOverrideOption.Off;
-            feedData.requiresDepthOption = CameraOverrideOption.Off;
-            feedData.antialiasing = AntialiasingMode.None;
-            feedData.dithering = false;
-            feedData.stopNaN = false;
-            // Built from nothing rather than copied from the player, so it cannot bring an
-            // AudioListener with it - two listeners is what silences every spatial sound in the game.
-
-            // The housing sits ON the eye and shares its aim, so the prop and the picture agree
-            // about where the camera is. Local, because the rig already carries both.
-            PlaceModelLocal(CctvCameraModel, rig.transform, "Housing", Vector3.zero,
-                            Quaternion.identity, 0.32f);
-
-            CctvFeed feed = rig.AddComponent<CctvFeed>();
-            feed.feedCamera = cam;
-            feed.screens = screens;
-            // **1024, DOWN FROM 1600.** 1600 was chosen to supersample the 2.6m screens and it did,
-            // at 2.4x the pixels of 1024 and three feeds at once - which is where a good part of the
-            // stutter came from. 1024 is still twice the old 512 and roughly the number of pixels one
-            // of these screens covers on a 1080p display, so it is native rather than blurry; the
-            // antialiasing it was buying is worth less than the frame rate it was costing.
-            //
-            // The height is DERIVED so the picture cannot be the wrong shape for the glass. See
-            // `CctvFeed` for why the old 512x288 was two faults rather than one.
-            feed.textureWidth = 1024;
-            feed.textureHeight = screenAspect > 0.1f
-                ? Mathf.RoundToInt(feed.textureWidth / screenAspect) : 720;
-            return feed;
         }
 
         private static CrushingBarrier BuildNorthCorridor(Transform parent, Material floorMat,
@@ -17264,6 +17336,13 @@ namespace IterationRoom.EditorTools
             // Well under gameplay sensitivity, which is tuned for finding things in a hurry.
             rig.lookSensitivity = 0.6f;
 
+            // A QUARTER OF THE RETREAT SPEED GOES UP. Enough to read as "backed off and slightly
+            // high" per the shotlist without the shot visibly climbing.
+            rig.dollyRiseRatio = 0.25f;
+            // Same constant governs the ramp up on press and the ease down on release - see
+            // `CaptureRig.HandleDolly`.
+            rig.dollyEaseTime = 1.1f;
+
             return rig;
         }
 
@@ -18237,6 +18316,19 @@ namespace IterationRoom.EditorTools
         // and flagged the bed - which is furniture in the middle of a room, walked around rather than
         // through. This is not a pathfinder and should not pretend to be one; what it is for is the
         // approach to an opening, which is where the mistakes it exists to catch actually happen.
+        // WHAT THE PLAYER IS ACTUALLY STOPPED BY - the same mask `BuildPlayer` gives the
+        // CharacterController, and asking anything else makes both asserts below liars.
+        //
+        // Swept with `~0` these checked layers the player walks straight THROUGH, and room2-6 is where
+        // that surfaced: 210 balls, 3 ducks and 2 beach balls float in its pool on the balloon layer,
+        // which `cc.excludeLayers` removes outright precisely so there is no invisible wall in the
+        // water. One ball drifting into the doorway at build time therefore failed the walk with
+        // `'Solid' blocks the way through` - naming a `MakeFloatBody` collider that cannot block
+        // anybody - and the room was reported as impassable for days while being perfectly walkable in
+        // play. A false error is worse than no check: this one taught its reader to skip the output,
+        // which is the failure mode the bounds-arithmetic version was already rewritten to avoid.
+        private static int PlayerBlockingMask() => ~(1 << EnsureLayer(BalloonLayerName));
+
         private static void AssertWalkable(Transform roomRoot, string label, Vector3 localFrom, Vector3 localTo)
         {
             // Colliders built this frame are not in the physics scene until it is told about them.
@@ -18250,7 +18342,8 @@ namespace IterationRoom.EditorTools
             for (int i = 0; i <= steps; i++)
             {
                 Vector3 at = Vector3.Lerp(from, to, i / (float)steps);
-                Collider[] hits = Physics.OverlapSphere(at, radius, ~0, QueryTriggerInteraction.Ignore);
+                Collider[] hits = Physics.OverlapSphere(at, radius, PlayerBlockingMask(),
+                                                        QueryTriggerInteraction.Ignore);
                 foreach (Collider hit in hits)
                 {
                     // Things that are MEANT to be in the way, and open. A door slab is the doorway;
@@ -18293,7 +18386,11 @@ namespace IterationRoom.EditorTools
             for (int i = 0; i <= steps; i++)
             {
                 Vector3 at = Vector3.Lerp(from, to, i / (float)steps);
-                foreach (Collider hit in Physics.OverlapSphere(at, radius, ~0, QueryTriggerInteraction.Ignore))
+                // Same mask as `AssertWalkable`, and for a sharper reason here: a floating ball is not
+                // floor. Swept with `~0`, one drifting over the pit would report the hole as spanned
+                // and hide a genuinely missing floor behind a prop the player falls straight past.
+                foreach (Collider hit in Physics.OverlapSphere(at, radius, PlayerBlockingMask(),
+                                                               QueryTriggerInteraction.Ignore))
                 {
                     // The bridge is built disabled, so it cannot be what is found here - and if it
                     // ever is, that is exactly the bug this assert exists to catch.
@@ -19065,6 +19162,74 @@ namespace IterationRoom.EditorTools
             return (slider, value);
         }
 
+        // **THE TITLE, REPEATED BEHIND ITSELF AND FADING - THE GAME'S OWN PREMISE AS A LOGOTYPE**
+        // (2026-08-28, by request: the words were "심심하다", and thickness alone was not the answer).
+        //
+        // Every game decorates its title somehow; the question is whether the decoration is ABOUT
+        // anything. This one is. The thing the player looks at for fifteen minutes is a past self
+        // rendered faint and a step behind - `docs/ghosts.md`'s afterimage - and stacking the word on
+        // its own trail is that image made out of type. It is not a style borrowed from a genre: no
+        // other game would arrive at it, because no other game is about the thing it draws.
+        //
+        // **PLAIN `Text` COPIES, NOT A SHADER.** uGUI has `Shadow` and `Outline`, and both are one
+        // offset apiece with no independent alpha ramp - three of them stacked is three copies of one
+        // colour, which is a blur rather than a trail. Copies cost three extra draws on a static
+        // screen and give every echo its own step and its own fade, which is the whole effect.
+        //
+        // Inserted BEFORE the title in sibling order, because that is uGUI's draw order: first child
+        // is furthest back. The trail has to be behind the word or it is fog over it.
+        //
+        // The text is READ OFF the title rather than passed in, so the two cannot drift apart. That is
+        // safe precisely because the title is facility-voice (CLAUDE.md §3) and carries no `Loc` key -
+        // nothing translates it and nothing rewrites it at runtime.
+        private static void MakeTitleAfterimage(Text title, int count, Vector2 step,
+                                                float firstAlpha, float falloff)
+        {
+            if (title == null || count <= 0) return;
+
+            RectTransform titleRect = title.GetComponent<RectTransform>();
+            Transform parent = title.transform.parent;
+            int frontIndex = title.transform.GetSiblingIndex();
+
+            // The nearest echo's alpha is given rather than derived, because the FIRST step down from
+            // solid is the one the eye judges the whole ramp by - derived from the falloff it was
+            // either a double image or nothing at all. Scaled by the title's own alpha so the trail
+            // fades with it if the screen ever dips.
+            float alpha = title.color.a * firstAlpha / falloff;
+            for (int i = 1; i <= count; i++)
+            {
+                alpha *= falloff;
+
+                GameObject echoGO = new GameObject($"TitleEcho_{i}");
+                echoGO.transform.SetParent(parent, false);
+
+                Text echo = echoGO.AddComponent<Text>();
+                echo.font = title.font;
+                echo.fontSize = title.fontSize;
+                echo.fontStyle = title.fontStyle;
+                echo.alignment = title.alignment;
+                echo.lineSpacing = title.lineSpacing;
+                echo.horizontalOverflow = title.horizontalOverflow;
+                echo.verticalOverflow = title.verticalOverflow;
+                echo.text = title.text;
+                echo.raycastTarget = false;
+                echo.color = new Color(title.color.r, title.color.g, title.color.b, alpha);
+
+                RectTransform echoRect = echo.GetComponent<RectTransform>();
+                echoRect.anchorMin = titleRect.anchorMin;
+                echoRect.anchorMax = titleRect.anchorMax;
+                echoRect.pivot = titleRect.pivot;
+                echoRect.sizeDelta = titleRect.sizeDelta;
+                echoRect.anchoredPosition = titleRect.anchoredPosition + step * i;
+
+                // Each one goes immediately in front of where the title currently is, so they end up
+                // ordered furthest-first with the solid word last. Re-read every pass: inserting
+                // shifts the title along by one.
+                echoGO.transform.SetSiblingIndex(frontIndex);
+                frontIndex = title.transform.GetSiblingIndex();
+            }
+        }
+
         private static Text MakeRowLabelInk(Transform parent, string name, string content,
                                             Vector2 anchoredPosition, Vector2 size,
                                             TextAnchor alignment, Color ink)
@@ -19296,12 +19461,21 @@ namespace IterationRoom.EditorTools
             titleGO.transform.SetParent(menuGO.transform, false);
             Text title = titleGO.AddComponent<Text>();
             title.font = UIFont();
-            // EXTRALIGHT AT 86. The whole family has been on disk since the font was added and this
-            // project used Regular for every word in the game - so the hierarchy was four SIZES with
-            // no ratio between them, which is what a screen looks like when nothing has a voice. A
-            // title is the one place a face this large can be thin, and thin at 86 is the difference
-            // between a heading and a logotype.
-            title.font = UIFont("ExtraLight");
+            // **EXTRABOLD AT 86, UP FROM EXTRALIGHT** (2026-08-28, by request: "글자가 얇아").
+            //
+            // The thin setting was a real argument and it was the wrong one for this game. Thin at a
+            // large size is the elegant-product voice - it reads as a design tool or a streaming
+            // service, and it is what every default title screen reaches for. **This building is a
+            // facility, and the title is on the FACILITY'S side of the split** (CLAUDE.md §3: `ROOM 2`,
+            // `ERROR`, `FIRE AXE`, and the title stay English in every language because they are the
+            // place talking to itself, not the game talking to the player). Painted-on plant lettering
+            // is heavy, and heavy is what makes 86 read as stencilled on a wall rather than set in a
+            // deck.
+            //
+            // The hierarchy the old note wanted is kept and inverted: the title is now the heaviest
+            // thing on the screen and the five labels stay Medium at 26, so the ratio is still weight
+            // and not four sizes with nothing between them.
+            title.font = UIFont("ExtraBold");
             title.fontSize = 86;
             // CENTRED, while the buttons stay down the left edge. The two were moved together and
             // that was one step too far: a left-hung title over a left-hung column leaves the whole
@@ -19338,12 +19512,33 @@ namespace IterationRoom.EditorTools
             titleRect.sizeDelta = new Vector2(1400f, 140f);
             titleRect.anchoredPosition = new Vector2(0f, 268f);
 
+            // THREE ECHOES, UP AND TO THE LEFT, EACH A THIRD OF THE ONE IN FRONT.
+            //
+            // **EVERY NUMBER HERE WAS RENDERED AND LOOKED AT** - the font, the size, the offsets and
+            // the alpha ramp, drawn with the project's own TTF at 86pt. That was not fussiness: the
+            // first attempt was a purely horizontal 22px step, and at this size with the letters
+            // spaced a cell apart it put every echo on top of its NEIGHBOUR rather than behind itself.
+            // The word came out an unreadable picket fence. A trail needs a vertical component to
+            // clear the letters beside it, and that is not visible in a plan.
+            //
+            // UP, not down. Down reads as a reflection in a wet floor and lands the trail across ROOM,
+            // which is the one red word on the screen. Up recedes - things further away sit higher in
+            // a frame - so the solid word stays planted on its line and its past selves stand behind
+            // it, which is the arrangement the game is about.
+            //
+            // Three, because two is a printing fault and four is a smudge; and 0.275 falling by a
+            // third puts the last one at 3% - present, not countable.
+            MakeTitleAfterimage(title, 3, new Vector2(-26f, 18f), 0.275f, 0.34f);
+
             GameObject subtitleGO = new GameObject("TitleRoom");
             subtitleGO.transform.SetParent(menuGO.transform, false);
             Text subtitle = subtitleGO.AddComponent<Text>();
-            // MEDIUM against the title's ExtraLight, which is what makes the smaller word hold its
-            // own beneath the larger one without being set any larger.
-            subtitle.font = UIFont("Medium");
+            // BOLD, a step under the title's ExtraBold. It used to be Medium against an ExtraLight
+            // title - the smaller word carrying the weight, which is what let it hold its own. That
+            // reverses now the title is the heavy one: ROOM set at Medium under an ExtraBold
+            // ITERATION reads as a caption rather than the second half of a name. One step down keeps
+            // the pair reading as one title, and the red is what separates them instead.
+            subtitle.font = UIFont("Bold");
             // Smaller, and spaced WIDER, so the shorter word spans a similar width to the one above
             // it. Letter-spaced in the string for the reason IterationLabel is: uGUI's Text has no
             // tracking control, and in a monospace face a space is exactly one cell.

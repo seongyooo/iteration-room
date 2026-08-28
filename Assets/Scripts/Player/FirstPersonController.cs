@@ -530,6 +530,24 @@ namespace IterationRoom
                                         : Mathf.Lerp(footstepWalkVolume, footstepSprintVolume, amount));
         }
 
+        // **A MOVING FLOOR CARRIES WHOEVER IS STANDING ON IT, and it has to be asked for.** A
+        // `CharacterController` is not a rigidbody: nothing pushes it, and it does not inherit the
+        // motion of the collider under its feet. A platform that simply moves slides out from under
+        // the player - upward it passes through them, downward it leaves them in the air. So the
+        // thing doing the moving makes the controller take the same step, through here.
+        //
+        // Deliberately NOT touching `verticalVelocity`: on the way up the player is grounded and it
+        // is already parked at -1, and on the way down the floor stays under them, so the fall never
+        // starts. Zeroing it here would instead cancel a jump taken off a moving deck.
+        //
+        // Refused while the controller is disabled, which is the frame `Teleport` occupies - a Move
+        // in there would be silently dropped or land the player somewhere between two beds.
+        public void Carry(Vector3 delta)
+        {
+            if (controller == null || !controller.enabled) return;
+            controller.Move(delta);
+        }
+
         public void Teleport(Vector3 position, Quaternion rotation)
         {
             controller.enabled = false;

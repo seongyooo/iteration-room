@@ -17,9 +17,6 @@ Iteration Room uses the following third-party assets.
 - **"Boiling Water Tap"** by dm3V — CC BY 4.0
   - Source: https://sketchfab.com/3d-models/boiling-water-tap-b97e6b20be564f1e85c104c2e9e50766
   - Author: https://sketchfab.com/dm3V
-- **"CCTV Camera"** by Jako — CC BY-NC 4.0
-  - Source: https://sketchfab.com/3d-models/cctv-camera-22ca80ef73034cb69597ef247816bbb3
-  - Author: https://sketchfab.com/fairlight51
 - **"Chess"** by xnicrox — CC BY 4.0
   - Source: https://sketchfab.com/3d-models/chess-6471ad3881ad45dba7634f1442ed3efe
   - Author: https://sketchfab.com/xnicrox
@@ -41,9 +38,6 @@ Iteration Room uses the following third-party assets.
 - **"Gold Key"** by JeremyW — CC BY 4.0
   - Source: https://sketchfab.com/3d-models/gold-key-34998df98cac4fa4a3a1ac395df5f708
   - Author: https://sketchfab.com/JeremyW
-- **"Hanging Monitor"** by MaX3Dd — CC BY 4.0
-  - Source: https://sketchfab.com/3d-models/hanging-monitor-1bcb147db4914410a02e4a134f9bf870
-  - Author: https://sketchfab.com/MaX3Dd
 - **"Industrial Valve"** by Miguel Ángel Jiménez — CC BY 4.0
   - Source: https://sketchfab.com/3d-models/industrial-valve-cea67369ae50485c9f06ea44cb608b92
   - Author: https://sketchfab.com/mangel.jimenez

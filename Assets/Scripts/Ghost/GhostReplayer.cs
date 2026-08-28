@@ -166,10 +166,25 @@ namespace IterationRoom
                 // it - the clips have none baked in, but a future clip that did would drag the
                 // ghost off its own recording.
                 animator.applyRootMotion = false;
-                // These are the only figures in the room, so they should not stop animating when
-                // the camera looks away - a ghost frozen mid-step in the corner of the eye is
-                // worse than the cost of updating seven skinned meshes.
-                animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                // **OFF-SCREEN GHOSTS DO NOT PAY FOR A POSE** (2026-08-28, after play reported the
+                // late iterations dragging).
+                //
+                // This was `AlwaysAnimate`, on the reasoning that "a ghost frozen mid-step in the
+                // corner of the eye is worse than the cost of updating seven skinned meshes". The
+                // trade was fair at seven. **Cycle 2 runs to twenty-two**, and every one of them is a
+                // 7,932-triangle skinned mesh being posed every frame whether or not it is on screen -
+                // a cost that grows with the iteration count, which is exactly the shape of a game
+                // that gets heavier the further into a cycle you are.
+                //
+                // **PLAYED, AND THE LATE ITERATIONS ARE LIGHTER FOR IT** (2026-08-28) - reported as a
+                // straight improvement, with no ghost seen popping into a stale pose.
+                //
+                // `CullUpdateTransforms` does not freeze a ghost anywhere the player can see one. A
+                // ghost's POSITION comes off its own timeline in `Update` and is untouched by this, so
+                // past selves still walk their routes while culled; what stops is the skinning, and it
+                // stops only while nothing is rendering them. The cost is at most one frame of stale
+                // pose as a ghost enters view.
+                animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
             }
         }
 

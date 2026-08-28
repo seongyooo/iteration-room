@@ -49,7 +49,7 @@ namespace IterationRoom
         {
             if (glass == null || reflectionCamera == null) return;
 
-            // Built at runtime rather than saved as an asset, for the reason `CctvFeed`'s is: it is a
+            // Built at runtime rather than saved as an asset: it is a
             // size and a depth buffer, and one more generated file for `SceneBuilder` to keep in step
             // is a file that will go out of step.
             target = new RenderTexture(textureSize, textureSize, 24, RenderTextureFormat.ARGB32)

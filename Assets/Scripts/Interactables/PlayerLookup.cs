@@ -328,9 +328,9 @@ namespace IterationRoom
             InFrustum(worldPoint) && !Occluded(worldPoint, null);
 
         // FRUSTUM ONLY, NO RAY. For callers that need "is this on screen" many times a frame and
-        // cannot pay for a `RaycastAll` per candidate - `CctvFeed` asks it of every screen it drives,
-        // every frame, to decide whether the feed is worth rendering at all. An interaction prompt
-        // must use `InView`; a cost decision must not.
+        // cannot pay for a `RaycastAll` per candidate. An interaction prompt must use `InView`, which is
+        // the whole rule; a pure COST decision - is this worth drawing at all - must not, and that is
+        // the only thing this is for.
         public static bool OnScreen(Vector3 worldPoint) => InFrustum(worldPoint);
 
         private static bool InFrustum(Vector3 worldPoint)
@@ -358,6 +358,14 @@ namespace IterationRoom
         // could be picked up. The forgiveness has to be "this collider belongs to the thing being
         // looked at" - which is exact - rather than a distance, which is a guess about size.
         //
+        // **AND "THE THING BEING LOOKED AT" IS THE FIXTURE, NOT `transform.root` - which is what this
+        // whole test was doing until 2026-08-28, and it switched the test OFF in two entire cycles.**
+        // Cycle 1 builds each room as its own scene root, so forgiving a shared root forgave one room
+        // at a time and the check still did something between rooms. Cycles 2 and 3 build every room
+        // under ONE root (`Room_Cycle2` / `Room_Cycle3`), so every wall in the cycle shared a root
+        // with every fixture in it, nothing could ever occlude anything, and `InView` was frustum-only
+        // there - exactly the state this was written to end. See `OwnerObject` for what replaced it.
+        //
         // TRIGGERS ARE IGNORED, and that is essential rather than tidy. Every carryable's reach
         // volume, every pad's range and every doorway trigger is a trigger collider sitting in open
         // air; counted as geometry they would occlude everything behind them, including themselves.
@@ -369,9 +377,9 @@ namespace IterationRoom
             Vector3 from = cam.transform.position;
             Vector3 delta = to - from;
             float distance = delta.magnitude;
-            if (distance < 0.05f) return false;
+            if (distance <= SurfaceClearance) return false;
 
-            Transform ownerRoot = owner != null ? owner.root : null;
+            Transform ownerObject = OwnerObject(owner);
 
             // **NonAlloc, BECAUSE THIS RUNS PER CANDIDATE PER FRAME.** `RaycastAll` returns a fresh
             // array every call, and this is asked of every fixture and every takeable the player is
@@ -382,7 +390,8 @@ namespace IterationRoom
             // The cap can in principle drop a hit, and it does not matter here: this returns on the
             // FIRST occluder it finds, so losing one only changes the answer if all `occluders.Length`
             // of the hits that came back were the owner or the player. Sized far past that.
-            int count = Physics.RaycastNonAlloc(from, delta / distance, occluders, distance,
+            int count = Physics.RaycastNonAlloc(from, delta / distance, occluders,
+                                                distance - SurfaceClearance,
                                                 ~0, QueryTriggerInteraction.Ignore);
 
             for (int i = 0; i < count; i++)
@@ -390,8 +399,8 @@ namespace IterationRoom
                 Collider c = occluders[i].collider;
                 if (c == null) continue;
                 Transform t = c.transform;
-                // The thing being looked at cannot hide itself.
-                if (ownerRoot != null && t.root == ownerRoot) continue;
+                // The thing being looked at cannot hide itself - it, and everything hanging off it.
+                if (ownerObject != null && t.IsChildOf(ownerObject)) continue;
                 // Nor can the player, whose own capsule the camera sits inside.
                 if (t.root.CompareTag("Player")) continue;
                 return true;
@@ -399,6 +408,54 @@ namespace IterationRoom
 
             return false;
         }
+
+        // WHICH OBJECT AN ANCHOR BELONGS TO - the fixture, bounded, rather than whatever happens to
+        // sit at the top of its hierarchy.
+        //
+        // A hint anchor is rarely the fixture itself: it is `Drawer.drawerBody`, `SymbolSlot.seat`,
+        // the mirror's `Face`. So "does this collider belong to the thing being looked at" cannot be
+        // asked of the anchor's own subtree alone - the mirror's stand is the anchor's SIBLING - and
+        // asking it of `transform.root` is the fault above, which answers "yes" for a whole cycle.
+        //
+        // The fixture is the nearest ancestor that actually claims the press: the component that
+        // states `WantsInteractHint`. That is exact in the way the root is not, and it is BOUNDED -
+        // nothing above a fixture implements this interface, so the walk can never reach a room or a
+        // cycle no matter how the scene is nested. A carryable seated in a socket resolves to itself,
+        // because `CarryableItem` implements it too and the walk stops at the first one it meets.
+        //
+        // Falls back to the anchor's own subtree when there is no such ancestor - stricter than the
+        // root, which is the direction to fail in.
+        private static Transform OwnerObject(Transform anchor)
+        {
+            if (anchor == null) return null;
+
+            // TESTED THROUGH `Component`, for the reason `ComputeAimedAnchor` tests through `Object`:
+            // an interface reference does not carry Unity's fake-null, and the transform is what is
+            // wanted here anyway.
+            var owner = anchor.GetComponentInParent<IInteractHintTarget>() as Component;
+            return owner != null ? owner.transform : anchor;
+        }
+
+        // **THE SURFACE A THING IS STANDING ON IS NOT HIDING IT**, and the last few centimetres of
+        // the ray are where that is decided. Play found it 2026-08-28 as **chess pieces that could no
+        // longer be picked up**, the day the forgiveness above stopped being `transform.root` - the
+        // room's floor and the piece used to share a root, so the floor was forgiven by accident.
+        //
+        // A `CarryableItem`'s anchor is its own origin and its `floorY` is how far that origin sits
+        // above the floor. For a chess piece that is **zero** - the origin IS the base, resting
+        // exactly on the floor plane - so a ray to it terminates ON the floor collider and reports a
+        // hit every time. Nothing about that is a wall in the way.
+        //
+        // The near end of this function has always said the same thing: closer than this and there is
+        // nothing to occlude. It is one constant now because it is one statement, made about both
+        // ends - **the last 5cm before a target cannot hide it.** Nothing meaningful fits in there,
+        // and hiding behind something would mean standing within 5cm of it.
+        //
+        // This is NOT the half-metre back-off that broke the cube room (see above). That one guessed
+        // at the SIZE of the thing being looked at and swallowed a metre-wide cube whole; this is a
+        // fixed clearance about the surface underneath, and the object's own body is already forgiven
+        // by name.
+        private const float SurfaceClearance = 0.05f;
 
         // Shared by every occlusion test in the building. Static because `Occluded` is, and one
         // buffer is safe here for the reason it usually is not: the cast, the scan and the answer all

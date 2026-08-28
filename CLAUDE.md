@@ -317,10 +317,10 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `BucketStand` | The spot under a tap that catches the water, and the socket a ghost places into |
 | `PourPoint` | Where a pour is RECORDED. A signal, because pouring hands nothing over |
 | `RewardPlinth` | A plinth that rises carrying an escape object, on its room's own condition |
-| `Mirror` | One pane: where its face is, which way it points, and whether a ray meets it. Held, or it does nothing |
+| `Mirror` | One pane: where its face is, which way it points, and whether a ray meets it. Held, or it does nothing. **Its PITCH is the pane's own, not the holder's** |
 | `LaserBeam` | Cycle 3's light: the chain of segments, recomputed every frame from where the mirrors are |
-| `LaserReceiver` | Where the beam has to arrive. `Lit`, and nothing else - what that DRIVES is not decided |
-| `CctvFeed` | One camera in room3-2N and the screens showing it. Renders by hand, only while somebody is near one |
+| `LaserReceiver` | Where the beam has to arrive. `Lit`, and nothing else - `BeamLift` is the first thing that reads it |
+| `BeamLift` | Room3-2N's deck on a shaft: raised at rest, pulled DOWN while a call receiver is lit, and it carries whoever is on it |
 | `FinalRoomSequence` | A cycle's `-0`: its console, its exit condition, and the break. Room4 and room2-0 |
 | `Cycle` | One cycle's world: its bed, doors, rooms, signal array, panels — and **which particle systems are its gas**. Anything per-cycle a system outside needs is NAMED here, never gathered by type at runtime |
 | `CaptureRig` | Filming: which HUD is hidden, and the camera that leaves the player's head. Editor/dev builds only, records nothing, and freezes the player through `GameInput.Suspended` alone |

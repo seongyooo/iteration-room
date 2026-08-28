@@ -7,13 +7,15 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
 
 ## Before this can be sold
 
-Two hard blockers. Neither is graphics, and neither goes away by being postponed.
+One hard blocker, and it is not graphics.
 
-- **`cctv_camera.glb` is CC-BY-NC-4.0** — three of them in room3-2N. NonCommercial cannot be sold and
-  attribution does not cure it: **replace the model, or keep the game free.** `CheckModelLicences`
-  fails the build loudly on every run. Detail at item 7.
-- **Cycle 3 has no puzzles** — four rooms, a beam that drives nothing, and no way onto either
-  mezzanine. The third act does not exist. Detail at item 1.
+- **Cycle 3 is not a third act yet** — the beam now drives a lift and the lift reaches deck A, so the
+  cycle has a mechanism and a destination for the first time. What it does not have is a REASON:
+  there is no `finalRoom`, no exit condition and nothing to carry anywhere, so the cycle cannot be
+  finished. Detail at item 1.
+
+~~`cctv_camera.glb` is CC-BY-NC-4.0~~ **RESOLVED 2026-08-28** by deleting the CCTV system it was in —
+see item 7 for what is left, which is a decision rather than a blocker.
 
 Everything else below is quality, not permission.
 
@@ -27,30 +29,36 @@ Everything else below is quality, not permission.
    already states the cycle's premise; what it does not have is anything to do once you are through.
    The shape is in and the puzzles are not. `docs/Room3 구조 변경 및 레버 기반 퍼즐 기믹 구현
    프롬프트.md` is the spec; §1 and §2 of it are built and §3-§9 are not.
-   - **THE BEAM IS BUILT AND WHAT IT DOES IS NOT.** A laser leaves room3-2E, five mirrors on a rack
-     in room3-2W bend it, and a receiver on room3-2N's west wall lights when it arrives.
-     `LaserReceiver.Lit` drives **nothing**: whether the light runs a machine or opens the way out of
-     the cycle is undecided, and it should stay undecided until somebody has stood in the room and
-     bounced the beam by hand. Verified in code only - nobody has seen the beam.
+   - **THE BEAM DRIVES THE LIFT NOW** (2026-08-28), so `LaserReceiver.Lit` has a consumer for the
+     first time and the west-wall plate is that lift's low call. What is still open is everything
+     ABOVE that: the lift reaches deck A and deck A has nothing on it. A way up is not a puzzle.
+   - **The riser pane is built and nobody has bounced it.** One mirror in room3-2S is tilted 45deg, so
+     it turns a level beam through 90 and sends it to the ceiling, where the lift's high call is. It
+     is carried like any other pane. **Verified in code only**, and it is the one piece of the optics
+     whose geometry cannot be checked from a plan - the beam has to actually land inside a 0.7m target
+     sixteen metres up.
+   - **THE BEAM'S PLANE FOLLOWS ITS HOLDER NOW, AND NOBODY HAS PLAYED WITH THAT.** A held pane sits
+     1.2m above the HOLDER'S FEET rather than at one world Y, so the light climbs the building with
+     the people carrying it. Two things that only play can answer: whether losing the guarantee that
+     every pane is on one plane makes a failed route hard to READ - the beam now misses for a reason
+     you cannot see from the floor plan - and how much a small step under a holder costs. **That
+     second one is nearly a bug already**: the lift at rest is a 0.20m step, so a pane held while
+     standing on it sits 0.20 above the beam, against a glass RADIUS of 0.236. It still catches, by
+     3.6cm. Any step taller than 0.236m breaks a route silently and looks like nothing at all, and
+     there is no assert anywhere that would say so.
    - **The route is two mirrors long and there are five.** The shortest solution is one turn in
      room3-1 and one inside the big room; the other three mirrors have nothing to do. Lengthening it
      is level design - move the receiver, or put something in the way - and it wants play first,
      because "how many bounces is fun" is not answerable from a plan.
-   - **Nobody can get onto either mezzanine.** The coloured staircase went with the levers, so
-     room3-2N's two decks and its five columns are unreachable architecture. Whether the room wants a
-     climb at all any more is part of the redesign.
-   - **The mirrors have no HUD icon.** Every other carryable has one; `BuildMirror` passes none.
-   - **THE MIRRORS REFLECT, AND NOBODY HAS SEEN IT.** Planar reflection, 512 square, one mirror per
-     frame, culled by which side of the glass you are on. Verified in code only, and a planar
-     reflection has several ways to look wrong that a clean build cannot rule out: inverted culling
-     (the room renders inside-out), the oblique near plane (the mirror shows the wall behind it), and
-     the screen-space sample being off by a viewport. **Look at one before anything else in this
-     list.**
-   - **How much realism the body is worth is now answerable and was not before.** The model is 7,932
-     triangles with no UVs and no textures, so every surface is one flat colour - `SceneBuilder` gives
-     it six tuned ones (skin, hair, shirt, pants, socks, eyes) and that is the ceiling. Anything more
-     is a different asset, not a different number. The mirror is the only place it will ever be seen
-     properly, so decide after looking in one.
+   - **Deck A is reachable now; DECK B IS NOT.** `BeamLift` runs a 2m deck between the floor and deck
+     A's surface, raised at rest and pulled down by the beam - so the ride up is what happens when a
+     past self lets go. Deck B is another storey above that with nothing serving it, and the five
+     columns are still unreachable architecture.
+   - **How much realism the body is worth is still open.** The model is 7,932 triangles with no UVs
+     and no textures, so every surface is one flat colour - `SceneBuilder` gives it six tuned ones
+     (skin, hair, shirt, pants, socks, eyes) and that is the ceiling. Anything more is a different
+     asset, not a different number. The mirror is the only place it will ever be seen properly, and
+     the glass is now known to be good - so this is a look-and-decide, not a wait.
    - **The gates no longer stand off for the player** (`Door.standsOffForPlayer = false`) and shut in
      0.3s. Two things to watch: whether a leaf closing THROUGH the player reads as a bug rather than
      as your own fault, and whether the room still lets a determined player through their own east or
@@ -67,25 +75,26 @@ Everything else below is quality, not permission.
    - **Room3-2N's lighting is derived, not seen** - a 3x3 grid with intensity scaled by the square of
      a 3x height jump, plus four spots under the two decks at a flat 6 because a deck is a ceiling for
      whatever is beneath it. None of the seven numbers has been looked at. See `docs/room-geometry.md`.
-   - **The CCTV picture has been fixed three times without being seen once.** Upside down (the model's
-     glass runs top-to-bottom along its -Z), then the wrong aspect and too few pixels, then too
-     expensive. It is now 1024 across at 10fps, on screen only, one feed per frame, shadows and post
-     off. If the picture comes out MIRRORED rather than right way up, the fault is the glass's UVs and
-     not its rotation. **And what the feeds are FOR has changed**: they were watching a staircase that
-     no longer exists. The honest job left is seeing where the beam currently stops, in a room that
-     costs an iteration to walk to.
-2. **`PlayerLookup.Occluded` DOES NOTHING INSIDE CYCLES 2 AND 3.** It forgives any hit whose
-   `transform.root` matches the thing being looked at - which is exact and right when each room is its
-   own scene root, as cycle 1's are. Cycles 2 and 3 build every room under ONE root
-   (`Room_Cycle2` / `Room_Cycle3`), so every collider in the cycle shares a root with every fixture in
-   it and nothing can ever occlude anything. `InView` is frustum-only there, which is the state the
-   2026-08-14 fix was written to end: an E prompt hanging in mid-air through a wall. Found while
-   costing `CctvFeed`, not by play, so how bad it looks is unmeasured. The fix is to compare against
-   the fixture rather than against `root`; it changes prompt behaviour across two whole cycles, so it
-   wants a playthrough rather than a quiet edit.
-3. **CYCLE 2'S ROOM2-6 SOUTH DOOR IS BLOCKED**, and the build has been saying so on every run:
-   `room2-6 south door: 'Solid' blocks the way through (swept at 21.70, -9.97, 89.15)`. `AssertWalkable`
-   caught it; nobody was reading the output. A wall collision block is standing in the doorway.
+   - ~~The lift has never been ridden~~ **PLAYED AND IT CARRIES YOU** (2026-08-28). `BeamLift` moving
+     the player itself through `FirstPersonController.Carry` is the right mechanism and none of the
+     three failure modes it was flagged for showed up in a ride.
+2. **OCCLUSION IS LIVE IN EVERY CYCLE NOW, AND NOBODY HAS PLAYED WITH IT ON.** `PlayerLookup.Occluded`
+   forgave any hit sharing `transform.root` with the thing being looked at, which switched the test
+   off entirely inside cycles 2 and 3 - one root per cycle there, so every wall shared a root with
+   every fixture. It forgives the FIXTURE now (`OwnerObject`: the nearest ancestor implementing
+   `IInteractHintTarget`), which is exact and bounded. **This tightens prompts in all three cycles,
+   not just the two that were blind** - cycle 1 forgave a whole ROOM at a time and now forgives one
+   object.
+   - **PLAY HAS ALREADY FOUND ONE REGRESSION AND IT IS FIXED**: the chess pieces went unpickable,
+     because a piece's anchor is its own origin and its `floorY` is ZERO - the anchor rests exactly on
+     the floor plane, so the ray to it ended on the floor collider. `PlayerLookup.SurfaceClearance`
+     drops the last 5cm of the cast; the surface a thing stands on is not hiding it. **The lesson
+     generalises past chess: any anchor sitting ON a surface was in the same position**, and the chess
+     piece is the only carryable in the game with `floorY = 0` (every other one is 0.06 or measured).
+   - What is still unplayed is the rest of it: a prompt that has stopped appearing where it used to,
+     anywhere a fixture is read past its own room's furniture. Every drawer front, rim and tray in the
+     game is built `removeCollider: true`, so the only solid things left to occlude with are walls,
+     floors and doors - but that is an argument, not a playthrough.
 4. **THE ON-SCREEN KEY PROMPTS DO NOT FOLLOW THE BINDINGS** (deferred 2026-08-20, by request). Keys
    are rebindable from the settings page now, but the six places the game NAMES a key are still
    strings authored into `SceneBuilder`: the interact disc's "E", the "[E] — PUT DOWN" hint, "HOLD [N]
@@ -103,11 +112,12 @@ Everything else below is quality, not permission.
 6. **Gate the cycle picker before release.** CYCLE SELECT lists every cycle whether or not the player
    has reached it, which is a shortcut worth having while cycle 3 is under construction and a spoiler
    in a shipped build. One condition in `MainMenu.Awake` and one in `Start`.
-7. **THE CCTV CAMERA IS NON-COMMERCIAL, AND THAT IS THE ONE REAL LICENCE BLOCKER.**
-   `cctv_camera.glb` is **CC-BY-NC-4.0** - three of them, one per feed in room3-2N. NonCommercial
-   cannot be sold and no attribution cures it: **replace the model before the game is sold, or keep
-   the game free.** Found 2026-08-23 by reading the file instead of the document; the document said
-   CC-BY. `SceneBuilder.CheckModelLicences` now fails it loudly on every build.
+7. **THE ONE NON-COMMERCIAL ASSET IS GONE** (2026-08-28). `cctv_camera.glb` was CC-BY-NC-4.0 and
+   could not ship in a paid build; the CCTV system it belonged to was deleted by request, so the file,
+   `hanging_monitor.glb`, `CctvFeed.cs` and the three feed materials went with it. **The blocker was
+   retired by the room changing rather than by sourcing a replacement**, which is worth noticing: the
+   cameras had outlived their subject by a week - they were watching a staircase deleted 2026-08-21.
+   What is left is a decision, not a blocker:
    - **`wooden_bucket.glb` is CC-BY-SA-4.0** (room2-2's buckets). Sellable, but the model and any
      modification stay under the same licence. A decision to take, not to discover. Replacing it is
      cheap - a bucket is not a hard model to source.
@@ -340,6 +350,11 @@ is for.
   a defect** - it was removed deliberately.
 - **Three numbers are guesses**: `lookSensitivity` 0.6, `flySpeed` 1.6 and the 1.15-per-notch scroll
   step. All three are one field in `SceneBuilder.BuildCaptureRig`.
+- **The pull-back dolly (hold O) is new and unpressed.** `dollyRiseRatio` (0.25) and `dollyEaseTime`
+  (1.1s) are guesses in the same place as the three above. What has never been watched: whether the
+  ease-in/out reads as smooth or as two visible speed changes, whether a quarter rise is enough to
+  read as "slightly high" in a real room, and whether locking out the mouse for the whole glide is
+  comfortable or feels like losing control of the shot.
 - **The detached camera's culling mask is unverified.** It is set to the mirror camera's - full body,
   no headless one - so a flown shot should show a whole person. Nobody has looked.
 - **Mirrors are wrong from a detached camera** and will stay wrong: `MirrorReflection` renders for
