@@ -32,7 +32,12 @@ namespace IterationRoom
 
         // TWO, by request. Kept as a number rather than a bool pair because "how far open is it" is
         // the question the drain asks, and a room that wanted three would be this number.
-        public int turnsToOpen = 2;
+        // **ONE TURN EACH** (2026-08-29, by request, from two). Three valves at two turns was six
+        // presses to drain one room, and the second turn on each wheel asked nothing the first had
+        // not already asked - it was the same act repeated, which is length rather than difficulty.
+        // The room still needs all three wheels, so what is being tested - that a past self has been
+        // to each of them - is untouched.
+        public int turnsToOpen = 1;
         // Slow enough to be a mechanism. A quarter of a second reads as a spring; a second and a half
         // is somebody winding a wheel.
         public float turnDuration = 1.4f;

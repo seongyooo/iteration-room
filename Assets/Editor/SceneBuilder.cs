@@ -1603,6 +1603,8 @@ namespace IterationRoom.EditorTools
                     + "panels around doorways are what mint new ones. Hundreds here would mean the "
                     + "sizes have stopped repeating - see ChamferedPanelMesh.");
 
+            CheckHintAnchors();
+
             BakeReflectionProbes();
 
             // The core scene's own probe volume - it holds the calibration room, which is a room like
@@ -5667,11 +5669,16 @@ namespace IterationRoom.EditorTools
             CarryableItem item = root.AddComponent<CarryableItem>();
             item.blocker = block;
             item.itemId = BucketItemId;
-            // THE ONE OBJECT WHOSE WEIGHT IS NOT A CONSTANT: an empty pail and a full one are the same
-            // carryable and read 1.8 and 12.0. That is the room2-2 puzzle's knowledge paying off in a
-            // room two doors away, which is the best kind of connection this building can make.
-            Weighable weighs = MakeWeighable(item, WeightBucket);
-            weighs.contentsKilograms = WeightBucketWater;
+            // **~~Weighable~~ NOT ANY MORE** (2026-08-29, by request: the bucket leaves the weighing
+            // room). It read 1.8 empty and 12.0 full, which was the room2-2 puzzle's knowledge paying
+            // off two doors away and is a connection worth mourning.
+            //
+            // It is also why room2-7 was never single-solution. **A partly filled pail is a
+            // CONTINUOUS weight** - `Weighable` reads `Bucket.Level`, which is anything at all while
+            // a bucket stands under a running tap - so a player who knew the numbers could dial in
+            // any total the scale asked for. Every other object in that room is a fixed value; this
+            // was the one that made the uniqueness proof a caveat instead of a proof. Off the pan,
+            // it is a proof again. See the weight table.
             item.displayName = "BUCKET";
             item.icon = BucketIcon();
             item.floorY = 0f;
@@ -5688,9 +5695,9 @@ namespace IterationRoom.EditorTools
             item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
 
             Bucket bucket = root.AddComponent<Bucket>();
-            // The scale reads the water through the bucket rather than through a second copy of "how
-            // full is it" - one owner of that fact, and a half-filled pail reads half way.
-            weighs.bucket = bucket;
+            // ~~The scale reads the water through the bucket~~ - it does not read this pail at all
+            // any more (see the `Weighable` note above). The bucket still owns how full it is, which
+            // is what the tank and the pour need; nothing weighs it.
             // TWICE THE OLD RATE, by request: play found the tank the bottleneck of room2-2, and a
             // wait that is the slowest thing in a sixty-second loop is a wait the player spends
             // standing still. The number lives here rather than on the component for the reason every
@@ -6212,10 +6219,37 @@ namespace IterationRoom.EditorTools
             GameObject rideGO = new GameObject("Room2_5_SlideRide");
             rideGO.transform.SetParent(hall, false);
 
-            BoxCollider trigger = rideGO.AddComponent<BoxCollider>();
-            trigger.isTrigger = true;
-            trigger.center = new Vector3(ride[0].x, ride[0].y + triggerHeight / 2f, ride[0].z);
-            trigger.size = new Vector3(1.0f, triggerHeight, 1.0f);
+            // **THE WHOLE CHUTE ANSWERS, NOT JUST ITS TOP** (2026-08-29, by request: getting on
+            // halfway down should work).
+            //
+            // One box at `ride[0]` meant the only way onto the slide was over the lip at the head of
+            // it - step onto the middle of the chute, which is a solid surface a player can simply
+            // walk onto, and nothing happened at all.
+            //
+            // **A BOX PER SAMPLE RATHER THAN ONE BIG ONE.** The chute DESCENDS, so a single box round
+            // the whole run would be metres tall and would catch anybody walking underneath it. These
+            // follow the surface instead. They can be axis-aligned and unrotated because the chute is
+            // a straight line in XZ with only its height changing - which is a fact about this slide,
+            // and the reason it is safe to say so here rather than in `SlideRide`.
+            //
+            // **ONLY THE CHUTE.** `SlideRideSamples` of the path is chute and the rest is the plunge
+            // into the water; a trigger over the plunge would restart a ride on somebody standing in
+            // the pool where the last one dropped them.
+            int chutePoints = Mathf.Min(SlideRideSamples, ride.Length);
+            float step = chutePoints > 1
+                ? Vector3.Distance(ride[0], ride[chutePoints - 1]) / (chutePoints - 1) : 1f;
+
+            int boxes = 0;
+            for (int i = 0; i < chutePoints; i += 3)
+            {
+                BoxCollider box = rideGO.AddComponent<BoxCollider>();
+                box.isTrigger = true;
+                box.center = new Vector3(ride[i].x, ride[i].y + triggerHeight / 2f, ride[i].z);
+                // Deep enough to overlap its neighbours: a gap between two of these is a stretch of
+                // chute that does nothing, which is the bug being fixed.
+                box.size = new Vector3(1.0f, triggerHeight, Mathf.Max(1.0f, step * 4.2f));
+                boxes++;
+            }
 
             // The path is in the hall's frame and this object sits at the hall's origin, so what the
             // component stores and what was measured are the same numbers.
@@ -6224,7 +6258,9 @@ namespace IterationRoom.EditorTools
 
             Debug.Log($"[SceneBuilder] Slide: {solid} solid part(s); ride of {ride.Length} points, "
                     + $"{ride[0].y:0.00}m down to {ride[ride.Length - 1].y:0.00}m over "
-                    + $"{Mathf.Abs(SlideRideLanding.y - SlideRideHead.y):0.00}m");
+                    + $"{Mathf.Abs(SlideRideLanding.y - SlideRideHead.y):0.00}m. "
+                    + $"{boxes} entry box(es) along {chutePoints} chute point(s) - one would mean the "
+                    + "slide can only be joined at the top again.");
         }
 
         // THE RIDE, MEASURED OFF THE CHUTE RATHER THAN DESCRIBED.
@@ -6997,12 +7033,23 @@ namespace IterationRoom.EditorTools
             // another is the object drawn on it.
             Color rim = new Color(0.78f, 0.79f, 0.82f);
 
+            // **THREE, DOWN FROM FOUR** (2026-08-29, by request: the beach ball's pedestal is gone,
+            // the bucket, the axe and the duck stay).
+            //
+            // Every entry here is a WHOLE ROUND TRIP - one hand, sixty seconds, and a ball that has
+            // to be found in the chest and carried to room2-0 - so the count is the room's length
+            // rather than its difficulty. Cycle 2 measured at 22 iterations against cycle 1's 9, and
+            // this is one of the two places that number is set (the other is room2-7's latch, see
+            // `TODO.md`). Nothing about the puzzle changes: the chest still holds nine balls, three
+            // of which are wanted, so reading the pictogram is still the whole of it.
+            //
+            // `wants.Length` drives the pedestals, the slots and the completion count, so removing a
+            // row is the entire change.
             var wants = new (string name, string ball, Sprite icon)[]
             {
-                ("Axe",       BilliardIdPrefix + "5", AxeIcon()),
-                ("Duck",      BilliardIdPrefix + "3", DuckIcon()),
-                ("Bucket",    BilliardIdPrefix + "4", FullBucketIcon()),
-                ("BeachBall", BilliardIdPrefix + "2", BeachBallIcon()),
+                ("Axe",    BilliardIdPrefix + "5", AxeIcon()),
+                ("Duck",   BilliardIdPrefix + "3", DuckIcon()),
+                ("Bucket", BilliardIdPrefix + "4", FullBucketIcon()),
             };
 
             string[] family = BilliardIds();
@@ -7379,22 +7426,26 @@ namespace IterationRoom.EditorTools
 
         // `CUBE + BUCKET + AXE + BEACH BALL + DUCK = ?`, in objects.
         //
-        // EVERYTHING THE SCALE ACCEPTS, not a solution. Five objects and four plus signs, and the
-        // question mark at the end says the total is the unknown - so the sign names the INGREDIENTS
-        // and the number over the door names the answer, and what adds up to it is the player's to
-        // work out. That is the whole puzzle: they are told no weights.
+        // EVERYTHING THE SCALE ACCEPTS, not a solution. The objects, a plus between each, and a
+        // question mark at the end saying the total is the unknown - so the sign names the
+        // INGREDIENTS and the number over the door names the answer, and what adds up to it is the
+        // player's to work out. That is the whole puzzle: they are told no weights.
         //
-        // The bucket drawn is the FULL one, waterline and all, because an empty pail and a full one
-        // are the same carryable at 1.8kg and 12.0kg and that difference is the largest single fact in
-        // this room. Drawing the empty one would be a quieter lie than drawing a wrong object.
+        // **~~The bucket~~ GONE 2026-08-29**, and with it the one thing on this sign that could not be
+        // drawn honestly: an empty pail and a full one are the same carryable at two very different
+        // weights, so the icon had to pick one and mean it.
         private static void FillWeighEquation(Transform face)
         {
-            Sprite[] objects = { CubeIcon(), FullBucketIcon(), AxeIcon(), BeachBallIcon(), DuckIcon() };
-            string[] names = { "Cube", "Bucket", "Axe", "BeachBall", "Duck" };
+            // FOUR NOW, the bucket having left the equation - see the weight table for why. The
+            // layout below is derived from the count rather than written down, so a row that names
+            // one fewer object simply comes out wider per icon.
+            Sprite[] objects = { CubeIcon(), AxeIcon(), BeachBallIcon(), DuckIcon() };
+            string[] names = { "Cube", "Axe", "BeachBall", "Duck" };
 
-            // Five objects, four pluses, an equals and a question mark - eleven slots across a sign
-            // authored 1600 wide. The icon size is DERIVED from that rather than written down, so the
-            // row fills the sign however many objects it ends up naming.
+            // N objects, N-1 pluses, an equals and a question mark, across a sign authored 1600 wide.
+            // The icon size is DERIVED from that rather than written down, so the row fills the sign
+            // however many objects it ends up naming - which is what made dropping one a one-line
+            // change here.
             const float authoredWidth = 1600f;
             const float opRatio = 90f / 190f;                     // the balloon pictogram's proportion
             int ops = objects.Length;                             // four pluses plus the equals
@@ -8379,30 +8430,45 @@ namespace IterationRoom.EditorTools
         //
         // HOW THE NUMBERS WERE CHOSEN, and they were SOLVED FOR rather than picked (2026-08-19).
         //
-        // The room's rule is now "bring all five", so the target is the sum of one of each - and the
-        // weights are chosen so that **no other combination in the whole cycle reaches it.** Checked
-        // exhaustively against everything cycle 2 contains (5 axes, 4 buckets each of which may be
-        // empty or full, 1 cube, 2 beach balls, 3 ducks): at these values 26.7 has exactly ONE
-        // solution, and the nearest miss is 0.1 away, which is a whole display digit.
+        // The room's rule is "bring all of them", so the target is the sum of one of each - and the
+        // weights are chosen so that **no other combination in the whole cycle reaches it.**
         //
-        //     cube 8.3  +  full bucket 12.0  +  axe 4.7  +  beach ball 1.3  +  duck 0.4  =  26.7
+        //     cube 8.3  +  axe 4.7  +  beach ball 1.3  +  duck 0.4  =  14.7
+        //
+        // **THE BUCKET IS OUT** (2026-08-29, by request), and taking it out CLOSED THE ONE HOLE THIS
+        // PROOF HAD. A partly filled pail is a CONTINUOUS weight - `Weighable` reads `Bucket.Level`,
+        // which is anything at all while a bucket sits under a tap - so a player who knew the weights
+        // could dial in any total they liked and the room was never single-solution. Every other
+        // object here is a fixed number. With no bucket on the pan the exhaustive check is exhaustive
+        // again.
+        //
+        // **THE WEIGHTS DID NOT HAVE TO CHANGE.** Re-run against everything cycle 2 still contains
+        // (5 axes, 1 cube, 2 beach balls, 3 ducks), 14.7 has exactly one solution - and the nearest
+        // miss is 0.2 rather than the old 0.1, so the room got slightly MORE readable by losing an
+        // ingredient. What changed is the target, which the sign and the door both derive.
+        //
+        // ~~cube 8.3 + full bucket 12.0 + axe 4.7 + beach ball 1.3 + duck 0.4 = 26.7~~
         //
         // That is what the side walls draw and what the number over the door asks for. The player is
         // still told no weights: the sign names the INGREDIENTS and the door names the ANSWER, and
         // which of them add up is the thing to work out on the scale.
         //
         // THE REAL COST IS TRIPS. One object in the hand (CLAUDE.md §4), a 60-second clock, and
-        // `ItemRegistry.ReturnAllToOrigin` sweeping everything home at the boundary - so five objects
-        // on the pan at once is five past selves each carrying one. It is the largest headcount any
-        // room in this game has ever asked for.
+        // `ItemRegistry.ReturnAllToOrigin` sweeping everything home at the boundary - so four objects
+        // on the pan at once is four past selves each carrying one. Still the largest headcount any
+        // room in this game asks for, and one less than it was: the bucket's leg was also the longest,
+        // since a full one had to be filled at a tap in room2-2 before it could be carried anywhere.
         private const float WeightDuck = 0.4f;
         private const float WeightBeachBall = 1.3f;
+        // ~~The bucket's weights~~ UNUSED since 2026-08-29 - it is no longer `Weighable`. Kept
+        // rather than deleted because they are the only record of what a full pail weighed, and the
+        // decision that took it off the scale is one somebody may want to reverse.
         private const float WeightBucket = 2.1f;
-        private const float WeightBucketWater = 9.9f;       // a full bucket reads 12.0
+        private const float WeightBucketWater = 9.9f;       // a full bucket read 12.0
         private const float WeightAxe = 4.7f;
         private const float WeightCube = 8.3f;
         private const float WeightPlayer = 71f;
-        private const float WeighTarget = 26.7f;
+        private const float WeighTarget = 14.7f;
 
         // ROOM2-6'S PUZZLE, and the numbers are here for the reason every tuned number is (CLAUDE.md
         // §2): the components own the mechanism, this owns how much of it there is.
@@ -14609,6 +14675,10 @@ namespace IterationRoom.EditorTools
             // as the pool props; see `BuildFloatingProps`.
             item.itemId = name;
             item.displayName = "MIRROR";
+            // `Mirror.Sync` puts the glass in front of the holder's BODY, not at the hand anchor - so
+            // `HeldItemClearance` must not freeze the view on a contact measured at the anchor. See
+            // `CarryableItem.posesItself`.
+            item.posesItself = true;
             item.icon = icon;
             item.floorY = glassAboveFoot;
             // **THE PROMPT HANGS OFF THE GLASS, NOT OFF THE ROOT, and that is how you take one off a
@@ -15694,9 +15764,17 @@ namespace IterationRoom.EditorTools
             // Y matches the keyhole seat below, so the shaft runs into the hole rather than past it.
             socket.transform.localPosition = new Vector3(0f, -0.03f, plateFaceZ - bowJunction);
 
+            // **A WIDER REACH THAN THE LOCK IS BIG** (2026-08-29, by request: the E range was tight).
+            //
+            // 0.8 x 0.8 was about the size of the plate itself, so the player had to stand almost
+            // exactly in front of it - and this is a fixture you walk up to holding a key, from
+            // whatever angle the door happens to be on. The volume is what says "close enough to
+            // touch"; being ON SCREEN is what stops it firing behind your back, and that half is
+            // `PlayerLookup.InView` rather than a small box (CLAUDE.md 1.2). So the box can be
+            // generous without the press becoming loose.
             BoxCollider trigger = lockRoot.AddComponent<BoxCollider>();
             trigger.isTrigger = true;
-            trigger.size = new Vector3(0.8f, 0.8f, 1.2f);
+            trigger.size = new Vector3(2.2f, 2.4f, 2.0f);
 
             KeyLock keyLock = lockRoot.AddComponent<KeyLock>();
             keyLock.door = door;
@@ -18576,6 +18654,111 @@ namespace IterationRoom.EditorTools
         // not built - and it silently shifts nothing, so it is a wasted bit rather than a corruption.
         // A DUPLICATE entry is worse: one fixture on two bits, where the second bit's rising edge
         // fires a second time on a ghost that only ever did the thing once.
+        // **EVERY PROMPT ANCHOR, CHECKED AGAINST THE SOLID THINGS THAT ARE NOT FORGIVEN.**
+        //
+        // Written 2026-08-29 after the same bug shipped TWICE in two days, and both times it was
+        // found by a person playing rather than by anything here.
+        //
+        // The shape of it: `PlayerLookup.InView` refuses a press whose anchor is behind geometry, and
+        // it forgives the fixture's OWN geometry by walking up from the anchor to the nearest
+        // `IInteractHintTarget`. A fixture that implements no such interface - `WaterTank` is a
+        // `RoomCondition` - resolves to the anchor itself, so its own body is not forgiven and **it
+        // occludes its own prompt.** Play reported that as "you have to jump to interact with it",
+        // which is a description of a raycast clearing a rim and reads like nothing at all.
+        //
+        // **THE PREDICATE IS: BURIED IN A SOLID THE FIXTURE DOES NOT OWN, DEEPER THAN THE RAY STOPS
+        // SHORT.** An anchor that far inside is occluded from essentially every angle - no camera
+        // position helps, short of getting inside the collider.
+        //
+        // **THE FIRST VERSION LEFT THE SECOND HALF OFF AND WAS 39/39 NOISE.** It flagged every object
+        // resting ON a surface, because a carryable's anchor is its own origin and its `floorY` is
+        // zero - so the anchor sits on the floor plane, technically inside the floor's bounds, and
+        // `Occluded` already forgives precisely that (`SurfaceClearance`). A check that does not know
+        // what has already been fixed reports the fix.
+        //
+        // **IT DOES NOT CATCH EVERYTHING, and saying so is the point.** An anchor a centimetre in
+        // FRONT of its own unforgiven body passes here and still fails from a low angle. This is the
+        // sharp end of the class, not the whole of it - a player is still the instrument for the rest.
+        // The same number `PlayerLookup.SurfaceClearance` uses, restated here because that one is
+        // private runtime code and a build check that reached into it would break the moment either
+        // moved. If they ever disagree this check gets quieter, never louder - which is the direction
+        // a duplicated constant should fail in.
+        private const float AnchorSurfaceClearance = 0.05f;
+
+        private static void CheckHintAnchors()
+        {
+            var colliders = new System.Collections.Generic.List<Collider>();
+            foreach (GameObject root in SceneManager.GetActiveScene().GetRootGameObjects())
+                colliders.AddRange(root.GetComponentsInChildren<Collider>(true));
+
+            int checked_ = 0, bad = 0;
+
+            foreach (GameObject root in SceneManager.GetActiveScene().GetRootGameObjects())
+                foreach (MonoBehaviour behaviour in root.GetComponentsInChildren<MonoBehaviour>(true))
+                {
+                    if (!(behaviour is IInteractHintTarget target)) continue;
+
+                    Transform anchor = target.HintAnchor;
+                    if (anchor == null) continue;
+                    checked_++;
+
+                    // The same resolution `PlayerLookup.OwnerObject` performs: the nearest ancestor
+                    // that claims the press. Duplicated rather than shared because that one is
+                    // runtime code and this is a build check, and a check that calls the thing it is
+                    // checking proves nothing.
+                    var owner = anchor.GetComponentInParent<IInteractHintTarget>() as Component;
+                    Transform ownerTransform = owner != null ? owner.transform : anchor;
+
+                    foreach (Collider c in colliders)
+                    {
+                        if (c == null || c.isTrigger || !c.enabled) continue;
+                        if (c.transform.IsChildOf(ownerTransform)) continue;
+                        // The player's own capsule is never an occluder either.
+                        if (c.transform.root.CompareTag("Player")) continue;
+                        if (!c.bounds.Contains(anchor.position)) continue;
+
+                        // **AND DEEPER IN THAN THE RAY'S OWN CLEARANCE, or it is not a problem.**
+                        //
+                        // The first run of this check reported 39 of 110 and every one was the same
+                        // thing: an object RESTING ON a surface. A carryable's anchor is its own
+                        // origin and its `floorY` is how far that origin sits above the floor - zero
+                        // for a chess piece, an axe, a bucket - so the anchor is on the floor plane
+                        // and inside the floor's bounds by a hair.
+                        //
+                        // `PlayerLookup.Occluded` already forgives exactly that: it drops the last
+                        // `SurfaceClearance` of the cast, because the surface a thing stands on is not
+                        // hiding it. A check that does not know about that mitigation reports the
+                        // thing it fixed, which is worse than reporting nothing - a warning list that
+                        // is 39/39 noise is a warning list nobody reads.
+                        //
+                        // So the question is not "is the anchor inside" but "is it buried DEEPER than
+                        // the ray stops short". Measured off the bounds rather than the mesh, which is
+                        // conservative in the safe direction: an AABB is never smaller than the shape.
+                        Vector3 lo = anchor.position - c.bounds.min;
+                        Vector3 hi = c.bounds.max - anchor.position;
+                        float buried = Mathf.Min(
+                            Mathf.Min(lo.x, hi.x), Mathf.Min(Mathf.Min(lo.y, hi.y), Mathf.Min(lo.z, hi.z)));
+                        if (buried <= AnchorSurfaceClearance) continue;
+
+                        bad++;
+                        Debug.LogWarning(
+                            $"[SceneBuilder] PROMPT ANCHOR INSIDE UNFORGIVEN GEOMETRY: "
+                          + $"{behaviour.GetType().Name} on '{behaviour.name}' has its anchor "
+                          + $"'{anchor.name}' at {anchor.position} inside the collider on "
+                          + $"'{c.name}', which is not under '{ownerTransform.name}'. "
+                          + "`PlayerLookup.InView` will refuse this press from most angles - the "
+                          + "symptom is a prompt that only appears if the player jumps or crouches. "
+                          + "Fix by moving the anchor clear, or by passing the owning fixture to the "
+                          + "`InView(anchor, owner)` overload.");
+                        break;
+                    }
+                }
+
+            Debug.Log($"[SceneBuilder] Hint anchors checked: {checked_}, {bad} inside geometry their "
+                    + "own fixture does not own. Anything but 0 is a prompt the player has to find a "
+                    + "camera angle for.");
+        }
+
         private static void CheckGhostSignals(string cycleName, GhostInteractable[] signals)
         {
             if (signals == null) return;

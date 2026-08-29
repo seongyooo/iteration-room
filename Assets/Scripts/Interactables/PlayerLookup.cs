@@ -322,6 +322,20 @@ namespace IterationRoom
         public static bool InView(Transform anchor) =>
             anchor != null && InFrustum(anchor.position) && !Occluded(anchor.position, anchor);
 
+        // **FOR A FIXTURE THAT IS NOT AN `IInteractHintTarget`, WHICH HAS TO NAME ITSELF.**
+        //
+        // `OwnerObject` finds the thing an anchor belongs to by walking up to the nearest component
+        // that claims the press - and a fixture on the LEFT button implements no such interface, so
+        // the walk finds nothing and falls back to the anchor's own subtree. That is stricter than it
+        // should be, and play found what it costs: `WaterTank`'s pour point is an empty child, its
+        // GLASS is a sibling, so **the tank occluded its own aim point** and the prompt only appeared
+        // if you jumped - which put the eye above the rim and cleared the ray.
+        //
+        // The owner is passed in rather than guessed. Everything else is `InView`'s rule unchanged.
+        public static bool InView(Transform anchor, Transform owner) =>
+            anchor != null && InFrustum(anchor.position)
+            && !Occluded(anchor.position, owner != null ? owner : anchor);
+
         // No owner to forgive, so nothing is ignored but triggers and the player. For callers that
         // have a point rather than an object.
         public static bool InView(Vector3 worldPoint) =>
@@ -379,7 +393,10 @@ namespace IterationRoom
             float distance = delta.magnitude;
             if (distance <= SurfaceClearance) return false;
 
-            Transform ownerObject = OwnerObject(owner);
+            // An owner named by the caller is taken as given; one inferred from an anchor is
+            // resolved to whatever fixture claims it.
+            Transform ownerObject = owner != null && owner.GetComponent<IInteractHintTarget>() != null
+                ? owner : OwnerObject(owner);
 
             // **NonAlloc, BECAUSE THIS RUNS PER CANDIDATE PER FRAME.** `RaycastAll` returns a fresh
             // array every call, and this is asked of every fixture and every takeable the player is

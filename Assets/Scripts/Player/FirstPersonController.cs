@@ -361,9 +361,30 @@ namespace IterationRoom
             // Whichever device is driving, in the same units: `GameInput.Look` hands over degrees
             // before sensitivity, which is what the mouse axis already was. A touch drag is
             // converted to match rather than this having to know which it is reading.
+            // **AND THE THING IN YOUR HANDS CAN REFUSE A TURN** (2026-08-29, by request).
+            //
+            // A held object pressed against a wall stops the player walking; turning was the one way
+            // left to push it in, because a rotation is not a motion there is anything to refuse. At
+            // 0.3m from a wall EVERY point 0.57m in front of the eye is inside it, so an object that
+            // must neither grow nor clip cannot move - and neither can the head it hangs off.
+            //
+            // **ONLY THE TURN THAT MAKES IT WORSE, and the first version got this wrong.** Freezing
+            // the view on contact refused the turn AWAY from the wall too, which is the one that
+            // helps: the player was pinned facing a wall by the very thing that was supposed to be in
+            // front of them. Play reported it immediately, and it was the risk this feature was
+            // warned about going in.
+            //
+            // Asked PER AXIS. A diagonal mouse movement is often helpful in one and harmful in the
+            // other, and refusing the pair would be the same over-refusal one size smaller.
             Vector2 look = LookLocked ? Vector2.zero : GameInput.Look;
             float mouseX = look.x * sensitivity;
             float mouseY = look.y * sensitivity;
+
+            if (heldClearance != null)
+            {
+                if (mouseX != 0f && heldClearance.WouldWorsen(mouseX, 0f)) mouseX = 0f;
+                if (mouseY != 0f && heldClearance.WouldWorsen(0f, mouseY)) mouseY = 0f;
+            }
 
             transform.Rotate(Vector3.up * mouseX);
 
@@ -440,6 +461,23 @@ namespace IterationRoom
                 : target;
 
             Vector3 move = horizontalMove;
+
+            // **WHAT YOU ARE CARRYING CAN STOP YOU**, and that is the whole of why held objects are
+            // no longer pushed toward the camera when they meet a wall - see `HeldItemClearance`.
+            //
+            // Only the component INTO the obstruction is removed, never the whole of the motion. A
+            // held object catching a door jamb has to leave you able to slide off it; zeroing the
+            // move instead would wedge a player in a doorway they can plainly fit through, with
+            // nothing on screen explaining why. This is the same thing the `CharacterController`
+            // already does for the capsule, applied to the thing in front of it.
+            //
+            // Horizontal only. An object cannot hold you up in the air, and taking `y` out of it
+            // means gravity and the jump are untouched by anything in the hand.
+            if (heldObstruction.sqrMagnitude > 0.0001f)
+            {
+                float into = Vector3.Dot(move, heldObstruction);
+                if (into < 0f) move -= heldObstruction * into;
+            }
 
             if (controller.isGrounded && verticalVelocity < 0f)
                 verticalVelocity = -1f;
@@ -548,6 +586,15 @@ namespace IterationRoom
             controller.Move(delta);
         }
 
+        // Registered by `HeldItemClearance` so the look can ask it whether a turn would push the
+        // held object further into what it is already touching. Null whenever nothing is held.
+        [System.NonSerialized] public HeldItemClearance heldClearance;
+
+        // THE SURFACE THE HELD OBJECT IS PRESSED AGAINST, as an inward normal, or zero for nothing.
+        // Written by `HeldItemClearance` every frame it finds contact and cleared by it when it does
+        // not, so this is a level rather than an event and there is no state to get stuck set.
+        [System.NonSerialized] public Vector3 heldObstruction;
+
         public void Teleport(Vector3 position, Quaternion rotation)
         {
             controller.enabled = false;
@@ -559,6 +606,9 @@ namespace IterationRoom
             // of bed for a tenth of a second before the wake-up takes control. Momentum is not one of
             // the things an iteration inherits.
             horizontalMove = Vector3.zero;
+            // Cleared with the rest of the momentum: a player teleported to the bed while their
+            // object was against a wall would arrive unable to walk in one direction.
+            heldObstruction = Vector3.zero;
             // And the crouch, for the same reason: an iteration that ended crouched would begin with
             // the eye on the floor, easing up while the wake-up is trying to pose it.
             eyeHeight = standingEyeHeight;

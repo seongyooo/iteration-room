@@ -71,6 +71,36 @@ namespace IterationRoom
 
         public bool Riding => rider != null;
 
+        // WHICH WAYPOINT TO CARRY ON FROM, given where somebody stepped on. The first waypoint PAST
+        // the nearest point on the chute - projected onto each segment rather than snapped to the
+        // nearest corner, because a rider who is a third of the way along a segment should not be
+        // pulled back to its start.
+        private int NearestSegment(Vector3 worldPosition)
+        {
+            int best = 0;
+            float bestDistance = float.MaxValue;
+
+            for (int i = 0; i < path.Length - 1; i++)
+            {
+                Vector3 a = transform.TransformPoint(path[i]);
+                Vector3 b = transform.TransformPoint(path[i + 1]);
+                Vector3 ab = b - a;
+
+                float lengthSqr = Mathf.Max(1e-6f, ab.sqrMagnitude);
+                float t = Mathf.Clamp01(Vector3.Dot(worldPosition - a, ab) / lengthSqr);
+                float d = (worldPosition - (a + ab * t)).sqrMagnitude;
+
+                if (d >= bestDistance) continue;
+                bestDistance = d;
+                // Past the projection: the segment's far end. Joining at the very top gives 1, so the
+                // route is the player's step-on point and then every waypoint - which is exactly what
+                // this did before, and is why the top of the chute is unchanged.
+                best = i + 1;
+            }
+
+            return Mathf.Clamp(best, 0, path.Length - 1);
+        }
+
         // The player's own capsule is what fires this - a ghost has no collider (CLAUDE.md 1.7), so a
         // past self riding the slide can never start a second ride.
         private void OnTriggerEnter(Collider other)
@@ -95,9 +125,21 @@ namespace IterationRoom
             // FROM WHERE THEY ARE, not from the top of the chute. The trigger is a volume, so the
             // player can enter it a step short of the first waypoint - starting at the waypoint would
             // jerk them onto it. This makes the approach part of the ride.
-            route = new Vector3[path.Length + 1];
+            //
+            // **AND FROM WHERE THEY ARE ALONG IT, not from the beginning of it** (2026-08-29, by
+            // request: getting on halfway down should slide you down from halfway).
+            //
+            // The route used to be the player's position followed by the WHOLE path, so somebody
+            // stepping on at the middle was dragged back up to the top and started again - the ride
+            // was correct and the entry was a lie. Finding the nearest point on the polyline and
+            // keeping only the waypoints past it makes joining partway the same act as joining at the
+            // top, with no second code path: everything below - the speed ramp, the marks, the pose -
+            // reads `route` and does not care where it came from.
+            int from = NearestSegment(controller.transform.position);
+
+            route = new Vector3[path.Length - from + 1];
             route[0] = controller.transform.position;
-            for (int i = 0; i < path.Length; i++) route[i + 1] = transform.TransformPoint(path[i]);
+            for (int i = from; i < path.Length; i++) route[i - from + 1] = transform.TransformPoint(path[i]);
 
             marks = new float[route.Length];
             for (int i = 1; i < route.Length; i++)

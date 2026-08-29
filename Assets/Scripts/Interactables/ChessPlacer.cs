@@ -33,18 +33,19 @@ namespace IterationRoom
         // against this. Same rule as CarriedItemsDisplay's put-down prompt, for the same reason.
         public int PlacementCount { get; private set; }
 
-        // ONCE. Not "three times" like the Tab prompt, and not "until it is used" like the swing:
-        // this one has the lit square standing next to it doing the pointing, so the disc only has to
-        // say which BUTTON, and nobody forgets a button they have just pressed. The lit square itself
-        // stays for good - which square is a new answer every time.
-        public int placeHintRetireAfter = 1;
+        // **ALWAYS, NOW** (2026-08-29, by request). Zero means never retire, and that is what this
+        // is set to.
+        //
+        // It used to disappear after one placement, on the reasoning that nobody forgets a button
+        // they have just pressed. That is true of the BUTTON and misses what the disc is actually
+        // doing here: it is drawn on the lit square, so it says "left click" and "over there" in one
+        // mark. Twelve pieces go back one at a time across many iterations, and the half of the
+        // message that keeps mattering is WHICH SQUARE - which is a new answer every single time.
+        // Retiring the disc threw that away to save the player from being told a control twice.
+        public int placeHintRetireAfter;
 
-        // And only from close to the square it is pointing at. Hung on the marker the moment a piece
-        // entered the hand, the disc would appear the instant the player picked something up on the
-        // far side of the room - describing a click that cannot reach - and it would be a HUD element
-        // about a control rather than a label on the thing the control acts on. Four metres is
-        // "standing at the board", against the six the placement itself reaches.
-        public float hintRange = 4f;
+        // ~~How near the marker the prompt appears~~ **NO LONGER A RANGE AT ALL** (2026-08-29). Kept
+        // as an upper bound on the ray below and nothing else - see `WouldPlace`.
 
         // The square the held piece belongs on, or -1 for nothing held that goes anywhere. Recomputed
         // every frame rather than cached on pickup: the piece can leave the hand by routes this
@@ -64,20 +65,41 @@ namespace IterationRoom
         // control the room otherwise never explains.
         public bool WantsPlaceHint =>
             board != null && board.Marker != null && MarkedSquare >= 0
-            && PlacementCount < placeHintRetireAfter
-            && WithinHintRange
+            && (placeHintRetireAfter <= 0 || PlacementCount < placeHintRetireAfter)
+            && WouldPlace
             && (LoopManager.Instance == null || LoopManager.Instance.AcceptsInput);
 
-        // Measured from the CAMERA, like every other range in this game that decides whether a prompt
-        // is about something the player is standing at - and measured to the marker rather than to the
-        // board, because the marker is what the disc is drawn on.
-        private bool WithinHintRange
+        // **THE PROMPT ASKS THE CLICK'S OWN QUESTION, NOT A DISTANCE** (2026-08-29, by request: the
+        // disc "떴는데 너무 빨리" - it appeared long before the click did anything).
+        //
+        // It used to be a radius round the marker, and a radius can only ever approximate this. The
+        // click succeeds when a ray from the camera hits the BOARD inside `reach` and lands in the
+        // piece's own square; standing six metres away pointed at a wall satisfies a radius and none
+        // of that. So the disc appeared, the player clicked, and nothing happened - which is worse
+        // than no prompt, because it teaches that the control is unreliable.
+        //
+        // This runs the same three tests the press runs, in the same order, off the same collider.
+        // The two cannot disagree now because there is only one description of when a placement
+        // works - which is the rule the whole E family already follows (CLAUDE.md 1.2), arriving late
+        // at the one fixture that is on the left button instead.
+        //
+        // The raycast is affordable: it happens once per frame, only while a piece that has a home is
+        // in the hand, and against ONE collider rather than the scene.
+        private bool WouldPlace
         {
             get
             {
-                if (playerCamera == null || board.Marker == null) return false;
-                Vector3 d = board.Marker.position - playerCamera.transform.position;
-                return d.sqrMagnitude <= hintRange * hintRange;
+                if (playerCamera == null || board == null || board.boardCollider == null) return false;
+
+                int home = MarkedSquare;
+                if (home < 0) return false;
+
+                Ray ray = new Ray(playerCamera.transform.position, playerCamera.transform.forward);
+                if (!board.boardCollider.Raycast(ray, out RaycastHit hit, reach)) return false;
+                if (board.SquareAt(hit.point) != home) return false;
+
+                CarryableItem held = hand != null ? hand.Held : null;
+                return held != null && board.CanSeat(held.itemId);
             }
         }
 

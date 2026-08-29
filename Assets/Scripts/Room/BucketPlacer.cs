@@ -34,7 +34,18 @@ namespace IterationRoom
         // precise, where pouring is emptying it AT something big. Standing back far enough to watch
         // the level rise is what a player naturally does, and at 3.2 the prompt went out exactly
         // when they did it.
-        public float tankReach = 5.5f;
+        // **BACK TO 3.5 FROM 7.5, AND THE TRIP THERE IS THE LESSON.** It went 3.2 -> 5.5 -> 7.5 over
+        // two days chasing a complaint that the pour prompt was hard to get - and the range was never
+        // the problem. The tank was OCCLUDING ITS OWN AIM POINT (`WaterTank` is not an
+        // `IInteractHintTarget`, so `PlayerLookup.OwnerObject` did not forgive its glass), which is
+        // why the prompt appeared only if the player jumped. Every metre added missed the cause and
+        // made the prompt reach halfway across the room instead.
+        //
+        // **A RANGE THAT IS TOO LONG IS ITS OWN BUG**, which is what play then reported: a click
+        // offered from seven metres is a click about something you are looking past, not something
+        // you are standing at. Slightly longer than the stand's 3.2 because a tank is a big thing to
+        // pour at rather than a spot to set a pail on, and that is the whole of the difference.
+        public float tankReach = 3.5f;
 
         // THIS CYCLE'S STANDS AND TANKS, handed over by `CycleBinding` when the cycle wakes.
         //
@@ -133,7 +144,7 @@ namespace IterationRoom
                     if (s == null || !s.IsFree) continue;
                     Transform aim = s.Aim;
                     float d = (aim.position - eye).sqrMagnitude;
-                    if (d >= bestStand || !PlayerLookup.InView(aim)) continue;
+                    if (d >= bestStand || !PlayerLookup.InView(aim, s.transform)) continue;
                     bestStand = d; targetStand = s;
                 }
 
@@ -143,7 +154,7 @@ namespace IterationRoom
                 if (t == null) continue;
                 Transform aim = t.Aim;
                 float d = (aim.position - eye).sqrMagnitude;
-                if (d >= bestTank || !PlayerLookup.InView(aim)) continue;
+                if (d >= bestTank || !PlayerLookup.InView(aim, t.transform)) continue;
                 bestTank = d; targetTank = t;
             }
         }
