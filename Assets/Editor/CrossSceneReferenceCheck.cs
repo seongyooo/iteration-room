@@ -112,6 +112,13 @@ namespace IterationRoom.EditorTools
             "PanelMessage.retireOnEndCycle",
             "PanelMessage.retireOnPop",
             "ChessPlacer.board",
+            "BedlamPlacer.cube",
+            "LadderPlacer.mount",
+            // The other direction: the mount moves the player it catches.
+            "LadderMount.player",
+            // The other direction: cycle 3's break reaches out for the shaker and the PA.
+            "FacilityFailure.cameraShaker",
+            "FacilityFailure.narration",
             "CycleExit.player",
             // The binder's own inputs, which point at whatever it is about to fix.
             "CycleBinding.coreHintTargets",

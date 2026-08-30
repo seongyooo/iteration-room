@@ -47,6 +47,20 @@ namespace IterationRoom
         // nothing currently sets it false.
         public bool ghostCarryable = true;
 
+        // **REPRODUCING A HAND-OVER OFF ANOTHER PAST SELF MATTERS FOR THIS OBJECT.**
+        //
+        // `GhostReplayer.Eligible` lets a ghost take something out of ANOTHER ghost's hands only when
+        // the object has somewhere to go, on the reasoning that "a pin has no destination a hand-over
+        // could matter for" - three interchangeable pins reshuffling between past selves reads as
+        // random and buys nothing.
+        //
+        // That reasoning silently excluded the MIRRORS, which have no socket and for which which
+        // hand holds them is the entire puzzle: a pane is a position in space bending light. So a
+        // player who took a mirror off a past self and stood in its place had that take refused for
+        // every later iteration, and the thing they did was never reproduced. Reported from play as
+        // exactly that. Having a socket was never the real question; this is.
+        public bool ghostHandover;
+
         // The ghost currently holding this, if any. A ghost's custody is CUSTODY, not ownership:
         // every way out of it has to land the item somewhere (socket, floor, player, origin), or an
         // object that exists exactly once in the game can be lost.
@@ -154,6 +168,19 @@ namespace IterationRoom
         // restRoll says "lie over by this much". The key wants the second, a bucket the first.
         public bool restsUpright = false;
 
+        // **IT LIES THE WAY IT WAS PUT DOWN, rather than the way it was built.**
+        //
+        // `LieDown` restores the BUILT rotation for anything that is neither `restsUpright` nor
+        // rolled, and for a key or a chess piece that is right: their built pose is their resting
+        // pose and their yaw is not a thing anybody can read. For a six-metre ladder it is the fault
+        // it was reported as - put it down facing anywhere and it snapped round to lie along +Z,
+        // which is north, every time.
+        //
+        // Its own flag rather than `restsUpright`, which would give the same result here and would be
+        // a lie about why: that one means "stands on its base whatever pose it was built in", and a
+        // ladder put down is not standing on anything.
+        public bool keepsDropYaw = false;
+
         public Vector3 handLocalPosition = new Vector3(0.28f, -0.24f, 0.42f);
         public Vector3 handLocalEuler = new Vector3(12f, -8f, 18f);
 
@@ -198,6 +225,45 @@ namespace IterationRoom
         // player would change the recording being made against it). Off while socketed too: a cube
         // is seated by a player standing right on top of a floor recess, and a solid box appearing
         // under their feet is a shove, not a wall.
+        // **THE OBJECT AS A LINE, END TO END, in its LOCAL frame - and it is CENTRED on the origin.**
+        // The object runs from `position - span/2` to `position + span/2`. Zero for everything that
+        // fits in a hand, which is everything but the ladder.
+        //
+        // Five things read it and all five need the same fact: `NearestPoint` below,
+        // `FallingItem.SurfaceUnder`, `LongItemAnchor`, `LevelCarry.GiveWay` and
+        // `HeldItemClearance.LongContact`.
+        //
+        // **CENTRED, since 2026-08-30, and that is the whole of the fix rather than a tidy-up.** It
+        // was a span FROM the origin, because the ladder model's pivot is at one end - and that end
+        // pivot produced five separate bugs in three days, one per system that asks "where is this
+        // object" (`docs/gotchas.md`). `SceneBuilder` now moves the pivot to the middle of the mesh
+        // when it builds the ladder, so the origin is the middle of the thing and every one of those
+        // questions has the obvious answer again.
+        public Vector3 heldSpan;
+
+        // **THE POINT ON THIS OBJECT NEAREST SOMEWHERE, which for anything long is not its pivot.**
+        //
+        // Its own position for everything that fits in a hand, and the nearest point along its length
+        // for anything that does not. Written for the ghost reach test: a past self takes an object
+        // it once picked up only if that object is still WITHIN REACH of where it is standing, and
+        // that question was being asked of the ladder's origin.
+        //
+        // Play found it as **ghosts not picking the ladder up**: the player can take it anywhere
+        // along its six metres (`LongItemAnchor`), so a take made at one end left the past self three
+        // metres from the middle and failing a two-metre test.
+        public Vector3 NearestPoint(Vector3 from)
+        {
+            if (heldSpan == Vector3.zero) return transform.position;
+
+            Vector3 ab = transform.TransformVector(heldSpan);
+            float length = ab.magnitude;
+            if (length < 0.05f) return transform.position;
+
+            Vector3 a = transform.position - ab * 0.5f;
+            float along = Mathf.Clamp01(Vector3.Dot(from - a, ab / length) / length);
+            return a + ab * along;
+        }
+
         public Collider blocker;
 
         public AudioSource audioSource;
@@ -219,6 +285,17 @@ namespace IterationRoom
         // IsCarried covers "in someone's hands", ghost or player. Almost every guard below wants the
         // narrower one: a ghost-held item is still very much in play for the living player.
         public bool IsCarriedByPlayer => IsCarried && HeldByGhost == null;
+
+        // **IN A SOCKET, WHICH IS NOT THE SAME AS IN A HAND.** `IsCarried` is true for both - it means
+        // "somebody else owns where this is" - and for everything that only ever asks "may I take
+        // it" that distinction never mattered.
+        //
+        // It matters the moment an object POSES ITSELF. `LevelCarry` asks whose body to hang the
+        // object off and gets the player for anything carried; a ladder standing in its mount is
+        // carried by that definition, so it followed the player round the room after they installed
+        // it. Play found it as the ladder being placed differently by a ghost and by the player -
+        // both placed it correctly and then the player's walked away with them.
+        public bool Seated { get; private set; }
 
         // Hidden items are out of play entirely - the key spends most of an iteration inside an
         // unburst balloon - so they must not offer a prompt or answer to E.
@@ -359,6 +436,7 @@ namespace IterationRoom
         {
             HeldByGhost = null;
             IsCarried = true;
+            Seated = false;
             Released = false;
             if (trigger != null) trigger.enabled = false;
             SetBlocking(false);
@@ -405,6 +483,7 @@ namespace IterationRoom
 
             HeldByGhost = ghost;
             IsCarried = true;
+            Seated = false;
             Released = false;
             // Same handover as the player's, for the same reason: a past self carrying a duck is
             // writing that transform every frame off its own recording, and a dynamic body would
@@ -473,6 +552,7 @@ namespace IterationRoom
         {
             HeldByGhost = null;
             IsCarried = false;
+            Seated = false;
             Freeze(false);
             Released = false;
             transform.localScale = originLocalScale;
@@ -485,6 +565,7 @@ namespace IterationRoom
         {
             HeldByGhost = null;
             IsCarried = false;
+            Seated = false;
             Freeze(false);
             Released = true;
 
@@ -531,7 +612,7 @@ namespace IterationRoom
         // rather than a thing that changes under the player.
         public void LieDown(float yaw)
         {
-            if (!restsUpright && Mathf.Abs(restRoll) < 0.01f)
+            if (!restsUpright && !keepsDropYaw && Mathf.Abs(restRoll) < 0.01f)
             {
                 transform.localRotation = originLocalRotation;
                 return;
@@ -589,6 +670,7 @@ namespace IterationRoom
 
             HeldByGhost = null;
             IsCarried = true;
+            Seated = true;
             Released = false;
             if (trigger != null) trigger.enabled = false;
             SetBlocking(false);
@@ -604,6 +686,7 @@ namespace IterationRoom
         {
             HeldByGhost = null;
             IsCarried = false;
+            Seated = false;
             Freeze(false);
             Released = false;
             if (trigger != null) trigger.enabled = true;

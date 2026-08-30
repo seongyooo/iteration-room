@@ -52,6 +52,9 @@ namespace IterationRoom
         private const KeyCode HudKey = KeyCode.K;
         private const KeyCode CameraKey = KeyCode.L;
         private const KeyCode CardKey = KeyCode.J;
+        // HOLD, not toggle - the only one of the four that is. Chosen next to the WASD block it
+        // works alongside rather than next to K/L/J.
+        private const KeyCode DollyKey = KeyCode.O;
         // Kept as aliases for a keyboard with Fn-lock on, where the F-keys do arrive normally.
         private const KeyCode HudAlias = KeyCode.F9;
         private const KeyCode CameraAlias = KeyCode.F10;
@@ -81,14 +84,42 @@ namespace IterationRoom
         // most amateur-looking thing a trailer can do.
         public float lookSensitivity = 0.6f;
 
+        [Header("The auto pull-back dolly")]
+        // WHY THIS EXISTS: a hand-flown wide shot carries every twitch of the mouse into the take,
+        // and the money shot (six of you, swinging) is exactly the frame that most needs to hold
+        // still. Holding O glides the camera backward - and a little upward, "backed off and
+        // slightly high" per the shotlist - along wherever it was AIMED the moment the key went
+        // down. Release and it eases back to a stop instead of a hard cut in the motion.
+        //
+        // IT REUSES `speed`, the same number the scroll wheel already tunes, rather than inventing
+        // a second speed to remember - so "how far it goes" is just how long O stays down at
+        // whatever cruise speed the shot already wanted, and that answers "per room" for free: a
+        // cramped room and the tree hall both get their own comfortable speed from the same wheel,
+        // with no per-room number anywhere in code.
+        //
+        // MOUSE AND WASD ARE LOCKED OUT FOR THE WHOLE GLIDE, ramp and release included - the point
+        // is a stretch of footage with nothing but the dolly moving the camera. Aim before pressing
+        // O; steering mid-glide is exactly the jitter this is for removing.
+        public float dollyRiseRatio = 0.25f;
+        public float dollyEaseTime = 1.1f;
+
         public bool HudHidden { get; private set; }
         public bool CardHidden { get; private set; }
         public bool Detached { get; private set; }
+        // True from the moment O goes down until the eased-out speed reaches zero - not just while
+        // held - so the release glide still counts as "the dolly is driving" and Fly() leaves the
+        // mouse alone through it.
+        public bool Dollying => dollyHeld || dollySpeed > 0.01f;
 
         private float yaw;
         private float pitch;
         private float speed;
         private bool armed;
+
+        private bool dollyHeld;
+        private float dollySpeed;
+        private float dollySpeedVelocity;
+        private Vector3 dollyDirection;
 
         // WHAT ACTUALLY GETS TURNED OFF: the `Graphic`s, never the GameObjects.
         //
@@ -122,7 +153,8 @@ namespace IterationRoom
             // eaten upstream.
             if (armed)
                 Debug.Log($"[CaptureRig] armed. {KeyName(HudKey)}: HUD, {KeyName(CameraKey)}: camera, "
-                        + $"{KeyName(CardKey)}: iteration card. "
+                        + $"{KeyName(CardKey)}: iteration card, hold {KeyName(DollyKey)} while detached: "
+                        + "pull-back dolly. "
                         + $"({KeyName(HudAlias)}/{KeyName(CameraAlias)} also work if Fn-lock is on.) "
                         + $"{hudGraphics.Length} HUD graphics, {cardGraphics.Length} card graphics.");
         }
@@ -235,6 +267,14 @@ namespace IterationRoom
                 yaw = angles.y;
                 speed = flySpeed;
             }
+            else
+            {
+                // GOING BACK TO THE PLAYER. Left running, a glide from the last take would resume
+                // mid-air the next time the camera detaches, aimed at nothing this shot chose.
+                dollyHeld = false;
+                dollySpeed = 0f;
+                dollySpeedVelocity = 0f;
+            }
 
             // THE COMPONENT, NEVER THE GAMEOBJECT. The `AudioListener` lives on `PlayerCamera`, so
             // deactivating that object would record a silent trailer of a game whose PA announcer is
@@ -264,13 +304,23 @@ namespace IterationRoom
             float dt = Time.unscaledDeltaTime;
             Transform cam = captureCamera.transform;
 
-            yaw += Input.GetAxis("Mouse X") * lookSensitivity;
-            pitch = Mathf.Clamp(pitch - Input.GetAxis("Mouse Y") * lookSensitivity, -89f, 89f);
-            cam.rotation = Quaternion.Euler(pitch, yaw, 0f);
-
+            // SCROLL ALWAYS TUNES `speed`, dolly running or not - it is what the dolly's own cruise
+            // speed is read from, so easing it up or down mid-glide is a real creative option and
+            // not a bug.
             float scroll = Input.mouseScrollDelta.y;
             if (!Mathf.Approximately(scroll, 0f))
                 speed = Mathf.Clamp(speed * Mathf.Pow(1.15f, scroll), minSpeed, maxSpeed);
+
+            HandleDolly(cam);
+            if (Dollying)
+            {
+                cam.position += dollyDirection * dollySpeed * dt;
+                return;
+            }
+
+            yaw += Input.GetAxis("Mouse X") * lookSensitivity;
+            pitch = Mathf.Clamp(pitch - Input.GetAxis("Mouse Y") * lookSensitivity, -89f, 89f);
+            cam.rotation = Quaternion.Euler(pitch, yaw, 0f);
 
             // READ STRAIGHT OFF `InputBindings`, going round `GameInput` - legitimate here and
             // nowhere else, because the rig is what just told `GameInput` to answer nothing. It means
@@ -290,6 +340,35 @@ namespace IterationRoom
 
             float rate = speed * (Input.GetKey(InputBindings.Get(GameAction.Sprint)) ? boostMultiplier : 1f);
             cam.position += move.normalized * rate * dt;
+        }
+
+        // CAPTURES ITS DIRECTION ONCE, on the down-press, and never reads the camera's facing again
+        // until the next press. Reading it every frame would let the mouse steer the glide, which is
+        // the exact jitter this exists to remove - aim happens before O, not during it.
+        private void HandleDolly(Transform cam)
+        {
+            if (Input.GetKeyDown(DollyKey) && !TakenByAVerb(DollyKey))
+            {
+                dollyHeld = true;
+
+                Vector3 forward = cam.forward;
+                Vector3 flat = new Vector3(forward.x, 0f, forward.z);
+                // Levelled off, so retreating never dives into the floor or climbs into the ceiling
+                // just because the shot was aimed up or down slightly. The rise on top of it is
+                // `dollyRiseRatio`'s job, not the pitch the operator happened to be holding.
+                Vector3 flatBack = flat.sqrMagnitude > 0.0001f ? -flat.normalized : -forward;
+                dollyDirection = (flatBack + Vector3.up * dollyRiseRatio).normalized;
+            }
+            else if (Input.GetKeyUp(DollyKey))
+            {
+                dollyHeld = false;
+            }
+
+            // SAME EASE CONSTANT BOTH WAYS: ramping up to speed reads as a deliberate start and
+            // ramping down after release reads as a deliberate stop, rather than a cut in the motion
+            // either way a hand-flown shot would have.
+            float target = dollyHeld ? speed : 0f;
+            dollySpeed = Mathf.SmoothDamp(dollySpeed, target, ref dollySpeedVelocity, dollyEaseTime);
         }
 
         // F9 and F10 are both bindable (`InputBindings.Listenable` offers F1..F12), so the rig has to

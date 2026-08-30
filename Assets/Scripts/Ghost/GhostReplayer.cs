@@ -73,6 +73,16 @@ namespace IterationRoom
         // errand that works today keeps working. What it refuses is the take across a room.
         public float takeReach = 2f;
 
+        // HOW FAR IN FRONT OF ITSELF A PAST SELF PUTS SOMETHING DOWN, before the object's own
+        // half-width is added. **The same number `PlayerHand.dropAhead` carries**, written into both
+        // by `SceneBuilder` from one constant - a put-down that meant one distance for the player
+        // and another for their past selves is exactly the fault this field exists to close. See
+        // `PutDown`. **THE FALLBACK ONLY**, since the act itself moved to `PlayerHand.PutDownPoint`
+        // - reached for when there is somehow no player hand to ask, which cannot happen while a
+        // ghost is replaying. Kept rather than deleted so a drop still lands somewhere sensible
+        // instead of at the ghost's own feet if it ever does.
+        public float dropAhead = 0.55f;
+
         // A TOOL-SHAPED ACTION NEEDS THE TOOL, for a past self exactly as for the living player.
         // This is the general rule the room now runs on, not a special case for balloons: an
         // interaction performed WITH an object is gated on that object being in the hand, and
@@ -252,10 +262,34 @@ namespace IterationRoom
 
             if (timeline == null || timeline.Count == 0) return;
 
+            // **THE POSE FIRST, AND THEN THE EVENTS THAT ACT ON IT.** This used to be the other way
+            // round, so the events were acting on the pose from the PREVIOUS tick.
+            //
+            // That is not a rounding error. The cursor walks to the last recorded frame at or before
+            // `elapsedLoopTime`, and how many frames that skips depends on this run's frame rate
+            // against the recording's - so a ghost draining a drop was somewhere between zero and
+            // several recorded steps behind where it actually was at that instant. Play found it in
+            // room3-2N as a past self who dropped a block off a deck **on some iterations and not
+            // others**: on the ones where it failed the ghost was a few centimetres short of the
+            // edge, and which iterations those were came down to nothing the player could see.
+            //
+            // Everything below this line already read the fresh pose (`TriggerIfInside`,
+            // `EscapeTrigger.TryArm`); the two drains were the only things that did not, and they
+            // are the two that put objects into the world.
+            while (cursor < timeline.Count - 1 && timeline[cursor + 1].time <= elapsedLoopTime)
+                cursor++;
+
+            RecordedFrame frame = timeline[cursor];
+            transform.position = frame.position;
+            transform.rotation = Quaternion.Euler(0f, frame.yaw, 0f);
+
             // Drained before the end-of-timeline check below, not after: a tick can jump past
             // several recorded frames at once, and the last pops of a recording sit right up
             // against its final frame. Checked first, a single long frame would retire the ghost
             // with its closing pops never fired, and those balloons would stay up for good.
+            //
+            // The retirement below lets go of whatever is still held, and it now does that from the
+            // pose set above rather than from a stale one, for the same reason.
             DrainPops(elapsedLoopTime);
             DrainCarries(elapsedLoopTime);
 
@@ -288,12 +322,6 @@ namespace IterationRoom
                 return;
             }
 
-            while (cursor < timeline.Count - 1 && timeline[cursor + 1].time <= elapsedLoopTime)
-                cursor++;
-
-            RecordedFrame frame = timeline[cursor];
-            transform.position = frame.position;
-            transform.rotation = Quaternion.Euler(0f, frame.yaw, 0f);
             ApplySignals(frame.signals);
 
             // Ghosts are deterministic, so once one of them has walked into Room2 the balloons come
@@ -398,7 +426,11 @@ namespace IterationRoom
         {
             if (item == null || !item.ghostCarryable) return null;
             if (item.IsFreeForGhost) return item;
-            return hasSocket && item.HeldByGhost != null ? item : null;
+            // **OR THE OBJECT SAYS SO ITSELF.** Having a socket was a proxy for "a hand-over of this
+            // is worth reproducing", and it excluded the mirrors - which have no socket and for which
+            // WHICH HAND holds them is the whole puzzle. See `CarryableItem.ghostHandover`.
+            bool handover = hasSocket || item.ghostHandover;
+            return handover && item.HeldByGhost != null ? item : null;
         }
 
         private void TryDrop(string itemId)
@@ -409,10 +441,58 @@ namespace IterationRoom
                 if (item == null || item.itemId != itemId) continue;
 
                 held.RemoveAt(i);
-                item.DropAt(item.transform.position);
+                PutDown(item);
                 ApplyEquip(string.Empty);
                 return;
             }
+        }
+
+        // **A PAST SELF PUTS SOMETHING DOWN THE WAY THE PLAYER DOES: in front of itself.**
+        //
+        // This used to be `item.DropAt(item.transform.position)` - let go of on the spot, at the
+        // ghost's own hand. The player's put-down is not that: `PlayerHand.Drop` picks a rest point
+        // `dropAhead` plus the object's own half-width AHEAD of the body, and lets `FallingItem`
+        // carry it there while it falls. A dropped object is solid, and one released at your own
+        // feet leaves you standing in it - which is why the player's has a throw in it at all.
+        //
+        // The asymmetry was invisible until something in the world could tell "at my feet" from "a
+        // metre in front of me". Room3-2N's ledges can: play found blocks the player dropped off
+        // deck A cleanly and that every past self afterwards left sitting on the lip. A metre of
+        // throw is the whole of the difference, and it is not a detail of the animation - it decides
+        // which storey the object ends up on.
+        //
+        // **AND THE WHOLE OF THE ACT, not the throw alone** (2026-08-31). The throw was copied here
+        // and the two refinements on top of it - the clearance cast and the visibility walk-back -
+        // were left behind, on the reasoning that a ghost stands where the player stood and faces
+        // where they faced, so those questions were already answered when the recording was made.
+        //
+        // That is an argument about the RESULT, and it holds only while the two calculations would
+        // agree. Play found where they do not: **the bed**. `PlayerHand.VisibleAhead` shortens the
+        // throw when the spot beyond it cannot be seen from a standing eye, so the player's ladder
+        // stopped short of the bed and every past self's sailed onto it. Same body, same spot,
+        // different outcome - which is the one thing a past self must never do.
+        //
+        // `PlayerHand.PutDownPoint` is the act now, and both callers are it. The ghost supplies its
+        // own body and a head-height eye, because a past self has no camera and the walk-back is
+        // part of what it is reproducing.
+        private void PutDown(CarryableItem item)
+        {
+            Vector3 from = item.transform.position;
+            Quaternion pose = item.transform.rotation;
+            // Off the GHOST, not off the item: the item is at a hand anchor somewhere on the rig,
+            // and what is being reproduced is "the body put this down in front of itself".
+            PlayerHand hand = PlayerLookup.Hand;
+            Vector3 rest = hand != null
+                ? hand.PutDownPoint(item, transform, transform.position + Vector3.up * hand.eyeHeight)
+                : transform.position + transform.forward * (dropAhead + item.WorldHalfWidth());
+
+            // The same two calls in the same order as `PlayerHand.Drop`: the object is let go of
+            // where it was held, and the fall carries it to where it comes to rest. `DropAt` first,
+            // because that is what takes custody - the arc is only where it is DRAWN.
+            item.DropAt(from);
+            FallingItem fall = item.GetComponent<FallingItem>();
+            if (fall != null) fall.Release(rest, pose);
+            else item.DropAt(rest);
         }
 
         // Equipped item in the hand, everything else spread along the belt.
@@ -587,9 +667,14 @@ namespace IterationRoom
             // ...unless the object names its own, which only the two floating props do. See
             // `CarryableItem.ghostTakeReach`: a thing that drifts on its own must not have its own
             // drift decide whether a past self's errand happens.
+            // **MEASURED TO THE NEAREST POINT OF IT, not to its pivot** - see
+            // `CarryableItem.NearestPoint`. For everything that fits in a hand the two are the same
+            // point and this is the test it always was; for the ladder they are six metres apart,
+            // and the pivot version silently stopped every past self from ever fetching it.
             float reach = item.ghostTakeReach > 0f ? item.ghostTakeReach : takeReach;
             if (reach > 0f
-             && (item.transform.position - transform.position).sqrMagnitude > reach * reach)
+             && (item.NearestPoint(transform.position) - transform.position).sqrMagnitude
+                > reach * reach)
                 return;
 
             // Taking it out of another past self's hands rather than out of the world - true when

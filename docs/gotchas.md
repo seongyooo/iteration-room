@@ -1202,3 +1202,314 @@ painful to look at. **Comfort, not brightness.**
   failed the second: the wall really did get brighter, and it also got a spotlight blob on it that no
   brightness sample could report.
 
+
+## A COLLISION CHECK MUST ASK THE LAYERS THE PLAYER IS ACTUALLY STOPPED BY (2026-08-26)
+
+`AssertWalkable` and `AssertNotWalkable` both swept `Physics.OverlapSphere(..., ~0, ...)` — every
+layer in the project. The player's own `CharacterController` does not: `BuildPlayer` sets
+`cc.excludeLayers = 1 << balloonLayer`, and that exclusion is the whole reason room2-6's pool can hold
+210 balls, 3 ducks and 2 beach balls without putting an invisible wall in the water.
+
+So the two disagreed, and room2-6's doorway is where it showed. One floating ball drifting into the
+south doorway at build time produced, on every single run:
+
+    [SceneBuilder] room2-6 south door: 'Solid' blocks the way through (swept at (21.70, -9.97, 89.15))
+
+`Solid` is the `SphereCollider` child `MakeFloatBody` gives every float — a thing nobody can be
+blocked by. **The room was perfectly walkable the entire time.** It sat in `TODO.md` as a hard
+geometry bug ("a wall collision block is standing in the doorway") and in the trailer shotlist as a
+blocker to fix before filming, and it was neither.
+
+Three lessons, in order of how much they cost:
+
+- **A false error is worse than no check.** This assert's own comments already record being rewritten
+  once for exactly this reason: the bounds-arithmetic version flagged twenty innocent things and
+  "teaches everyone to ignore the output". It then spent days doing that again, and the output was
+  duly ignored — which is why nobody noticed the message names a *ball*.
+- **The error text was right there and nobody read it against the room.** `'Solid'` in a room whose
+  defining feature is 215 floating props is a strong hint. Reading the message as "something solid"
+  rather than as "the object literally named Solid" is what let it stand.
+- **Reading the code and reasoning from it is not verification.** The first guess here was that the
+  bug was real but stale, then that it was a swept-capsule false positive against a doorway corner.
+  Both were confident, both were wrong, and the actual answer took one `grep` for `"Solid"`. Grep for
+  the name in the error before theorising about the geometry.
+
+The fix is `PlayerBlockingMask()` — one helper, used by both asserts, returning the same mask the
+controller collides with. If the player ever excludes a second layer, it changes in one place.
+
+## A dropped object would not go over a ledge, and the cause was the arc's PACING (2026-08-30)
+
+Play reported blocks dropped off room3-2N's decks as "some fall and some do not". Neither the drop
+nor the fall was wrong; the horizontal arc between them was.
+
+`FallingItem` moves a released object sideways to its resting spot WHILE it falls, and paces that
+move against the descent so the object arrives over the spot exactly as it reaches the floor. Two
+things decided which floor:
+
+- `Release` took the surface under the HAND, and
+- `Update` re-asked, every frame, what was under the object's CURRENT position.
+
+At a ledge those are two different floors and both answers were wrong. The arc was paced against the
+deck the player was standing on, so the object had barely moved sideways by the time it got there —
+and the per-frame probe, still seeing deck under it, settled it on the lip. Whether it cleared the
+edge came down to whether the player's HAND happened to be past it, which is 1.1m in front of their
+body for a block this size and is not a thing anybody can see.
+
+The fix is two lines: pace the arc against the HIGHER of the two floors — the first one the arc
+could possibly end on — and, while gliding, aim at the floor under where it is GOING rather than
+under where it is. The mirror case (stepping off a lift onto a deck) wants the same answer, which is
+how you can tell the maximum is the right function and not a patch.
+
+**The general shape of it:** an object in transit has two positions and it is never obvious which one
+a question is about. Both of these read as correct in isolation.
+
+## The player's put-down and a ghost's were two different acts (2026-08-30)
+
+Reported from play, and reported precisely: "when the player drops it, it falls; when the ghost
+does the same drop, it catches on the ledge - and even the same ghost manages it on some iterations
+and not others." Both halves were real and they were two separate faults.
+
+**The throw.** `PlayerHand.Drop` picks a rest point `dropAhead` plus the object's half-width AHEAD
+of the body and lets `FallingItem` carry it there while it falls — a dropped object is solid, and
+one released at your own feet leaves you standing in it. `GhostReplayer.TryDrop` was
+`item.DropAt(item.transform.position)`: let go of on the spot, at the hand anchor on the rig. For
+four years of flat floors those are the same outcome. At a ledge they are a metre apart, and a metre
+decides which storey the object ends up on.
+
+**The stale pose.** `Tick` drained the recorded pops and carries BEFORE advancing the cursor and
+applying the frame, so every event acted on the previous tick's position. The cursor walks to the
+last recorded frame at or before the elapsed time, and how many frames that skips depends on this
+run's frame rate against the recording's — so a ghost draining a drop was between zero and several
+recorded steps behind itself, differently every run. That is the "some iterations and not others".
+
+Both fixes are small and neither is a tolerance. The lesson is the shape they share: **the player
+and their past selves must perform the same ACT, not merely reach the same state**, and an
+asymmetry between the two paths can sit there unnoticed for as long as no room can tell the
+difference. Room3-2N's ledges were the first thing in the building that could.
+
+A third thing worth keeping: `DropCarried` — what a ghost does with whatever it is still holding
+when its timeline runs out — deliberately does NOT get the throw. That is not a put-down, it is
+letting go, and giving it one would be inventing an act the past self never performed.
+
+## An imported model's PIVOT is not its middle, and the prompt hangs on the pivot (2026-08-30)
+
+Reported from play as "I cannot pick the ladder up". Standing beside it, looking straight at it, E
+did nothing.
+
+`CarryableItem.HintAnchor` falls back to the item's own transform when no `hintAnchor` is set, and
+every half of the press tests that anchor: `PlayerLookup.InView` asks whether it is on screen and
+`IsAimedAt` ranks it against everything else by how far it sits from the middle of the view. The
+TRIGGER is separate and was sized to the mesh, so `playerInRange` was true along the whole ladder.
+
+`ladder.glb` has its origin at ONE END. Measured in the built scene: **3.88m from the middle of its
+own mesh.** So the anchor sat in the air past the far rung, and the object that was plainly in front
+of the player was being aimed at from four metres away.
+
+Nothing else in this game had needed `hintAnchor` because nothing else is eight metres long with its
+origin at one end - every other carryable's pivot is near its centre by luck or by construction.
+
+**The rule: measure the gap between an imported model's pivot and its bounds centre, and give it an
+anchor of its own if they are not the same place.** The same measurement fixes `floorY`, which is
+"how far the ORIGIN sits above the floor" and is only half the object's height for an object whose
+pivot is its own centre - it was written as `size.y / 2` here and was wrong by the same reasoning.
+
+## A pivot at one end breaks three different things, one at a time (2026-08-30)
+
+`ladder.glb`'s origin is at one END of the ladder, 3.88m from the middle of its own mesh. That one
+fact produced three separate bug reports over two days, each of which looked like something else:
+
+1. **"I cannot pick it up."** `CarryableItem.HintAnchor` falls back to the item's transform, and
+   `InView`/`IsAimedAt` both judge that point. The trigger covered the whole ladder so it said "in
+   range", while the point being aimed at was four metres away. Fixed with an explicit `hintAnchor`.
+2. **"I can only grab it in the middle."** One anchor is one point. Fixed with `LongItemAnchor`,
+   which slides the anchor to wherever along the length the player is looking.
+3. **"Ghosts will not pick it up."** `GhostReplayer` refuses a take whose object is further than
+   `takeReach` (2m) from where the ghost is standing, measured to the object's POSITION. A take the
+   player made at the far end left the past self six metres from the pivot. Fixed with
+   `CarryableItem.NearestPoint`, which is the pivot for everything that fits in a hand and the
+   nearest point along `heldSpan` for anything that does not.
+4. **"It always lands facing north."** `LieDown` restores the pose an object was BUILT in unless it
+   is `restsUpright` or rolled - right for a key, and for this model the built pose is lying along
+   +Z. Fixed with `CarryableItem.keepsDropYaw`, its own flag rather than borrowing `restsUpright`,
+   which would give the same result and lie about why.
+5. **"It goes under the bed."** `FallingItem.SurfaceUnder` cast ONE ray, at the object's origin. A
+   ladder dropped across a bed had its pivot over clear floor, found the floor, and came to rest at
+   floor height with the bed passing through it. Fixed by sampling along `heldSpan` and taking the
+   highest surface under any part of it - which is what resting ON something means.
+
+6. **"It stands three metres off the deck."** Latent, and never reported because the ladder had not
+   been installed by hand yet: `LadderMount`'s seat is at half the ladder's length, which puts the
+   PIVOT there - so an end-pivot stood it from 3.15m to 9.5m above deck B instead of 0 to 6.31.
+
+**The rule: for an imported model, measure the gap between the pivot and the bounds centre before
+anything else.** If it is not small, every system that asks "where is this object" is going to get
+a different answer from the one the player sees, and they will surface one at a time in whatever
+order the game happens to exercise them.
+
+**AND THE FIX FOR ALL SIX WAS ONE LINE OF GEOMETRY, not six patches.** `SceneBuilder` now moves the
+ladder's root to its own bounds centre and puts the children back, so the mesh does not move and only
+the meaning of the origin changes - the same move `MakeChessPiece` makes for the mirrored half of the
+chess set. `heldSpan` is centred on the origin as a result, which is the definition every reader of it
+now uses. The five patches stay, because each is right on its own; what they no longer have to
+compensate for is a pivot in the wrong place.
+
+## "Held, or it does nothing" did not extend to a ghost taking one (2026-08-30)
+
+`GhostReplayer.Eligible` lets a ghost take an object out of ANOTHER ghost's hands only when the
+object has a SOCKET. The stated reason is sound: "a pin has no destination a hand-over could matter
+for", and three interchangeable pins reshuffling between past selves reads as random.
+
+Having a socket was a PROXY for "a hand-over of this is worth reproducing", and it silently
+excluded the one family of objects for which the hand-over is the whole point. **A mirror has no
+socket** — it is never put anywhere, it is held — and which hand holds it is a position in space
+bending light. So a player who took a pane off a past self and stood in its place had that take
+refused in every later iteration, and the thing they did never accumulated. Reported from play as
+"I took over what the ghost was doing and it isn't reflected".
+
+`CarryableItem.ghostHandover` says it directly instead. **The lesson is the proxy**: the rule was
+written about pins, tested against pins, and its stated justification did not survive the first
+object that broke the correlation between "has somewhere to go" and "matters in a hand".
+
+## A cast that begins inside a collider reports distance 0, and that is not a measurement (2026-08-30)
+
+Reported from play: **walking BACKWARDS into a wall with the ladder made it vanish from view and
+left the player barely able to move.** Two faults compounding, and the second is the general one.
+
+**The ladder only ever looked forwards.** `LevelCarry.GiveWay` cast from the trailing end along the
+object's axis, which sees everything the LEADING end can run into and nothing the trailing one can.
+Backing into a wall put the trailing end inside it — which is where the cast begins.
+
+**And a `SphereCast` that begins overlapping a collider returns `distance == 0` and a zero normal.**
+Unity has no surface to report, because the cast never travelled. Read as a reading it says "the
+whole length is buried", which is the worst possible answer: the give-way slid the ladder five
+metres backwards in a single frame, out of the view entirely, and `HeldItemClearance` then set the
+movement stop from a normal that pointed nowhere — so the player was refused in a direction that
+meant nothing.
+
+Both fixed where they belong. `Sweep` and `GiveWay` skip degenerate hits, because what is already
+inside something cannot be measured out of it. And the give-way asks BOTH ends how far they can
+travel and slides away from whichever is more buried, so backing into a wall pushes the object
+forward into view instead of backward out of it. Both ends against something is a space shorter
+than the object — the difference is zero, nothing slides, and the player is refused until they
+turn, which is the honest outcome and needs no case of its own.
+
+**The rule: never take `distance == 0` from a cast as a distance.** It means the query could not
+run, not that the answer is zero — and every consumer downstream will treat it as the most extreme
+reading possible.
+
+## Making two cases symmetric is not the same as giving them one formula (2026-08-30)
+
+The ladder gave way correctly when its LEADING end met a wall and not when its trailing one did.
+The fix looked obvious — ask both ends, slide by the difference — and it introduced two new faults,
+both from the same mistake: **a formula that is right on one side of a case is not automatically
+right in the middle of it.**
+
+**The difference is wrong when both ends are buried.** With `Bf` and `Bb` metres past each surface,
+sliding by `Bb - Bf` leaves `Bb` buried at the front and `Bf` at the back — it TRADES the burial
+rather than reducing it, every frame, and the player is refused in whichever direction it landed on.
+Reported from play as backing into a wall and sticking. A space shorter than the object cannot be
+resolved at all; the honest answer is to share the burial (`(Bb - Bf) / 2`) and report the contact.
+
+**And casting exactly the object's own length can only say "is this end buried".** It cannot say
+"is there room to slide into", because both questions come back as the same number. With the cast
+capped at `length`, every free end reported zero headroom, the one-sided branch computed a slide of
+zero, and the case that had always worked stopped working. The cast has to run `length + maxSlide`.
+
+**One authority, too.** `HeldItemClearance.LongContact` was casting the span a second time to decide
+whether to stop the player, after `LevelCarry` had already swept both ends to decide where to draw
+the object. Two casts of one line is two answers that can disagree — the poser slides the object
+clear and the stop still reports the contact it just resolved. The thing that MOVES the object is
+the thing that knows what it could not escape, so it publishes that and the stop reads it.
+
+## A liveness test that names a thing the room does not have (2026-08-31)
+
+Room3-0's console refused the Bedlam cube for ever, with no prompt and no refusal sound. The chain:
+
+`FinalSlot.Live` needs `FinalRoomSequence.Active`, which needs `EscapeTrigger.PlayerArrived`, and
+`EscapeTrigger.TryArm` opened with
+
+```csharp
+if (door == null || !door.IsOpen) return;
+```
+
+**Room3-0 has no doorway at all.** Its own header comment says so — the only way in is the hole in
+its floor, which you climb into. So `door` is null, `TryArm` returned on its first line every time,
+and nothing downstream could ever become true.
+
+The test was never wrong for the rooms it was written for: the trigger sits *in* a doorway, so "the
+door is open" is a cheap way of saying "this is a threshold somebody could be standing in". It became
+a lie the moment a final room was built without one. `requiresOpenDoor` now says which it is, and
+room3-0 sets it false.
+
+**Two more of the same shape were sitting behind it**, each of which would have kept the console
+dead on its own:
+
+- `halfDepth` kept its 0.5m default while the step-off point is 1.37m away in z. The trigger was
+  built with `halfWidth` set and its partner forgotten.
+- The volume ignores Y **by design** — "a doorway is a doorway at any height", which is true of a
+  building laid out in one plane and false the moment cycle 3 stacked room3-0 on top of room3-2N.
+  Untested, this volume also covered the deck two storeys down, so standing at the ladder's foot
+  armed the console upstairs. `halfHeight` is opt-in so cycles 1 and 2 are unchanged.
+
+**A default that encodes an assumption about the building is a bug waiting for the building to
+change.** All three of these read as correct code; what went stale was the world around them.
+
+## A block on the mark makes a fixture uninstallable, silently (2026-08-31)
+
+`LadderPlacer` ends in `PlayerLookup.InView`, like every press path in the game — and `InView` casts
+a ray from the eye to the fixture's anchor and refuses if anything is in the way. `LadderMount`'s
+anchor was its own origin, which sits **on deck B's surface**, so anything RESTING on the mark stood
+squarely in that ray.
+
+Deck B's Bedlam-block scatter rectangle (`BedlamShelves`) ran x[−8.00, −2.50] z[4.37, 9.75] with no
+exclusion for the ladder, and the mount is at (−7.50, 9.20) — inside it. Verified by disabling the
+new exclusion and rebuilding: a block lands at (−7.62, 9.33), **17cm from the mount's centre**.
+
+What makes it expensive is that it does not look like a bug. A block on the mark is one of twelve
+blocks lying around a room full of blocks, and the failure it causes is *the left click does nothing
+and no prompt appears*. Nothing connects the two.
+
+Fixed at both ends, because either alone leaves it possible:
+
+- **The build keeps the square clear** (`Grow(LadderShaftHole(...), inset)`), and an assert at the
+  end of the scatter loop says so by name if that ever stops being true.
+- **The prompt anchor came off the deck** — `LadderMount.hintAnchor`, 1.2m up in the shaft. The build
+  is not the only thing that can leave an object on the mark: the player can put one down there, and
+  so can a past self.
+
+**The general rule: a hint anchor at floor level is a hint anchor anything can stand on.** Put it
+where a person would look to judge the spot, not where the spot is.
+
+## A long object goes THROUGH a wall, so an end of it is not a place to measure from (2026-08-30)
+
+A wall in this building is **0.125m thick** (`WallDepth = WallThickness + GrooveDepth`). The ladder
+is **6.31m long**. Those two numbers together are the whole of a bug that survived three rounds of
+fixing.
+
+`LevelCarry.GiveWay` asked "how far can each end of this travel before it meets something" by
+standing **at that end** and casting. That reads correctly right up to the moment an end is buried by
+more than 12.5cm — at which point it is not inside the wall at all, it is **out the far side**, in the
+next room. The cast then starts in clear air on the wrong side of the surface, immediately meets the
+wall's *back* face 0.1m away, and reports that as the free run. The arithmetic dutifully concludes
+that the OTHER end is buried six metres, slides the object further backwards, and refuses the player
+**forward** — the one direction that would have freed them.
+
+Played as: hold the ladder, press S into a wall, and W stops working. Only turning the mouse or
+dropping it gets you out.
+
+**Measure from the GRIP, outward, in both directions.** The middle of a carried object is where the
+holder's hands are, so it is in open air by construction and on the near side of every surface the
+object is pressed against. Two casts out of it answer both questions and cannot start inside
+anything.
+
+**And the failure modes are not symmetric, which is the reason to prefer this even where both work.**
+If a grip-centred cast somehow starts inside geometry, both runs come back clear, nothing slides and
+nothing is blocked: the object passes through a wall, which is a *graphical* fault. The end-based
+version's failure was to refuse the player a direction, which is a *trap*. When picking between two
+formulations of a spatial test, ask which way each one fails, not only whether each one is right.
+
+**A refusal that cannot help is a refusal that can only hurt.** Where the free run is genuinely
+shorter than the object — a six-metre ladder across a 1.75m corridor — no slide fixes it and walking
+either way along the axis leaves it exactly as buried. The old code still picked a direction to
+refuse; it now blocks in **at most one** direction ever, so the opposite is open by construction and
+nothing in this system can trap anybody.

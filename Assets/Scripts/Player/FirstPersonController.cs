@@ -70,6 +70,87 @@ namespace IterationRoom
         // interact key and every fixture with it. This stops one of those things and nothing else.
         public bool MovementLocked { get; set; }
 
+        // **THE LADDER, AND THE ONLY THING IN THIS GAME THAT IS NOT WALKING.** Set and cleared by
+        // `LadderMount` while the player is in its shaft with a ladder standing in it; null the rest
+        // of the time, which is all of the game before room3-2N's third storey.
+        //
+        // A property rather than a mode enum, because there is exactly one alternative to walking and
+        // a taxonomy for two states is a taxonomy nobody needs yet.
+        public LadderMount Ladder { get; set; }
+
+        // Metres a second up the rungs. Slower than a walk on purpose: a ladder is a thing you commit
+        // to, and the 7.2m from deck B to room3-0 is about four seconds of a sixty-second iteration.
+        public float climbSpeed = 1.9f;
+
+        // **THE TOP OF A LADDER IS THE MIDDLE OF A HOLE.** A climb that simply ended there would leave
+        // the player standing on nothing and drop them straight back down it, which is a ladder that
+        // cannot be climbed. `LadderMount` calls this with a point on the floor beside the opening.
+        //
+        // The controller has to do the moving, and it has to be switched off to do it: a
+        // `CharacterController` overwrites its transform from its own internal position every step,
+        // so a position written from outside is undone before the next frame. Same trick the loop's
+        // own teleport uses.
+        public void StepOffLadder(Vector3 to) => StepOffLadder(to, 0f);
+
+        // **AND OVER A LITTLE TIME, WHICH IS THE WHOLE DIFFERENCE BETWEEN CLIMBING OUT AND BEING
+        // TELEPORTED** (2026-08-31, reported from play as "it feels like it teleports").
+        //
+        // The move itself was always right - the top of the ladder is the middle of a hole and a
+        // climb that simply ended there would drop the player straight back down it. What was wrong
+        // is that it happened between two frames. A third of a second of travel is not an animation
+        // and is not pretending to be one; it is the same displacement, made visible, so the eye
+        // reads it as the last step of the climb rather than as the room jumping.
+        //
+        // Input is refused for its duration (`Mantling`), because a step-off the player can steer
+        // is a step-off that can end anywhere - including back over the hole.
+        public void StepOffLadder(Vector3 to, float seconds)
+        {
+            Ladder = null;
+            verticalVelocity = 0f;
+            horizontalMove = Vector3.zero;
+
+            if (seconds <= 0f)
+            {
+                // The controller has to be switched off to be moved from outside - see the note
+                // above `Teleport`. Kept as the zero-length case rather than as a second method so
+                // there is one statement of what stepping off IS.
+                controller.enabled = false;
+                transform.position = to;
+                controller.enabled = true;
+                return;
+            }
+
+            if (mantle != null) StopCoroutine(mantle);
+            mantle = StartCoroutine(Mantle(to, seconds));
+        }
+
+        // Whether a step-off is in progress. `HandleMove` stands aside for it, so the climb's last
+        // metre cannot be fought with the keys that made it.
+        public bool Mantling => mantle != null;
+
+        private Coroutine mantle;
+
+        private System.Collections.IEnumerator Mantle(Vector3 to, float seconds)
+        {
+            Vector3 from = transform.position;
+            controller.enabled = false;
+
+            for (float t = 0f; t < seconds; t += Time.deltaTime)
+            {
+                // Smoothstep, so it leaves the ladder and arrives on the floor without a jolt at
+                // either end - a linear ramp reads as a machine moving the player.
+                float k = Mathf.SmoothStep(0f, 1f, t / seconds);
+                transform.position = Vector3.Lerp(from, to, k);
+                yield return null;
+            }
+
+            transform.position = to;
+            controller.enabled = true;
+            verticalVelocity = 0f;
+            horizontalMove = Vector3.zero;
+            mantle = null;
+        }
+
         // THE VIEW, held separately from the legs. Pouring a bucket locks both - a two-handed action
         // you are watching - while the balloon tool locks neither, so the two cannot be one flag.
         // `HandleLook` still RUNS while this is set (it maintains `pitch` and writes a zero roll every
@@ -245,6 +326,11 @@ namespace IterationRoom
                 return;
             }
 
+            // STEPPING OFF THE LADDER OWNS THE BODY WHILE IT LASTS. The LOOK is deliberately left
+            // running below - a third of a second with the view frozen is far more noticeable than
+            // the move it accompanies, and there is nothing the player can do with the mouse here
+            // that the step-off has to be protected from.
+
             // Browsers only grant pointer lock from inside a user gesture, and refuse it for a
             // while after the player has pressed Escape to leave it - so the lock requested in
             // Start is routinely denied on WebGL, and resuming from the pause menu can be denied
@@ -268,12 +354,12 @@ namespace IterationRoom
                 // Looking is skipped entirely while loose: the mouse is a free pointer travelling
                 // across the page, and feeding that motion to the camera swings the view across
                 // the room as it goes.
-                HandleMove();
+                if (!Mantling) HandleMove();
                 return;
             }
 
             HandleLook();
-            HandleMove();
+            if (!Mantling) HandleMove();
         }
 
         private void FixedUpdate()
@@ -477,6 +563,40 @@ namespace IterationRoom
             {
                 float into = Vector3.Dot(move, heldObstruction);
                 if (into < 0f) move -= heldObstruction * into;
+            }
+
+            // **ON A LADDER, FORWARD IS UP.** The one place in this game where the move is not a walk:
+            // gravity is off, the forward/back axis drives the climb, and STRAFE still works at half
+            // pace so the player can come off sideways onto a deck. Jump lets go, which is the only
+            // way down faster than climbing and is the first thing anybody will try.
+            //
+            // The horizontal ramp above is left running rather than skipped, so the two speeds cannot
+            // drift apart - but its result is thrown away here. `ApplyWalkPose` reads `horizontalMove`
+            // and a climb with a walk cycle on it is a person walking up a wall, so it is zeroed.
+            if (Ladder != null)
+            {
+                if (GameInput.JumpPressed)
+                {
+                    Ladder = null;
+                    verticalVelocity = jumpForce * 0.4f;
+                }
+                else
+                {
+                    verticalVelocity = 0f;
+                    // **ALONG THE LADDER, WHICH LEANS.** This wrote `climb.y` directly, which is the
+                    // same thing while the ladder is vertical and wrong the moment it is not: the
+                    // player would climb straight up out of a slanted ladder and be dropped by the
+                    // volume that is following it. `LadderMount.climbDirection` is the one statement
+                    // of which way up the ladder actually goes.
+                    Vector3 along = Ladder.climbDirection.sqrMagnitude > 0.0001f
+                                  ? Ladder.climbDirection.normalized : Vector3.up;
+                    Vector3 climb = transform.right * x * walkSpeed * 0.5f
+                                  + along * (z * climbSpeed);
+                    controller.Move(climb * Time.deltaTime);
+                    horizontalMove = Vector3.zero;
+                    ApplyWalkPose();
+                    return;
+                }
             }
 
             if (controller.isGrounded && verticalVelocity < 0f)

@@ -51,6 +51,15 @@ namespace IterationRoom
         // player's doing rather than the loop's.
         public CameraShaker cameraShaker;
 
+        // **A CYCLE MAY BREAK IN ITS OWN WAY.** Cycle 3 does: the room takes itself apart, the
+        // panels go red and a siren starts, instead of the announcement and the test-card glitch
+        // the other two get. Set, it REPLACES those two - a cycle saying "containment failure" and
+        // "all cycles destroyed" in the same breath would be the facility talking over itself.
+        //
+        // Everything else about the break is unchanged, including the fact that nothing here has a
+        // timer on it: the way out is already open and the player leaves when they choose.
+        public FacilityFailure facilityFailure;
+
         public NarrationDirector narration;
 
         // THE WAY ON, and only a cycle with another after it has one. A grid cell in the wall behind
@@ -147,9 +156,15 @@ namespace IterationRoom
 
             // The facility notices, and it says so here rather than when the player stepped through
             // the doorway: walking into a room is not what breaks a cycle, this is.
-            narration?.AnnounceCycleBroken();
-
-            wallPanels?.BeginGlitch(console != null ? console.transform.position : transform.position);
+            if (facilityFailure != null)
+            {
+                facilityFailure.Play();
+            }
+            else
+            {
+                narration?.AnnounceCycleBroken();
+                wallPanels?.BeginGlitch(console != null ? console.transform.position : transform.position);
+            }
 
             // And the floor, on the cycles that have nothing after them to wait for. See
             // `opensWayOutOnBreak` - `CycleExit.Open` is idempotent, so a cycle that sets this AND

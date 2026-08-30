@@ -167,14 +167,18 @@ function Write-Language([string]$lang) {
         # "종료" rather than a borrowed English word, because that is what this voice has already
         # called the same act above.
         Write-Line $voice $dir "수동 종료 가능. N 키를 길게 누르십시오." "voice_manual_termination.wav" $rateSentence
+        # Room3-2N's cube. The one line in the game that speaks TO the player rather than about the
+        # machine - see NarrationDirector.AnnounceAllCyclesBroken for why that is the point of it.
+        Write-Line $voice $dir "모든 사이클이 파괴되었습니다. 당신은 사이클을 파괴한 대가를 치르게 될 것입니다." "voice_all_cycles_broken.wav" $rateSentence
     } else {
         Write-Ssml $voice $dir $culture "New <prosody pitch=""+35%"">iteration</prosody>?<break time=""350ms"" /> 60 seconds remaining." "voice_iteration_generic.wav" $rateSentence
         Write-Line $voice $dir "New cycle initialized." "voice_new_cycle.wav" $rateSentence
         Write-Line $voice $dir "Cycle terminated." "voice_cycle_terminated.wav" $rateSentence
         Write-Line $voice $dir "Containment failure. Cycle broken." "voice_cycle_broken.wav" $rateSentence
         Write-Line $voice $dir "Manual termination available. Hold N to end the cycle." "voice_manual_termination.wav" $rateSentence
+        Write-Line $voice $dir "All cycles have been destroyed. You will pay the price for destroying them." "voice_all_cycles_broken.wav" $rateSentence
     }
-    $count += 5
+    $count += 6
 
     if ($lang -eq "ko") { $ten = "10초 남았습니다." } else { $ten = "10 seconds remaining." }
     Write-Line $voice $dir $ten "voice_ten_seconds.wav" $rateDigit

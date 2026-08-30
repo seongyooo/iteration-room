@@ -32,6 +32,11 @@ namespace IterationRoom
             public AudioClip cycleTerminatedLine;
             // The one line the facility only ever says once: the player got out.
             public AudioClip cycleBrokenLine;
+
+            // The line room3-2N's cube buys. Not a bigger `cycleBrokenLine` - that one is one cycle
+            // failing and the way out opening, which is the machine losing a round. This is every
+            // cycle at once and a threat attached, which is the machine losing patience.
+            public AudioClip allCyclesBrokenLine;
             // Spoken the first time the player reaches Room3, alongside the same instruction lighting
             // up on all four of its walls.
             public AudioClip manualTerminationLine;
@@ -154,6 +159,20 @@ namespace IterationRoom
         {
             Chime();
             Speak(Lines.cycleBrokenLine);
+        }
+
+        // "All cycles have been destroyed. You will pay the price for destroying them." Chimed, like
+        // the line above and for the same reason - it is heard once in a run, if ever.
+        //
+        // **THE ONLY LINE IN THE GAME THAT THREATENS THE PLAYER.** Everything this voice has said up
+        // to here is procedure: cycles initialized, terminated, ten seconds remaining. It reads the
+        // machine out loud and never addresses anybody. Breaking that is the whole point of this one,
+        // so it must not be softened into more procedure - the second sentence is second person and
+        // stays that way.
+        public void AnnounceAllCyclesBroken()
+        {
+            Chime();
+            Speak(Lines.allCyclesBrokenLine);
         }
 
         // "Manual termination available. Hold N to end the cycle." Chimed, because it is an

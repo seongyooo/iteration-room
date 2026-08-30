@@ -20,4 +20,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/Cycle3.unity
     guid: 2a19b1ccdd66c37449b5a83f6501122f
+  - enabled: 1
+    path: Assets/Scenes/Cycle4.unity
+    guid: 95338ef1a59332c4fb607bac0d4ed163
   m_configObjects: {}

@@ -11,6 +11,9 @@ Iteration Room uses the following third-party assets.
 - **"Beach Ball"** by MaggaModels — CC BY 4.0
   - Source: https://sketchfab.com/3d-models/beach-ball-25e1816c0e22444bb62816d3999d1b0b
   - Author: https://sketchfab.com/MaggaModels
+- **"BEDLAM CUBE"** by jamezac — CC BY 4.0
+  - Source: https://sketchfab.com/3d-models/bedlam-cube-19ba7ec5181c46bcaa813f87a8dd35c9
+  - Author: https://sketchfab.com/jamezacristancho
 - **"Billiard Balls"** by Anthony Yanez — CC BY 4.0
   - Source: https://sketchfab.com/3d-models/billiard-balls-523ac862d2154a7e8c96b964fb7cb11f
   - Author: https://sketchfab.com/paulyanez
@@ -41,6 +44,9 @@ Iteration Room uses the following third-party assets.
 - **"Industrial Valve"** by Miguel Ángel Jiménez — CC BY 4.0
   - Source: https://sketchfab.com/3d-models/industrial-valve-cea67369ae50485c9f06ea44cb608b92
   - Author: https://sketchfab.com/mangel.jimenez
+- **"Ladder"** by niver_mk — CC BY 4.0
+  - Source: https://sketchfab.com/3d-models/ladder-adf229c426194740ab0ec9cdb00262b4
+  - Author: https://sketchfab.com/niver_mk
 - **"Messy Bed"** by thethieme — CC BY 4.0
   - Source: https://sketchfab.com/3d-models/messy-bed-b49dc1778b0b430cabdbad327d6e2e0d
   - Author: https://sketchfab.com/thethieme
@@ -74,6 +80,9 @@ Iteration Room uses the following third-party assets.
 - **"Valve II"** by Víctor Hernández — CC BY 4.0
   - Source: https://sketchfab.com/3d-models/valve-ii-08a002755c784c889b8818eac15060ee
   - Author: https://sketchfab.com/victorhugohc
+- **"Velvet Rope LowPoly"** by 5CNG5 — CC BY 4.0
+  - Source: https://sketchfab.com/3d-models/velvet-rope-lowpoly-83994d49179b41cebdf91d2c7fc78aab
+  - Author: https://sketchfab.com/5CNG5
 - **"Wooden Bucket"** by romullus — CC BY-SA 4.0
   - Source: https://sketchfab.com/3d-models/wooden-bucket-217dd46026ac4cfd947097ad3c466bf2
   - Author: https://sketchfab.com/romullus

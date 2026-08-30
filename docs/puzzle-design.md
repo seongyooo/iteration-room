@@ -761,3 +761,241 @@ and the shaft lengthens to `ServiceVoid`.
 ending scrim. That is the truthful state of the build rather than a placeholder: cycle 2 is the last
 cycle there is.
 
+
+## Room3-2N's ground floor: the Bedlam Cube (2026-08-29)
+
+**Thirteen blocks, one of them standing on the floor inside a roped-off square to the right of the
+door, and one arrangement in which the other twelve join it.** Carry a block, look at the cube, left
+click: if the place that block holds in the finished cube touches something already there, it snaps
+home. If it does not, the mat under the cube flashes red and the block stays in the hand.
+
+The finished cube is **1.6m on a side** and the blocks are up to 1.2m long — the biggest things
+in the game that are carried in one hand, and genuinely in the way while you carry them. That is the
+same trade the mirrors take (CLAUDE.md §4: held objects are their true size), taken further on
+purpose: this is a thing you move, not a thing you pocket.
+
+It is a real Bedlam Cube — twelve pentacubes, one tetracube, sixty-four cells, four to a side — and
+the packing the game snaps to is a real solution to it, found by exact cover in
+`Tools/split_bedlam_cube.py` rather than written down here.
+
+### What kind of puzzle this is, and why room3-2N wanted one
+
+The same kind as Room2West's chess board and Room2East's recesses: **more errands than one pair of
+hands fits into sixty seconds, each with exactly one destination, each replayed by the past self that
+ran it.** Twelve deliveries is Room2West's twelve pieces again, deliberately — that length is the one
+figure in this game that has been measured by playing (see CLAUDE.md), and a new room is a better
+place to spend a known quantity than an unknown one.
+
+Room3-2N is three storeys tall. Everything built into it so far — the beam, the two receivers, the
+two lifts, the decks — is about its HEIGHT, and a player who has not solved the light has nothing to
+do in it at all. This is what its floor is for, and the two do not interlock on purpose: the cube can
+be worked on while the beam is still a puzzle, so the room is never a room you can only look at.
+
+### Why the rule is "touching" and not "in order"
+
+Three rules were possible and two of them are worse:
+
+- **A fixed order** — block 1, then 2, then 3. Trivial to implement and unreadable to play: "why
+  will this one not go on" has an answer that is not in the room, so the refusal teaches nothing.
+- **The player rotates the block into place** — the actual Bedlam Cube. Needs a rotation control this
+  game does not have, and it is a puzzle that defeats most people with the pieces in their hands and
+  all the time in the world. In a sixty-second loop, seen down a first-person camera, it is not hard,
+  it is impossible.
+- **Touching, any order** (chosen). A block goes on the moment its own place shares a face with
+  something already built. The player finds out which blocks are live by trying them, and the answer
+  changes every time one lands — so the refusal is information rather than a wall.
+
+The seed is the block that makes the second of those true from the first press: block 2 is on the
+cube's bottom layer, so it lies flat on the mat and the cube grows upward out of it rather than
+hanging in the air, and it shares a face with **eight of the other twelve** — so a player who walks
+in and picks up the nearest block is more likely than not holding one that goes on.
+
+### The blocks are on all three storeys, and that is what ties this to the beam
+
+Four on the ground, four on deck A, four on deck B. On one floor this is Room2West's chess board in a
+bigger room; across three, **every block above the ground costs a ride on a `BeamLift`, which costs a
+past self holding a mirror on a receiver.** The light puzzle and the cube puzzle stop being two things
+sharing a shell and become one errand.
+
+The lift runs the right way round for it, and that was decided before any of this existed: it is
+pulled DOWN by the beam and climbs when the beam goes, so the player steps on with their hands free
+and rides up on a recording running out. One object at a time (CLAUDE.md §4) would otherwise make
+this impossible — you cannot hold the mirror that lights your own lift AND the block you came up
+for.
+
+**The cube itself stays on the ground floor**, so every block above it is a round trip rather than a
+one-way delivery, and the ride down needs the ceiling call and the riser pane, which is the one part
+of the optics still unplayed.
+
+### The rope
+
+`velvet_rope.glb` is nine posts and eight spans already laid out as a museum enclosure with one side
+left open. It is placed once and sized, rather than rebuilt post by post out of its parts: a rope run
+assembled in `SceneBuilder` would be that file deciding where the rings sit on the posts, which is the
+artist's decision and is already right in the model. The open side is turned to face the corridor, so
+the way in is on the side the player arrives from.
+
+**It has no colliders.** A velvet rope that stopped a `CharacterController` would be a 4.6m box round
+the one thing in the room the player has to walk up to twelve times, with the ways in and out decided
+by a gap two ropes happen to leave. The rope is a mark on the floor plan; the cube inside it is the
+solid thing.
+
+**It came in lying down, and no reading of its node matrices predicted that** — the two root nodes
+compose to a plain 1:100 scale, so on paper it should stand up by itself. The built scene was measured
+instead and the pose written from that, which is the rule this project already keeps for the chess
+pieces' tilt. `SceneBuilder.BedlamRopePitch`.
+
+### The rule is monotone in time, which is what makes ghosts safe
+
+The worry that "touching" raises is a past self stuck forever: a ghost delivers block 9 at t=12, but
+block 9's only neighbour is not seated until t=40, so the delivery is refused every iteration and the
+cube can never be finished.
+
+It cannot happen, and the reason is worth stating because it is what licenses the rule. Every ghost
+replays at its **own recorded timestamp**, and every iteration seats a superset of what the previous
+one had seated at the same instant — the living player's deliveries are added to, never removed. So a
+delivery that succeeded at t=12 of some iteration succeeds at t=12 of every iteration after it. The
+player cannot record an impossible delivery either: the click that made the recording was itself
+refused unless the cube was ready, at that same instant, in that same iteration.
+
+### Everything the puzzle needs was already in the building
+
+No new signal bit (a block is a `CarryableItem`, so a past self carrying one is a `CarryEvent` and a
+recorded position — both of which the timeline already stores). No new verb: left click is what this
+game already uses for "act on what I am pointing at", and `BedlamPlacer` cannot clash with the pin,
+the chess board or the buckets because the hand holds one object at a time. No new socket type:
+thirteen `DelegateItemSocket`s, one per block, so `ItemRegistry` turns a ghost's recorded surrender of
+`Bedlam_07` into block 7's own place without the ghost learning what a cube is.
+
+### The model is not the file that was downloaded
+
+The Sketchfab model is three colour-merged meshes holding thirteen loose pieces and one assembled
+cube between them. Splitting it and solving it are both done **once, offline**, and the result is a
+`.glb` whose thirteen nodes are the thirteen blocks, each already rotated into its solved pose with
+that pose as its node translation. `SceneBuilder` therefore computes nothing about the puzzle: it
+reads the model's own arrangement into thirteen anchors and scatters the blocks — the same trick
+`BuildChessSet` uses, where the home square is where the piece started.
+
+The one thing copied by hand is the 64-cell occupancy map, which is where "these two blocks touch"
+comes from. The build checks it: 64 cells, only blocks that exist, twelve fives and one four, a graph
+connected from the seed, and each block's cells spanning the same box its geometry does. See
+`docs/asset-licences.md` for why a derived model is a licence question and how the attribution
+survives it.
+
+### What finishing it pays out (2026-08-30)
+
+**A green cube, on a plinth that rises beside the roped square.** That is cycle 3's one escape
+object, and carrying it back up the whole room — both lifts, past selves holding the mirrors — to
+room3-0 is the last errand of the cycle. The climb the beam exists for, walked once more with
+something in your hands.
+
+Green because cycle 1 already spends red on its own cube and blue on its sphere. A cube because the
+room's whole puzzle is a cube and the recess waiting for it is square.
+
+## Room3-0: the way out of cycle 3, two storeys up (2026-08-30)
+
+**The only room in the building that is not on its cycle's ground floor.** It opens off deck B,
+through a doorway in room3-2N's north wall 10.8m above the floor, and its console takes the one
+object the Bedlam cube pays out.
+
+That placement is the whole point. Everything in room3-2N — the beam, the mirrors, both lifts, the
+blocks spread over three storeys — was a climb that ended in a dead end: deck B had nothing on it.
+Now the light puzzle and the way out of the cycle are one errand instead of two features sharing a
+shell.
+
+**A doorway at 10.8m is a thing no other wall here has.** `BuildPanelWall` takes its cutout as a rect
+in the wall's own frame with y measured from the room's floor, so the height costs nothing — but
+nothing had ever asked it for one, and a hole a hair out leaves a doorway you can see through and not
+walk through, at the top of a sixteen-metre room reached by two lifts. `AssertWalkable` is pointed at
+both sides of it for that reason.
+
+**One slot, where cycle 1 takes three and cycle 2 takes three.** Cycle 3's length is not in its
+console: what it charges is the climb, and the console is the receipt.
+
+### And the break is the room coming apart
+
+`FacilityFailure` moved here from the cube (2026-08-30). It is what `FinalRoomSequence.BreakOpen`
+plays instead of the announcement and the test-card glitch the other cycles get — a cycle saying
+"containment failure" and "all cycles destroyed" in the same breath would be the facility talking
+over itself.
+
+Nothing halts the loop any more, and nothing needs to: `LoopManager.CrossToNextCycle` has already set
+`CycleBreaking`, so the clock is stopped and every fixture is dead before the sequence runs. **And
+that boundary deliberately has no timer on it** — "walking out through what you built is the whole
+of this beat" — so the hatch is open the entire time the room empties and the player leaves when
+they choose.
+
+**The teardown happens in room3-2N while the player stands in room3-0**, which sounds like a staging
+mistake and is the opposite: room3-0's mouth looks back out over deck B and down sixteen metres into
+the room, which is the only vantage in the building from which the decks and the columns can be
+watched going at once. Room3-0 itself is excluded from the movers — taking apart the room being
+escaped through would be taking apart the escape.
+
+1. **The room shakes**, on the same ramp the loop's own collapse uses — so a player who has felt
+   that dozens of times reads it instantly, and then it does not stop, which is how they find out it
+   is not that.
+3. **The cube goes down**, shuddering, into the floor it was built on. First and alone, because it is
+   the only thing in the room the player made.
+4. **Every structure in cycle 3 leaves.** A wave spreading outward from the cube at about a room a
+   second: things that stand on a floor are swallowed by it, things that are hung or held up slide
+   out sideways. The decks, the columns, the two lifts, the beam and both its plates, the mirror
+   rack, the riser pane, the bed, the dresser, the four pads, the corridor's slab.
+5. **The announcement, the red, and the siren.** "All cycles have been destroyed. You will pay the
+   price for destroying them." Every wall panel in the cycle turns red and breathes in time with the
+   siren, and the siren does not stop.
+
+What is left is a white room with a red light in it and a player standing in it. **That is where it
+stops** — what comes after has not been designed.
+
+#### Why this is not a `FinalRoomSequence`
+
+That class is a cycle's `-0`: a console, an exit condition, and a break that hands over either to the
+next cycle or to the ending. This is none of those. Cycle 3 has no `-0`, nothing is being escaped
+from, and the run does not end. Reusing it would have meant claiming three things that are not true.
+
+What IS reused is everything below the sequence: the same `CameraShaker` ramp, the same
+`WallPanelDisplay`, the same PA voice with one line added to it.
+
+#### The announcement is the only line in the game that speaks to the player
+
+Every other thing this voice says is procedure — cycles initialized, cycles terminated, ten seconds
+remaining. It reads the machine out loud and never addresses anybody. The second sentence of this one
+is in the second person, and that is the whole point of it; it must not be softened back into
+procedure. Generated in both languages like every other line (`Tools/generate_narration.ps1`).
+
+#### The list of what leaves is gathered, not written down
+
+`SceneBuilder` walks each room and takes every child that is not the SHELL — floor, ceiling, walls,
+the gates that ARE walls, the ceiling lights, the reflection probe, the gas emitters. Naming the
+decks, the lifts, the beam, the bed and the pads by hand would be a list to keep in step with a cycle
+that is still being built, and the failure mode of forgetting one is a white room with a lift still
+standing in it, which is the one thing this sequence must not leave behind.
+
+**One group is split by name, and that name is a list of one because the derived version was wrong.**
+`Mezzanines` is both decks and the five columns under them, so taken whole it measures from the floor
+to ten metres up, classifies as standing, and is driven down through the ground floor the player is
+watching from. The first fix split anything taller than a storey and a half — which also caught the
+beam (its segments reach the ceiling call sixteen metres up), the upper lift (its column runs the
+whole height of the room) and the cube's own stand, whose bounds at BUILD time include twelve blocks
+scattered over three storeys. That last one is the lesson: **a rule measured against a scene saved
+unsolved cannot describe a room that has just been solved.**
+
+### Open
+
+- **Verified in code only.** The build asserts the packing, the connectivity and the geometry; nobody
+  has played it. Whether twelve more deliveries on top of cycle 3's beam is a room or a slog is not
+  answerable from here.
+- **The cube pays out nothing.** `BedlamCube` is a `RoomCondition`, so `Satisfied` is there for a
+  door or a plinth to read, and nothing reads it — cycle 3 still has no `-0` and no exit condition.
+- **Thirteen blocks, three colours.** The model's own, and shape is what tells them apart. If play
+  finds that two blue blocks of similar size are being confused, a colour per block is a property
+  block on thirteen renderers.
+- **THE FAILURE SEQUENCE HAS NEVER RUN.** It needs all thirteen blocks in, which needs the lift
+  chain, which needs the riser pane. Everything in it is verified in code and none of it has been
+  watched: whether four and a half seconds is the right length for a room to empty in, whether a
+  player standing on deck A when it slides out from under them reads as a moment or as a bug, and
+  whether the announcement lands before or after the thing it describes.
+- **Nobody has carried a 1.2m block up two lifts.** The size doubled and the scatter went vertical in
+  the same change, and both are the kind of thing that is fine in a plan and awkward in a pair of
+  hands. `HeldItemClearance` freezes the view when what is held meets a wall, and a block this size
+  meets more walls than anything else in the game.

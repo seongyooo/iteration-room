@@ -49,6 +49,11 @@ namespace IterationRoom
         // And the bucket's. Both live on the player, so both are core-scene references that survive
         // the per-cycle scene split.
         public BucketPlacer bucketPlacer;
+        // And room3-2N's. The fourth thing on this disc, and the same crossing as the two above it:
+        // the component is on the player and the cube it points at is in a cycle scene.
+        public BedlamPlacer bedlamPlacer;
+        // And room3-2N's ladder. The fifth thing on this disc and the same crossing as the rest.
+        public LadderPlacer ladderPlacer;
 
         // The tree, which asks for the same disc as the balloon tool and for the same reason: a
         // left click is a SWING here too. It is a `TreeTrunk` rather than an interface because it is
@@ -148,6 +153,17 @@ namespace IterationRoom
             // reason: the prompt goes on the thing the click acts on, and only one of these can want
             // it at a time because the hand holds one object.
             if (bucketPlacer != null && bucketPlacer.WantsPlaceHint) return bucketPlacer.PlaceAnchor;
+
+            // And the Bedlam cube, on the same principle again: the disc hangs on the middle of the
+            // cube a click would add to, so it says "left click" and "over there" in one mark. It
+            // does NOT retire, for the reason the chess board's does not - the half of the message
+            // that keeps mattering is WHETHER THIS BLOCK GOES ON YET, which is a new answer for
+            // every one of the twelve.
+            if (bedlamPlacer != null && bedlamPlacer.WantsPlaceHint) return bedlamPlacer.PlaceAnchor;
+
+            // And the ladder's mark on deck B. The one prompt in the game that is answering "this is
+            // the missing piece of the room" rather than "put the thing here".
+            if (ladderPlacer != null && ladderPlacer.WantsPlaceHint) return ladderPlacer.PlaceAnchor;
 
             // The tree BEFORE the balloon tool, because the two can want the disc at the same
             // moment - a past self can be holding a pin in the same room - and the tree is the one

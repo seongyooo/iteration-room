@@ -95,3 +95,26 @@ they press PLAY is not silence into sound — it is a place they were already st
 **Level is a guess.** 0.22 is "present, not announced" on one pair of headphones and has not been
 checked anywhere else. It is one field (`MainMenu.ambienceVolume`).
 
+## The alarm (2026-08-30)
+
+Room3-2N's cube being finished adds two sounds, and both are generated like everything else here.
+
+**`voice_all_cycles_broken`** — "All cycles have been destroyed. You will pay the price for
+destroying them." Chimed, like `voice_cycle_broken`, because it is heard once in a run if ever. It is
+the only line in the game that addresses the player: everything else this voice says is procedure,
+and breaking that is the point rather than an oversight. Generated in both languages.
+
+**`sfx_alarm_siren`** — 3.2 seconds, two full wails, so it loops on a whole number of them and the
+pitch is back where it started at the seam. A slow continuous sweep between two pitches rather than a
+warble or a bell: a warble is a car alarm and reads as petty, a bell is a fire drill and reads as
+orderly, and what this room has become is a BUILDING in trouble.
+
+The horn is a sawtooth built from six partials rather than a sine — a sine siren is a theremin —
+bandpassed at the top of the sweep so the harmonics thin as it climbs, which is what a real horn
+does. The phase is ACCUMULATED rather than computed per sample: `sin(2*pi*f(t)*t)` with a moving `f`
+is the classic way to get a sweep wrong, because the argument jumps whenever `f` changes and the wave
+breaks into clicks. Under it, a low tone breathing in time with the wail — the sub a PA cabinet adds
+to everything it plays, and what makes the siren feel like it is coming out of the walls.
+
+`WallPanelDisplay.BeginAlarm` pulses on the same period, because a light that swells out of time with
+the sound reads as two unrelated things.

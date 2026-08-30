@@ -59,6 +59,13 @@ namespace IterationRoom
         // inside them rather than merely touching.
         public float hardMinDrop = 0.15f;
 
+        // HOW HIGH A BODY'S EYE IS, for `PutDownPoint`'s visibility walk-back. The player's real
+        // camera is used when there is one; this is what a GHOST is given, because a past self has
+        // no camera and the walk-back is part of the act being reproduced. One number, so the two
+        // bodies cannot answer it differently - `SceneBuilder` writes the controller's own standing
+        // eye height into it.
+        public float eyeHeight = 1.6f;
+
         private readonly RaycastHit[] dropHits = new RaycastHit[8];
 
         // Everything picked up this iteration, including items since given up. ReturnAll works off
@@ -311,11 +318,10 @@ namespace IterationRoom
             Vector3 from = dropped.transform.position;
             Quaternion pose = dropped.transform.rotation;
 
-            // Room for it, and then somewhere it can be seen. Two separate questions and the second
-            // is the one play asked: an object put down correctly against a structure is still an
-            // object that has apparently disappeared.
-            float ahead = VisibleAhead(dropped, RoomAhead(dropped));
-            Vector3 rest = transform.position + transform.forward * ahead;
+            Camera cam = PlayerLookup.Eye;
+            Vector3 rest = PutDownPoint(dropped, transform,
+                                        cam != null ? cam.transform.position
+                                                    : transform.position + Vector3.up * eyeHeight);
 
             dropped.DropAt(from);
             FallingItem fall = dropped.GetComponent<FallingItem>();
@@ -324,6 +330,35 @@ namespace IterationRoom
 
             Version++;
             return dropped;
+        }
+
+        // **WHERE A PUT-DOWN LANDS, AND IT IS ONE ANSWER FOR TWO BODIES.**
+        //
+        // `GhostReplayer.PutDown` calls this with the ghost's own transform, so a past self performs
+        // the act the player performed rather than an approximation of it that happens to agree on
+        // flat open floor. CLAUDE.md §4: *compare the acts, not the outcomes*.
+        //
+        // It was written as an approximation on purpose, and the reasoning was wrong in an
+        // instructive way. The ghost skipped both the clearance cast and the visibility walk-back
+        // because "it is in the same place facing the same way as the player was, so that question
+        // was answered when the recording was made". That argument is about the RESULT - it holds
+        // exactly while the two calculations would agree, which is to say while nothing is in the
+        // way. Play found where they do not: put the ladder down **on the bed** and the player's
+        // walk-back shortens the throw, because a bed hides the spot beyond it from a standing eye,
+        // while the ghost threw the full distance and landed it somewhere else entirely. Two bodies
+        // doing the same thing in the same spot and getting different answers.
+        //
+        // The cost of asking properly is one sphere cast and a few short rays per drop event, which
+        // is nothing, and what it buys is that this method IS the definition of the act.
+        public Vector3 PutDownPoint(CarryableItem item, Transform body, Vector3 eye)
+        {
+            if (item == null || body == null) return Vector3.zero;
+
+            // Room for it, and then somewhere it can be seen. Two separate questions and the second
+            // is the one play asked: an object put down correctly against a structure is still an
+            // object that has apparently disappeared.
+            float ahead = VisibleAhead(item, body, eye, RoomAhead(item, body));
+            return body.position + body.forward * ahead;
         }
 
         // How far ahead there is actually room to put this down. The object's own half-width is part
@@ -340,13 +375,13 @@ namespace IterationRoom
         // carryable where the two differ: it is a 0.35m pail held at a root scale of 2, so this read
         // it as two metres across, cast a one-metre sphere from inside the player, hit the floor at
         // distance zero and put every bucket down at `hardMinDrop` - on the player's own feet.
-        private float RoomAhead(CarryableItem item)
+        private float RoomAhead(CarryableItem item, Transform body)
         {
             float half = item.WorldHalfWidth();
             float want = dropAhead + half;
 
-            Vector3 origin = transform.position + Vector3.up;
-            int count = Physics.SphereCastNonAlloc(origin, Mathf.Max(0.05f, half), transform.forward,
+            Vector3 origin = body.position + Vector3.up;
+            int count = Physics.SphereCastNonAlloc(origin, Mathf.Max(0.05f, half), body.forward,
                                                    dropHits, want, dropBlockers,
                                                    QueryTriggerInteraction.Ignore);
 
@@ -356,9 +391,10 @@ namespace IterationRoom
             {
                 Transform t = dropHits[i].collider != null ? dropHits[i].collider.transform : null;
                 if (t == null) continue;
-                // The player, whose capsule the sphere starts inside, and the object itself - whose
-                // colliders are off while it is held, so this is belt and braces.
-                if (t.IsChildOf(transform)) continue;
+                // The body, whose capsule the sphere starts inside, and the object itself - whose
+                // colliders are off while it is held, so this is belt and braces. A ghost has no
+                // colliders at all (CLAUDE.md §1.7), so the first test simply finds nothing for it.
+                if (t.IsChildOf(body)) continue;
                 if (t.IsChildOf(item.transform)) continue;
 
                 if (dropHits[i].distance >= allowed) continue;
@@ -380,12 +416,8 @@ namespace IterationRoom
         // Walks the drop point back toward the player until the line from the eye to it is clear.
         // Closer is always more visible here, because the thing doing the hiding is in front - and
         // the worst case, at the player's own feet, is a place they only have to look down at.
-        private float VisibleAhead(CarryableItem item, float allowed)
+        private float VisibleAhead(CarryableItem item, Transform body, Vector3 from, float allowed)
         {
-            Camera eye = PlayerLookup.Eye;
-            if (eye == null) return allowed;
-
-            Vector3 from = eye.transform.position;
             for (float d = allowed; d > hardMinDrop; d -= 0.12f)
             {
                 // `floorY` HERE, NOT `RestingY`, and the difference matters once there is a second
@@ -393,14 +425,14 @@ namespace IterationRoom
                 // floor they are dropping onto - so what is wanted is the object's height above that
                 // floor, which is exactly what `floorY` is. `RestingY` is a world height and would
                 // add the storey in twice.
-                Vector3 spot = transform.position + transform.forward * d + Vector3.up * item.floorY;
-                if (!Occluded(from, spot, item)) return d;
+                Vector3 spot = body.position + body.forward * d + Vector3.up * item.floorY;
+                if (!Occluded(from, spot, item, body)) return d;
             }
 
             return hardMinDrop;
         }
 
-        private bool Occluded(Vector3 from, Vector3 to, CarryableItem item)
+        private bool Occluded(Vector3 from, Vector3 to, CarryableItem item, Transform body)
         {
             Vector3 delta = to - from;
             float dist = delta.magnitude;
@@ -412,7 +444,7 @@ namespace IterationRoom
             {
                 Transform t = dropHits[i].collider != null ? dropHits[i].collider.transform : null;
                 if (t == null) continue;
-                if (t.IsChildOf(transform)) continue;
+                if (t.IsChildOf(body)) continue;
                 if (t.IsChildOf(item.transform)) continue;
                 return true;
             }

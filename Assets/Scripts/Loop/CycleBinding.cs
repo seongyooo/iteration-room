@@ -39,6 +39,10 @@ namespace IterationRoom
         public ChessPlacer placer;
         // And the bucket's, which crosses the same way for the same reason - see BucketPlacer.stands.
         public BucketPlacer bucketPlacer;
+        // And room3-2N's cube, the same direction again.
+        public BedlamPlacer bedlamPlacer;
+        // And the ladder's, the same direction again.
+        public LadderPlacer ladderPlacer;
         // Room2's wordless sign retires on the first POP rather than on the first visit, so it points
         // at the swing tool - which is on the player.
         public BalloonTool swingTool;
@@ -139,6 +143,37 @@ namespace IterationRoom
             {
                 bucketPlacer.stands = cycle.bucketStands;
                 bucketPlacer.tanks = cycle.worldRoot.GetComponentsInChildren<WaterTank>(true);
+            }
+
+            // HOW CYCLE 3 BREAKS, and it crosses the boundary in the ordinary direction: the
+            // sequence lives in the cycle and reaches OUT for the shaker it drives and the PA it
+            // speaks through. The same two `FinalRoomSequence` already needed, for the same reason.
+            //
+            // `wallPanels` is handed over from the cycle rather than left serialised, because the
+            // display is assembled per cycle and there is exactly one right answer per cycle - the
+            // same value `Cycle.wallPanels` holds.
+            foreach (FacilityFailure failure in cycle.worldRoot.GetComponentsInChildren<FacilityFailure>(true))
+            {
+                failure.cameraShaker = cameraShaker;
+                failure.narration = narration;
+                if (cycle.wallPanels != null) failure.wallPanels = cycle.wallPanels;
+            }
+
+            // Room3-2N's cube, the same direction and the same guard: assigned only when this cycle
+            // actually has one, or an earlier cycle would clear cycle 3's. Found by type rather than
+            // carried on `Cycle`, because one room having one of something is not yet a reason for
+            // every cycle to hold a field for it - the same line the tree is on, below.
+            BedlamCube bedlam = cycle.worldRoot.GetComponentInChildren<BedlamCube>(true);
+            if (bedlamPlacer != null && bedlam != null) bedlamPlacer.cube = bedlam;
+
+            // The ladder's mount, and the PLAYER it moves. That second one is the other direction -
+            // a fixture in the cycle reaching out for the controller it turns into a climbing one -
+            // and it is why a ladder in a scene of its own does nothing until this runs.
+            LadderMount mount = cycle.worldRoot.GetComponentInChildren<LadderMount>(true);
+            if (mount != null)
+            {
+                mount.player = player != null ? player.GetComponent<FirstPersonController>() : null;
+                if (ladderPlacer != null) ladderPlacer.mount = mount;
             }
 
             // The tree's left-click disc, the same direction and the same guard: assigned only when

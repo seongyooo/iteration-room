@@ -2,7 +2,7 @@
 
 ## 1. 프로젝트 개요
 
-- **레퍼런스**: 2016년 SF 단편영화 "Iteration 1" (감독: Jesse Lupini)의 설정을 그대로 따라가는 타임루프 퍼즐 게임
+- **레퍼런스**: 2016년 SF 단편영화 "Iteration 1" (감독: Jess Lupini)의 설정을 그대로 따라가는 타임루프 퍼즐 게임
 - **톤**: 심리적 공포 / 미스터리
 - **시점**: 1인칭 3D (Portal 스타일)
 - **개발 방식**: Unity + Unity MCP + Claude Code

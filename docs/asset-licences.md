@@ -59,6 +59,26 @@ commercial use, so this is not a blocker — but the model and any modification 
 CC-BY-SA, and that is a decision to take deliberately rather than discover. Replacing it is cheap if
 the answer is no; a bucket is not a hard model to source.
 
+### The one model in the tree that is not the file that was downloaded
+
+**`Play/bedlam_cube.glb` — CC-BY-4.0, by jamezac, and it is a DERIVATIVE.** The Sketchfab file holds
+three colour-merged meshes and an already-assembled cube; room3-2N needs thirteen separate blocks and
+a solved packing, and neither is recoverable at runtime. `Tools/split_bedlam_cube.py` produces the
+shipped file from the downloaded one — splitting the meshes by connected component, solving the 4x4x4
+exact cover, and writing each piece out in its solved pose. See `SceneBuilder.BuildBedlamCube`.
+
+CC-BY permits derivatives; what it requires is that the attribution travels, and it does: the splitter
+copies `asset.extras` through verbatim, so `ReadModelCredits` finds the same author, licence and
+source URL in the derived file that it would have found in the original, and the CREDITS page names
+it like any other model. **Nothing else in `ArtAssets` is modified**, which is why this one gets a
+paragraph — a derived asset that silently lost its attribution block would be exactly the failure
+this whole document exists about. The original is not in the tree; re-derive it from the Sketchfab URL
+in the credits.
+
+The rope round it (`Furniture/velvet_rope.glb`, CC-BY-4.0 by 5CNG5) is **unmodified** and needs no
+note beyond this one: it is placed whole, at its own arrangement, and its credit is generated like
+every other model's.
+
 Everything else is plain **CC-BY 4.0**, which permits commercial use with attribution — and the
 attribution is now generated, so it is met.
 
@@ -101,6 +121,8 @@ the third-party surface really is as small as it looks.
 - **The seven reflection probe cubemaps** — baked by `BakeReflectionProbes`.
 - **`ArtAssets/Generated/*.mesh`** — the prism silhouettes for the escape objects.
 - **The ghost afterimage shader** — hand-written for this project.
+- **Room3-2N's Bedlam packing** — one of the 19,186 solutions, found by `Tools/split_bedlam_cube.py`.
+  The MODEL it is solved for is not ours (above); the arrangement is arithmetic.
 
 ## Engine
 
@@ -169,16 +191,23 @@ premise.
 **The realistic risk is not a lawsuit. It is a takedown.** Valve and itch.io do not adjudicate
 disputes; they act on complaints. A page pulled in release week is the shape this goes wrong in.
 
-### The cheapest resolution, and it is available right now
+### ASKED, AND ANSWERED 2026-08-30. THIS SECTION IS STILL OPEN.
 
-**WRITTEN. Scheduled to send 2026-08-27 09:05 KST** to `hello@avomedia.ca`, addressed to both
-writers — the letter and the full record are in `docs/lupini-permission-email.md`, which is also
-where a reply should be pasted when one comes. **Follow up once between 2026-09-10 and 2026-09-17,
-then leave it.** Until an answer arrives this section is still open, and silence still counts as no.
+Sent 2026-08-27 to `hello@avomedia.ca`, addressed to both writers. **Jess Lupini replied on behalf
+of both on 2026-08-30, warmly, and did not grant permission**: *"we can't give blanket permission
+for a commercial release that uses the film's IP... we'd need to come to an agreement first"*, with
+that agreement deferred to *"when you're getting close to a store page"*. The full reply and what
+follows from it are in `docs/lupini-permission-email.md`.
 
-The reasoning that got it sent, kept because it applies to the next one of these too: she is
-findable, the film is nine years old, and short-film directors are
-routinely pleased rather than threatened when someone builds on their work.
+**So the position is now precise rather than unknown, and it is not better.** Before, nobody had been
+asked and silence counted as no. Now the two people who could say yes have been asked, know exactly
+what this game is, are pleased it exists — and have declined to permit a commercial release without a
+negotiated deal that does not exist yet. **A paid release still has no permission behind it**, and
+"made with the permission of the director" is not a line this project may write.
+
+What was gained is real and is not permission: a named contact who invited further contact, both
+authors on one thread, no objection to the free prototype, and the takedown-in-release-week scenario
+made very unlikely. What was NOT gained is anything that lets a store page open.
 
 **THE NAME AND THE URL IN THIS FILE WERE BOTH WRONG UNTIL 2026-08-26, and the name is the one that
 matters.** This document said "Jesse Lupini" and "he" throughout. Her own site
@@ -215,19 +244,29 @@ screenplay, which has two authors. A yes from the director alone is therefore a 
 its Content Director and Lupini its Creative Director. One email, both signatures, and a written
 record rather than a DM.
 
-**Crazy8s is a loose end, not a blocker.** The film was made in eight days on Crazy8s funding, and
-festival-funded shorts sometimes leave rights partly with the programme. Nothing found says so here,
-and it is not worth chasing before the writers have replied — but if they say yes and a store page
-starts to look real, that is the moment to ask them whether anyone else has a claim. Written permission —
-even an informal blessing over email — converts this entire section into a non-problem, and becomes a
-line on the store page worth more than it costs: *"made with the permission of the director."*
+**Crazy8s is a loose end, not a blocker, and it now has a date on it.** The film was made in eight
+days on Crazy8s funding, and festival-funded shorts sometimes leave rights partly with the
+programme. Nothing found says so here. The writers have now replied and have named the moment
+themselves — the store-page conversation — so that is when to ask them whether anyone else has a
+claim, as part of working out an agreement rather than as a separate inquiry. **The informal
+blessing over email that this paragraph used to hope for is the specific thing they declined**;
+what would convert this section into a non-problem is the agreement they offered to work out, and
+until it exists no version of *"made with the permission of the director"* may appear anywhere.
 
-**Do it now, while the project is pre-commercial.** Asking permission of someone who has nothing to
-gain is a conversation. Asking after a Steam page exists is a negotiation.
+**"Ask now, while the project is pre-commercial" was tried and did not work — not because it was
+wrong, but because it was never theirs to accept.** The argument was that asking someone with nothing
+to gain is a conversation while asking after a Steam page exists is a negotiation. They answered by
+scheduling the negotiation: they will not price a game they have not seen finished. Keep the
+principle for the next rights-holder this project has to write to, and stop expecting it to have
+produced an answer here.
 
-If permission does not come, the fallback is **divergence**: keep the mechanism, change the
-expression. New puzzles are already planned for a Steam release — that is the natural moment for
-Room1 and Room2 to stop being the film's rooms and become this game's own.
+**DIVERGENCE IS NO LONGER THE FALLBACK. IT IS THE LEVER.** Keep the mechanism, change the
+expression — that was filed here as what to do if nobody replied. Somebody replied, and made the
+terms depend on *"what the game actually becomes"*. Every part of the film's specific expression
+still in the finished game is something a future agreement has to cover; every part replaced is
+something it does not. Cycles 2 and 3 are already this project's own invention. **Room1 and Room2
+are the two rooms a viewer of the film would recognise**, new puzzles for them are already in the
+Steam plan, and that work now has a second and larger reason to happen.
 
 **Two things that are not fixes.** Crediting the film without permission is not a defence, and if
 similarity is ever disputed it evidences access. And the title matters separately — titles are not
@@ -1368,3 +1407,102 @@ CC AttributionCreative Commons Attribution
 Learn more
 Published 2 years ago
 https://sketchfab.com/3d-models/hight-quality-realistic-girl-character-baba4b0b710745ceabfea9a9aede7f42
+
+BEDLAM CUBE
+3D Model
+Avatar of jamezacristancho
+jamezac
+
+Follow
+318
+318 Downloads
+4.2k
+4189 Views
+25
+Unlike
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 13.1k
+Vertices: 6.6k
+More model information
+The Bedlam Cube and his thirteen polycubic pieces.
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 6 years ago
+https://sketchfab.com/3d-models/bedlam-cube-19ba7ec5181c46bcaa813f87a8dd35c9
+
+Velvet Rope LowPoly
+3D Model
+Avatar of 5CNG5
+5CNG5
+
+Follow
+490
+490 Downloads
+1.5k
+1513 Views
+16
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 21.2k
+Vertices: 10.9k
+More model information
+https://www.instagram.com/cng.3ds/
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 4 years ago
+https://sketchfab.com/3d-models/velvet-rope-lowpoly-83994d49179b41cebdf91d2c7fc78aab
+
+Ladder
+3D Model
+Avatar of niver_mk
+niver_mk
+
+Follow
+11.8k
+11765 Downloads
+20.1k
+20074 Views
+497
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 2.6k
+Vertices: 1.5k
+More model information
+Textures resolution - 1024x1024.
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 8 years ago
+https://sketchfab.com/3d-models/ladder-adf229c426194740ab0ec9cdb00262b4

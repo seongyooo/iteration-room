@@ -38,6 +38,24 @@ namespace IterationRoom
         public float halfWidth = 0.7f;
         public float halfDepth = 0.5f;
 
+        // **AND Y, WHEN THERE IS A ROOM UNDERNEATH.** The note above is right for a building laid
+        // out in one plane and became wrong the moment cycle 3 stacked room3-0 on top of room3-2N:
+        // untested, this volume also covers the deck two storeys below it, so standing at the
+        // ladder's foot armed the console upstairs. Zero keeps the old behaviour, which is what
+        // every doorway in cycles 1 and 2 wants.
+        public float halfHeight = 0f;
+
+        // **WHETHER ARRIVING HAS TO BE THROUGH A DOOR.** It always did, because until room3-0 every
+        // final room had one — and this fixture is placed IN the doorway, so "the door is open" is
+        // just a cheap way of saying "this is a threshold somebody could be standing in".
+        //
+        // Room3-0 has no doorway at all: the only way in is the hole in its own floor, which you
+        // climb into. `door` is therefore null there, and the test at the top of `TryArm` returned
+        // on the first line every time — so `PlayerArrived` never became true, `FinalRoomSequence`
+        // was never `Active`, and **the console refused the cube for ever**, with no prompt to say
+        // why. Reported from play as exactly that.
+        public bool requiresOpenDoor = true;
+
         public bool PlayerArrived { get; private set; }
 
         public void Rearm() => PlayerArrived = false;
@@ -78,7 +96,7 @@ namespace IterationRoom
         public void TryArm(Vector3 position)
         {
             if (PlayerArrived) return;
-            if (door == null || !door.IsOpen) return;
+            if (requiresOpenDoor && (door == null || !door.IsOpen)) return;
             // Not during the wake-up or the blackout: the loop closes the doors after teleporting
             // the player, so there is a window where a door is briefly still open with the player
             // already back at the bed. Nowhere near this volume, but the guard costs nothing.
@@ -87,6 +105,7 @@ namespace IterationRoom
             Vector3 offset = position - transform.position;
             if (Mathf.Abs(offset.x) > halfWidth) return;
             if (Mathf.Abs(offset.z) > halfDepth) return;
+            if (halfHeight > 0f && Mathf.Abs(offset.y) > halfHeight) return;
 
             PlayerArrived = true;
         }

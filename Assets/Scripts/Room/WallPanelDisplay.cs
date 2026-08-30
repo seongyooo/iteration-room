@@ -47,6 +47,11 @@ namespace IterationRoom
         // deliberately high bloom threshold and the whole room floods.
         public float flareEmission = 7f;
 
+        // WHAT COLOUR A BLOWN-OUT PANEL IS. White for the loop's own collapse, which is a screen
+        // over-driven rather than a screen saying anything. `BeginAlarm` swaps it, because an alarm
+        // that flared white would wash its own colour out at exactly the moment it is loudest.
+        public Color flareTint = Color.white;
+
         // ---- the break ----
         //
         // At the very end of the run every panel stops being a white surface and becomes a screen
@@ -235,7 +240,7 @@ namespace IterationRoom
             paintedPowered = powered;
             paintedFlare = flare;
 
-            Color flareColor = Color.white * (flare * flare * flareEmission);
+            Color flareColor = flareTint * (flare * flare * flareEmission);
 
             // One slot index for the whole wall, so a burst hits every panel on the same frame.
             // Per panel it would smear into continuous noise and stop reading as broken FRAMES.
@@ -269,7 +274,7 @@ namespace IterationRoom
                 Color albedo = Color.Lerp(offColor, onColor, Mathf.SmoothStep(0f, 1f, f));
                 // The flare overrides the boot state entirely - a panel still dark from the sweep
                 // shouldn't stay dark while the room is blowing out around it.
-                albedo = Color.Lerp(albedo, Color.white, flare);
+                albedo = Color.Lerp(albedo, flareTint, flare);
 
                 b.SetColor(BaseColorId, albedo);
                 b.SetColor(EmissionId, flareColor);
@@ -364,6 +369,59 @@ namespace IterationRoom
                 yield return null;
             }
             SetPowered(1f);
+        }
+
+        // **BOTH AT ONCE: the ERROR card AND the alarm's colour.** Cycle 3's break wants every panel
+        // in the cycle - room3-0's and room3-2N's alike - to fail and to do it in red, and the two
+        // halves of that are the two things this class already knows how to do.
+        //
+        // The glitch is what spreads: `BeginGlitch` converts each panel to the test card in a wave
+        // from the origin, and a panel that has not converted yet is still painted the ordinary way.
+        // So setting the colours FIRST is what makes the wave read as red arriving rather than as two
+        // unrelated effects - the panels ahead of it are red, the ones behind it are failing.
+        //
+        // No pulse, and that is deliberate: a card that is already flickering does not need one, and
+        // the coroutine the glitch runs in is the one `BeginAlarm` would have taken.
+        public void BeginAlarmGlitch(Color color, Vector3 origin, float flare)
+        {
+            onColor = color;
+            flareTint = color;
+            SetPowered(1f);
+            SetFlare(flare);
+            BeginGlitch(origin);
+        }
+
+        // EVERY PANEL IN THE BUILDING TURNS ONE COLOUR AND BREATHES. The facility raising an alarm,
+        // which is a different statement from the two this class already makes: `SetFlare` is a
+        // screen being over-driven by the loop closing, and `BeginGlitch` is a screen FAILING. This
+        // is a screen being used - deliberately, by whatever is left of the facility, to say one
+        // thing at once on every wall.
+        //
+        // Driven off unscaled time, like the glitch, so a pause menu does not stop it - and because
+        // the thing it is keeping time with is a siren, which is audio and has never been scaled.
+        public void BeginAlarm(Color color, float period, float low, float high)
+        {
+            StopAllCoroutines();
+            onColor = color;
+            flareTint = color;
+            // Nothing is off during an alarm. `onColor` only reaches a panel that the boot sweep has
+            // already lit, and this has to land on all of them at once.
+            SetPowered(1f);
+            StartCoroutine(AlarmRoutine(Mathf.Max(0.1f, period), low, high));
+        }
+
+        private IEnumerator AlarmRoutine(float period, float low, float high)
+        {
+            float t = 0f;
+            while (true)
+            {
+                t += Time.unscaledDeltaTime;
+                // Sine rather than a triangle: a siren swells and falls, and a linear ramp reads as
+                // a light being switched rather than one being driven.
+                float u = 0.5f - 0.5f * Mathf.Cos(t / period * 2f * Mathf.PI);
+                SetFlare(Mathf.Lerp(low, high, u));
+                yield return null;
+            }
         }
 
         // Starts the break and never stops it. There is nothing after this - EndingSequence's scrim

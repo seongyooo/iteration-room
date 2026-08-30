@@ -327,6 +327,60 @@ def ominous_loop():
     return normalize(mix(tone, air), 0.55)
 
 
+def alarm_siren():
+    """The evacuation siren, looping. 3.2 seconds - two full wails - so it wraps on a whole number
+    of them and the pitch is back where it started at the seam.
+
+    A two-tone wail rather than a warble or a bell. The warble (a fast alternation between two
+    fixed pitches) is a car alarm and reads as petty; a bell is a fire drill and reads as orderly.
+    A slow continuous sweep between two pitches is the one that reads as a BUILDING in trouble,
+    which is what this room has just become.
+
+    The horn is a sawtooth built from its own partials rather than a sine, and that is the whole of
+    why it carries: a sine siren is a theremin. Six harmonics rolled off at 1/n is enough edge to
+    sound mechanical without turning into a buzzer, and the whole thing goes through a bandpass at
+    the top of the sweep so the harmonics thin out as it climbs - which is what a real horn does and
+    what stops the high end getting shrill.
+
+    Under it, a slow tremolo on a low tone: the sub a PA cabinet adds to everything it plays, and
+    the thing that makes the sound feel like it is coming out of the walls rather than out of a
+    speaker somewhere."""
+    dur = 3.2
+    n = int(dur * SR)
+    low, high = 415.0, 660.0
+
+    # PHASE ACCUMULATED, NOT COMPUTED PER SAMPLE. sin(2*pi*f(t)*t) with a moving f is the classic
+    # way to get a sweep wrong - the argument jumps whenever f changes, so the wave breaks up into
+    # clicks. Integrating the frequency is what keeps it continuous.
+    phase = 0.0
+    horn = []
+    for i in range(n):
+        t = i / SR
+        # Two wails per clip. Cosine rather than a triangle, so the turn at each end is a swell and
+        # not a corner.
+        u = 0.5 - 0.5 * math.cos(2 * math.pi * (2.0 / dur) * t)
+        f = low + (high - low) * u
+        phase += 2 * math.pi * f / SR
+        v = 0.0
+        for h in range(1, 7):
+            v += math.sin(phase * h) / h
+        horn.append(v * 0.5)
+
+    horn = bandpass(horn, 900.0, 0.9)
+
+    # The cabinet under it, breathing in time with the wail.
+    sub = [0.0] * n
+    for i in range(n):
+        t = i / SR
+        u = 0.5 - 0.5 * math.cos(2 * math.pi * (2.0 / dur) * t)
+        sub[i] = math.sin(2 * math.pi * 82.5 * t) * (0.20 + 0.14 * u)
+
+    out = mix(scale(horn, 0.75), sub)
+    # Softly clipped rather than merely normalised: a horn driven into its own limit is what a
+    # tannoy sounds like, and the harmonics it adds are the ones already there.
+    return normalize(soft_clip(out, 1.6), 0.72)
+
+
 def pull_in():
     """The loop taking you: something narrow opening underneath the room and everything being drawn
     down into it.
@@ -775,6 +829,9 @@ def main():
     write("sfx_ominous_loop", ominous_loop())
     write("sfx_pull_in", pull_in())
     write("sfx_power_down", power_down())
+    # Room3-2N's alarm. Looped by FacilityFailure, so it has to wrap without a seam - see
+    # `alarm_siren` on why it is a whole number of wails long.
+    write("sfx_alarm_siren", alarm_siren())
     write("sfx_chime", chime())
     write("sfx_balloon_pop", balloon_pop())
     write("sfx_drawer_open", drawer_open())

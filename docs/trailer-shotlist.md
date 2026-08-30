@@ -30,6 +30,7 @@ observation.
 | **K** | Toggles the HUD: the clock, the carried slot, the E prompts, the end-cycle control and the touch layer. Straight on/off. |
 | **J** | Toggles the **ITERATION / CYCLE** card on its own. Independent of the HUD, because the card is also a trailer asset. |
 | **L** | Detaches the camera. The player freezes where they stand and the camera flies free from their eye position. Press again to hand it back. |
+| **Hold O** (while detached) | Auto pull-back dolly: glides the camera backward and slightly up along wherever it was aimed the moment O went down, easing in on press and easing out on release. Mouse look and WASD are locked out for the whole glide — aim first, then hold O, don't steer mid-shot. Speed comes from the same scroll-wheel value flight uses, so tune it before pressing O. |
 
 `F9` and `F10` still work as aliases for **K** and **L** if your keyboard has Fn-lock on.
 
@@ -113,7 +114,9 @@ premise as an image.
 
 Shoot it twice. **First person** is the honest one — you are one of six. **Detached**, backed off and
 slightly high, is the one that goes on the Steam page: fly out along the deck so the count of bodies
-resolves as the camera pulls back.
+resolves as the camera pulls back. This is what the pull-back dolly (hold **O**) is for — fly into
+position and aim by hand, then let go of the mouse and hold O so the actual pull-back is one smooth,
+untouched glide instead of a hand-flown one.
 
 Two known unknowns, both flagged in `TODO.md`: ghost crowding here has never been profiled (five
 skinned, afterimaged bodies is the payoff and the load at once), and whether five ghosts swinging
@@ -206,8 +209,10 @@ Capsule art is a separate job and is not a screenshot.
 - **The rig is unplayed.** F9 and F10 have never been pressed. Expected to be wrong on first contact:
   the fly sensitivity (0.6 is a guess), and whether the detached camera's culling mask really does
   show the whole body rather than the headless one.
-- **Room2-6's south door is blocked** and the build says so on every run — `AssertWalkable` reports a
-  `Solid` in the doorway at (21.70, -9.97, 89.15). It is on the walk to the tree hall. Fix it before
-  filming shot C or the route will not exist.
+- ~~**Room2-6's south door is blocked**~~ **IT NEVER WAS** (2026-08-26). `AssertWalkable` swept with
+  `~0` and so counted the balloon layer, which `cc.excludeLayers` removes from the player outright —
+  the `Solid` it named was one of the pool's 210 floating balls drifting into the doorway, a thing
+  nobody can be stopped by. Both asserts now sweep `PlayerBlockingMask()`. Room2-6 is also downstream
+  of the tree hall, not on the walk to it, so shot C was never affected either way.
 - **CC-BY attribution is still missing** (`TODO.md` §7). A trailer is the point at which this stops
   being an internal problem: ten uncredited creators, in a video being pushed at an audience.

@@ -22,6 +22,30 @@ blue sphere. **Room3** pays out a yellow triangle on the same condition that ope
 three are `CarryableItem`s and Room4's console has a shaped recess for each — see
 `docs/puzzle-design.md`.
 
+**FOUR CYCLES NOW (2026-08-30), and cycle 3 can be finished.** Its `-0` is **room3-0, ON TOP of
+room3-2N** — the only room in the building that is not on its cycle's ground floor. The way up is a
+LADDER: there is a hole in room3-2N's ceiling above deck B and no way through it until the ladder is
+carried in from room3-2S and stood in its mark with a left click. **That is the game's only climbing
+motion** (`FirstPersonController.Ladder`, `LadderMount`), and it goes both ways.
+
+**THE ESCAPE OBJECT IS THE BEDLAM CUBE ITSELF.** Finishing it shrinks the assembly to a quarter of
+its size and hands over to a small carryable copy at the moment the two match — see
+`BedlamCube.Shrink` for why it has to be two objects.
+
+**THE LADDER LEANS AGAINST ROOM3-0'S WEST WALL** (2026-08-31, by request), which is why its shaft
+sits against that wall and why it is 7.32m rather than 6.31: a leaning ladder covers the same rise
+over a longer run. Its foot stands 1.52m out from the mouth on deck B, its head 1.20m above room3-0's
+floor. **The climb is no longer vertical** — `LadderMount.climbDirection` is the one statement of
+which way up it goes, and both the grab volume and `FirstPersonController`'s climb read it. Every
+number is derived in `SceneBuilder` from the lean angle and the wall; none is written twice.
+
+**THE WAY DOWN TO CYCLE 4 IS A ROOM-SIZED HOLE IN THE MIDDLE OF ROOM3-2N'S FLOOR**, not a hatch: it
+is room4-1's whole ceiling, in two leaves that part into the floor either side. So filling room3-0's
+console opens a floor a storey BELOW the room the player is standing in — which is why the break
+raises a sign in room3-0 pointing down, and why the ERROR wave covers both rooms (one
+`WallPanelDisplay` per cycle, so it always did). Cycle 4 is what cycle 3 was when it started: one
+sealed room, a bed, an empty chest, `finalRoom` null. **So the game has no ending again.**
+
 **Rooms are called `room<cycle>-<n>` in design discussion** — `Room1` is `room1-1`, `Room4` is
 `room1-0`, and a cycle always ends in its `-0`. **The code names above are unchanged and are what
 you grep for**; the mapping is in `docs/cycle-design.md` §4a.
@@ -300,7 +324,7 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `LoopManager` | The iteration coroutine, the clock, reset ordering |
 | `PlayerRecorder` / `RecordedTimeline` | What gets written into a timeline |
 | `GhostReplayer` | Replaying one timeline, and re-evaluating it |
-| `PlayerHand` | What the player carries and what is **in hand** |
+| `PlayerHand` | What the player carries, what is **in hand**, and **where a put-down lands** — `PutDownPoint`, which a ghost calls too |
 | `CarryableItem` | One object's own state and where it is parented |
 | `FallingItem` | One carryable's fall when nothing holds it up — dropped, or its support taken |
 | `HeldItemClearance` | Keeping whatever is in the hand out of the walls |
@@ -321,6 +345,9 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `LaserBeam` | Cycle 3's light: the chain of segments, recomputed every frame from where the mirrors are |
 | `LaserReceiver` | Where the beam has to arrive. `Lit`, and nothing else - `BeamLift` is the first thing that reads it |
 | `BeamLift` | Room3-2N's deck on a shaft: raised at rest, pulled DOWN while a call receiver is lit, and it carries whoever is on it |
+| `BedlamCube` | Room3-2N's floor: which block goes where in the solved 4x4x4, whether one may join yet, and one `IItemSocket` per block |
+| `BedlamPlacer` | The left button and the aim for a block; every question about *where* and *whether* is `BedlamCube`'s |
+| `FacilityFailure` | How cycle 3 BREAKS: the cube into the floor, every structure leaving, the announcement and the alarm. Played by `FinalRoomSequence` in place of its own dressing |
 | `FinalRoomSequence` | A cycle's `-0`: its console, its exit condition, and the break. Room4 and room2-0 |
 | `Cycle` | One cycle's world: its bed, doors, rooms, signal array, panels — and **which particle systems are its gas**. Anything per-cycle a system outside needs is NAMED here, never gathered by type at runtime |
 | `CaptureRig` | Filming: which HUD is hidden, and the camera that leaves the player's head. Editor/dev builds only, records nothing, and freezes the player through `GameInput.Suspended` alone |
@@ -492,6 +519,19 @@ player less to do.** Do not damage that when adding rooms.
     Room4 in one trip, so finishing means past selves delivering what they delivered while the living
     player brings the last one. The 15-iteration and 8-second figures above were measured before this
     and are void.
+- **A CARRYABLE LONGER THAN ARM'S REACH POSES ITSELF LEVEL.** The ordinary hold hangs off the
+  CAMERA, so a long object inherits the player's pitch: look down and its far end drives into the
+  floor, look up and into the ceiling, and both read as the object vanishing because what is left on
+  screen is the inside of a slab. `LevelCarry` (the general form of what `Mirror.Sync` has always
+  done) places it off the BODY at a fixed height, yawed only — and `posesItself` is what stops
+  `HeldItemClearance` dragging something that is placing itself.
+- **A CARRYABLE LONGER THAN ARM'S REACH NEEDS `heldSpan`**, its full length end to end in its local
+  frame and **CENTRED ON ITS ORIGIN** — which means the build has to put the pivot at the middle of
+  the mesh if the model does not (`BuildLadder` does). Two things read it and neither works without it: `HeldItemClearance` sweeps
+  it so the object meets a wall along its whole length rather than only where the hand is, and
+  `LongItemAnchor` slides the prompt along it so E works anywhere on it instead of at one point. The
+  ladder is the only one today. **Measure it off the imported model** — a span, not a half-length,
+  because an imported pivot is wherever the artist left it and the ladder's is at one end.
 - **Held objects are their TRUE SIZE.** The shrink-to-fit every carryable used to carry is gone;
   `handLocalScale` is now the object's own world scale, and where it sits comes from
   `SceneBuilder.HandPoseFor(size)` — bigger things are held further out and lower. A metre of glass is
@@ -513,6 +553,23 @@ player less to do.** Do not damage that when adding rooms.
   a pin has no destination a hand-over could matter for.
 - **A ghost shows what it is holding** — otherwise "who has the key" and "why did the door stop
   opening" are unanswerable.
+- **THE PLAYER AND A PAST SELF MUST PERFORM THE SAME ACT, not merely reach the same state.** A
+  put-down is "in front of me", so `GhostReplayer.PutDown` and `PlayerHand.Drop` both call
+  **`PlayerHand.PutDownPoint`** — one method, not two agreeing implementations. It was two different
+  acts for months — the player threw the object a metre, a ghost let go at its own feet — and nothing
+  could tell the difference until room3-2N grew a ledge. **Any new "the player does X" reproduced on
+  the ghost side is the same trap**: compare the acts, not the outcomes on a flat floor.
+  - **AND "SAME PLACE, SAME FACING, SO THE ANSWER IS THE SAME" IS THAT TRAP WEARING A PROOF.** Copying
+    the throw and skipping the two refinements on top of it — the clearance cast and the visibility
+    walk-back — was argued exactly that way, and it holds only while the two calculations would agree,
+    which is to say while nothing is in the way. Play found **the bed**: the walk-back shortened the
+    player's throw and no ghost's, so a ladder the player set down beside the bed landed *on* it every
+    iteration afterwards. A shared method cannot drift; two justified copies always do.
+- **A GHOST'S EVENTS FIRE AT THE POSE OF THE FRAME THEY BELONG TO.** `GhostReplayer.Tick` advances
+  the cursor and applies the recorded frame BEFORE draining pops and carries. Drained first, they
+  acted on the previous tick's pose — and how stale that was depended on this run's frame rate
+  against the recording's, so a ghost placed objects in a slightly different spot every iteration.
+  Anything new added to `Tick` goes after the pose, not before it.
 - **A TOOL-SHAPED ACTION REQUIRES THE TOOL, for ghosts as for the player.** An interaction performed
   *with* an object is gated on that object being **in the hand**; take the object away and the
   interaction stops. `KeyLock` does this for the key, `GhostReplayer.requirePopTool` for balloon

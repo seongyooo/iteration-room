@@ -57,6 +57,8 @@ namespace IterationRoom
         // of appearing in mid-air already falling. Both are driven off the fall's own progress, so
         // the object arrives horizontally and rotationally at the exact moment it lands.
         private bool gliding;
+        // What is under the glide's DESTINATION, captured at the release. See Update.
+        private float glideFloor;
         private Vector3 glideFrom, glideTo;
         private Quaternion spinFrom, spinTo;
         private float glideTop, glideBottom;
@@ -78,10 +80,31 @@ namespace IterationRoom
             spinFrom = fromWorldRotation;
             spinTo = transform.rotation;
             glideTop = p.y;
-            // The glide's floor is the same one the fall is aiming at, or the horizontal arc finishes
-            // somewhere the object never reaches.
-            glideBottom = item != null ? SurfaceUnder(transform.position) : 0f;
+            // **THE HIGHER OF THE TWO FLOORS - the one under the hand and the one under where it is
+            // going.** They are the same number everywhere in this building except at a LEDGE, and
+            // at a ledge getting it wrong is what makes a drop over the edge unreliable.
+            //
+            // Play found it in room3-2N (2026-08-29): blocks dropped off deck A and deck B "some
+            // fall and some do not". The horizontal arc is paced by the descent from `glideTop` to
+            // `glideBottom`, so with the FAR floor (the ground, six metres down) the object had
+            // barely moved sideways by the time it reached the deck it was standing on - and it
+            // settled there, on the lip, having gone nowhere. With the NEAR floor the sideways move
+            // finishes within the drop from the hand to the deck, which is what clears the edge.
+            //
+            // The far case is the mirror image and wants the same answer: stepping off a lift onto a
+            // deck, the near floor is the ground far below, and pacing the arc against it would
+            // leave the object hanging over the drop when it reached the deck it was aimed at. The
+            // maximum is right for both, because it is always the first floor the arc could END on.
+            float underHand = item != null ? SurfaceUnder(transform.position) : 0f;
+            float underRest = item != null
+                ? SurfaceUnder(new Vector3(restXZ.x, p.y, restXZ.z))
+                : 0f;
+            // `float.NegativeInfinity` is "nothing under there at all" - a drop into a shaft. Max
+            // takes the real floor whenever either end has one, and leaves the sentinel alone when
+            // neither does, which is what makes the object keep going down the hole.
+            glideBottom = Mathf.Max(underHand, underRest);
             gliding = glideTop > glideBottom + 0.01f;
+            glideFloor = underRest;
 
             if (gliding) transform.rotation = spinFrom;
             else transform.position = new Vector3(restXZ.x, p.y, restXZ.z);
@@ -104,7 +127,15 @@ namespace IterationRoom
             // ONLY EVER DOWN. A support put back underneath does not lift this off the floor again -
             // that would be an object climbing, and the only thing entitled to rebuild a tower is
             // the loop's own rewind, which sets the position outright.
-            float target = Supported ? stackedY : SurfaceUnder(transform.position);
+            //
+            // **WHILE GLIDING, THE FLOOR IS THE ONE UNDER WHERE IT IS GOING, not the one under where
+            // it is now.** The object is on its way somewhere; asking what is beneath its CURRENT
+            // position asks about a spot it is leaving, and at a ledge the two disagree for the
+            // whole of the arc. That is the other half of the drop-off-a-deck fault the note in
+            // `Release` describes: even with the arc paced right, a per-frame probe under the object
+            // saw the deck for the first few frames and settled it there.
+            float target = Supported ? stackedY
+                         : (gliding ? glideFloor : SurfaceUnder(transform.position));
             Vector3 p = transform.position;
             // A target of negative infinity is "there is nothing under this" - see SurfaceUnder. The
             // comparison below would be false forever, which is exactly right, but say it out loud so
@@ -157,7 +188,36 @@ namespace IterationRoom
         // already is, which is every question this class has - but `CarryableItem.DropAt` needs the
         // same answer about a point the object has not been moved to yet, and there is no second
         // right way to ask "what is under here". See the clamp in `DropAt`.
+        // **SAMPLED ALONG THE OBJECT, not asked once at its origin.** One ray answers for anything
+        // that fits in a hand, and for anything long it answers about one END: a ladder dropped
+        // across a bed had its pivot over clear floor, found the floor, and lay at floor height with
+        // the bed passing through it - reported from play as "it goes under the bed".
+        //
+        // The highest of the samples wins, which is what resting ON something means. A span that is
+        // partly over a hole still rests on whatever is under the rest of it, which is also right -
+        // and if NOTHING is under any of it the sentinel survives the maximum untouched, so an object
+        // let go over a shaft still goes down it.
         public float SurfaceUnder(Vector3 at)
+        {
+            if (item == null || item.heldSpan == Vector3.zero) return ProbeUnder(at);
+
+            // END TO END ACROSS THE OBJECT. `heldSpan` is centred on the origin, so the samples run
+            // from half a span behind the point asked about to half a span past it.
+            Vector3 span = transform.TransformVector(item.heldSpan);
+            Vector3 from = at - span * 0.5f;
+
+            float best = float.NegativeInfinity;
+            for (int i = 0; i <= spanSamples; i++)
+                best = Mathf.Max(best, ProbeUnder(from + span * (i / (float)spanSamples)));
+
+            return best;
+        }
+
+        // How many points along a long object are asked about, past its origin. Five is a rung every
+        // 1.2m on the ladder, which is finer than anything it could come to rest on.
+        public int spanSamples = 5;
+
+        private float ProbeUnder(Vector3 at)
         {
             Vector3 from = at + Vector3.up * 0.05f;
             int count = Physics.RaycastNonAlloc(from, Vector3.down, floorHits, floorProbe, ~0,

@@ -87,6 +87,7 @@ MonoBehaviour:
   idleCycleSeconds: 4.17
   popSwingDuration: 0.9
   takeReach: 2
+  dropAhead: 0.55
   requirePopTool: 1
   popToolItemId: Tool
   carryAnchor: {fileID: 1225757076591321216}

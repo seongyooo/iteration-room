@@ -58,6 +58,11 @@ namespace IterationRoom
         // because the cast stops the item's centre that far short of a surface and its own body
         // fills the gap - and clamped, because a metre-wide cube would otherwise cast a sphere so
         // large it is inside the wall before it starts and the item would never leave the camera.
+        // HOW THICK A LONG OBJECT IS TAKEN TO BE when its own length is swept - see `LongContact`.
+        // Not derived from the object: what is being asked there is "does the ladder touch the wall",
+        // and the answer wants a line with a little width, not a sphere the size of the rungs.
+        public float longProbe = 0.18f;
+
         public float minProbe = 0.06f;
         public float maxProbe = 0.22f;
 
@@ -114,7 +119,7 @@ namespace IterationRoom
             if (reach <= 0.0001f) { anchor.localPosition = Vector3.zero; Release(); return; }
 
             Vector3 dir = eye.rotation * (rest / reach);
-            float allowed = Sweep(dir, reach, HeldProbeRadius(held), out Vector3 normal);
+            float allowed = Sweep(eye.position, dir, reach, HeldProbeRadius(held), out Vector3 normal);
 
             // The anchor sits at the camera and the item's offset lives inside it, so displacing the
             // anchor by (f - 1) x rest lands the item at f x rest: same direction, same size, nearer.
@@ -142,9 +147,23 @@ namespace IterationRoom
             // player an inch, and there is no motion to refuse. The object pulls in for that, which is
             // the growth this feature set out to remove - bounded now by how close the player managed
             // to get, which is a step rather than a stride.
-            if (allowed >= reach - contactSlack) { Release(); return; }
+            // **AND THE WHOLE LENGTH OF IT, for anything long enough to reach past the hand.**
+            //
+            // The sweep above runs from the eye to the HOLD POINT, which is the whole of a key or a
+            // cube and almost none of an eight-metre ladder held sideways: every metre of it past the
+            // hand was passing through walls with nothing to stop the player. That is the complaint
+            // this answers - the ladder should stop you when it touches something, the way the
+            // mirrors already do.
+            //
+            // Checked whether or not the near sweep found anything, and it OVERRIDES: the far end
+            // meeting a wall is a contact even when the hand is in clear air, which is the ordinary
+            // case for a long object.
+            Vector3 contact = allowed < reach - contactSlack ? normal : Vector3.zero;
+            if (LongContact(held, out Vector3 farNormal)) contact = farNormal;
 
-            Vector3 flat = normal;
+            if (contact == Vector3.zero) { Release(); return; }
+
+            Vector3 flat = contact;
             flat.y = 0f;
             if (controller == null) return;
 
@@ -157,6 +176,47 @@ namespace IterationRoom
             controller.heldClearance = this;
         }
 
+        // DOES THE LENGTH OF IT MEET ANYTHING. One cast from the object's own origin along its own
+        // span, which is exactly the volume the near sweep cannot see.
+        //
+        // ONE DIRECTION IS ENOUGH: the origin end is at the hand and what is behind the hand is the
+        // player, who is excluded from the cast anyway. `heldSpan` runs origin to far end, so this
+        // covers every part of the object that is not already inside the player.
+        private bool LongContact(CarryableItem held, out Vector3 normal)
+        {
+            normal = Vector3.zero;
+            if (held.heldSpan == Vector3.zero) return false;
+
+            // **ASKED OF WHATEVER IS POSING IT, not cast again here.** `LevelCarry` already sweeps
+            // both ends of the span every frame to decide where to draw the object, and it is the
+            // only thing that knows what it could NOT get out of after sliding. Casting the same line
+            // a second time from here produced a second answer that disagreed with the first: the
+            // poser would slide the object clear and this would still report the contact it had just
+            // resolved, or the reverse.
+            //
+            // One authority, and it is the one that moves the object.
+            LevelCarry poser = held.GetComponent<LevelCarry>();
+            if (poser != null)
+            {
+                normal = poser.BlockedNormal;
+                return normal != Vector3.zero;
+            }
+
+            // A long object that poses itself the ordinary way still gets the old test. Nothing does
+            // today; it is here so that `heldSpan` means one thing whether or not `LevelCarry` is on
+            // the object.
+            Vector3 span = held.transform.TransformVector(held.heldSpan);
+            float length = span.magnitude;
+            if (length < 0.05f) return false;
+
+            float allowed = Sweep(held.transform.position - span * 0.5f, span / length, length,
+                                  longProbe, out Vector3 hitNormal);
+            if (allowed >= length - contactSlack) return false;
+
+            normal = hitNormal;
+            return true;
+        }
+
         // Half the object's own width, within reason - see minProbe/maxProbe.
         private float HeldProbeRadius(CarryableItem held) =>
             Mathf.Clamp(held.handLocalScale.x * 0.5f, minProbe, maxProbe);
@@ -164,12 +224,16 @@ namespace IterationRoom
         // HOW FAR THE OBJECT CAN GO IN ONE DIRECTION before it meets something, and what it met.
         // Pulled out of `LateUpdate` so the LOOK can ask it about a direction the player has not
         // turned to yet - see `WouldWorsen`.
-        private float Sweep(Vector3 dir, float reach, float probeRadius, out Vector3 normal)
+        // **AN ORIGIN, since 2026-08-30.** It was always the eye, because the only thing being swept
+        // was the line from the eye to the hand. `LongContact` sweeps the object's own length from
+        // the object's own origin, which is a different line entirely - and everything else about the
+        // cast, including which hits are forgiven, is identical.
+        private float Sweep(Vector3 origin, Vector3 dir, float reach, float probeRadius, out Vector3 normal)
         {
             normal = Vector3.zero;
             float allowed = reach;
 
-            int count = Physics.SphereCastNonAlloc(eye.position, probeRadius, dir, hits, reach,
+            int count = Physics.SphereCastNonAlloc(origin, probeRadius, dir, hits, reach,
                                                    blockers, QueryTriggerInteraction.Ignore);
             for (int i = 0; i < count; i++)
             {
@@ -181,6 +245,18 @@ namespace IterationRoom
                 // instant it was picked up, and that failure would be baffling.
                 if (ignoreRoot != null && t.IsChildOf(ignoreRoot)) continue;
                 if (t.IsChildOf(anchor)) continue;
+
+                // **A HIT AT ZERO IS NOT A MEASUREMENT.** A sphere cast that BEGINS overlapping a
+                // collider reports distance 0 and a zero normal - Unity has no surface to give,
+                // because the cast never travelled. Taken as a reading it says "the whole length is
+                // buried", which is the worst possible answer: for a long object it is what threw
+                // the ladder five metres backwards the moment its trailing end touched a wall, and
+                // the normal that came with it pointed nowhere, so the movement stop refused a
+                // direction that meant nothing.
+                //
+                // Skipped instead. What is already inside something cannot be measured out of it;
+                // `LevelCarry.GiveWay` is what keeps that from happening in the first place.
+                if (hits[i].distance <= 0.0001f) continue;
 
                 if (hits[i].distance >= allowed) continue;
                 allowed = hits[i].distance;
@@ -222,13 +298,13 @@ namespace IterationRoom
             float probeRadius = HeldProbeRadius(held);
             Vector3 dir = eye.rotation * (rest / reach);
 
-            float now = Sweep(dir, reach, probeRadius, out _);
+            float now = Sweep(eye.position, dir, reach, probeRadius, out _);
             // Not in contact at all: every direction is free, and asking a second cast would be waste.
             if (now >= reach - contactSlack) return false;
 
             Vector3 turned = Quaternion.AngleAxis(yawDelta, Vector3.up)
                            * Quaternion.AngleAxis(-pitchDelta, eye.right) * dir;
-            float then = Sweep(turned, reach, probeRadius, out _);
+            float then = Sweep(eye.position, turned, reach, probeRadius, out _);
 
             // Strictly worse, with a hair of tolerance so a direction that is the same within
             // floating point does not read as deeper and lock the axis.

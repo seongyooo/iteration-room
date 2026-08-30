@@ -7,7 +7,21 @@ Work not yet done. Completed work lives in `git log`; the reasoning behind decis
 
 ## Before this can be sold
 
-One hard blocker, and it is not graphics.
+Two hard blockers, and neither is graphics.
+
+- **THE FILM'S WRITERS HAVE ANSWERED, AND THE ANSWER IS NOT PERMISSION** (2026-08-30). Jess Lupini
+  and Lucas Kavanagh are pleased the game exists, watched the video, and explicitly cannot give
+  *"blanket permission for a commercial release"* — a paid release needs an agreement they will only
+  negotiate *"when you're getting close to a store page"*. So the sale is gated on a deal that does
+  not exist and cannot be started yet. Two things to do in the meantime, both of them work rather
+  than waiting: **replace Room1's and Room2's expression** (the only two rooms a viewer of the film
+  would recognise — the less of the film in the finished game, the less any agreement has to cover),
+  and **have something new to show** before taking up their invitation to keep them posted. Full
+  reply and reasoning: `docs/lupini-permission-email.md`, `docs/asset-licences.md` §"The film".
+  - **NO STEAM PAGE OF ANY KIND BEFORE THAT CONVERSATION — INCLUDING A FREE DEMO.** A demo is a
+    public, searchable, wishlistable listing hanging off the base game's page: it IS the store page,
+    arriving early under a word that makes it sound like it is not. The reply-draft paragraph that
+    said so to them in writing was cut, so this line is the only place the commitment now lives.
 
 - **Cycle 3 is not a third act yet** — the beam now drives a lift and the lift reaches deck A, so the
   cycle has a mechanism and a destination for the first time. What it does not have is a REASON:
@@ -17,7 +31,7 @@ One hard blocker, and it is not graphics.
 ~~`cctv_camera.glb` is CC-BY-NC-4.0~~ **RESOLVED 2026-08-28** by deleting the CCTV system it was in —
 see item 7 for what is left, which is a decision rather than a blocker.
 
-Everything else below is quality, not permission.
+Everything else below is quality, not permission — the permission item is the one above.
 
 ---
 
@@ -29,6 +43,81 @@ Everything else below is quality, not permission.
    already states the cycle's premise; what it does not have is anything to do once you are through.
    The shape is in and the puzzles are not. `docs/Room3 구조 변경 및 레버 기반 퍼즐 기믹 구현
    프롬프트.md` is the spec; §1 and §2 of it are built and §3-§9 are not.
+   - **ROOM3-2N HAS A PUZZLE ON ALL THREE OF ITS STOREYS NOW** (2026-08-29): a real Bedlam Cube,
+     thirteen blocks, built on the floor inside a roped-off square to the right of the door. Four
+     blocks are on the ground, four on deck A and four on deck B, so **the beam and the cube are one
+     errand rather than two rooms sharing a shell** - every block above the ground costs a lift ride,
+     which costs a past self holding a mirror. Left click joins the block in hand to the ones already
+     stacked, if its place in the solution touches something already there. `docs/puzzle-design.md`
+     has the design; what is still open about it -
+     - **VERIFIED IN CODE ONLY.** The build proves the packing, the connectivity from the seed, that
+       the cell map describes this model at this cell size, and that every block rests exactly on the
+       storey it was thrown at. Nobody has played it, and the vertical scatter is the half that most
+       needs playing: it assumes the lift chain works with a block in your hands.
+     - **THE RIDE DOWN IS THE UNPROVEN LINK.** Getting UP to a deck needs the west plate, which has
+       been lit by hand. Getting a block back DOWN needs the ceiling call and the riser pane, which
+       is the one piece of the optics still verified in code only (below). Eight of the thirteen
+       blocks are on the far side of it.
+     - **THE BLOCKS ARE 1.2m NOW** (doubled 2026-08-29, by request). The biggest thing carried in one
+       hand in this game. `HeldItemClearance` freezes the view when what is held meets a wall, and
+       nothing has been carried through a doorway at this size.
+   - **CYCLE 3 CAN BE FINISHED, AND THE ROUTE IS A LADDER** (2026-08-30). The Bedlam cube shrinks
+     into the escape object; room3-0 is ON TOP of room3-2N and is reached by carrying the ladder up
+     from room3-2S and standing it under the hole in the ceiling; filling the console there plays
+     `FacilityFailure` and opens a ROOM-SIZED hole in room3-2N's floor onto cycle 4. Open -
+     - **THE CLIMB IS A NEW MOVEMENT MODE AND NOBODY HAS USED IT.** `FirstPersonController.Ladder`
+       is the first thing in this game that is not walking. Forward climbs, strafe steps off at half
+       pace, jump lets go, and the top is a scripted step-off onto room3-0's floor because the top of
+       a ladder is the middle of a hole. Every one of those is a first guess.
+     - **THE LADDER'S UPRIGHT POSE IS A -90 ABOUT X, WRITTEN NOT MEASURED.** The model comes in with
+       its length along Z (logged at build: 1.2 x 0.24 x 7.76m). If it stands on its side, that
+       constant is where to look - `BuildLadderMount`'s seat.
+     - **IT IS HELD SIDEWAYS AND IT IS 7.76m LONG, AND IT NOW STOPS THE PLAYER** (2026-08-30, by
+       request). `HeldItemClearance.LongContact` sweeps the whole span from the hand to the far end,
+       so the ladder meets walls along its length instead of passing through them.
+     - **IT IS CARRIED FRONT TO BACK AND LEVEL** (2026-08-30, by request), along the player's own
+       axis rather than across it, and posed off the BODY so looking up or down cannot drive it into
+       a slab. Front-to-back is also what makes the corridor possible: across, it would be in both
+       walls of a 1.75m tube permanently.
+     - **IT IS 6.31m, DOWN FROM 7.76** - the gap between room3-2N's ceiling and room3-0's floor went
+       from a full 1.6m service void to 0.35m, which is the only place height could come off without
+       moving a storey. Half was asked for and half is not reachable: deck B to that ceiling is 5.41m
+       on its own. **`LadderVoid` is the one floor pair in the game that is not a storey apart** - do
+       not reuse that number for anything else.
+     - **IT GIVES WAY AT A WALL RATHER THAN GOING THROUGH ONE** (2026-08-30, after play). `LevelCarry`
+       slides it back along its own length until the far end sits on the surface, so it never
+       penetrates - and the slide is CLAMPED (`minAhead` 1.2m) so that once it can give no more the
+       player is refused instead, which is the stop that was asked for a day earlier. The two
+       requests fit together only because of that clamp; without it the object would resolve every
+       contact itself and nothing would ever stop the player.
+     - **NONE OF THAT HAS BEEN WALKED.** `maxSlide` 2.6m is a guess at how much the object may slide
+       through the holder's grip before the player is refused instead, and the corridor (one cell
+       wide, 22.75m) is still the test.
+     - **FIVE SEPARATE FAULTS CAME OUT OF ONE PIVOT** (see `docs/gotchas.md`), and they surfaced one
+       at a time over three days in whatever order play happened to exercise them. If a sixth turns
+       up, look there first: any system that asks "where is this object" gets the origin, and the
+       origin is at one end.
+     - **THE WAY-DOWN SIGN IS THE ONLY THING CONNECTING THE TWO ROOMS.** The console is in room3-0
+       and the floor that opens is a storey below it; if a player misses that sign the break ends
+       with them in a red room with nothing to do.
+     - **NONE OF IT HAS BEEN PLAYED.** The whole chain - riser pane, ceiling call, both lifts, a
+       block in your hands, an escape object carried 10.8m up - is verified in code only. The build
+       proves both sides of the deck-B doorway are walkable and that cycle 4 clears every room in
+       cycle 3, and that is all it can prove.
+     - **THE TEARDOWN IS WATCHED FROM ROOM3-0, THROUGH ITS OWN MOUTH.** In theory that is the best
+       seat in the building; in practice nobody has stood in it. Every number is a first guess (4.5s
+       for the room to empty, 1.4s of warning shake, 2.2s for the cube to sink).
+     - **THE GAME HAS NO ENDING AGAIN.** Cycle 4 has no `-0`, so `LoopManager.RunEnding` is
+       unreachable and the loop iterates in cycle 4 for ever. Exactly the state cycle 3 shipped in
+       for weeks, and the honest shape of a cycle with no puzzles.
+     - **CYCLE 4 IS 3.6m ABOVE CYCLE 3's FLOOR**, because the hatch is one storey below room3-0 and
+       room3-0 is up in the air. The building has stopped being a simple stack. If that is wrong,
+       the fix is pulling `BuildCycleExit`'s two lids apart and running a long tube between them.
+     - **IT PAYS OUT NOTHING.** `BedlamCube.Satisfied` is a `RoomCondition` waiting for a consumer,
+       the way `LaserReceiver.Lit` waited for one for a week. Cycle 3 still has no `-0`.
+     - **THIRTEEN BLOCKS, THREE COLOURS** - the model's own, so shape is the only thing telling two
+       blue ones apart. If play finds them being confused, a colour per block is a property block on
+       thirteen renderers.
    - **THE BEAM DRIVES THE LIFT NOW** (2026-08-28), so `LaserReceiver.Lit` has a consumer for the
      first time and the west-wall plate is that lift's low call. What is still open is everything
      ABOVE that: the lift reaches deck A and deck A has nothing on it. A way up is not a puzzle.
@@ -505,3 +594,17 @@ and past selves are unchanged.
 - **The shadow body now stands at the true position** rather than 20cm back, because the legs it used
   to line up against are gone. It is the only evidence in the player's own view that they have a body,
   which makes it worth more attention than it has had - nobody has looked at it since it moved.
+
+## Cycle 4, and where it goes (2026-08-30)
+
+One sealed room under room3-0's hatch: a bed, an empty chest, the gas. What cycle 3 was on the day it
+was started, and for the same reason - the boundary is the thing being exercised and a puzzle would
+be in the way of testing it.
+
+- **It needs a `-0` before the game has an ending again.** Until then `RunEnding` cannot be reached
+  and the run simply continues.
+- **Its ghost signal array has two bits in it** (the chest's bays), numbered from zero like every
+  cycle's. There are 30 left.
+- **`CycleSceneNames` drives everything**: the scene, the build settings entry and
+  `SplitCyclesIntoScenes` all follow that array, so a fifth cycle is one more string plus its own
+  shell.
