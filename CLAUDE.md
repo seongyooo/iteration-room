@@ -9,7 +9,7 @@ How to keep that split working is §6.
 ## Current state
 
 Complete end to end — three puzzle rooms, a fourth room that is the ending, a title screen, a
-sensitivity calibration step. **The building is ONE CORRIDOR**: Room1 → Room2 → Room2West → Room2East
+controls wall in room1-1 that shows for iteration 1 only. **The building is ONE CORRIDOR**: Room1 → Room2 → Room2West → Room2East
 → Room3 → Room4, six shells in a line, each sharing a divider with the next — there is no branching
 hub. Room2 is the balloon room and holds all three coloured keys; red opens the door onto Room2West,
 blue the door onto Room2East, yellow the door onto Room3, in that order. **Room2West, the chess
@@ -33,11 +33,15 @@ its size and hands over to a small carryable copy at the moment the two match �
 `BedlamCube.Shrink` for why it has to be two objects.
 
 **THE LADDER LEANS AGAINST ROOM3-0'S WEST WALL** (2026-08-31, by request), which is why its shaft
-sits against that wall and why it is 7.32m rather than 6.31: a leaning ladder covers the same rise
+sits in that corner and why it is 7.62m rather than 6.31: a leaning ladder covers the same rise
 over a longer run. Its foot stands 1.52m out from the mouth on deck B, its head 1.20m above room3-0's
 floor. **The climb is no longer vertical** — `LadderMount.climbDirection` is the one statement of
 which way up it goes, and both the grab volume and `FirstPersonController`'s climb read it. Every
 number is derived in `SceneBuilder` from the lean angle and the wall; none is written twice.
+**The seat's rotation is three turns and the middle one is load-bearing**: the model is wide on its
+local X, so without a quarter roll about its own length the lean happens in the plane of the stiles
+and the ladder tips sideways instead of leaning back — which from the foot reads as no lean at all.
+`docs/gotchas.md`. Check all THREE axes of an authored rotation, never just the angle.
 
 **THE WAY DOWN TO CYCLE 4 IS A ROOM-SIZED HOLE IN THE MIDDLE OF ROOM3-2N'S FLOOR**, not a hatch: it
 is room4-1's whole ceiling, in two leaves that part into the floor either side. So filling room3-0's
@@ -81,7 +85,9 @@ and cycle 2 in 22 / 10:02.759, read off the ending card's own breakdown.
   total were read off the screen rather than computed here.
 
 **CYCLE 2 WAS FIRST CLEARED AT ITERATION 22, 10:04, 2026-08-20** - the first time the second cycle
-had been finishable at all. Four billiard balls into four pedestals, the ERROR, and the floor
+had been finishable at all. Billiard balls into pedestals (**three of them since 2026-08-29, chosen from five
+  balls since 2026-08-31 — three answers and two decoys, where it was four and nine**), the ERROR,
+  and the floor
 opening. What it settles and what it does not:
 
 - **The whole chain works in a human's hands.** The chest, the nine balls, the four pedestals, the
@@ -299,10 +305,12 @@ made against it.
 `LoopManager.AcceptsInput` = `IterationRunning && !IsPaused && !RunOver`. A zero `timeScale` does not
 stop `Update`, and `HandleLook` uses no `deltaTime` at all. **Any new interactable reading input must
 use this gate.** The deliberate exceptions are the two `PressPlate`s, which are the only fixtures
-OUTSIDE the loop: `CalibrationStartButton` runs before the first iteration and gates on
-`SensitivityCalibration.Active`. **It is the only one left**: Room4's plate is gone and the clock now
-runs through that room, so its three recesses gate on `AcceptsInput` like every other fixture.
-`ControlHintDisplay` still has to be told about the calibration plate, or its prompt never appears.
+**THERE ARE NO EXCEPTIONS LEFT** (2026-08-31). There were two, and both were fixtures live while
+`AcceptsInput` was false: Room4's plate, until the clock started running through that room, and the
+calibration room's start button, until that room was removed. Every E fixture in the game is inside
+the loop now, so `AcceptsInput` is the whole rule and `ControlHintDisplay` needs no special case for
+anything. **A new fixture that wants to act outside the loop is re-opening a door that was closed
+twice** — check that it really cannot live inside it.
 
 ### 1.9 Reset ordering
 
@@ -432,7 +440,7 @@ Script-by-script detail: `docs/architecture.md`.
   a property block, which is also the scale this architecture actually has.
 - **READ `cross-scene-report.txt` AFTER WIRING A NEW COMPONENT TO SCENE OBJECTS.** The build writes it
   every time. Unity NULLS every serialised reference that crosses a scene boundary on save, and the
-  cycles each become their own scene (`ExtractCalibrationRoom`, `Cycle*.unity`) - so a component built
+  cycles each become their own scene (`SplitCyclesIntoScenes`, `Cycle*.unity`) - so a component built
   on the wrong side of that line loses its whole wiring silently, at runtime only. `LightingTuner` did
   it after the report had already named all ninety of them.
 - **A NEW SURFACE GOES THROUGH `ApplySurfaceDetail`, which gives it TWO things** - the normal map and
@@ -466,7 +474,8 @@ Script-by-script detail: `docs/architecture.md`.
   physically has none, and zeroing it was tried twice: the walls measure 13 of 255 without it, and
   raising the fixtures to compensate only clips the floor. It is what makes the room read EVENLY lit,
   which is exactly what baked bounce and wall washers both failed to reproduce. The values live in
-  `ApplyEnvironment` and are retuned on `LightingTuner` (TAB in the calibration room) - **aim for
+  `ApplyEnvironment`. **The `LightingTuner` that used to retune them live on TAB is gone**
+  (2026-08-31, by request), so changing them means editing that method and rebuilding - **aim for
   comfort, not brightness**: the first pass at "properly white" was reported as painful to look at.
 - **Nothing may be exactly the size of the hole it sits in.** Coplanar faces flicker. Clearances are
   asymmetric on purpose: too little and it z-fights, too much and the lit surface behind shows
@@ -480,7 +489,7 @@ Script-by-script detail: `docs/architecture.md`.
   **Escape always pauses whatever PAUSE is bound to** — it is the only verb whose loss cannot be
   recovered from inside the game.
 - **NEW UI TEXT NEEDS A `Loc` KEY; NEW SIGNAGE DOES NOT.** The split is *the game talking to the
-  player* (menus, HUD, pause, ending, the calibration room) against *the facility talking to itself*
+  player* (menus, HUD, pause, ending) against *the facility talking to itself*
   (`ROOM 2`, `ERROR`, `FIRE AXE`, the title) — the second stays English in every language, on
   purpose. `SceneBuilder` still authors the English into the `Text` and `Localize(text, key)` tags
   it, so a scene with the components stripped is an English scene. Reasoning:
@@ -493,6 +502,25 @@ More: `docs/gotchas.md`, `docs/rendering-notes.md`.
 One unbroken 60-second loop, one bed, ghosts accumulating forever. **Each iteration should leave the
 player less to do.** Do not damage that when adding rooms.
 
+- **THE CONTROLS ARE TAUGHT ON ROOM1-1'S SOUTH WALL, IN ITERATION 1 ONLY** (`ControlsWall`,
+  2026-08-31). The calibration room is gone — it charged a minute of standing still before the clock
+  had ever run, and set a number the settings page already sets. WASD, SPACE, SHIFT, CTRL, mouse
+  look, left click and E, as pictograms, on the wall the wake-up leaves the player facing. **It
+  shares that wall with the N sign and can never collide with it**: this is `lastIteration = 1` and
+  that is `showFromIteration = 2`. **N is still not taught in iteration 1**, deliberately — an offer
+  to skip dead time means nothing to a player who has not yet watched a clock run out.
+- **EVERY CYCLE'S CHEST IS ONE DRAWER THAT NEVER SHUTS** (2026-08-31, by request). `Drawer.canClose`
+  is false everywhere; the two-bay dresser is gone. It was true for one reason — an open drawer stays
+  in the aim contest and its front slides nearer the eye, so the upper bay stole the press from the
+  lower one — and with no second bay that reason is gone while its cost remains: a closable drawer
+  makes E a **toggle**, and a toggle replayed by several past selves is order-dependent where an
+  idempotent `Open()` is not. That was the drawer parity in `docs/gotchas.md`. **A drawer that holds
+  anything must stay open-only.**
+- **A CUBE STANDS ON EVERY CHEST AND ALL OF THEM CAN BE PICKED UP**, cycle 1's included since
+  2026-08-31. **Each cycle's should wear its OWN id** — cycle 2's `Block2` is 8.3kg on room2-7's
+  scale and part of that room's single 26.7kg solution, so a second cube answering to the same id is
+  a second answer to a question that must have one. Cycle 1 is `Block1`; cycles 3 and 4 still share
+  `Block2`, which is harmless while one cycle is awake at a time and wrong the moment two are.
 - **Ghosts can carry things and use them**, including putting Room2's key in the lock — so a solved
   room stays solved without the loop keeping un-rewound state. Full argument:
   `docs/ghost-possession-design.md`.

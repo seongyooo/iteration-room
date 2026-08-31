@@ -23,6 +23,9 @@ Iteration Room uses the following third-party assets.
 - **"Chess"** by xnicrox — CC BY 4.0
   - Source: https://sketchfab.com/3d-models/chess-6471ad3881ad45dba7634f1442ed3efe
   - Author: https://sketchfab.com/xnicrox
+- **"Clipboard"** by Cookie — CC BY 4.0
+  - Source: https://sketchfab.com/3d-models/clipboard-a37158f20ccf436483029e8295629738
+  - Author: https://sketchfab.com/cookiepop
 - **"Digital Weight Scale"** by Dimitri — CC BY 4.0
   - Source: https://sketchfab.com/3d-models/digital-weight-scale-1b1b2ad2f06640528e67c1c37e0359b0
   - Author: https://sketchfab.com/dimitri_blender

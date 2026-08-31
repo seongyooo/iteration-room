@@ -15,7 +15,8 @@ namespace IterationRoom
     // Text in this game is two different things wearing the same font:
     //
     //   - THE GAME TALKING TO THE PLAYER - menus, the HUD, the pause screen, the ending card, and the
-    //     calibration room, which is a wall display but is one hundred percent instruction. All of it
+    //     calibration room, which was a wall display but one hundred percent instruction (that room
+    //     is gone; the split it illustrated is not). All of it
     //     is here, because a player who cannot read it cannot play.
     //   - THE FACILITY TALKING TO ITSELF - "ROOM 2" over a doorway, the `ERROR` on room2-0's console,
     //     "FIRE AXE" and "BOTTOMLESS" on its pictograms. **None of it is here.** Those are props. The
@@ -52,6 +53,7 @@ namespace IterationRoom
             { "menu.continue",      "CONTINUE" },
             { "menu.cycleSelect",   "CYCLE SELECT" },
             { "menu.record",        "RECORD" },
+            { "record.empty",       "NO CYCLE COMPLETED" },
             { "menu.settings",      "SETTINGS" },
             { "menu.credits",       "CREDITS" },
             { "menu.quit",          "QUIT" },
@@ -83,6 +85,22 @@ namespace IterationRoom
             // Pause overlay
             { "pause.title",        "P A U S E D" },
             { "pause.resume",       "RESUME" },
+            // **THE INTAKE NOTICE, AND IT IS LOCALISED WHERE THE FACILITY'S OTHER SIGNAGE IS NOT.**
+            // The rule at the top of this file is that the facility talking to ITSELF stays English -
+            // ROOM 2, ERROR, FIRE AXE. This is the facility talking to the SUBJECT: it is addressed
+            // to the player in the second person, and it is the only place the game states its own
+            // premise and its own time limit. A player who cannot read it has lost the premise, which
+            // is exactly the failure the split exists to prevent.
+            { "note.header",         "ITERATION PROGRAM" },
+            { "note.sub",            "SUBJECT INTAKE" },
+            { "note.objectiveLabel", "OBJECTIVE" },
+            { "note.objective",      "LEAVE THE ROOM" },
+            { "note.cycleLabel",     "CYCLE LENGTH" },
+            { "note.cycle",          "60 SECONDS" },
+            { "note.repeat1",        "The cycle repeats until" },
+            { "note.repeat2",        "the objective is met." },
+            { "note.forget1",        "You will not remember" },
+            { "note.forget2",        "reading this." },
             { "pause.restart",      "RESTART CYCLE" },
             { "pause.mainMenu",     "MAIN MENU" },
 
@@ -95,12 +113,6 @@ namespace IterationRoom
             { "end.title",          "C Y C L E   B R O K E N" },
             { "end.clickContinue",  "CLICK TO CONTINUE" },
 
-            // The calibration room. A wall display, but pure instruction - see the note at the top.
-            { "cal.title",          "M O U S E   S E N S I T I V I T Y" },
-            { "cal.scrollAdjust",   "SCROLL TO ADJUST" },
-            { "cal.begin",          "PRESS [E] AT THE PANEL BEHIND YOU" },
-            { "cal.beginPlate",     "B E G I N" },
-            { "cal.clickToLock",    "CLICK TO ENABLE MOUSE LOOK" },
         };
 
         private static readonly Dictionary<string, string> Korean = new Dictionary<string, string>
@@ -109,6 +121,7 @@ namespace IterationRoom
             { "menu.continue",      "이어하기" },
             { "menu.cycleSelect",   "사이클 선택" },
             { "menu.record",        "기록" },
+            { "record.empty",       "완료한 사이클이 없습니다" },
             { "menu.settings",      "설정" },
             { "menu.credits",       "만든 사람들" },
             { "menu.quit",          "종료" },
@@ -137,6 +150,16 @@ namespace IterationRoom
 
             { "pause.title",        "일 시 정 지" },
             { "pause.resume",       "계속하기" },
+            { "note.header",         "반복 실험" },
+            { "note.sub",            "피험자 등록" },
+            { "note.objectiveLabel", "목표" },
+            { "note.objective",      "방을 나갈 것" },
+            { "note.cycleLabel",     "주기" },
+            { "note.cycle",          "60초" },
+            { "note.repeat1",        "목표를 달성할 때까지" },
+            { "note.repeat2",        "주기는 반복됩니다." },
+            { "note.forget1",        "당신은 이 글을 읽은 것을" },
+            { "note.forget2",        "기억하지 못합니다." },
             { "pause.restart",      "사이클 다시 시작" },
             { "pause.mainMenu",     "메인 메뉴" },
 
@@ -146,11 +169,6 @@ namespace IterationRoom
             { "end.title",          "사 이 클  파 괴" },
             { "end.clickContinue",  "클릭하면 계속" },
 
-            { "cal.title",          "마 우 스  감 도" },
-            { "cal.scrollAdjust",   "휠로 조절" },
-            { "cal.begin",          "뒤쪽 패널에서 [E]" },
-            { "cal.beginPlate",     "시  작" },
-            { "cal.clickToLock",    "클릭하면 마우스 조작이 켜집니다" },
         };
     }
 }

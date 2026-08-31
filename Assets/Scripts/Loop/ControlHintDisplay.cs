@@ -32,12 +32,6 @@ namespace IterationRoom
         // SceneBuilder fills this the same way it fills LoopManager.ghostInteractables.
         public MonoBehaviour[] interactTargets;
 
-        // The calibration step runs before the loop does, so AcceptsInput is false for all of it -
-        // but the start button on that room's wall is an IInteractHintTarget and wants this prompt.
-        // Letting it through here rather than giving that step a prompt of its own means the player
-        // meets the game's own disc, in the game's own position, before the game.
-        public SensitivityCalibration calibration;
-
         // The swing itself. Asked rather than re-derived: it owns both halves of this prompt's rule -
         // whether the click is live, and which balloon it would burst.
         public BalloonTool swingTool;
@@ -115,11 +109,11 @@ namespace IterationRoom
         {
             // Silent through the wake-up, like everything else the facility does: the player has no
             // control then, so a prompt would be describing a button that does nothing.
-            // Room4 used to need an exception here, because its plate was live while AcceptsInput
-            // was false. The clock runs through that room now, so the ordinary rule covers it and
-            // the calibration step is the only moment left that the loop does not.
-            bool running = LoopManager.Instance == null || LoopManager.Instance.AcceptsInput
-                        || (calibration != null && calibration.Active);
+            // **AND THERE IS NO EXCEPTION LEFT.** Two fixtures used to be live while `AcceptsInput`
+            // was false - Room4's plate, until the clock started running through that room, and the
+            // calibration room's start button, until that room was removed (2026-08-31). Every E
+            // fixture in the game is inside the loop now, so the loop's own gate is the whole rule.
+            bool running = LoopManager.Instance == null || LoopManager.Instance.AcceptsInput;
 
             Show(interactGroup, interactRect, running ? AimedWantingHint() : null, ref interactAlpha);
             Show(swingGroup, swingRect, running ? SwingAnchor() : null, ref swingAlpha);

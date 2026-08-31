@@ -205,6 +205,12 @@ what this game is, are pleased it exists — and have declined to permit a comme
 negotiated deal that does not exist yet. **A paid release still has no permission behind it**, and
 "made with the permission of the director" is not a line this project may write.
 
+**The thread then closed cordially on 2026-08-31 — "Of course! No worries at all. Looking forward to
+seeing how it progresses!" — AND THAT CHANGED NOTHING HERE.** It answers an acknowledgement, not the
+original request; the refusal three messages above it still stands. It is the last thing in the
+thread and therefore the first thing an eye lands on, which is exactly why it is flagged in both
+files. **Never cite it as consent.**
+
 What was gained is real and is not permission: a named contact who invited further contact, both
 authors on one thread, no objection to the free prototype, and the takedown-in-release-week scenario
 made very unlikely. What was NOT gained is anything that lets a store page open.
@@ -1506,3 +1512,131 @@ CC AttributionCreative Commons Attribution
 Learn more
 Published 8 years ago
 https://sketchfab.com/3d-models/ladder-adf229c426194740ab0ec9cdb00262b4
+
+### Three clipboards were downloaded; ONE ships
+
+**In the game: "Clipboard" by Cookie (CC BY 4.0)** — `Assets/ArtAssets/Play/clipboard.glb`. It is
+the intake notice on room1-1's floor. `ATTRIBUTION.md` and the CREDITS page carry it automatically,
+read out of the file's own `asset.extras`.
+
+**Not in the game, and not in `Assets/`** — the two below were evaluated and rejected. They are
+recorded here because the raw licence blocks are pasted below and a reader would otherwise assume
+all three ship, and credit two authors whose work is not in the build:
+
+- *Document Clipboard with Pen* by Kami Rapacz — 62k triangles and 31 MB of textures for a prop read
+  once, and its paper mesh is **curled rather than flat**, so text laid on it warps.
+- *Clipboard_7MB* by Mehdi Shahsavan — the whole model is **one material**, so the page cannot be
+  printed on separately at all. That was the disqualifier; nothing else about it mattered.
+
+**What decided it was not the licence** (all three are CC BY 4.0) **but whether the page is its own
+mesh.** Cookie's is a 24-vertex flat quad with its own `page` material and clean 0..1 UVs, so the
+notice is a world-space canvas laid exactly on it. That is the question to ask of any model this
+project has to write on.
+
+Document Clipboard with Pen
+3D Model
+Avatar of kuroderuta
+Kami Rapacz
+
+Follow
+7.9k
+7887 Downloads
+17.1k
+17123 Views
+424
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 62.1k
+Vertices: 31.2k
+More model information
+ISO-216 A4 sized clipboard prop from an unreleased project. Enjoy and don’t forget to credit!
+
+Features:
+Segmented Mesh Parts (Tablet, Pen, Pages).
+
+SubD Optimized Mesh.
+
+2k PBR Textures (8bit PNG, 16bit Normal Maps).
+
+Like my work and want to hire me for your project? Contact me at kamilbubela@gmail.com
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 3 years ago
+https://sketchfab.com/3d-models/document-clipboard-with-pen-8650234a2e7949ca9fe9b4124e000d97
+
+Clipboard
+3D Model
+Avatar of cookiepop
+Cookie
+
+Follow
+10.5k
+10493 Downloads
+27.6k
+27588 Views
+146
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 2.3k
+Vertices: 1.1k
+More model information
+A simple clipboard. Not sure what else to say about it!
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 8 years ago
+https://sketchfab.com/3d-models/clipboard-a37158f20ccf436483029e8295629738
+
+Clipboard_7MB
+3D Model
+Avatar of ahmagh2e
+Mehdi Shahsavan
+
+Follow
+2.6k
+2617 Downloads
+6.2k
+6158 Views
+189
+Like
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 656
+Vertices: 354
+More model information
+Clipboard
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 2 years ago
+https://sketchfab.com/3d-models/clipboard-7mb-a5f71d0bd08d4653880a92f19dbbf72a

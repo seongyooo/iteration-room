@@ -1,5 +1,26 @@
 # The loop, and everything on screen
 
+> **THE CALIBRATION ROOM WAS REMOVED ON 2026-08-31, by request.** Everything below about it is kept
+> as the record of why it was built and what it settled — the reasoning about pointer-lock deltas,
+> about matching the game's own framing, and about which surfaces say what, is all still true and is
+> what the replacement was designed against. What is no longer in the game: the room, its shell and
+> lights, `SensitivityCalibration`, `CalibrationStartButton`, `PressPlate` (its last user), and the
+> `cal.*` strings.
+>
+> **What replaced it**: `ControlsWall`, a single stencilled face on room1-1's south wall — the wall
+> the wake-up leaves the player looking at — showing WASD, SPACE, SHIFT, CTRL, mouse look, left click
+> and E as pictograms, for **iteration 1 only**. Left click is new; the calibration room never taught
+> it, and it is the second verb in the game.
+>
+> **Why**: the room charged a minute of standing still before the clock had ever run. The mouse
+> sensitivity it set is adjustable on the title screen's SETTINGS page, which is where a player who
+> wants to change it looks anyway.
+>
+> **What did NOT change**: N is still `showFromIteration = 2`. The argument in this file for holding
+> it back — an offer to skip dead time means nothing to somebody who has not yet watched a clock run
+> out — was not re-opened.
+
+
 The iteration coroutine, the wake-up, ending a cycle early, the ending, mouse sensitivity and its calibration room, pausing, the title screen and the HUD.
 
 ---
@@ -399,3 +420,62 @@ the words around them ("PUT DOWN" → "내려놓기") but `[E]` and `[N]` are st
 wrong for anyone who has rebound them in either language.
 
 The PA announcer is translated too — see `docs/audio.md`.
+
+---
+
+## The RECORD page (2026-08-31)
+
+**What is stored.** `RunReport` keeps one `CycleRecord` per cycle in `PlayerPrefs` — cycle number,
+iteration count, seconds — as `cycle:iterations:seconds` entries under `iteration.lastRun`, invariant
+culture (a Korean or German locale writes `602,759` and the `:` split would read the fraction as a
+field).
+
+**When it is written.** The moment a cycle is finished, in `LoopManager`'s cycle loop, not at the
+ending card. Before this, a player who cleared cycle 1 and closed the window during cycle 2 had
+finished nothing as far as storage was concerned.
+
+**What is kept on a repeat.** The better of the two: fewer iterations wins, the clock breaks a tie.
+So it is a personal best per cycle rather than a log of the last run, and a bad run cannot cost a
+result already earned. `RunReport.Record` does the merge.
+
+**What the page shows.** One row per cycle that has a record: a preview of that cycle's most
+recognisable room, the clock, and the iteration count, with a faint rule between rows. **A cycle
+nobody has finished has no row at all** — an empty row is a spoiler about how many cycles exist, and
+a blank one is a reproach. The ending card keeps the old padded table, because it reports one run and
+the run is the subject there.
+
+**The previews** are rendered at build time by `CaptureCyclePreview`, called from inside
+`SplitCyclesIntoScenes` **after that cycle's own `ApplyEnvironment`** — the one moment the cycle is
+still loaded AND already carries the lighting the game will use. Taken earlier, out of the core
+scene, the shots came back with colours the game does not have: `RenderSettings` is per scene and
+rendering uses the ACTIVE one. One framing rule for all three so they read as a set: stand on the room's centre
+line 2m up, back 38% along whichever horizontal axis is longest, and look down it.
+
+| Cycle | Room | Why |
+| --- | --- | --- |
+| 1 | `Room1` | The room the game opens in and every iteration begins in |
+| 2 | `Room2_2` | The taps, the tank and the drains — the errand cycle 2 is made of |
+| 3 | `Room3_2N` | Three storeys, the decks, the block |
+
+Two traps this hit while being built, both worth keeping:
+
+- **Eye height off the room's transform, not its bounds.** `bounds.min.y` is the lowest MESH, which
+  in the tree hall is the bottom of a 33m pit — the camera went into the hole. `CaptureMenuFrame`'s
+  own "came back clear colour" guard is what caught it and refused to write the file.
+- **The balloon room photographs as an empty white box.** `BalloonField.ResetField` spawns the
+  balloons at the top of an iteration, so at build time there are none. Anything a room is
+  recognisable BY may not exist yet when the shot is taken.
+
+### Measured clears, for reference
+
+These are play figures from `CLAUDE.md`, not the stored record — they are what the numbers on this
+page should look like:
+
+| | Iterations | Time | Notes |
+| --- | --- | --- | --- |
+| Cycle 1 | 9 | 4:20.640 | 2026-08-20; third clear was 10, first was 14 |
+| Cycle 2 | 22 | 10:02.759 | Reproducible to 1.2s across two builds and two runs |
+| Whole game | 31 | 14:23.399 | Read off the ending card |
+
+Cycle 3 has never been cleared by a human. **All of the above is a knows-everything run** — played by
+the person who designed it — so a blind player needs considerably more.

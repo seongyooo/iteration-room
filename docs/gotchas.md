@@ -1421,6 +1421,114 @@ the object. Two casts of one line is two answers that can disagree — the poser
 clear and the stop still reports the contact it just resolved. The thing that MOVES the object is
 the thing that knows what it could not escape, so it publishes that and the stop reads it.
 
+## The drawer parity is gone, and it was a workaround's cost (2026-08-31)
+
+Cycle 2's chest had two bays and `Drawer.canClose = true`, which made E a **toggle**. A toggle
+replayed by several past selves is order-dependent where an idempotent `Open()` is not: two ghosts
+that both recorded a pull open the drawer and then shut it again, and every ball inside gates on
+`IsFullyOpen`. A ghost's ball errand therefore failed on **even** numbers of past-self pulls — the
+"drawer parity" this file has recorded as costing cycle 2 an unknown number of iterations.
+
+`canClose` was never wanted for itself. It was set to solve a *different* problem: an open drawer
+stays in the aim contest and its front has slid 0.23m nearer the eye, so the upper bay won the press
+from in front of the **lower** bay and play reported the lower one as unopenable. Being able to shut
+it was the only way out of that from inside the game, and the parity was the price.
+
+The chest is one drawer now (by request, matching cycle 1's nightstand). There is no second bay for
+an open drawer to hide, so the reason is gone — and with it the price. **When a flag is set to work
+around something else, it has to be re-examined when that something else changes; nothing about the
+flag itself will tell you it is now pure cost.**
+
+The rule that survives: **a drawer that holds anything is open-only.** Cycle 1's nightstand always
+was, which is why the pins never had this bug.
+
+## An object's origin can be the thing that deletes it (2026-08-31)
+
+Play: put the yellow triangle down anywhere, let the structure it came out of close, and the triangle
+**disappears**.
+
+`RewardPlinth` was rewritten once already, on 2026-08-29, because it hid and teleported an object it
+no longer held. That fix made ownership a **parentage** test — `key.transform.IsChildOf(plinth)` —
+which is right, and identity-based as CLAUDE.md §1.4 asks.
+
+What it missed is the one path that puts the object back under that parent with nobody carrying it:
+
+```csharp
+// CarryableItem.DropAt
+transform.SetParent(dropParent != null ? dropParent : originParent, true);
+```
+
+The reward is **authored as a child of its plinth**, so its `originParent` IS the plinth, and none of
+the three rewards had a `dropParent`. Drop it, and it is re-parented home; `OwnsKey` reads true
+again; the next pad release calls `Hide()` on it.
+
+**A fallback that points at the wrong place is worse than no fallback**, because it works everywhere
+the two agree. `dropParent` is set in `BuildKeyPlinth` now — the one method all three rewards come
+through — so a fourth reward cannot arrive without one.
+
+## The floor probe was the only cast in the project that did not exclude the player (2026-08-31)
+
+`HeldItemClearance.Sweep`, `LevelCarry.Clear` and `PlayerHand.RoomAhead` all skip the player's capsule
+by name. `FallingItem.ProbeUnder` cast `~0` and skipped only the falling object and its support.
+
+That probe runs **at the hand** the moment something is released, to decide what the fall lands on. A
+downward ray from there can hit the player's own capsule, and where that lands — and therefore whether
+a block settles on a ledge or clears it — depends on where the player was standing and whether they
+were in the air.
+
+Play reported it as blocks dropped from room3-2N's third storey catching the deck on some iterations
+and not others, and as jumping while throwing "not registering".
+
+**When a rule holds for three casts out of four, the fourth is not an exception — it is the bug.**
+
+## A rotation is an axis AND an amount, and only one of them got checked (2026-08-31)
+
+The ladder was built leaning 12 degrees. The scene had the rotation, the wiring was right, nothing
+overwrote it at runtime — and play reported *"the ladder is standing vertical."*
+
+It was leaning **sideways**. The seat's rotation was
+
+```csharp
+Quaternion.AngleAxis(LadderLeanDegrees, Vector3.forward) * Quaternion.Euler(-90f, 0f, 0f)
+```
+
+`Euler(-90,0,0)` stands the model up — its long axis is local +Z, and that goes to world +Y. But the
+model is **1.18m wide on local X**, so after that turn the two stiles are separated along world X.
+Leaning about world +Z then tilts the length *and the width together*: the ladder tips over like one
+falling, instead of leaning back against the wall.
+
+**From the only place anybody sees it, that looks like no lean at all.** The player is on deck B at
+the foot, looking straight up the ladder's face. A sideways lean happens inside the plane of that
+face, foreshortened to nothing.
+
+Two lessons, and the second is the expensive one:
+
+- **A rotation is two facts.** The angle was verified — quaternion decoded, 12.0 degrees off vertical,
+  correct. The *axis* was never checked against the model's own width. Verifying half a rotation
+  proves nothing about it.
+- **Raising the angle made it worse, not better.** Told the lean read as vertical, the obvious move
+  is more lean — which tipped it over further while still looking vertical from the foot. A fix that
+  targets the symptom will happily confirm the wrong diagnosis.
+
+The check that would have caught it, and which is now the one to run after any authored rotation:
+**decode all three axes and say what each one is FOR** — length, width, thickness — not just the one
+you were thinking about.
+
+```
+LENGTH    (model +Z) -> (-0.342, +0.940,  0.000)   20.0 deg off vertical
+WIDTH     (model +X) -> ( 0.000,  0.000, -1.000)   across the lean  OK
+THICKNESS (model +Y) -> (-0.940, -0.342,  0.000)
+```
+
+**And the fix moved the footprint, which moved a bug.** With the width finally across the lean the
+foot is four times broader in z, and it overhung deck B's void by 14cm — a ladder standing with one
+foot over a hole. Correcting an orientation changes what a thing occupies; re-check its clearances,
+not just its pose.
+
+Which way it FACES was decided by measuring the model, not by guessing: the rungs sit at 24.5% of
+the thickness toward local −Y while the stiles run the full depth, so −Y is the climbing face and +Y
+is the back that rests on the wall. The rotation puts −Y east, into the room.
+
 ## A liveness test that names a thing the room does not have (2026-08-31)
 
 Room3-0's console refused the Bedlam cube for ever, with no prompt and no refusal sound. The chain:

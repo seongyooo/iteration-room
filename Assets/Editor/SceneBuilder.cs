@@ -1,6 +1,5 @@
 using System.IO;
 using System.Reflection;
-using IterationRoom.Dev;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -66,6 +65,12 @@ namespace IterationRoom.EditorTools
         // The block on cycle 2's chest of drawers. It has no job yet - see BuildDresser - so the id
         // says what the object IS rather than what it opens.
         private const string CycleTwoBlockItemId = "Block2";
+        // Cycle 1's cube, on the nightstand. Its own id rather than cycle 2's for the reason
+        // `BuildDresserCube` gives: one of them is 8.3kg on a scale and the other is a trinket.
+        private const string CycleOneBlockItemId = "Block1";
+        // The notice on room1-1's floor. Its own id like every other carryable, even though nothing
+        // ever asks for it by name - `ItemRegistry` still has to be able to sweep it home.
+        private const string IntakeNoticeItemId = "Notice";
         // THE POOL'S OWN CARRYABLES. Ids naming a SUPPLY, like the pins and the buckets: three ducks
         // and two beach balls share one id each, and every instance obeys the one-object rule and
         // returns to its own spot on the water (CLAUDE.md §1.2).
@@ -250,9 +255,8 @@ namespace IterationRoom.EditorTools
         // board dims them and brings them back up as its reward. Held here rather than found by name
         // later, because a lookup by name is a second statement of what BuildCeilingLights called them.
         private static Light[] Room2WestLights;
-        // The calibration room's own fixtures, kept because `LightingTuner` drives them - that room
+        // ~~Room1's own fixtures, kept because `LightingTuner` drove them~~ - the tuner
         // is where the lighting is tuned, so it is the one room whose lights something else holds.
-        private static Light[] CalibrationLights;
         private static Renderer[] Room2WestPanels;
 
         private const string TexturesDir = "Assets/Textures";
@@ -782,8 +786,6 @@ namespace IterationRoom.EditorTools
         // The sensitivity room. Deliberately NOT a multiple of RoomPitch in the positive direction
         // - it is not part of the chain and must never be walked into, so it sits behind Room1 with
         // a room's worth of nothing between them.
-        private const string CalibrationRoomName = "CalibrationRoom";
-        private const float CalibrationRoomZ = -2f * RoomPitch;
 
         // THERE IS ONE BUILD, and the probe bake is part of it.
         //
@@ -1054,11 +1056,6 @@ namespace IterationRoom.EditorTools
             foreach (Renderer r in room.GetComponentsInChildren<Renderer>())
             {
                 if (r.transform.parent == null || !r.transform.parent.name.EndsWith("_Panels")) continue;
-                // The calibration room is left out. It is seen once, before the loop starts, and
-                // never again - so booting and flaring its ~88 panels would be a per-frame property
-                // block written to renderers nobody can look at. Property blocks already break SRP
-                // batching across this array; there is no reason to make it a third longer.
-                if (InCalibrationRoom(r.transform)) continue;
                 wallPanelRenderers.Add(r);
             }
 
@@ -1225,26 +1222,19 @@ namespace IterationRoom.EditorTools
                 roomThreePads[0], roomThreePads[1],
             };
 
-            // The player starts in the calibration room, not at the bed. Iteration 1 teleports them
-            // to bedSpawn at the top of RunLoop regardless, so this only decides where they stand
-            // while setting the sensitivity.
-            GameObject calibSpawnGO = new GameObject("CalibrationSpawn");
+            // **WHERE THE PLAYER STANDS BEFORE THE FIRST ITERATION MOVES THEM**, which is now a
+            // formality: iteration 1 teleports to `bedSpawn` at the top of `RunLoop` regardless, and
+            // with the calibration room gone (2026-08-31) there is nothing between loading and that
+            // teleport. Kept as an object rather than dropped because `BuildPlayer` wants a pose to
+            // build at, and the middle of a lit room is a better one to fail into than the origin.
+            GameObject calibSpawnGO = new GameObject("StartSpawn");
             calibSpawnGO.transform.SetParent(room.transform, false);
-            // The SAME offset and facing as the bed spawn, one room over: (0, -0.7) looking at 180.
-            // That is not tidiness, it is the point of the room.
-            //
-            // Turning in place has the same angular rate whatever is in front of you, so the number
-            // being set is identical either way - but how FAST it feels is not. What the eye
-            // actually counts is detail crossing the view, and a far wall puts many more panel
-            // edges in a degree than a near one. An earlier version stood the player 3m from the
-            // south wall facing the length of the room, with 8.25m of wall ahead against the game's
-            // 4.55m: same sensitivity, noticeably quicker to look at. Matching the pose makes the
-            // calibration frame the frame the game opens on.
-            calibSpawnGO.transform.localPosition = new Vector3(0f, 0f, CalibrationRoomZ - 0.7f);
+            // The bed's own pose, in the bed's own room. Nothing is ever seen from here.
+            calibSpawnGO.transform.localPosition = new Vector3(0f, 0f, -0.7f);
             calibSpawnGO.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
-            Transform calibrationSpawn = calibSpawnGO.transform;
+            Transform startSpawn = calibSpawnGO.transform;
 
-            (GameObject player, FirstPersonController fpc, PlayerRecorder recorder, CameraShaker shaker, PlayerHand hand) = BuildPlayer(calibrationSpawn, ghostInteractables);
+            (GameObject player, FirstPersonController fpc, PlayerRecorder recorder, CameraShaker shaker, PlayerHand hand) = BuildPlayer(startSpawn, ghostInteractables);
 
             GhostReplayer ghostPrefab = BuildGhostPrefab();
             // Already built, above - cycle 2's haul room needs it, and that is built with the shell.
@@ -1336,8 +1326,6 @@ namespace IterationRoom.EditorTools
             EndingSequence ending = BuildEndingScreen(canvas);
             // Above even that, because it is the first thing the run shows and nothing else is
             // running while it is up.
-            SensitivityCalibration calibration = BuildCalibrationPage(canvas);
-            CalibrationStartButton startButton = BuildCalibrationWall(room.transform, CalibrationRoomZ, calibration);
 
             // Room4 and the plate that ends the run. Its narration is wired after BuildAudio below;
             // control is LoopManager's to take, at the scrim, so nothing here needs the player.
@@ -1376,14 +1364,11 @@ namespace IterationRoom.EditorTools
             // the room below across the service void.
             BuildExitShaft(join.transform, "ExitShaft_Cycle1", 5f * RoomPitch, floorMat);
 
-            // Appended after the fact because both buttons live in rooms built later than the hint
-            // display. They are the two E fixtures OUTSIDE the loop - one before the first
-            // iteration, one after the last - and they get the same grey disc as every other one,
-            // which is the point: the run opens and closes on the game's own prompt.
-            var hintTargets = new System.Collections.Generic.List<MonoBehaviour>(hints.interactTargets)
-            {
-                startButton,
-            };
+            // Appended after the fact because these live in rooms built later than the hint display.
+            // **THE LIST NO LONGER OPENS WITH THE CALIBRATION BUTTON** (2026-08-31): that was the one
+            // E fixture outside the loop, and its room is gone. Every remaining entry is inside a
+            // cycle, which is what `CycleBinding` was always the right place for.
+            var hintTargets = new System.Collections.Generic.List<MonoBehaviour>(hints.interactTargets);
             // And the console's three recesses, which are E fixtures like any other now that the
             // clock runs through the room they are in.
             hintTargets.AddRange(finalRoom.slots);
@@ -1399,7 +1384,6 @@ namespace IterationRoom.EditorTools
             hintTargets.AddRange(cycleTwoRoot.GetComponentsInChildren<FinalSlot>(true));
             hintTargets.AddRange(cycleTwoRoot.GetComponentsInChildren<Valve>(true));
             hints.interactTargets = hintTargets.ToArray();
-            hints.calibration = calibration;
             // "The player got through the last door", which arms Room4's console. Wired after the
             // fact because the trigger is built with Room3 and the console with Room4.
             finalRoom.arrival = escape;
@@ -1423,6 +1407,23 @@ namespace IterationRoom.EditorTools
             //     so the leave-once rule could retire a sign nobody read. See PanelMessage.
             //
             // Built here for the same reason as the pictogram - it needs something off the canvas.
+            // **AND THE CONTROLS, ON THE SAME WALL AND NEVER AT THE SAME TIME.** This one is
+            // iteration 1 only and the N sign below is iteration 2 onward, which is the whole of how
+            // they share the south wall. See `BuildControlsWall`.
+            BuildControlsWall(room.transform, 0f);
+
+            // AND THE NOTICE ON THE FLOOR IN FRONT OF IT. Between the bed and the wall, off the
+            // centre line so it is not the first thing the wake-up's own camera move sweeps over -
+            // found by walking toward the pictograms rather than handed over before the player has
+            // moved. **It is not iteration-1 only**, unlike the wall above: a physical object that
+            // vanished at the top of iteration 2 would be the one thing in this game that does not
+            // obey the loop.
+            // **TURNED END FOR END** (2026-08-31, by request). 152 had the page's head pointing back
+            // at the bed, so a player walking up to it from the wake-up read it upside down. 332 is
+            // the same angle across the floor with the writing the right way up for somebody
+            // approaching from the bed.
+            BuildIntakeNotice(room.transform, new Vector3(0.55f, 0f, -3.6f), 332f);
+
             PanelMessage wallMessage = BuildWallMessage(room.transform, 0f);
             wallMessage.showFromIteration = 2;
             // Long enough to clear "Iteration 2, 60 seconds remaining." Announcements replace each
@@ -1566,7 +1567,6 @@ namespace IterationRoom.EditorTools
             loop.ambience = ambience;
             loop.cameraShaker = shaker;
             loop.endingSequence = ending;
-            loop.calibration = calibration;
             // Both live on the HUD canvas, found the same way the wall sign finds the control it
             // teaches. Reset and driven at a cycle boundary respectively.
             loop.endCycleControl = canvas.GetComponentInChildren<EndCycleControl>(true);
@@ -1604,9 +1604,12 @@ namespace IterationRoom.EditorTools
             // and no hatch of its own yet; `LoopManager` derives "last" from the array rather than
             // from a count, so the day cycle 4 exists this grows by one entry.
             binding.wayOuts = new[] { cycleOneExit, cycleTwoExit, cycleThreeExit, null };
-            // The one E fixture that belongs to no cycle: the calibration room runs before the first
-            // iteration, so its button cannot be gathered off a cycle root.
-            binding.coreHintTargets = new MonoBehaviour[] { startButton };
+            // **NOTHING BELONGS TO NO CYCLE ANY MORE.** This held exactly one entry, the calibration
+            // room's start button, because that room ran before the first iteration and could not be
+            // gathered off a cycle root. The room is gone (2026-08-31) and the field stays: it is the
+            // right shape for the next fixture that lives outside the cycles, and an empty array says
+            // "none today" where deleting it would make the next one a structural change.
+            binding.coreHintTargets = new MonoBehaviour[0];
 
             // THE PROBES ARE BAKED HERE, LAST, AND THAT IS A FIX RATHER THAN A TIDY-UP.
             //
@@ -1647,11 +1650,11 @@ namespace IterationRoom.EditorTools
 
             BakeReflectionProbes();
 
-            // The core scene's own probe volume - it holds the calibration room, which is a room like
-            // any other and wants bounce like any other. The cycles get theirs in
-            // `SplitCyclesIntoScenes`. See `EnsureProbeVolume` for why the BUILD owns these and the
-            // bake does not.
-            EnsureProbeVolume(SceneManager.GetActiveScene(), onlyCalibrationRoom: true);
+            // **THE CORE SCENE HAS NO PROBE VOLUME ANY MORE**, and that is not an omission. It had
+            // one for the calibration room alone - the only ROOM the core scene ever held - and with
+            // that room gone (2026-08-31) what is left out here is the player, the canvas and the
+            // ghost prefab. None of them is lit by baked bounce. The cycles still get theirs in
+            // `SplitCyclesIntoScenes`.
 
             // ASLEEP UNTIL ITS TURN - and AFTER the bake, which is the whole reason this is here
             // rather than beside the rest of cycle 2's wiring.
@@ -1899,6 +1902,170 @@ namespace IterationRoom.EditorTools
         // position, same lens, same frame. Anything that shifted - a drifting prop, a re-framed
         // camera - would read as a jump cut rather than as a light going out, which is the one way
         // this effect can look broken rather than absent.
+        // WHICH ROOM STANDS FOR EACH CYCLE on the title screen's RECORD page (2026-08-31, by
+        // request). Named rather than derived: "the room that is most this cycle" is a judgement, and
+        // the three below are the ones the player remembers each cycle by - the balloons, the tree,
+        // and the three-storey hall the ladder climbs.
+        //
+        // Cycle 4 has no entry because cycle 4 has nothing in it yet. A cycle with no preview simply
+        // does not get a row, which is the same rule as a cycle nobody has finished.
+        // **ONE ROOM FOR EVERY ROW** (2026-08-31, by request: unify them all on room1-1).
+        //
+        // It was a room per cycle - the balloon room, then the taps, then room3-2N - and each choice
+        // was sound in itself. What defeated it is that a build-time render happens before a scene's
+        // probe and lighting data are loaded, and cycles 2 and 3 came back with colours the game does
+        // not have. Substituting a flat reflection fixed the WALLS, which are 0.85 smoothness and so
+        // are almost entirely reflection; the dark and emissive details - grooves, door leaves,
+        // ceiling panels - still read wrong, and they are lit by ambient rather than by reflection.
+        //
+        // Room1 is the one room that comes out right, every build, in the core scene where the shot
+        // is honest. So there is one shot, and every row uses it.
+        //
+        // **What that costs, stated**: the preview no longer tells one cycle from another, which was
+        // the point of having a picture at all. The row's heading does that job now. If the per-cycle
+        // shot is ever wanted back, the thing to fix first is the lighting data, not the framing -
+        // see `CaptureCyclePreview`.
+        private const string RecordPreviewPath = RecordDir + "/Cycle1.png";
+        private static readonly string[] CyclePreviewRooms = { "Room1" };
+
+        private const string RecordDir = "Assets/Textures/Record";
+
+        // A THUMBNAIL OF ONE CYCLE, RENDERED AT BUILD TIME.
+        //
+        // Called from `SplitCyclesIntoScenes` while that cycle's own scene is ACTIVE, which is what
+        // makes the shot match the game - see the note at the call site.
+        //
+        // **ONE FRAMING RULE FOR ALL OF THEM, so they read as a set rather than as three
+        // photographs.** Stand on the room's own centre line, 2m up, a bit back from the middle along
+        // whichever horizontal axis is LONGEST, and look down that axis. The rooms are different
+        // shapes, so a fixed direction would point at a side wall in one of them; the longest axis is
+        // the one a room is meant to be seen down.
+        private static void CaptureCyclePreview(Cycle cycle, int index)
+        {
+            if (index >= CyclePreviewRooms.Length) return;
+            if (cycle == null || cycle.worldRoot == null) return;
+
+            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
+            {
+                Debug.LogWarning("[SceneBuilder] No graphics device (-nographics): cycle previews NOT "
+                               + "captured, keeping whatever is on disk. Rebuild with a device.");
+                return;
+            }
+
+            Directory.CreateDirectory(RecordDir);
+
+            // Woken for the shot and put back exactly as it was. Cycles ship asleep, and a disabled
+            // renderer renders nothing - the same trap the probe bake documents.
+            bool wasAwake = cycle.worldRoot.gameObject.activeSelf;
+            cycle.worldRoot.gameObject.SetActive(true);
+
+            GameObject camGO = new GameObject("PreviewCamera");
+            Camera cam = camGO.AddComponent<Camera>();
+            cam.fieldOfView = 52f;
+            cam.nearClipPlane = 0.05f;
+            cam.farClipPlane = 120f;
+
+            try
+            {
+                Transform room = FindChildByName(cycle.worldRoot, CyclePreviewRooms[index]);
+                if (room == null)
+                {
+                    Debug.LogError($"[SceneBuilder] cycle {index + 1} has no room called "
+                                 + $"'{CyclePreviewRooms[index]}' to preview.");
+                    return;
+                }
+
+                Bounds b = SolidBounds(room);
+                bool alongZ = b.size.z >= b.size.x;
+                Vector3 dir = alongZ ? Vector3.forward : Vector3.right;
+                float length = alongZ ? b.size.z : b.size.x;
+
+                // 38% back from the middle: far enough to have the room in front of you, near enough
+                // that the far wall is not the whole picture.
+                Vector3 eye = b.center - dir * (length * 0.38f);
+                // **EYE HEIGHT OFF THE ROOM'S OWN TRANSFORM, NOT OFF ITS BOUNDS.** A room object sits
+                // on its floor, so `position.y + 2` is standing height in every one of them.
+                // `b.min.y` is the lowest MESH, which in the tree hall is the bottom of a 33m pit -
+                // the first run of this put the camera inside that hole looking at its wall.
+                eye.y = room.position.y + 2.0f;
+
+                // **THE REFLECTION IS SUBSTITUTED FOR THE SHOT, and this is the fix rather than a
+                // dodge.**
+                //
+                // These walls are 0.85 smoothness - they are almost entirely reflection - and a
+                // build-time render happens BEFORE the scene's probe data is loaded. CLAUDE.md
+                // already records that about this project's other capture: "`CaptureMenuBackground`
+                // renders before probe data loads". Whatever is in the reflection slot at that
+                // moment is not what the game will use, and it is not even stable: two builds a few
+                // minutes apart, with no material or lighting change between them, gave cycle 2's
+                // tap room red walls and then BLUE ones. Play reported the room as white, which it
+                // is.
+                //
+                // A white cubemap is not a lie about the room - it is the answer the probe would
+                // give once loaded. Every wall, floor and ceiling in this building is white, so what
+                // a probe in the middle of one captures IS a white surround. The floor (0.6) and the
+                // props barely moved between those two builds, which is the same fact from the other
+                // side: only the mirror-like surfaces were reading the empty slot.
+                //
+                // Swapped for the frame and put back, so nothing outside this method sees it.
+                DefaultReflectionMode wasMode = RenderSettings.defaultReflectionMode;
+                Texture wasCustom = RenderSettings.customReflectionTexture;
+                Cubemap flat = new Cubemap(1, TextureFormat.RGBA32, false);
+                foreach (CubemapFace face in System.Enum.GetValues(typeof(CubemapFace)))
+                {
+                    if (face == CubemapFace.Unknown) continue;
+                    flat.SetPixel(face, 0, 0, new Color(0.78f, 0.78f, 0.80f));
+                }
+                flat.Apply();
+                RenderSettings.defaultReflectionMode = DefaultReflectionMode.Custom;
+                RenderSettings.customReflectionTexture = flat;
+
+                cam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(dir, Vector3.up));
+                try
+                {
+                    CaptureMenuFrame(cam, $"{RecordDir}/Cycle{index + 1}.png", 640, 360);
+                }
+                finally
+                {
+                    RenderSettings.defaultReflectionMode = wasMode;
+                    RenderSettings.customReflectionTexture = wasCustom;
+                    Object.DestroyImmediate(flat);
+                }
+
+                Debug.Log($"[SceneBuilder] Cycle {index + 1} preview: {CyclePreviewRooms[index]} from "
+                        + $"{eye}, looking {(alongZ ? "+Z" : "+X")} down {length:0.#}m, with a flat "
+                        + "reflection standing in for the probe (see the note above).");
+            }
+            finally
+            {
+                Object.DestroyImmediate(camGO);
+                cycle.worldRoot.gameObject.SetActive(wasAwake);
+            }
+        }
+
+        // The preview sprite for a cycle, or null when there is no file - which is what a cycle with
+        // no distinctive room gets, and what every cycle gets on a `-nographics` build before the
+        // first real one.
+        // The same frame for every row - see `CyclePreviewRooms`. The parameter is kept so the day
+        // per-cycle shots come back, this is the only line that changes.
+        private static Sprite CyclePreviewSprite(int cycle)
+        {
+            string path = RecordPreviewPath;
+            if (!File.Exists(path)) return null;
+
+            if (AssetImporter.GetAtPath(path) is TextureImporter importer
+                && importer.textureType != TextureImporterType.Sprite)
+            {
+                importer.textureType = TextureImporterType.Sprite;
+                importer.spriteImportMode = SpriteImportMode.Single;
+                importer.mipmapEnabled = false;
+                importer.wrapMode = TextureWrapMode.Clamp;
+                importer.SaveAndReimport();
+            }
+
+            return AssetDatabase.LoadAssetAtPath<Sprite>(path);
+        }
+
         private static void CaptureMenuBackground(Camera cam, Transform room)
         {
             CaptureMenuFrame(cam, MenuBackgroundPath);
@@ -1929,7 +2096,8 @@ namespace IterationRoom.EditorTools
                     + "for the dark one. Zero would mean the flicker has nothing to show.");
         }
 
-        private static void CaptureMenuFrame(Camera cam, string path)
+        private static void CaptureMenuFrame(Camera cam, string path,
+                                             int width = 1920, int height = 1080)
         {
             if (cam == null)
             {
@@ -1944,7 +2112,7 @@ namespace IterationRoom.EditorTools
                 return;
             }
 
-            const int width = 1920, height = 1080;
+
             // RENDERED AT 2x AND DOWNSAMPLED. The room is a grid of thin black grooves on white, which
             // is the worst case for aliasing there is: at 1:1 every line crawls and breaks up, and the
             // menu advertised the game as a jaggy mess. Supersampling fixes it regardless of what MSAA
@@ -2568,14 +2736,14 @@ namespace IterationRoom.EditorTools
         // cycles are different shapes, and a box written for one is wrong for the others.
         private const float ProbeVolumePadding = 4f;
 
-        // `onlyCalibrationRoom` boxes JUST that room rather than everything in the scene. The core
+        // Boxes everything in the scene. The core
         // scene is built with the entire building still in it - the cycles are moved out afterwards -
         // so measuring every renderer there gives a 48 x 52 x 193m box, **25.6 times the volume of a
         // cycle's**, for one 8.75 x 10.5m room. APV spreads a fixed cell budget over whatever box it
         // is given, so that room got a far coarser field than the identical rooms in the cycles, and
         // play saw it: Room1 read grey while the calibration room blew out to pure white, from one
         // global ambient value that cannot do both.
-        private static void EnsureProbeVolume(Scene scene, bool onlyCalibrationRoom = false)
+        private static void EnsureProbeVolume(Scene scene)
         {
             Bounds bounds = default;
             bool any = false;
@@ -2587,9 +2755,6 @@ namespace IterationRoom.EditorTools
                     // Particle systems report wandering bounds; only the built world should decide
                     // how big the lit volume is.
                     if (r is ParticleSystemRenderer) continue;
-                    // The prefix test, not the exact one - the room is several siblings and the
-                    // shell is only the first. See `LiftedWithCalibrationRoom`.
-                    if (onlyCalibrationRoom && !LiftedWithCalibrationRoom(r.transform)) continue;
                     if (!any) { bounds = r.bounds; any = true; }
                     else bounds.Encapsulate(r.bounds);
                 }
@@ -4137,7 +4302,6 @@ namespace IterationRoom.EditorTools
         // build says so rather than shipping a null nobody will meet until they play that room.
         private static void SplitCyclesIntoScenes(Cycle[] cycles, WallPanelDisplay[] displays)
         {
-            ExtractCalibrationRoom(cycles.Length > 0 ? cycles[0] : null);
 
             for (int i = 0; i < cycles.Length; i++)
             {
@@ -4161,6 +4325,19 @@ namespace IterationRoom.EditorTools
                 SceneManager.SetActiveScene(cycleScene);
                 ApplyEnvironment();
                 EnsureProbeVolume(cycleScene);
+
+                // **AND THE RECORD PAGE'S THUMBNAIL, HERE, WHILE THIS SCENE IS THE ACTIVE ONE.**
+                //
+                // It was taken before the split, out of the core scene, and the shots came back with
+                // colours the game does not have - cycle 2's floor green and its grooves orange.
+                // `RenderSettings` is PER SCENE and rendering uses the ACTIVE one, so a shot taken
+                // out there was lit by the core scene's environment while the game lights that room
+                // with the settings `ApplyEnvironment` has just written one line above.
+                //
+                // This is the only moment both facts hold at once: the cycle is still loaded, and it
+                // already has its own lighting. A line later it is a file.
+                CaptureCyclePreview(cycle, i);
+
                 SceneManager.SetActiveScene(wasActive);
                 EditorSceneManager.SaveScene(cycleScene, CycleScenePath(name));
                 Debug.Log($"[SceneBuilder] Cycle scene '{name}' written to {CycleScenePath(name)}");
@@ -4339,63 +4516,6 @@ namespace IterationRoom.EditorTools
             SetFloorBase(root, CycleThreeFloorY);
 
             return (cycle, display);
-        }
-
-        // THE CALIBRATION ROOM BELONGS TO NO CYCLE, and the split is what made that structural rather
-        // than merely true. It is built inside cycle 1's shell because it is a room and that is where
-        // rooms are built - but it runs ONCE, before the first iteration, before there is a cycle to be
-        // in at all. Left where it was, it moves into `Cycle1.unity` and takes five references with it:
-        // `SensitivityCalibration` lives on the core's canvas and points at the readout, the walls and
-        // the display INSIDE it, and its start button points back the other way.
-        //
-        // None of those wants a runtime rebinding, because none of them was ever a cycle's business.
-        // Lifted into a root of its own, in the core scene, they all stay ordinary intra-scene
-        // references and the whole cluster disappears from the report.
-        //
-        // Found by NAME, and the prefix is `Calibration` rather than `CalibrationRoom` - which is not a
-        // detail, it is the bug the first attempt shipped. The shell is `CalibrationRoom`, but the
-        // readout the player actually looks at is a sibling called `CalibrationWall`, and matching the
-        // longer name moved the room while leaving the wall, its start button and the three wall groups
-        // behind in cycle 1. The report said so: `Cycle1/Room/CalibrationWall/StartButton`.
-        private static void ExtractCalibrationRoom(Cycle cycleOne)
-        {
-            if (cycleOne == null || cycleOne.worldRoot == null) return;
-
-            var move = new System.Collections.Generic.List<Transform>();
-            foreach (Transform child in cycleOne.worldRoot)
-                if (child.name.StartsWith("Calibration")) move.Add(child);
-
-            if (move.Count == 0) return;
-
-            GameObject holder = new GameObject("CalibrationRoom_Root");
-            foreach (Transform t in move) t.SetParent(holder.transform, true);
-
-            // **THE TUNER IS BUILT HERE, INSIDE THE LIFT, AND NOT WHERE THE ROOM IS BUILT.** It holds
-            // a reference to every wall panel, floor, ceiling and fixture in this room, so built with
-            // the rest of cycle 1 it lands in `Cycle1.unity` pointing at objects that stay in the core
-            // scene - ninety-odd cross-scene references, every one of them silently NULLED on save.
-            // The panel then opened with its sliders attached to nothing and reported the fallback
-            // defaults as though they were the room's values. Exactly the failure the comment above
-            // describes for `CalibrationWall`, made a second time.
-            BuildLightingTuner(holder.transform);
-
-            // **AND ITS OWN SHADOW BUDGET**, for the same reason the tuner is built here: these
-            // fixtures live in this scene now, and the component that switches them has to as well.
-            // `WireShadowBudget` deliberately skips them - see there.
-            var calibLights = new System.Collections.Generic.List<Light>();
-            foreach (Light l in holder.GetComponentsInChildren<Light>(true))
-                if (l.shadows != LightShadows.None) calibLights.Add(l);
-
-            if (calibLights.Count > 0)
-            {
-                ShadowBudget calibBudget = holder.AddComponent<ShadowBudget>();
-                calibBudget.fixtures = calibLights.ToArray();
-                calibBudget.maxCasters = 4;
-                Debug.Log($"[SceneBuilder] ShadowBudget on the calibration room: {calibLights.Count} "
-                        + "fixture(s), in the scene they actually live in.");
-            }
-            Debug.Log($"[SceneBuilder] Calibration room lifted out of cycle 1 ({move.Count} object(s)); "
-                    + "it runs before any cycle exists and stays in the core scene.");
         }
 
         private static void SleepCycle(Transform root)
@@ -10948,9 +11068,6 @@ namespace IterationRoom.EditorTools
             //
             // Far enough out that no slab or wall overrun can touch Room1: this spans Z -26.95 to
             // -16.45 against Room1's -5.25 to 5.25.
-            BuildRoomShell(parent, CalibrationRoomName, CalibrationRoomZ,
-                floorMat, grooveMat, panelMat, Rect.zero, Rect.zero);
-
             Material fixtureMat = MakeEmissiveMaterial("CeilingFixture", Color.white, 3.5f);
 
             // Shadows only in Room1. Every additional light's shadow shares one atlas, and the
@@ -10965,19 +11082,13 @@ namespace IterationRoom.EditorTools
             BuildCeilingLights(parent, "Room2East", 3f * RoomPitch, fixtureMat, castShadows: true);
             BuildCeilingLights(parent, "Room3", 4f * RoomPitch, fixtureMat, castShadows: true);
             BuildCeilingLights(parent, "Room4", 5f * RoomPitch, fixtureMat, castShadows: true);
-            (CalibrationLights, _) =
-                BuildCeilingLights(parent, CalibrationRoomName, CalibrationRoomZ, fixtureMat, castShadows: true);
-
-            // Built after the lights, so the probes capture the rooms already lit. The calibration
-            // room needs its own: the walls are at 0.85 smoothness, and without a probe to reflect
-            // they mirror the procedural sky and come out tinted blue.
+            // Built after the lights, so the probes capture the rooms already lit.
             BuildReflectionProbe(parent, "Room1", 0f);
             BuildReflectionProbe(parent, "Room2", RoomPitch);
             BuildReflectionProbe(parent, "Room2West", 2f * RoomPitch);
             BuildReflectionProbe(parent, "Room2East", 3f * RoomPitch);
             BuildReflectionProbe(parent, "Room3", 4f * RoomPitch);
             BuildReflectionProbe(parent, "Room4", 5f * RoomPitch);
-            BuildReflectionProbe(parent, CalibrationRoomName, CalibrationRoomZ);
         }
 
         // Fills the cavity between the two rooms' walls, everywhere except the volume the door slab
@@ -11839,6 +11950,23 @@ namespace IterationRoom.EditorTools
 
             CarryableItem item = key.AddComponent<CarryableItem>();
             item.itemId = itemId;
+            // **PUT DOWN, IT LEAVES THE PLINTH'S SUBTREE - AND NOTHING ELSE WOULD MAKE IT.**
+            //
+            // `CarryableItem.DropAt` reparents to `dropParent ?? originParent`, and this object is
+            // AUTHORED as a child of the plinth, so with no drop home its origin IS the plinth. Set
+            // the triangle down anywhere in the building and it came back under that transform -
+            // where `RewardPlinth.OwnsKey` reads as true again, and the plinth sinking on the next
+            // pad release calls `Hide()` on it.
+            //
+            // Play reported it as the yellow triangle disappearing after the structure closed. It is
+            // the SECOND time this parentage has bitten: `RewardPlinth` was already rewritten once,
+            // in 2026-08-29, to stop it hiding and teleporting an object it no longer held. That fix
+            // made ownership a parentage test, which is right - and left the one path that puts the
+            // object back under that parent without anybody carrying it.
+            //
+            // Set HERE rather than at the three call sites, because all three rewards come through
+            // this method and a fourth would arrive with the same fault.
+            item.dropParent = parent;
             item.displayName = displayName;
             item.icon = icon;
             item.iconTint = accent;
@@ -12817,9 +12945,12 @@ namespace IterationRoom.EditorTools
 
             const float caseBottom = legH;
             const float caseTop = h - topT;
-            // Two equal bays with the divider's own thickness taken out between them, so the pair
-            // fills the carcass exactly rather than leaving a strip of nothing at the bottom.
+            // **ONE DRAWER, IN THE UPPER HALF** (2026-08-31, by request: every chest in the game is
+            // the nightstand's shape now). It was two equal bays; the height is left exactly as it
+            // was so the drawer is the same object it always was, and what was the lower bay is a
+            // solid front below it.
             const float bayH = (caseTop - caseBottom - panel) / 2f;
+            const float bayBottom = caseTop - bayH;
 
             Material wood = MakeColorMaterial("NightstandWood", new Color(0.14f, 0.085f, 0.06f));
             SetSmoothness(wood, 0.25f);
@@ -12845,9 +12976,19 @@ namespace IterationRoom.EditorTools
             Prim(PrimitiveType.Cube, "SideRight", unit.transform,
                 new Vector3(w / 2f - panel / 2f, (caseBottom + caseTop) / 2f, 0f),
                 new Vector3(panel, caseTop - caseBottom, d), wood);
-            Prim(PrimitiveType.Cube, "Divider", unit.transform,
-                new Vector3(0f, caseBottom + bayH + panel / 2f, 0f),
+            // The shelf the drawer runs on. It was the divider BETWEEN two bays and it does the same
+            // job for one - what changed is only what is under it.
+            Prim(PrimitiveType.Cube, "Shelf", unit.transform,
+                new Vector3(0f, bayBottom - panel / 2f, 0f),
                 new Vector3(w - panel * 2f, panel, d - panel), wood);
+
+            // **AND THE FRONT THAT WAS LEFT OFF FOR THE SECOND BAY IS BACK ON.** The carcass is built
+            // with no front because the openings ARE that absence; with one drawer, the lower half
+            // has no opening and a chest with a hole in it is not furniture.
+            Prim(PrimitiveType.Cube, "FrontLower", unit.transform,
+                new Vector3(0f, (caseBottom + bayBottom - panel) / 2f, -d / 2f + panel / 2f),
+                new Vector3(w - panel * 2f - 0.01f, bayBottom - panel - caseBottom - 0.01f, panel),
+                wood);
 
             for (int i = 0; i < 4; i++)
             {
@@ -12857,30 +12998,28 @@ namespace IterationRoom.EditorTools
                     new Vector3(0.048f, legH, 0.048f), wood);
             }
 
-            Drawer upper = BuildDresserBay(unit.transform, name + "_DrawerUpper",
-                caseTop - bayH, caseTop, w, d, panel, wood, brass);
-            Drawer lower = BuildDresserBay(unit.transform, name + "_DrawerLower",
-                caseBottom, caseBottom + bayH, w, d, panel, wood, brass);
+            Drawer drawer = BuildDresserBay(unit.transform, name + "_Drawer",
+                bayBottom, caseTop, w, d, panel, wood, brass);
 
-            // AND NOW THERE IS SOMETHING IN IT. The comment above about both bays being empty on
-            // purpose stood for four days; room2-0 is the puzzle that was waiting for them. The tray
-            // geometry is recomputed rather than handed back out of `BuildDresserBay`, because it is
-            // three lines of arithmetic off numbers this method already owns and returning a fourth
-            // thing from a bay builder to describe the inside of a drawer would be worse.
+            // AND NOW THERE IS SOMETHING IN IT. The tray geometry is recomputed rather than handed
+            // back out of `BuildDresserBay`, because it is three lines of arithmetic off numbers this
+            // method already owns and returning a second thing from a bay builder to describe the
+            // inside of a drawer would be worse.
             if (withBilliards)
-                BuildBilliardBalls(upper, lower, w - panel * 2f - 0.01f, bayH - 0.01f, d * 0.76f);
+                BuildBilliardBalls(drawer, w - panel * 2f - 0.01f, bayH - 0.01f, d * 0.76f);
 
             // AND SOMETHING ON TOP THE PLAYER CAN PICK UP. The nightstand's cube is scenery - a model
             // placed with no collider, which cannot be taken - and this is the opposite: a carryable
             // in its own right, standing on the chest the way the pin stands in the drawer.
-            BuildDresserCube(unit.transform, name + "_Cube", new Vector3(w * 0.26f, h, -d * 0.08f));
+            BuildDresserCube(unit.transform, name + "_Cube", new Vector3(w * 0.26f, h, -d * 0.08f),
+                             CycleTwoBlockItemId, weighable: true);
 
             // The bedside lamp, when this chest is standing where a nightstand was. Scenery, and the
             // only thing carried over from the unit it replaced - a bed with nothing lit beside it
             // reads as a room nobody sleeps in.
             if (withLamp) BuildNightstandLamp(unit.transform, new Vector3(-w * 0.28f, h, 0.02f));
 
-            return new[] { upper, lower };
+            return new[] { drawer };
         }
 
         // ONE BAY of the chest above: the tray that slides, the front that carries it, and the volume
@@ -12948,16 +13087,20 @@ namespace IterationRoom.EditorTools
             // ball inside gates on `IsFullyOpen`, so on even iterations a ghost's take, and with it
             // that ghost's whole delivery, silently does not happen.
             //
-            // WHAT BUYS THAT BACK: a drawer that cannot be shut is open FOREVER, and it stands
-            // between the player and the other bay. `Drawer.WantsInteractHint` keeps an OPEN closable
-            // drawer in the aim contest, and its front has slid 0.23m nearer the eye, so it wins the
-            // press from in front of the bay below it - play reported the lower bay as unopenable.
-            // Being able to shut it is the only way out of that from inside the game.
+            // **AND IT IS FALSE AGAIN, BECAUSE THE REASON IT WAS TRUE IS GONE** (2026-08-31). It was
+            // set for one reason and one only: an OPEN drawer stays in the aim contest and its front
+            // has slid 0.23m nearer the eye, so the upper bay won the press from in front of the
+            // LOWER one and play reported the lower bay as unopenable. Being able to shut it was the
+            // only way out of that from inside the game.
             //
-            // The trade was made deliberately and stated: a drawer found shut is an errand that
-            // FAILS, which is a legible outcome the player can see and undo by pulling it open,
-            // where a bay that can never be opened is not.
-            drawerComp.canClose = true;
+            // There is no lower bay now. Nothing is behind this drawer for it to hide, so the trade
+            // has nothing left to buy and only its cost remains - which is real: a closable drawer
+            // makes E a TOGGLE, and a toggle replayed by several past selves is order-dependent
+            // where an idempotent `Open()` is not. Two ghosts that both recorded a pull open it and
+            // then shut it again, and everything inside gates on `IsFullyOpen`. That is the drawer
+            // parity `docs/gotchas.md` records as costing cycle 2 an unknown number of iterations,
+            // and it is what this line was causing.
+            drawerComp.canClose = false;
             // Two thirds out, like the nightstand's: leaving a third of the tray inside the carcass is
             // what reads as a drawer rather than as a tray hanging in mid-air.
             drawerComp.openLocalOffset = new Vector3(0f, 0f, -trayD * 0.68f);
@@ -12978,13 +13121,23 @@ namespace IterationRoom.EditorTools
         // mistake that drew every bucket 1.6m behind itself, and this chest hangs off a furniture
         // holder that is yawed 180 and a storey down. Measured in the ROOT's own frame instead, with
         // the helper that exists for exactly this (`ModelBounds`).
-        private static void BuildDresserCube(Transform unit, string name, Vector3 topLocal)
+        private static void BuildDresserCube(Transform unit, string name, Vector3 topLocal,
+                                             string itemId, bool weighable, float size = 0.16f)
         {
             // 90mm was a keyring trinket on top of a chest - hard to see and harder to aim at, and
             // play reported both. A Rubik's cube is 57mm in life; this is deliberately larger than
             // life because it is an OBJECT in a puzzle game, and the thing it competes with for a
             // press is a drawer front the size of a dinner tray.
-            const float size = 0.16f;
+            //
+            // **AND CYCLE 1'S NIGHTSTAND USES THIS TOO NOW** (2026-08-31, by request: its cube can be
+            // picked up as well). It had a builder of its own that placed the same model with
+            // `addBoxCollider: false` - scenery, lookable and untouchable. Two builders for one
+            // object where the only real difference was whether you could have it.
+            //
+            // What is NOT shared is the id or the weight. Cycle 2's cube is 8.3kg on room2-7's scale
+            // and there is exactly one solution to that room's 26.7kg across everything it can carry;
+            // a second cube wearing the same id, in another cycle, is a second answer to a question
+            // that must only have one.
 
             GameObject root = new GameObject(name);
             root.transform.SetParent(unit, false);
@@ -13024,7 +13177,7 @@ namespace IterationRoom.EditorTools
 
             CarryableItem item = root.AddComponent<CarryableItem>();
             item.blocker = block;
-            item.itemId = CycleTwoBlockItemId;
+            item.itemId = itemId;
             item.displayName = "CUBE";
             item.icon = SquareIcon();
             // Its own half-height above whatever floor it ends up on - which is NOT where it starts.
@@ -13036,8 +13189,9 @@ namespace IterationRoom.EditorTools
             item.handLocalScale = Vector3.one;
             item.audioSource = MakeSource(root.transform, "PickupAudio", 1f, 0.85f);
             item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
-            // The heaviest thing one hand can carry to room2-7, and the only one of its kind.
-            MakeWeighable(item, WeightCube);
+            // The heaviest thing one hand can carry to room2-7, and the only one of its kind. Cycle
+            // 1's has no scale to stand on and must not answer that question - see the header.
+            if (weighable) MakeWeighable(item, WeightCube);
         }
 
         // NINE BILLIARD BALLS, SPILLED ACROSS BOTH TRAYS OF THE CHEST - and four of them are the
@@ -13062,7 +13216,7 @@ namespace IterationRoom.EditorTools
         // at 0.16 or 0.20 it is much the same, because nine small addends fill every gap the coarse
         // weights leave. The scale's own sign already names the five things it accepts, so a ball
         // reading zero is what that sign says rather than a lie it tells.
-        private static CarryableItem[] BuildBilliardBalls(Drawer upper, Drawer lower,
+        private static CarryableItem[] BuildBilliardBalls(Drawer drawer,
                                                           float frontW, float frontH, float trayD)
         {
             string path = PlayDir + "/billiard_balls.glb";
@@ -13097,41 +13251,57 @@ namespace IterationRoom.EditorTools
                     continue;
                 }
 
-                Drawer drawer = spec.top ? upper : lower;
                 built.Add(MakeBilliardBall(node, drawer, spec.id,
                     new Vector3(spec.x, y, spec.z), spec.yaw, icon));
             }
 
             Object.DestroyImmediate(set);
             Debug.Log($"[SceneBuilder] Billiards: {built.Count} balls of {BilliardBallSize:0.000}m "
-                    + "across both bays of Dresser2_1");
+                    + $"in Dresser2_1's drawer - {BilliardAnswers} answers and "
+                    + $"{built.Count - BilliardAnswers} decoys.");
             return built.ToArray();
         }
 
-        // WHICH NINE, AND WHERE EACH ONE LIES. Positions are in the drawer BODY's frame, so the balls
+        // How many of the plan below are ANSWERS. The first entries are room2-0's three, in the
+        // order its pedestals want them, and everything after is a decoy - so the split is a count
+        // rather than a second list to keep in step. Only the build log reads it.
+        private const int BilliardAnswers = 3;
+
+        // WHICH FIVE, AND WHERE EACH ONE LIES. Positions are in the drawer BODY's frame, so the balls
         // ride out with the tray instead of hanging in the air in front of a shut drawer - the same
         // parenting the pins have.
         //
-        // Two staggered rows rather than a line, and no two centres closer than 0.17 against a 0.13
+        // **FIVE, DOWN FROM NINE** (2026-08-31, by request), and in ONE tray now that the chest has
+        // one drawer. Room2-0 asks for three - 5 for the axes, 3 for the ducks, 4 for the buckets -
+        // and the decoys are **2 and 6**, chosen to BRACKET that run rather than sit outside it. A
+        // decoy is only doing its job if a player who miscounts by one can reach it: 1 and 8 are
+        // numbers nobody arrives at by miscounting three ducks, where 2 and 6 are exactly what an
+        // off-by-one gives you at either end of the answers.
+        //
+        // **WHAT THIS COSTS, stated because it is a real cost**: three answers among five balls is a
+        // much cheaper thing to brute-force than three among nine. A player who does not count at all
+        // can carry each ball to each pedestal, and the whole search is now a handful of trips. The
+        // counting is what the puzzle IS, so if it ever stops being worth doing, decoys are the lever
+        // - not the answers.
+        //
+        // A FIELD RATHER THAN A LOCAL, because room2-0 reads it too: its recesses take a press for
+        // any ball in the game (`FinalSlot.offerItemIds`), and that list has to BE this one. Two
+        // hand-kept lists of the same ids is how a pedestal ends up silently refusing to prompt for a
+        // ball that exists.
+        //
+        // Two staggered rows rather than a line, and no two centres closer than 0.18 against a 0.13
         // ball: a drawer somebody tipped balls into rather than a rack, and it still has to be
         // possible to aim at one of them.
-        //
-        // A FIELD RATHER THAN A LOCAL, because room2-0 reads it too: its four recesses will take a
-        // press for any ball in the game (`FinalSlot.offerItemIds`), and that list has to BE this one.
-        // Two hand-kept lists of the same nine ids is how a pedestal ends up silently refusing to
-        // prompt for a ball that exists.
-        private static readonly (string node, string id, bool top, float x, float z, float yaw)[]
+        private static readonly (string node, string id, float x, float z, float yaw)[]
             BilliardPlan =
         {
-            ("Ball1",      "1",   true,  -0.245f, 0.095f,   24f),
-            ("Ball2",      "2",   true,  -0.105f, 0.235f,  -63f),
-            ("Ball5",      "5",   true,   0.045f, 0.105f,  141f),
-            ("Ball7",      "7",   true,   0.185f, 0.245f,  -17f),
-            ("Ball Clube", "Cue", true,   0.295f, 0.115f,   88f),
-            ("Ball3",      "3",   false, -0.230f, 0.230f,  -38f),
-            ("Ball4",      "4",   false, -0.075f, 0.105f,  112f),
-            ("Ball6",      "6",   false,  0.115f, 0.240f,   -9f),
-            ("Ball8",      "8",   false,  0.265f, 0.120f,   57f),
+            // The three room2-0 wants.
+            ("Ball5",      "5",  -0.240f, 0.235f,  141f),
+            ("Ball3",      "3",   0.000f, 0.235f,  -38f),
+            ("Ball4",      "4",   0.240f, 0.235f,  112f),
+            // And the two either side of them.
+            ("Ball2",      "2",  -0.120f, 0.095f,  -63f),
+            ("Ball6",      "6",   0.120f, 0.095f,   -9f),
         };
 
         // Every ball id in the game, in the order above. What a room2-0 pedestal entertains a press
@@ -13543,19 +13713,23 @@ namespace IterationRoom.EditorTools
         // WORLD target rather than being reparented under a second empty the way the pot's two
         // primitives were. addBoxCollider false: a solid decorative object nobody can reach behind
         // the lamp does not need one, and it is one fewer collider on a footprint this small.
+        // **THE NIGHTSTAND'S CUBE CAN BE PICKED UP NOW** (2026-08-31, by request), which is the whole
+        // of what changed: it is `BuildDresserCube` at this unit's own size, rather than a second
+        // builder placing the same model as scenery.
+        //
+        // It was `PlaceModel(..., addBoxCollider: false)` - a thing to look at and never touch. The
+        // 90mm it came out at is kept, because a nightstand is smaller than a chest and the cube
+        // that sits on it should be too, but 0.13 rather than 0.09: the old size was reported in play
+        // as hard to see and harder to aim at on the CHEST, and this one has a lamp beside it
+        // competing for the same press.
+        //
+        // **ITS OWN ID.** Cycle 1's cube is a trinket with nowhere to go; cycle 2's is 8.3kg on
+        // room2-7's scale and part of the only solution to that room. They must never resolve to
+        // each other through `ItemRegistry`.
         private static void BuildNightstandCube(Transform unit, Vector3 baseLocal)
         {
-            Vector3 target = unit.position + baseLocal;
-
-            // Measured off the imported model: its renderer bounds are 0.13m across at the prefab's
-            // own default root scale of 1.15, so 0.113m per unit of PlaceModel's uniformScale here.
-            // 0.8 lands just under 0.09m - small enough to read as a desk toy next to the lamp
-            // rather than a prop competing with it. Rotation matches the prefab's own saved root
-            // rotation (270, 0, 0) - PlaceModel overwrites rotation to identity unless told
-            // otherwise, and identity here stood the cube on a corner.
-            PlaceModel($"{FurnitureDir}/rubiks_cube.glb", unit, "Cube",
-                new Vector3(target.x, 0f, target.z), target.y, 0.8f,
-                addBoxCollider: false, rotation: Quaternion.Euler(-90f, 0f, 0f));
+            BuildDresserCube(unit, "NightstandCube", baseLocal,
+                             CycleOneBlockItemId, weighable: false, size: 0.13f);
         }
 
         // One key shape, used three times over: lying on the floor once its balloon bursts, seen
@@ -14786,11 +14960,23 @@ namespace IterationRoom.EditorTools
         // hand wants when it is stepping off the top of something, and what turns a hole in a floor
         // into somewhere you can obviously climb out of.
         private const float LadderHeadRise = 1.20f;
-        // OFF VERTICAL. Twelve degrees is what a real ladder is set at, and here it is also what
-        // keeps the CLIMBER inside the hole: the ladder's head is against the wall, so the shallower
-        // the lean the closer to that wall the whole climb runs. At 12 degrees the player's capsule
-        // passes the shaft mouth with 8cm to spare on the west side; at 6 it would clip the rim.
-        private const float LadderLeanDegrees = 12f;
+        // OFF VERTICAL. **TWENTY, RAISED FROM TWELVE ON 2026-08-31 BECAUSE TWELVE READ AS
+        // VERTICAL.** The lean was applied correctly at twelve - the scene had it, the wiring had it
+        // - and play still reported a ladder standing straight up. The reason is where the player is
+        // when they look at it: on deck B, at the FOOT, looking up the ladder's own axis. Foreshortened
+        // along its length, a shallow lean is invisible; 1.27m of run over six metres reads as nothing
+        // from the one place everybody sees it from.
+        //
+        // **A NUMBER THAT IS RIGHT IN PLAN CAN STILL BE WRONG FROM THE ONLY ANGLE ANYONE SEES IT.**
+        // The geometry was checked in section, which is where a lean is most obvious and where no
+        // player ever stands.
+        //
+        // Twenty is 70 degrees off horizontal, which is what a leaning ladder is actually set at, and
+        // it costs 0.30m of length. It also RELAXES the tight constraint rather than tightening it:
+        // the head is fixed against the wall, so a steeper lean carries the whole climb further from
+        // that wall. The player's capsule clears the shaft mouth by 29cm at twenty, against 11cm at
+        // twelve - so if this is ever raised again, the mouth is not what stops it.
+        private const float LadderLeanDegrees = 20f;
         // How far the head sits off the wall FACE - half the ladder's own thickness, so it touches
         // rather than intersects. `BuildPanelWall` is given the finished panel surface, so a room's
         // half-width IS its visible wall (see that method's `faceCenterAtBase`).
@@ -14950,12 +15136,30 @@ namespace IterationRoom.EditorTools
             // HALF THE LADDER UP THE SLANT. Its pivot is its own centre (`BuildLadder` re-centres
             // it), so the seat is the midpoint of the line from the foot to the head.
             seat.transform.localPosition = LadderClimbDir * (LadderLength / 2f);
-            // MEASURED, NOT WRITTEN. The model's long axis is its own; this turns whatever that is
-            // onto world up. Logged by `BuildLadder` so a re-export that changes it is visible.
-            // **AND THEN LEANS IT.** About +Z, which takes the model's up (+Y after the turn above)
-            // toward -X - the same westward lean `LadderClimbDir` is built from, so the ladder is
-            // drawn along the line the climb actually runs on.
+            // THREE TURNS, AND THE MIDDLE ONE IS THE ONE THAT WAS MISSING. Read right to left.
+            //
+            // 1. `Euler(-90, 0, 0)` stands the model up: its long axis is local +Z, and this puts
+            //    that on world +Y. Measured rather than written - `BuildLadder` logs the model's
+            //    extents so a re-export that changes them is visible.
+            //
+            // 2. `Euler(0, 90, 0)` **rolls it a quarter turn about its own length**, and without it
+            //    the lean is in the wrong plane. The model is 1.18m wide and 0.24m thick, with the
+            //    width on local X - so after step 1 the two stiles are separated along world X, and
+            //    the lean below (about world Z) tilts the length and the width TOGETHER. The ladder
+            //    ends up tipping SIDEWAYS, like one falling over, rather than leaning back against
+            //    the wall. Play reported it as "the ladder is standing vertical", which is what a
+            //    sideways lean looks like from the one place anybody sees it: at the foot, on deck B,
+            //    looking straight up the face.
+            //
+            //    **The lean angle was innocent.** It was applied, it was in the scene, and it was in
+            //    the wrong plane - so raising it only tipped the ladder over further. A rotation is
+            //    two facts, an axis and an amount, and only one of them was ever checked.
+            //
+            // 3. `AngleAxis(LadderLeanDegrees, +Z)` leans it west, along `LadderClimbDir`, so the
+            //    ladder is drawn on the line the climb actually runs on. With the roll in place this
+            //    axis is now across the ladder's width, which is what leaning back MEANS.
             seat.transform.localRotation = Quaternion.AngleAxis(LadderLeanDegrees, Vector3.forward)
+                                         * Quaternion.Euler(0f, 90f, 0f)
                                          * Quaternion.Euler(-90f, 0f, 0f);
 
             // THE PROMPT, AT CHEST HEIGHT IN THE SHAFT rather than on the mark. See
@@ -15242,8 +15446,20 @@ namespace IterationRoom.EditorTools
         // The shaft's own tube walls land inside the room wall's depth for the same reason, so there
         // is no seam between them to see.
         private const float LadderWallBite = 0.025f;
+
+        // **AND INTO THE NORTH WALL TOO, once the roll above was fixed** (2026-08-31). The ladder's
+        // 1.18m WIDTH lies along z now rather than x, so its foot is nearly four times broader in
+        // that direction than it was - and at z 9.2 it overhung deck B's void by 14cm, which is a
+        // ladder standing with one foot over a hole. Pushed into the corner it clears the void by
+        // 31cm, and the same 25mm bite the west edge takes keeps a sliver of unstandable floor from
+        // appearing between the mouth and the north wall.
+        //
+        // Room3-0 is `RoomDepth` deep and sits `RoomZeroZ` north of room3-2N's middle, so its north
+        // wall face is at `RoomDepth` in this room's frame - one number serving both rooms, exactly
+        // as the west wall does.
         private static readonly Vector2 LadderShaftXZ =
-            new Vector2(-RoomWidth - LadderWallBite + GridCellWidth / 2f, 9.2f);
+            new Vector2(-RoomWidth - LadderWallBite + GridCellWidth / 2f,
+                         RoomDepth + LadderWallBite - GridCellWidth / 2f);
 
         private static Rect LadderShaftHole(float xCentre, float zCentre) => Rect.MinMaxRect(
             xCentre - GridCellWidth / 2f, zCentre - GridCellWidth / 2f,
@@ -18157,7 +18373,7 @@ namespace IterationRoom.EditorTools
                 if (light.shadows == LightShadows.None) continue;
 
                 // **THE CALIBRATION ROOM IS NOT A CYCLE'S BUSINESS, and enrolling it here was a
-                // silent bug.** This runs long before `ExtractCalibrationRoom` lifts that room into
+                // silent bug.** This ran long before the old `ExtractCalibrationRoom` lifted that room into
                 // the core scene, so its four fixtures were being written into CYCLE 1's budget - and
                 // then the lift put them in a different scene from the component holding them. Unity
                 // nulls a serialised reference across a scene boundary, so those four were never
@@ -18165,9 +18381,6 @@ namespace IterationRoom.EditorTools
                 // casters nobody was counting. With four more in the player's own room that is eight
                 // maps wanting a four-map atlas, which is the one thing `ConfigureUrpAsset` warns
                 // about. `cross-scene-report.txt` had named all four.
-                //
-                // They get their own budget instead, in `ExtractCalibrationRoom`, where they end up.
-                if (LiftedWithCalibrationRoom(light.transform)) continue;
 
                 light.shadows = LightShadows.None;
 
@@ -20038,6 +20251,542 @@ namespace IterationRoom.EditorTools
         // as a poster is the dark plate behind the text - a section of white panelling switching to
         // near-black with red type on it is exactly what a display doing something looks like, and
         // it is the same red-on-near-black the HUD already uses.
+        // **EVERY CONTROL, ON THE WALL THE PLAYER WAKES UP FACING, IN ITERATION 1 ONLY.**
+        //
+        // What the calibration room used to say, said in the room the game actually starts in. That
+        // room is gone (2026-08-31, by request): it taught the controls, set the sensitivity, and
+        // charged a minute of standing still before the clock had ever run. The teaching was worth
+        // keeping; the room was not.
+        //
+        // THE SOUTH WALL, because that is the one the wake-up leaves the player looking at - room1-1
+        // is entered at yaw 180, down the room and away from the bed (see `BuildWallMessage`, which
+        // relies on the same fact). It shares that wall with the N sign and cannot collide with it:
+        // that one is `showFromIteration = 2` and this is `lastIteration = 1`, so the wall is never
+        // carrying both.
+        //
+        // ONE FACE, WHERE THE CALIBRATION ROOM USED THREE. Sprint and crouch were on its two side
+        // walls, on the argument that they are about HOW you cross a room and belong on the walls
+        // you cross between. That argument needed a room built to make it; here it would just be two
+        // controls the player has to turn round to find, so they join the column.
+        //
+        // FIGURES INSTEAD OF WORDS, which is the rule the whole building follows - the facility
+        // labels itself in pictograms and the one screen that has to be understood before anybody
+        // has played is the worst possible place to require reading.
+        // **EVERY CONTROL, ON THE WALL THE PLAYER WAKES UP FACING, IN ITERATION 1 ONLY.**
+        //
+        // What the calibration room used to say, said in the room the game actually starts in. That
+        // room is gone (2026-08-31, by request): it taught the controls, set the sensitivity, and
+        // charged a minute of standing still before the clock had ever run. The teaching was worth
+        // keeping; the room was not.
+        //
+        // THE SOUTH WALL, because that is the one the wake-up leaves the player looking at - room1-1
+        // is entered at yaw 180, down the room and away from the bed (`BuildWallMessage` relies on
+        // the same fact). It shares that wall with the N sign and cannot collide with it: that one is
+        // `showFromIteration = 2` and this is `lastIteration = 1`, so the wall never carries both.
+        //
+        // **ONE PICTOGRAM PER WALL PANEL, AND THAT IS THE WHOLE LAYOUT RULE** (2026-08-31, by
+        // request: "it is ugly where it crosses the black grid"). The first version was a single
+        // 6.4m canvas laid over the wall, which put glyphs across the grooves at whatever height the
+        // arithmetic happened to land on - a sign printed on top of the wall rather than on it.
+        //
+        // The wall is already a grid: five columns of `GridCellWidth` by four rows of
+        // `GridCellHeight`, with `GridLineThickness` of dark groove between them, and every cell
+        // centre is at `(i + 0.5) * cell`. So each control gets a cell of its own and a canvas
+        // inset from the groove on all four sides, which is why nothing overlaps anything - it
+        // cannot, by construction, rather than by a number somebody checked.
+        //
+        // FIVE ON TOP AND TWO BELOW, both centred, because five columns is ODD: four items cannot be
+        // centred on cell centres and five can. That constraint decided the grouping and the grouping
+        // turns out to be the right one anyway - **how you get about** on the upper row, **what you
+        // do when you get there** on the lower.
+        //
+        // FIGURES INSTEAD OF WORDS, which is the rule the whole building follows: the facility labels
+        // itself in pictograms, and the one screen that has to be understood before anybody has
+        // played is the worst possible place to require reading.
+        // **EVERY CONTROL, ON THE WALL THE PLAYER WAKES UP FACING, IN ITERATION 1 ONLY.**
+        //
+        // What the calibration room used to say, said in the room the game actually starts in. That
+        // room is gone (2026-08-31, by request): it taught the controls, set the sensitivity, and
+        // charged a minute of standing still before the clock had ever run.
+        //
+        // THE SOUTH WALL, because that is the one the wake-up leaves the player looking at - room1-1
+        // is entered at yaw 180, down the room and away from the bed (`BuildWallMessage` relies on
+        // the same fact). It shares that wall with the N sign and cannot collide with it: that one is
+        // `showFromIteration = 2` and this is `lastIteration = 1`.
+        //
+        // **ONE PANEL PER IDEA, NOT ONE PER KEY** (2026-08-31, by request). Seven cells spread across
+        // two rows became four: the two things you do with your legs share a cell, the two things you
+        // do with your posture share the next, E has its own, and the mouse sits under the middle of
+        // them. Grouping by what a control is FOR reads faster than a grid of every key the game
+        // uses, and it leaves the wall mostly white - which is what makes four marks findable.
+        //
+        // **THE LEFT-CLICK CELL IS GONE**, also by request. It was added in this same session on the
+        // argument that the button is never taught anywhere else; that is still true, and the HUD's
+        // own disc is where it gets taught.
+        //
+        // Cells are addressed the way the request stated them - **row from the TOP, column from the
+        // LEFT, both counting from one** - and turned into this file's own bottom-left indices in
+        // `ControlPanel`. Two conventions for one grid is worth it here: the wall is described from
+        // where a person stands looking at it.
+        private static ControlsWall BuildControlsWall(Transform room, float roomCenterZ)
+        {
+            GameObject root = new GameObject("ControlsWall");
+            root.transform.SetParent(room, false);
+            root.transform.localPosition = new Vector3(0f, 0f, roomCenterZ);
+
+            float wallZ = -RoomDepth / 2f;                 // inner face of the south wall
+
+            // Charcoal on white panelling, and the same ink the Room2 pictogram uses so the game's
+            // wordless displays match. Well clear of `GrooveDark` (0.04) so a glyph cannot be
+            // mistaken for a seam.
+            Color ink = new Color(0.20f, 0.20f, 0.23f, 0.78f);
+
+            var faces = new System.Collections.Generic.List<CanvasGroup>();
+
+            // E on the left, then posture, then the legs (2026-08-31, by request: the two ends
+            // swapped). The mouse sits under the middle of the three either way.
+            CanvasGroup take  = ControlPanel(root.transform, "Take",  row: 2, column: 2, wallZ, faces);
+            CanvasGroup pose  = ControlPanel(root.transform, "Pose",  row: 2, column: 3, wallZ, faces);
+            CanvasGroup legs  = ControlPanel(root.transform, "Move",  row: 2, column: 4, wallZ, faces);
+            CanvasGroup look  = ControlPanel(root.transform, "Look",  row: 3, column: 3, wallZ, faces);
+
+            // W/A/S/D is the one group that is four caps in two courses, so it gets its own
+            // arithmetic; everything else is one key and one figure, which is what `ControlRow`
+            // draws. Both halves are measured as a pair and then centred, so a 130-wide SHIFT and a
+            // 72-wide E sit equally well in identical cells.
+            const float key = 54f, gap = 6f, step = key + gap;
+            const float blockW = 3f * key + 2f * gap;      // 174
+            const float figure = 72f, capGap = 20f;
+            float pairW = blockW + capGap + figure;
+            float keysX = -pairW / 2f + blockW / 2f;
+            float figX = pairW / 2f - figure / 2f;
+
+            // The two courses inside the legs panel: W/A/S/D above, SPACE below it.
+            const float upper = 58f, lower = -80f;
+
+            MakeKeyCap(legs.transform, "KeyW", "W", new Vector2(keysX, upper + step / 2f), new Vector2(key, key), 24);
+            MakeKeyCap(legs.transform, "KeyA", "A", new Vector2(keysX - step, upper - step / 2f), new Vector2(key, key), 24);
+            MakeKeyCap(legs.transform, "KeyS", "S", new Vector2(keysX, upper - step / 2f), new Vector2(key, key), 24);
+            MakeKeyCap(legs.transform, "KeyD", "D", new Vector2(keysX + step, upper - step / 2f), new Vector2(key, key), 24);
+            MakeWallIcon(legs.transform, "MoveFigure", FigureWalkIcon(), new Vector2(figX, upper), figure, ink);
+
+            MakeKeyCap(legs.transform, "KeySpace", "SPACE", new Vector2(keysX, lower), new Vector2(blockW, 42f), 20);
+            MakeWallIcon(legs.transform, "JumpFigure", FigureJumpIcon(), new Vector2(figX, lower), figure, ink);
+
+            ControlPair(pose.transform, "SHIFT", FigureRunIcon(), "CTRL", FigureCrouchIcon(), ink);
+
+            ControlRow(take.transform, "E", 72f, FigurePressIcon(), ink);
+            MouseRow(look.transform, MouseIcon(), FigureLookIcon(), ink);
+
+            ControlsWall wall = root.AddComponent<ControlsWall>();
+            wall.faces = faces.ToArray();
+            wall.roomCenterZ = room.position.z + roomCenterZ;
+            wall.halfDepth = RoomDepth / 2f;
+            wall.lastIteration = 1;
+
+            Debug.Log($"[SceneBuilder] Controls wall on room1-1's south wall: {faces.Count} panels "
+                    + "(move, posture, E, look), iteration 1 only. Cells are "
+                    + $"{GridCellWidth:0.##} x {GridCellHeight:0.##} with {GridLineThickness:0.###} "
+                    + "of groove; nothing is drawn within it.");
+            return wall;
+        }
+
+        // TWO KEYS AND WHAT THEY DO, one above the other in a single cell. The pair shares the
+        // panel's own centring so both rows line up on the same two columns - a key column and a
+        // figure column - which is what makes them read as one idea rather than two cells crammed
+        // together.
+        private static void ControlPair(Transform panel, string topLabel, Sprite topFigure,
+                                        string bottomLabel, Sprite bottomFigure, Color ink)
+        {
+            const float capW = 130f, capH = 42f, figure = 72f, capGap = 20f;
+            const float course = 62f;
+            float total = capW + capGap + figure;
+            float keyX = -total / 2f + capW / 2f, figX = total / 2f - figure / 2f;
+
+            MakeKeyCap(panel, "KeyTop", topLabel, new Vector2(keyX, course), new Vector2(capW, capH), 20);
+            MakeWallIcon(panel, "FigureTop", topFigure, new Vector2(figX, course), figure, ink);
+            MakeKeyCap(panel, "KeyBottom", bottomLabel, new Vector2(keyX, -course), new Vector2(capW, capH), 20);
+            MakeWallIcon(panel, "FigureBottom", bottomFigure, new Vector2(figX, -course), figure, ink);
+        }
+
+        // ONE WALL PANEL, AS A CANVAS INSET FROM ITS OWN GROOVES.
+        //
+        // `column` and `row` index the wall grid from the bottom left, and the cell centre is
+        // `(i + 0.5) * cell` - the same arithmetic the calibration room's start button used to sit
+        // its plate on a cell. The canvas is the visible FACE (cell minus the groove) shrunk by a
+        // further margin, so a glyph that fills its canvas still stops short of the dark line.
+        private static CanvasGroup ControlPanel(Transform parent, string name, int row, int column,
+                                                float wallZ,
+                                                System.Collections.Generic.List<CanvasGroup> into)
+        {
+            // **STATED FROM THE TOP LEFT, BUILT FROM THE BOTTOM LEFT.** A wall is described the way
+            // somebody standing in front of it counts - first row down, first column from the left,
+            // both from one - and this file's grid arithmetic counts rows up from the floor. The
+            // conversion happens here, once, rather than at four call sites.
+            int cell = GridRows - row;          // 1st row from the top is the top row
+            column -= 1;
+            // How far inside the panel face the drawing stops. The groove is 50mm; this is another
+            // 60mm of white on top of it, which is what keeps a glyph from looking crowded into its
+            // own cell rather than placed in it.
+            const float margin = 0.06f;
+            const float scale = 0.004f;
+
+            float x = (column + 0.5f) * GridCellWidth - RoomWidth / 2f;
+            float y = (cell + 0.5f) * GridCellHeight;
+            float w = GridCellWidth - GridLineThickness - 2f * margin;
+            float h = GridCellHeight - GridLineThickness - 2f * margin;
+
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            Canvas canvas = go.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+
+            RectTransform rect = go.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(w / scale, h / scale);
+            rect.localScale = Vector3.one * scale;
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
+            // anchoredPosition3D and AFTER the Canvas exists - see `MakeWallFace` for both traps.
+            rect.anchoredPosition3D = new Vector3(x, y, wallZ + 0.05f);
+            // Forward points INTO the wall: a world-space canvas is legible when its forward matches
+            // the direction the viewer is LOOKING, and a player who has just woken looks south at it.
+            rect.localRotation = Quaternion.Euler(0f, 180f, 0f);
+
+            CanvasGroup group = go.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            group.blocksRaycasts = false;
+            group.interactable = false;
+            into.Add(group);
+            return group;
+        }
+
+        // A KEY AND WHAT IT DOES, side by side and centred in their panel. The pair is measured as a
+        // whole and then centred, rather than each half being placed at a number - which is what
+        // keeps a 148-wide SHIFT and a 72-wide E looking equally well seated in identical cells.
+        private static void ControlRow(Transform panel, string label, float capW, Sprite figure, Color ink)
+        {
+            const float figureSize = 84f, capGap = 22f;
+            float capH = capW > 100f ? 48f : 62f;
+            float total = capW + capGap + figureSize;
+
+            MakeKeyCap(panel, "Key", label, new Vector2(-total / 2f + capW / 2f, 0f),
+                       new Vector2(capW, capH), capW > 100f ? 22 : 28);
+            MakeWallIcon(panel, "Figure", figure,
+                         new Vector2(total / 2f - figureSize / 2f, 0f), figureSize, ink);
+        }
+
+        // The same row with a mouse glyph where the keycap goes.
+        private static void MouseRow(Transform panel, Sprite glyph, Sprite figure, Color ink)
+        {
+            const float glyphSize = 84f, figureSize = 84f, capGap = 22f;
+            float total = glyphSize + capGap + figureSize;
+
+            MakeWallIcon(panel, "Glyph", glyph, new Vector2(-total / 2f + glyphSize / 2f, 0f), glyphSize, ink);
+            MakeWallIcon(panel, "Figure", figure, new Vector2(total / 2f - figureSize / 2f, 0f), figureSize, ink);
+        }
+
+        // **THE NOTICE ON THE FLOOR, WHICH IS THE ONLY PLACE THE GAME EVER STATES ITS OWN PREMISE.**
+        //
+        // A clipboard lying in front of the controls wall (2026-08-31, by request). Pick it up with E
+        // and the page is in your hand at reading distance; put it down and it stays where it fell.
+        //
+        // **ITS TEXT IS A WORLD-SPACE CANVAS, NOT A TEXTURE**, which is the choice every sign in this
+        // building makes. Printing words into a `Texture2D` needs a font rasteriser at build time; a
+        // `Text` on a canvas is what `MakeMenuLine` already does, it stays crisp at any distance, and
+        // it goes through `Localize` for free.
+        //
+        // The page is its own 24-vertex flat mesh with its own material in the model, which is what
+        // made this cheap - the canvas sits a millimetre above that page and is exactly its size.
+        private static CarryableItem BuildIntakeNotice(Transform room, Vector3 localPosition, float yaw)
+        {
+            // **0.44, UP FROM 0.32** (2026-08-31, by request). A real clipboard is 0.32m and that is
+            // what "held at true size" would give, but this is the one object in the game that has to
+            // be READ rather than recognised, and a page carries a fixed number of characters however
+            // close it is held. Oversizing is what every prop in this building already does - a 220mm
+            // ball-pit ball, a 160mm Rubik's cube - and here it buys legibility rather than presence.
+            // **0.88, DOUBLED AGAIN** (2026-08-31, by request). A real clipboard is 0.32m; this is
+            // nearly three of them, and the reason is the same one that took it to 0.44 - it is the
+            // only object in the game that has to be READ. Everything on the page is sized as a
+            // FRACTION of it below, so the type grows with the board and the layout is unchanged;
+            // what the size actually buys is that the thing is findable lying on a white floor.
+            const float boardLength = 0.88f;
+
+            GameObject root = new GameObject("IntakeNotice");
+            root.transform.SetParent(room, false);
+            root.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+
+            (GameObject model, Bounds box) = PlaceModelLocal($"{PlayDir}/clipboard.glb", root.transform,
+                "Visual", Vector3.zero, Quaternion.identity, boardLength);
+            if (model == null) return null;
+
+            // **LAID FLAT, AND THE ROTATION IS MEASURED RATHER THAN WRITTEN.** `PlaceModelLocal`
+            // forces the outer root to the rotation it is given, which does NOT reach the Sketchfab
+            // export's own `Sketchfab_model` node - that one carries the -90 X that turns a Z-up
+            // export into Unity's Y-up, and it survives. Identity on the root therefore left this
+            // board standing on its edge on the floor, with its 0.44m long axis along Y.
+            //
+            // The same trap `BuildNightstandCube` recorded ("identity here stood the cube on a
+            // corner"). A board is the one shape where measuring is unambiguous: it is flat, so its
+            // shortest axis is its thickness, and lying down means that axis is the vertical one.
+            if (box.size.y > Mathf.Min(box.size.x, box.size.z) * 1.5f)
+            {
+                model.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f) * model.transform.localRotation;
+                box = MeasuredBounds(root.gameObject);
+            }
+            if (box.size.y > Mathf.Min(box.size.x, box.size.z))
+                Debug.LogError($"[SceneBuilder] the intake notice is not lying flat: {box.size}.");
+
+            // CENTRED ON THE ROOT, because `floorY` below is half the object's height - which is only
+            // true if the root sits at the middle of it.
+            Vector3 delta = box.center - root.transform.position;
+            model.transform.position -= delta;
+            box = MeasuredBounds(root.gameObject);
+
+            // **AND THEN LIFTED OUT OF THE FLOOR.** Centring the model on the root put the root at
+            // the board's MIDDLE, so a root at y=0 buries the lower half - play reported exactly
+            // that. `floorY` is the resting height `FallingItem` uses when something is DROPPED; the
+            // pose it is built in has to be set here as well, and the two are the same number.
+            root.transform.localPosition = localPosition + Vector3.up * (box.size.y / 2f);
+
+            // **WHICH END THE CLIP IS AT, MEASURED.** The page has to read with its head toward the
+            // clip - a clipboard held the other way up is the fault play reported as "the writing is
+            // upside down". Which way that is in the root's own frame is a fact about this export
+            // and about the flat-lay rotation above, so it is asked rather than assumed: the clip is
+            // the metal part, and the answer is the sign of its offset from the board's centre.
+            float clipSide = 1f;
+            foreach (Renderer r in model.GetComponentsInChildren<Renderer>(true))
+            {
+                Material m = r.sharedMaterial;
+                if (m == null || !m.name.ToLowerInvariant().Contains("metal")) continue;
+                clipSide = Mathf.Sign(root.transform.InverseTransformPoint(r.bounds.center).z);
+                break;
+            }
+
+            GameObject faceGO = new GameObject("Page");
+            faceGO.transform.SetParent(root.transform, false);
+
+            Canvas canvas = faceGO.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+
+            // The page mesh's own footprint, as a fraction of the board's longest side.
+            float pageW = boardLength * (79.2f / 126.5f);
+            float pageH = boardLength * (110.3f / 126.5f);
+            const float scale = 0.0004f;
+            float unitsW = pageW / scale, unitsH = pageH / scale;
+
+            RectTransform rect = faceGO.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(unitsW, unitsH);
+            rect.localScale = Vector3.one * scale;
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
+            // 1.5mm proud of the board. `Euler(90,...)` sends the canvas's own forward to -Y, i.e.
+            // downward, which is right and reads backwards: a world-space canvas is legible when its
+            // forward matches the direction the VIEWER looks, and somebody reading a clipboard looks
+            // down at it. The yaw is the measurement above - 180 flips the page end for end so its
+            // head is at the clip.
+            rect.anchoredPosition3D = new Vector3(0f, box.size.y / 2f + 0.0015f, 0f);
+            rect.localRotation = Quaternion.Euler(90f, clipSide > 0f ? 0f : 180f, 0f);
+
+            // The ink. Not black: a printed form on white paper under a white ceiling reads as grey,
+            // and pure black on this page looks like a decal rather than toner.
+            Color ink = new Color(0.16f, 0.16f, 0.18f, 1f);
+            Color faint = new Color(0.42f, 0.42f, 0.46f, 1f);
+
+            // **EVERY LINE IS CHECKED AGAINST THE PAGE IT IS ON.** CLAUDE.md §3: a fixed-width label
+            // needs `0.6 x fontSize x length` and silent rewrapping has bitten this project three
+            // times now - the first version of this page overflowed on three of its four lines,
+            // because the rects were 760 units wide inside a 501-unit canvas. `PageLine` asserts it,
+            // so the next edit to this text fails the build rather than the eye.
+            float wide = unitsW * 0.90f;
+            pageHalfHeight = unitsH / 2f;
+
+            // **EVERY SIZE AND POSITION IS A FRACTION OF THE PAGE**, so the board can be resized in
+            // one place and the layout comes with it. Written as absolute units first and re-derived
+            // here when the board doubled - which is the moment the absolutes stopped being numbers
+            // anybody could reason about.
+            float u = unitsH;
+
+            // **EVERYTHING SLID DOWN THE PAGE TO CLEAR THE CLIP.** The clamp is a real part of the
+            // model - it spans the top of the board, from -67 to -41 in the mesh's own units, which
+            // is the top fifth of the page - and the title was printed straight under it. On paper
+            // the top of a form is where a heading goes; on a clipboard it is where the clip is.
+            //
+            // `clipDrop` is that fifth, taken off every line's y. Nothing else moves, so the layout
+            // is the one that was tuned - it has simply stopped starting above the clamp.
+            // **THE CLIP TAKES THE TOP AND THE PAGE HAS A BOTTOM EDGE, so the block is SCALED into
+            // what is left rather than just pushed down.** Shifting alone was the first attempt and
+            // it traded one overflow for another - the heading cleared the clamp and the last two
+            // lines ran off the bottom of the paper, which play reported.
+            //
+            // Measured off the model: the clamp covers the page from -55.16 to -41.25 in its own
+            // units, which is the top 12.6%. The band left is therefore +0.374 to -0.5 of the page,
+            // and the authored block spans +0.437 to -0.414 counting each line's own height. 0.92
+            // and 0.055 put it inside with room at both ends - checked by `PageLine`, which now
+            // fails the build if a line leaves the paper.
+            const float layoutScale = 0.92f;
+            const float clipDrop = 0.055f;
+
+            PageLine(faceGO.transform, "Header", "ITERATION PROGRAM", Mathf.RoundToInt(u * 0.0542f), ink, u * (0.396f * layoutScale - clipDrop), wide, "note.header");
+            PageLine(faceGO.transform, "Sub", "SUBJECT INTAKE", Mathf.RoundToInt(u * 0.0355f), faint, u * (0.328f * layoutScale - clipDrop), wide, "note.sub");
+
+            GameObject ruleGO = new GameObject("Rule");
+            ruleGO.transform.SetParent(faceGO.transform, false);
+            Image rule = ruleGO.AddComponent<Image>();
+            rule.color = faint;
+            rule.raycastTarget = false;
+            RectTransform ruleRect = rule.GetComponent<RectTransform>();
+            ruleRect.anchorMin = ruleRect.anchorMax = ruleRect.pivot = new Vector2(0.5f, 0.5f);
+            ruleRect.sizeDelta = new Vector2(wide, u * 0.0031f);
+            ruleRect.anchoredPosition = new Vector2(0f, u * (0.282f * layoutScale - clipDrop));
+
+            // LABEL AND VALUE ON SEPARATE LINES, which is what let the type grow. Run together they
+            // were 33 characters and had to be small enough to fit a page held at arm's length.
+            PageLine(faceGO.transform, "ObjectiveLabel", "OBJECTIVE", Mathf.RoundToInt(u * 0.0313f), faint, u * (0.167f * layoutScale - clipDrop), wide, "note.objectiveLabel");
+            PageLine(faceGO.transform, "Objective", "LEAVE THE ROOM", Mathf.RoundToInt(u * 0.048f), ink, u * (0.109f * layoutScale - clipDrop), wide, "note.objective");
+            PageLine(faceGO.transform, "CycleLabel", "CYCLE LENGTH", Mathf.RoundToInt(u * 0.0313f), faint, u * (0.010f * layoutScale - clipDrop), wide, "note.cycleLabel");
+            PageLine(faceGO.transform, "Cycle", "60 SECONDS", Mathf.RoundToInt(u * 0.048f), ink, u * (-0.047f * layoutScale - clipDrop), wide, "note.cycle");
+
+            PageLine(faceGO.transform, "Repeat1", "The cycle repeats until", Mathf.RoundToInt(u * 0.0334f), ink, u * (-0.182f * layoutScale - clipDrop), wide, "note.repeat1");
+            PageLine(faceGO.transform, "Repeat2", "the objective is met.", Mathf.RoundToInt(u * 0.0334f), ink, u * (-0.227f * layoutScale - clipDrop), wide, "note.repeat2");
+
+            // **THE LINE THE WHOLE PAGE IS FOR.** It is the only thing in the game that says the loop
+            // is happening TO the player rather than merely happening, and it is the diegetic reason
+            // this notice exists in iteration 1 and never again: they did not keep it because they
+            // cannot.
+            PageLine(faceGO.transform, "Forget1", "You will not remember", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.344f * layoutScale - clipDrop), wide, "note.forget1");
+            PageLine(faceGO.transform, "Forget2", "reading this.", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.389f * layoutScale - clipDrop), wide, "note.forget2");
+
+            // --- the carryable ------------------------------------------------------------------
+            // **BUILT IN THE ROOT'S OWN FRAME, NOT FROM A TRANSFORMED WORLD BOX.** `box` is a world
+            // AABB and this root is YAWED, and `InverseTransformVector` of an EXTENT is not how an
+            // extent rotates - it mixes the axes and comes out arbitrary. Measured on the built
+            // scene it gave (0.82, 0.77, 0.19): a slab 19cm deep that the player could stand beside
+            // without ever being inside, which is why E did nothing. Play reported exactly that.
+            //
+            // The board's own dimensions are known here, so the volume is stated rather than
+            // derived: the board plus an arm's reach all round, and low, because there is nothing
+            // else on this floor to contest the press with.
+            BoxCollider trigger = root.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            trigger.center = new Vector3(0f, 0f, 0f);
+            trigger.size = new Vector3(boardLength + 1.0f, 1.4f, boardLength + 1.0f);
+
+            // **AT THE ROOT, IN LOCAL COORDINATES - AND THAT IS THE WHOLE OF WHY E DID NOTHING.**
+            //
+            // This was `anchor.transform.position = box.center`, a WORLD position taken from a bounds
+            // measured BEFORE the root was moved to its place in the room. The anchor therefore sat
+            // where the board had been while it was still being assembled at the room's origin -
+            // 3.6m from the clipboard, floating in open air. Measured on the built scene: local
+            // (1.204, -0.027, 3.437).
+            //
+            // Every half of the press is judged against that one point. `WantsInteractHint` ends in
+            // `PlayerLookup.InView(HintAnchor)` and `PressGoesTo` in `IsAimedAt(HintAnchor)`, so E
+            // was being asked about a spot nowhere near the thing the player was looking at.
+            //
+            // **`CheckHintAnchors` could not catch this**, and that is worth knowing about the check:
+            // it looks for an anchor buried INSIDE geometry its fixture does not own. An anchor
+            // floating in the middle of an empty room is not inside anything, so it passed - twice.
+            //
+            // The root is already the board's centre by this line (the model was centred on it and
+            // then the whole root was placed), so local zero is exactly right and cannot go stale.
+            GameObject anchor = new GameObject("HintAnchor");
+            anchor.transform.SetParent(root.transform, false);
+            anchor.transform.localPosition = Vector3.zero;
+
+            CarryableItem item = root.AddComponent<CarryableItem>();
+            item.itemId = IntakeNoticeItemId;
+            item.displayName = "NOTICE";
+            item.icon = PageIcon();
+            item.hintAnchor = anchor.transform;
+            // It lies where it was put down rather than snapping back to the pose it was built in -
+            // the same flag the ladder needed. See `CarryableItem.keepsDropYaw`.
+            item.keepsDropYaw = true;
+            item.floorY = box.size.y / 2f;
+            // **HELD WHERE THE WHOLE PAGE IS ON SCREEN**, which is the constraint (2026-08-31, by
+            // request: "I cannot see all of it"). The page is 0.77m tall now, so at the 0.42m it was
+            // held at it ran off the top and bottom of the view. 0.95m subtends about 44 degrees of a
+            // 60-degree lens - the whole board, with margin - and because the TYPE scaled with the
+            // board, moving it that much further away leaves the words exactly the size they were.
+            //
+            // Nearly centred, too. A document offset to the corner is a document you read by turning
+            // your head; this is meant to be read where it is.
+            item.handLocalPosition = new Vector3(0.10f, -0.14f, 0.93f);
+            // SQUARER TO THE EYE than a carried object. -58 was a clipboard held at the hip; this is
+            // one held up to be read, which is most of the way to facing you.
+            // **AND THE RIGHT WAY UP, WHICH TOOK THREE WRONG ANSWERS AND THEN ARITHMETIC.**
+            //
+            // `Quaternion.Euler(x, y, z)` applies **Z, then X, then Y** - so the composition is
+            // `Ry * Rx * Rz`, with **Y outermost** (in the parent's frame) and **Z innermost** (in the
+            // object's own). I had it exactly backwards for two attempts and guessed an axis each
+            // time; the guesses are what play kept reporting:
+            //
+            //   (-76, 4, 0)    face toward you, writing upside down
+            //   (-76, 184, 0)  Y is outermost, so 180 there turns the whole board over - its BACK
+            //   (-76, 4, 180)  Z is innermost, about the board's own LONG axis - also its back
+            //
+            // Solved rather than guessed in the end. Two facts settle it: the face normal is root
+            // +Y (the page canvas sits on that side), and the page's HEAD is root -Z - which is not
+            // a choice, it is what `clipSide` measured off the model and what the build logs as
+            // "clip toward -Z". Feeding those through `Ry*Rx*Rz` reproduces all three reports above
+            // and leaves exactly one pose that shows the face AND stands the page up.
+            //
+            // The turn that was actually wanted - 180 about the board's own face normal - is not a
+            // single Euler term at all: `Ry(4)*Rx(-76)*Ry(180)` reduces to `Ry(184)*Rx(76)`, which
+            // in Unity's own order is (76, 184, 0).
+            item.handLocalEuler = new Vector3(76f, 184f, 0f);
+            item.handLocalScale = root.transform.lossyScale;
+            item.audioSource = MakeSource(root.transform, "PickupAudio", 1f, 0.9f);
+            item.pickupClip = LoadClip(SfxDir, "sfx_item_pickup");
+
+            Debug.Log($"[SceneBuilder] Intake notice: board {boardLength:0.##}m long, thickness "
+                    + $"{box.size.y:0.###}m, standing at {root.transform.position}. Page "
+                    + $"{pageW:0.###} x {pageH:0.###}m = {unitsW:0} x {unitsH:0} units, clip toward "
+                    + $"{(clipSide > 0f ? "+Z" : "-Z")}.");
+            return item;
+        }
+
+        // How far it is from the middle of the page to its edge, in canvas units. Set by
+        // `BuildIntakeNotice` before it writes any line; a field because `PageLine` already takes
+        // seven arguments and this is the same for every one of them.
+        private static float pageHalfHeight;
+
+        // ONE LINE ON THE PAGE, WIDTH-CHECKED. `MakeMenuLine` takes a rect and uGUI silently rewraps
+        // or clips anything that does not fit it, which is invisible until somebody looks at the
+        // object - and this page is 0.28m of paper, so "somebody looks at it" is the whole point of
+        // the prop. The estimate is CLAUDE.md's: 0.6 x fontSize x length for this font.
+        private static void PageLine(Transform page, string name, string content, int fontSize,
+                                     Color color, float y, float width, string key)
+        {
+            // **AND THAT IT IS STILL ON THE PAPER.** A line can fit its rect and still hang off the
+            // page - which is what happened when the block was pushed down to clear the clip. The
+            // rect is `fontSize * 1.5` tall and centred on `y`, so its edges are what get compared.
+            float half = pageHalfHeight;
+            if (half > 0f && (Mathf.Abs(y) + fontSize * 0.75f) > half)
+                Debug.LogError($"[SceneBuilder] the notice's '{name}' line is centred at {y:0} with "
+                             + $"{fontSize * 0.75f:0} of half-height, which puts it off a page that "
+                             + $"is {half:0} units to the edge. Move it or shrink the block.");
+
+            float need = 0.6f * fontSize * content.Length;
+            if (need > width)
+                Debug.LogError($"[SceneBuilder] the notice's '{name}' line needs about {need:0} units "
+                             + $"at size {fontSize} and has {width:0}. It will rewrap or clip on the "
+                             + "page. Shorten it, drop the size, or split the line.");
+
+            Localize(MakeMenuLine(page, name, content, fontSize, color,
+                                  new Vector2(0f, y), new Vector2(width, fontSize * 1.5f)), key);
+        }
+
+        // A SHEET WITH WRITING ON IT, for the HUD's carried slot. Lines rather than glyphs - at 24
+        // pixels a paragraph is texture, and texture is what says "document".
+        private static Sprite PageIcon()
+        {
+            var icon = new IconCanvas(128);
+            icon.Bar(new Vector2(0.5f, 0.5f), new Vector2(0.30f, 0.40f));
+            icon.Bar(new Vector2(0.5f, 0.5f), new Vector2(0.255f, 0.355f), 0f, -1f);
+            for (int i = 0; i < 5; i++)
+                icon.Bar(new Vector2(0.5f, 0.76f - i * 0.115f), new Vector2(0.175f, 0.022f));
+            return SaveSprite(icon, "icon_page");
+        }
+
         private static PanelMessage BuildWallMessage(Transform parent, float roomCenterZ)
         {
             GameObject root = new GameObject("WallMessage");
@@ -22253,22 +23002,20 @@ namespace IterationRoom.EditorTools
                                                  $"CYCLE {i + 1}", new Vector2(0f, -30f - i * 88f),
                                                  MenuInk, "Bold");
 
-            // AND ONE "END" ENTRY PER CYCLE THAT HAS A SUCCESSOR: start that cycle with its last room
-            // already finished, so the hatch into the next one opens within seconds. A development
-            // shortcut, on the page that is already one - see MainMenu.PlayFromCycleEnd.
+            // **~~ONE "END" ENTRY PER CYCLE~~ REMOVED 2026-08-31, by request.** They started a cycle
+            // with its last room already finished, so the hatch into the next one opened within
+            // seconds - a development shortcut on a page that is already one.
             //
-            // `CycleCount - 1` rather than a written number, so the day cycle 4 exists this grows by
-            // itself and the last cycle never gets an entry it has nothing to cross into.
-            var cycleEndButtons = new Button[Mathf.Max(0, CycleCount - 1)];
-            for (int i = 0; i < cycleEndButtons.Length; i++)
-                cycleEndButtons[i] = MakeMenuButton(cycleGO.transform, $"CycleEndButton_{i + 1}",
-                                                    $"CYCLE {i + 1} END", 
-                                                    new Vector2(0f, -30f - (CycleCount + i) * 88f),
-                                                    MenuInk, "Bold");
+            // The array stays and stays EMPTY rather than the field being deleted: `MainMenu` wires
+            // its own listeners off it, `PlayFromCycleEnd` is still the honest way to reach a cycle
+            // boundary, and `DebugStart.AtCycleBoundary` is read in three places that have nothing to
+            // do with this page. What is gone is the row on the title screen, which is all that was
+            // asked for - and putting it back is one loop.
+            var cycleEndButtons = new Button[0];
 
             Button cycleBack = MakeMenuButton(cycleGO.transform, "CycleBackButton",
                                               "BACK",
-                                              new Vector2(0f, -30f - (CycleCount + cycleEndButtons.Length) * 88f),
+                                              new Vector2(0f, -30f - CycleCount * 88f),
                                               MenuInk, "Bold");
             Localize(cycleBack, "menu.back", "  ");
 
@@ -22282,27 +23029,84 @@ namespace IterationRoom.EditorTools
             recordGroup.blocksRaycasts = false;
             Stretch(recordGO.AddComponent<RectTransform>());
 
-            GameObject recordTableGO = new GameObject("RecordTable");
-            recordTableGO.transform.SetParent(recordGO.transform, false);
-            Text recordTable = recordTableGO.AddComponent<Text>();
-            recordTable.font = UIFont("Medium");
-            recordTable.fontSize = 22;
-            recordTable.alignment = TextAnchor.UpperCenter;
-            recordTable.color = MenuInk;
-            // Padded columns need a monospace cell, which UIFont is - see RunReport.Row.
-            recordTable.lineSpacing = 1.3f;
-            recordTable.text = string.Empty;
-            recordTable.horizontalOverflow = HorizontalWrapMode.Overflow;
-            recordTable.verticalOverflow = VerticalWrapMode.Overflow;
-            recordTable.raycastTarget = false;
-            RectTransform recordTableRect = recordTable.GetComponent<RectTransform>();
-            recordTableRect.anchorMin = new Vector2(0.5f, 0.5f);
-            recordTableRect.anchorMax = new Vector2(0.5f, 0.5f);
-            recordTableRect.pivot = new Vector2(0.5f, 0.5f);
-            recordTableRect.sizeDelta = new Vector2(1000f, 320f);
-            // Anchored so the first row starts just under the title, and the block grows downward as
-            // cycles are added without anything above it moving.
-            recordTableRect.anchoredPosition = new Vector2(0f, -30f);
+            // **THREE ROWS, EACH A PICTURE OF THE CYCLE AND WHAT IT COST** (2026-08-31, by request).
+            // This was a single padded monospace table, which is still what the ENDING card uses: that
+            // one reports a run and the run is the subject, so a table is right. This page reports
+            // what the player has ever done, per cycle, and the thing that makes a cycle recognisable
+            // is the room - not its number.
+            //
+            // Laid out in a column rather than a grid: three entries is a list, and a list can grow
+            // to four when cycle 4 has a room worth photographing without anything being re-designed.
+            const float rowH = 124f, rowGap = 8f, shotW = 214f, shotH = 120f, rowW = 620f;
+            var recordRows = new GameObject[3];
+            var recordRowHead = new Text[3];
+            var recordRowText = new Text[3];
+
+            for (int i = 0; i < 3; i++)
+            {
+                GameObject row = new GameObject($"RecordRow{i + 1}");
+                row.transform.SetParent(recordGO.transform, false);
+                RectTransform rowRect = row.AddComponent<RectTransform>();
+                rowRect.anchorMin = rowRect.anchorMax = rowRect.pivot = new Vector2(0.5f, 0.5f);
+                rowRect.sizeDelta = new Vector2(rowW, rowH);
+                rowRect.anchoredPosition = new Vector2(0f, 52f - i * (rowH + rowGap));
+
+                // **A RULE BETWEEN CYCLES** (2026-08-31, by request). Under every row but the last,
+                // so it separates rather than underlines - a line under the bottom entry would read
+                // as a total that is not there. Faint: it is a gap made visible, not a border.
+                if (i < 2)
+                {
+                    GameObject sepGO = new GameObject("Separator");
+                    sepGO.transform.SetParent(row.transform, false);
+                    Image sep = sepGO.AddComponent<Image>();
+                    sep.color = new Color(0.11f, 0.11f, 0.13f, 0.22f);
+                    sep.raycastTarget = false;
+                    RectTransform sepRect = sep.GetComponent<RectTransform>();
+                    sepRect.anchorMin = sepRect.anchorMax = sepRect.pivot = new Vector2(0.5f, 0.5f);
+                    sepRect.sizeDelta = new Vector2(rowW, 1f);
+                    sepRect.anchoredPosition = new Vector2(0f, -(rowH + rowGap) / 2f);
+                }
+
+                // THE SHOT. `preserveAspect` off and the rect at the capture's own 16:9, so the room
+                // is never squeezed - the frames are rendered at 640x360 by `CaptureCyclePreview`.
+                GameObject shotGO = new GameObject("Preview");
+                shotGO.transform.SetParent(row.transform, false);
+                Image frame = shotGO.AddComponent<Image>();
+                frame.sprite = CyclePreviewSprite(i + 1);
+                frame.raycastTarget = false;
+                // A cycle with no rendered frame keeps the row and loses the picture, rather than
+                // drawing a white box where a room should be.
+                frame.color = frame.sprite != null ? Color.white : new Color(1f, 1f, 1f, 0f);
+                RectTransform shotRect = frame.GetComponent<RectTransform>();
+                shotRect.anchorMin = shotRect.anchorMax = shotRect.pivot = new Vector2(0.5f, 0.5f);
+                shotRect.sizeDelta = new Vector2(shotW, shotH);
+                shotRect.anchoredPosition = new Vector2(-(rowW - shotW) / 2f, 0f);
+
+                // AND THE NUMBERS, left-aligned beside it, in two tiers. The heading is what the eye
+                // scans to find a row; the clock and the count are what it stops on. One block of
+                // three equal lines made all three equally hard to find.
+                // Just clear of the picture's right edge, in the row's own frame.
+                float textX = -(rowW - shotW) / 2f + shotW / 2f + 26f;
+
+                Text head = MakeMenuLine(row.transform, "Head", string.Empty, 30, MenuInk,
+                    new Vector2(textX + 150f, 30f), new Vector2(300f, 40f), TextAnchor.MiddleLeft);
+                recordRowHead[i] = head;
+
+                Text text = MakeMenuLine(row.transform, "Text", string.Empty, 22,
+                    new Color(0.11f, 0.11f, 0.13f, 0.72f),
+                    new Vector2(textX + 150f, -22f), new Vector2(300f, 60f), TextAnchor.MiddleLeft);
+                text.lineSpacing = 1.3f;
+                recordRowText[i] = text;
+
+                recordRows[i] = row;
+            }
+
+            // What the page says with nothing on it. The RECORD button is hidden until something has
+            // been finished, so this is close to unreachable - and a page that CAN be empty has to
+            // have an answer for it, or it is a blank screen with a BACK button.
+            Text recordEmpty = Localize(MakeMenuLine(recordGO.transform, "RecordEmpty",
+                "NO CYCLE COMPLETED", 24, new Color(0.11f, 0.11f, 0.13f, 0.55f), new Vector2(0f, 0f), new Vector2(600f, 60f)),
+                "record.empty");
 
             Button recordBack = Localize(MakeMenuButtonInk(recordGO.transform, "RecordBackButton",
                                                   "BACK", new Vector2(0f, -230f)), "menu.back", "  ");
@@ -22467,7 +23271,10 @@ namespace IterationRoom.EditorTools
             mainMenu.recordButton = recordButton;
             mainMenu.recordBackButton = recordBack;
             mainMenu.recordGroup = recordGroup;
-            mainMenu.recordText = recordTable;
+            mainMenu.recordRows = recordRows;
+            mainMenu.recordRowHead = recordRowHead;
+            mainMenu.recordRowText = recordRowText;
+            mainMenu.recordEmpty = recordEmpty;
             mainMenu.cycleBackButton = cycleBack;
             mainMenu.cycleGroup = cycleGroup;
             mainMenu.cycleButtons = cycleButtons;
@@ -22498,321 +23305,6 @@ namespace IterationRoom.EditorTools
             EditorSceneManager.SaveScene(menu, MenuScenePath);
         }
 
-        // The step between PLAY and the load: move the mouse, watch the room turn, set the number
-        // before the clock has ever started. See SensitivityCalibration for why the pointer is
-        // captured here and why that forces the wheel and the arrow keys instead of a dragged
-        // slider - the pause menu's slider stays as the way to change it later.
-        //
-        // Laid out around the exact middle of the screen, which is where the buttons were: the page
-        // this replaces and the page it becomes occupy the same space, so nothing has to travel.
-        // The sensitivity step, built on the ROOM's canvas rather than the menu's - the player sets
-        // it while standing in the finished room looking through the real camera. See
-        // SensitivityCalibration for the two attempts that came before and why neither worked.
-        //
-        // The readout sits on its own dark plate rather than behind a full-screen scrim, so the
-        // room stays at full brightness behind it. The thing being judged is how the room moves;
-        // dimming it to make the text legible would be dimming the subject.
-        private static SensitivityCalibration BuildCalibrationPage(Transform canvas)
-        {
-            GameObject root = new GameObject("Calibration");
-            root.transform.SetParent(canvas, false);
-            CanvasGroup group = root.AddComponent<CanvasGroup>();
-            group.alpha = 0f;
-            group.blocksRaycasts = false;
-            Stretch(root.AddComponent<RectTransform>());
-
-            // Almost nothing is drawn here any more: the control list, the gauge and the value
-            // all moved onto the calibration room's own south wall, which is the wall the player
-            // spawns facing. What is left on the SCREEN is the one line that has to follow the eye
-            // wherever it goes, because it is how the player leaves.
-            //
-            // No plate behind it. The line is empty for all of a normal run - it only appears
-            // when the browser has refused pointer capture - and a plate under an empty string is
-            // a black bar across the bottom of the screen for no reason.
-            Text lockHint = MakeMenuLine(root.transform, "LockHint", "[ENTER]  TO BEGIN", 24,
-                Color.red, new Vector2(0f, -400f), new Vector2(1200f, 40f));
-
-            SensitivityCalibration calibration = root.AddComponent<SensitivityCalibration>();
-            calibration.group = group;
-            calibration.lockHint = lockHint;
-
-            // Everything else on the canvas goes away while this is up. The countdown reading 1:00
-            // and a dimmed END CYCLE control are describing a loop that has not started, and the
-            // player is being asked to judge how the ROOM moves - anything else on screen is
-            // something for the eye to land on instead.
-            //
-            // Expressed as "all but these two" rather than as a list of what to hide, so a HUD
-            // element added later is covered without anyone remembering to come back here. PauseMenu
-            // stays live because a player who wants out must not be trapped by a settings screen.
-            var hidden = new System.Collections.Generic.List<GameObject>();
-            foreach (Transform child in canvas)
-            {
-                // ControlHints stays on as well as PauseMenu: the start button on the wall is an
-                // IInteractHintTarget, so the E disc has to be able to appear over it.
-                if (child == root.transform || child.name == "PauseMenu" || child.name == "ControlHints") continue;
-                hidden.Add(child.gameObject);
-            }
-            calibration.hideWhileActive = hidden.ToArray();
-
-            return calibration;
-        }
-
-        // The calibration room's south wall - the one the player spawns facing - carrying the
-        // control list, the sensitivity gauge and the value, plus two physical plates below it that
-        // raise and lower the setting.
-        //
-        // On the wall rather than on the screen because the room is built out of displays, so the
-        // facility explaining itself on one is the same move Room3 makes. It also puts the readout
-        // and the control that drives it in the same place: the player presses E at a plate and
-        // watches the number above it move, which no screen overlay can do.
-        //
-        // The plates carry a second job. They are the only thing in the room E can be pressed at,
-        // so the control list above can name E and have it be true in the same room. A practice
-        // ball existed for exactly that and was deleted once these took the work over - one fixture
-        // doing two jobs beats two doing one each.
-        private static CalibrationStartButton BuildCalibrationWall(Transform parent, float roomCenterZ,
-                                                                   SensitivityCalibration calibration)
-        {
-            GameObject root = new GameObject("CalibrationWall");
-            root.transform.SetParent(parent, false);
-
-            float wallZ = roomCenterZ - RoomDepth / 2f;   // inner face of the south wall
-
-            // --- the display ---
-            GameObject faceGO = new GameObject("Display");
-            faceGO.transform.SetParent(root.transform, false);
-
-            Canvas canvas = faceGO.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.WorldSpace;
-
-            RectTransform rect = faceGO.GetComponent<RectTransform>();
-            // Taller than it was, because the plate that used to bound it is gone. Nothing physical
-            // sits under this on the south wall, so the height is free.
-            rect.sizeDelta = new Vector2(1600f, 820f);
-            rect.localScale = Vector3.one * 0.004f;       // -> 6.4m x 3.28m on an 8.75m x 5.41m wall
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            // Set through anchoredPosition3D and AFTER the Canvas exists - see MakeWallFace for the
-            // two traps in that sentence.
-            rect.anchoredPosition3D = new Vector3(0f, 3.05f, wallZ + 0.05f);
-            // Forward points INTO the wall: a world-space canvas is legible when its forward matches
-            // the direction the viewer is LOOKING, and a player in this room looks south at it.
-            rect.localRotation = Quaternion.Euler(0f, 180f, 0f);
-
-            CanvasGroup wallGroup = faceGO.AddComponent<CanvasGroup>();
-            wallGroup.alpha = 0f;
-            wallGroup.blocksRaycasts = false;
-            wallGroup.interactable = false;
-
-            // NO PLATE. This used to sit on a lit near-black slab, the same one Room3's message uses,
-            // and it was removed for the reason the Room2 pictogram's was: a plate is the facility
-            // interrupting, which suits a sign that stops an iteration and does not suit the room
-            // quietly labelling its own controls. Stencilled on the panelling, it belongs to the wall.
-            //
-            // Two consequences, both handled below. Everything got BIGGER, because a plate was the only
-            // thing making the old sizes feel filled - on bare wall the same glyphs read as small. And
-            // the colours changed: the old red-on-black values were chosen against a dark ground and
-            // wash out on white panelling.
-
-            // --- controls, upper half ---
-            // Sized in canvas units; at 0.004 scale an 84px cap is 0.34m of wall, up from 0.25m.
-            const float key = 84f, gap = 9f, step = key + gap, capGap = 30f;
-            const float keysW = 3f * key + 2f * gap;   // 270
-            // Charcoal, not the old pale red: on white panelling a light red is barely there, and this
-            // is the same ink the Room2 sign uses, so the game's two wordless displays match. Well
-            // clear of GrooveDark (0.04) so a glyph cannot be mistaken for a seam.
-            Color wallText = new Color(0.20f, 0.20f, 0.23f, 0.78f);
-
-            const float keysX = -430f;
-            // Spaced from the edges of what sits on each row, not by a uniform pitch: the W/A/S/D
-            // block is two caps deep and straddles its row where SPACE is a single 44px bar. A
-            // uniform pitch is what put the bar inside the A/S/D row twice on the screen version.
-            // Spaced from the bottom edge of what sits on the row above, not by a uniform pitch: the
-            // W/A/S/D block is two caps deep and straddles its row where SPACE is a single bar. A
-            // uniform pitch is what put the bar inside the A/S/D row twice on the screen version.
-            const float rowMove = 300f;          // W 304.5..388.5, A/S/D 211.5..295.5
-            const float rowJump = 162.5f;        // SPACE 133.5..191.5, so 20 clear of A/S/D
-            const float rowInteract = 71.5f;     // E 29.5..113.5, so 20 clear of SPACE
-
-            MakeKeyCap(faceGO.transform, "KeyW", "W", new Vector2(keysX, rowMove + step / 2f), new Vector2(key, key), 36);
-            MakeKeyCap(faceGO.transform, "KeyA", "A", new Vector2(keysX - step, rowMove - step / 2f), new Vector2(key, key), 36);
-            MakeKeyCap(faceGO.transform, "KeyS", "S", new Vector2(keysX, rowMove - step / 2f), new Vector2(key, key), 36);
-            MakeKeyCap(faceGO.transform, "KeyD", "D", new Vector2(keysX + step, rowMove - step / 2f), new Vector2(key, key), 36);
-            MakeKeyCap(faceGO.transform, "KeySpace", "SPACE", new Vector2(keysX, rowJump), new Vector2(keysW, 58f), 26);
-            MakeKeyCap(faceGO.transform, "KeyE", "E", new Vector2(keysX, rowInteract), new Vector2(key, key), 36);
-
-            // FIGURES INSTEAD OF WORDS. The room says nothing else in English, and this wall is the
-            // first thing a player sees - so the one screen that has to be understood before the game
-            // starts is the worst place to require reading. Same treatment as the Room2 sign.
-            //
-            // 100 against the keycaps' 84, because a figure needs more room than a letter to read at
-            // all: the glyph is a whole body where a cap is one character. Centred on the row rather
-            // than left-aligned as the old captions were, so both columns line up as a grid whatever
-            // each row's key happens to be.
-            const float figure = 100f;
-            const float keyFigureX = keysX + keysW / 2f + capGap + figure / 2f;
-
-            MakeWallIcon(faceGO.transform, "MoveFigure", FigureWalkIcon(), new Vector2(keyFigureX, rowMove), figure, wallText);
-            MakeWallIcon(faceGO.transform, "JumpFigure", FigureJumpIcon(), new Vector2(keyFigureX, rowJump), figure, wallText);
-            MakeWallIcon(faceGO.transform, "InteractFigure", FigurePressIcon(), new Vector2(keyFigureX, rowInteract), figure, wallText);
-
-            // The right column is the mouse alone. Sprint and crouch were briefly here and moved to the
-            // side walls: they are the two controls that are about HOW you cross a room, and putting
-            // them on the walls you cross between says that better than a fifth row can.
-            const float glyph = 104f;
-            const float glyphX = 300f;
-            // Level with the middle of the keyboard block, which spans 29.5 to 388.5.
-            const float rowLook = 209f;
-            const float rightFigureX = glyphX + glyph / 2f + capGap + figure / 2f;
-
-            GameObject mouseGO = new GameObject("MouseGlyph");
-            mouseGO.transform.SetParent(faceGO.transform, false);
-            Image mouse = mouseGO.AddComponent<Image>();
-            mouse.sprite = MouseIcon();
-            mouse.color = wallText;
-            mouse.raycastTarget = false;
-            mouse.preserveAspect = true;
-            RectTransform mouseRect = mouse.GetComponent<RectTransform>();
-            mouseRect.anchorMin = new Vector2(0.5f, 0.5f);
-            mouseRect.anchorMax = new Vector2(0.5f, 0.5f);
-            mouseRect.sizeDelta = new Vector2(glyph, glyph);
-            mouseRect.anchoredPosition = new Vector2(glyphX, rowLook);
-
-            MakeWallIcon(faceGO.transform, "LookFigure", FigureLookIcon(), new Vector2(rightFigureX, rowLook), figure, wallText);
-
-            // ~~TAB, level with E~~ REMOVED with Tab itself, 2026-08-13. The hand holds one object
-            // and E is the whole of handling it: press to pick up, press again to put down. The
-            // second half of that is taught by the HUD's own prompt under the carried icon, where it
-            // can appear at the moment there is something to put down - which a wall in the first
-            // room cannot do.
-
-            // --- sensitivity, lower half ---
-            // The reds stay red - this is the facility's own voice and red on white panelling is the
-            // strongest thing in the room - but everything that WAS a pale red on black had to darken,
-            // because pale red on white is barely a mark.
-            Color wallRed = new Color(0.74f, 0.09f, 0.09f, 1f);
-
-            Localize(MakeMenuLine(faceGO.transform, "Headline", "M O U S E   S E N S I T I V I T Y", 48,
-                wallRed, new Vector2(0f, -40f), new Vector2(1500f, 70f)), "cal.title");
-
-            Text value = MakeMenuLine(faceGO.transform, "Value", "1.10", 56, wallRed,
-                new Vector2(0f, -130f), new Vector2(500f, 70f));
-
-            GameObject barGO = new GameObject("Gauge");
-            barGO.transform.SetParent(faceGO.transform, false);
-            Image bar = barGO.AddComponent<Image>();
-            // The empty track. It was near-opaque black, which on a dark plate was a recess and on white
-            // panelling would be a solid bar with a red one inside it. Light enough now to read as the
-            // groove the fill sits in.
-            bar.color = new Color(0.18f, 0.18f, 0.20f, 0.30f);
-            bar.raycastTarget = false;
-            RectTransform barRect = bar.GetComponent<RectTransform>();
-            barRect.anchorMin = new Vector2(0.5f, 0.5f);
-            barRect.anchorMax = new Vector2(0.5f, 0.5f);
-            barRect.sizeDelta = new Vector2(950f, 28f);
-            barRect.anchoredPosition = new Vector2(0f, -200f);
-
-            GameObject fillGO = new GameObject("Fill");
-            fillGO.transform.SetParent(barGO.transform, false);
-            Image fill = fillGO.AddComponent<Image>();
-            fill.sprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
-            fill.type = Image.Type.Filled;
-            fill.fillMethod = Image.FillMethod.Horizontal;
-            fill.fillAmount = 0.5f;
-            fill.color = wallRed;
-            fill.raycastTarget = false;
-            Stretch(fill.GetComponent<RectTransform>());
-
-            Localize(MakeMenuLine(faceGO.transform, "AdjustHint", "SCROLL TO ADJUST", 30,
-                new Color(0.62f, 0.10f, 0.10f, 0.85f), new Vector2(0f, -250f), new Vector2(1400f, 44f)),
-                "cal.scrollAdjust");
-            Localize(MakeMenuLine(faceGO.transform, "BeginHint", "PRESS [E] AT THE PANEL BEHIND YOU", 34,
-                wallRed, new Vector2(0f, -320f), new Vector2(1400f, 50f)), "cal.begin");
-
-            // The two side walls: one control each, and nothing else on them.
-            CanvasGroup sprintWall = MakeCalibrationSideWall(root.transform, "SprintWall", roomCenterZ,
-                west: true, keyLabel: "SHIFT", figureSprite: FigureRunIcon(), ink: wallText);
-            CanvasGroup crouchWall = MakeCalibrationSideWall(root.transform, "CrouchWall", roomCenterZ,
-                west: false, keyLabel: "CTRL", figureSprite: FigureCrouchIcon(), ink: wallText);
-
-            calibration.wallGroups = new[] { wallGroup, sprintWall, crouchWall };
-            calibration.fill = fill;
-            calibration.valueLabel = value;
-
-            // --- the start button, on the OPPOSITE wall ---
-            // The display is on the south wall and this is on the north, six metres behind the
-            // player's back. That separation is the point: reading the panel and reaching the way
-            // out costs a full 180 turn and a walk, which is exactly the thing the step is asking
-            // the player to judge. Adjust at the display, turn, feel it, press - and if it was
-            // wrong, turn back.
-            //
-            // It is one CELL OF THE WALL GRID rather than a box stuck on the wall: panel-sized,
-            // sat 15mm proud, dark where its neighbours are white. The room's fiction is that the
-            // panels are displays, so a single cell lit up and asking to be pressed is the room
-            // speaking its own language - where a green slab was an object from another game.
-            Material plateMat = MakeColorMaterial("CalibrationPlate", new Color(0.05f, 0.05f, 0.055f));
-            // The keyword has to be compiled in for the press flash; a property block cannot turn a
-            // shader keyword on. Black means it contributes nothing until E is pressed.
-            plateMat.EnableKeyword("_EMISSION");
-            plateMat.SetColor("_EmissionColor", Color.black);
-            plateMat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
-            EditorUtility.SetDirty(plateMat);
-
-            const float panelW = GridCellWidth - GridLineThickness;    // 1.70, the visible face
-            const float panelH = GridCellHeight - GridLineThickness;   // 1.3019
-            const float proud = 0.03f;
-            // Column 2 of 5 and row 1 of 4 on an end wall, i.e. dead centre horizontally at the
-            // second row up. Cell centres are (i + 0.5) * cell, so this is 2.028m - head height,
-            // which is where a wall panel worth reading belongs. Reach is a horizontal test, so
-            // the height costs nothing.
-            float buttonY = 1.5f * GridCellHeight;
-            float northWallZ = roomCenterZ + RoomDepth / 2f;
-
-            GameObject buttonRoot = new GameObject("StartButton");
-            buttonRoot.transform.SetParent(root.transform, false);
-            buttonRoot.transform.localPosition = new Vector3(0f, buttonY, northWallZ - proud / 2f);
-
-            GameObject visual = Prim(PrimitiveType.Cube, "Visual", buttonRoot.transform, Vector3.zero,
-                new Vector3(panelW, panelH, proud), plateMat, removeCollider: true);
-
-            // The word, on the cell itself. Same treatment as every other display in the project:
-            // spaced caps in the string, since uGUI has no tracking control and a space is one cell
-            // of a monospace face.
-            GameObject labelGO = new GameObject("Label");
-            labelGO.transform.SetParent(buttonRoot.transform, false);
-            Canvas labelCanvas = labelGO.AddComponent<Canvas>();
-            labelCanvas.renderMode = RenderMode.WorldSpace;
-
-            RectTransform labelRect = labelGO.GetComponent<RectTransform>();
-            labelRect.sizeDelta = new Vector2(850f, 650f);
-            labelRect.localScale = Vector3.one * 0.002f;               // -> 1.70m x 1.30m
-            labelRect.anchorMin = new Vector2(0.5f, 0.5f);
-            labelRect.anchorMax = new Vector2(0.5f, 0.5f);
-            labelRect.pivot = new Vector2(0.5f, 0.5f);
-            // anchoredPosition3D and AFTER the Canvas - see MakeWallFace for both traps.
-            labelRect.anchoredPosition3D = new Vector3(0f, 0f, -(proud / 2f + 0.004f));
-            // Identity: this wall faces north, so a player reading it is looking along +Z, and a
-            // world-space canvas is legible when its forward matches the viewer's look direction.
-            labelRect.localRotation = Quaternion.identity;
-
-            // The speaker, above the word rather than beside it - this is the room's last screen
-            // before the clock starts, and the PA and every room's audio cues are half of what the
-            // facility tells the player from here on. Red, the same voice BEGIN speaks in, because
-            // this is the facility's own instruction and not a HUD element laid over the room.
-            MakeWallIcon(labelGO.transform, "VolumeHint", VolumeIcon(), new Vector2(0f, 195f), 160f, Color.red);
-
-            Localize(MakeMenuLine(labelGO.transform, "Text", "B E G I N", 150, Color.red,
-                Vector2.zero, new Vector2(850f, 220f)), "cal.beginPlate");
-
-            CalibrationStartButton button = buttonRoot.AddComponent<CalibrationStartButton>();
-            button.calibration = calibration;
-            button.buttonRenderer = visual.GetComponent<Renderer>();
-            button.audioSource = MakeSource(buttonRoot.transform, "ButtonAudio", 1f, 0.8f);
-            button.pressClip = LoadClip(SfxDir, "sfx_floor_button_press");
-            return button;
-        }
-
         private static RectTransform MakePlate(Transform parent, string name, Vector2 anchoredPosition, Vector2 size)
         {
             GameObject go = new GameObject(name);
@@ -22831,62 +23323,6 @@ namespace IterationRoom.EditorTools
             rect.sizeDelta = size;
             rect.anchoredPosition = anchoredPosition;
             return rect;
-        }
-
-        // A key cap: a red rounded rect with a near-black one inset inside it, which is a border
-        // without needing a border sprite. uGUI's own UISprite is 9-sliced, so one sprite gives
-        // every size of cap the same corner radius - a square W and a wide SPACE bar included.
-        // One of the calibration room's side walls: a single key and the figure it produces, and
-        // nothing else on the whole wall.
-        //
-        // Sprint and crouch went here rather than staying as two more rows on the south wall, and the
-        // reason is what they are: the other four controls are things you do in a place, where these
-        // two are how you CROSS one. Putting them on the walls the player crosses between - and one
-        // each, so a wall means a control - says that better than a fifth and sixth row can. It also
-        // means the player meets them by turning their head, which is the thing this room exists to
-        // teach them to do.
-        //
-        // Bigger than anything on the south wall: it is one control on 10.5m of wall, so the sizes that
-        // made a dense list legible would look like a stamp in the corner here.
-        private static CanvasGroup MakeCalibrationSideWall(Transform parent, string name, float roomCenterZ,
-                                                          bool west, string keyLabel, Sprite figureSprite,
-                                                          Color ink)
-        {
-            const float standoff = 0.05f;
-            const float y = 2.4f;
-            const float worldWidth = 4.6f;
-
-            float x = (west ? -1f : 1f) * (RoomWidth / 2f - standoff);
-            // Forward INTO the wall, which for a side wall means a quarter turn. A world-space canvas is
-            // legible when its forward matches the direction the viewer is LOOKING - see
-            // MakeFourWallFaces - and a player in this room looking at the west wall is looking -X.
-            Quaternion rotation = Quaternion.Euler(0f, west ? -90f : 90f, 0f);
-
-            GameObject go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-
-            Canvas canvas = go.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.WorldSpace;
-
-            RectTransform rect = go.GetComponent<RectTransform>();
-            rect.sizeDelta = new Vector2(1000f, 620f);
-            rect.localScale = Vector3.one * (worldWidth / 1000f);
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition3D = new Vector3(x, y, roomCenterZ);
-            rect.localRotation = rotation;
-
-            CanvasGroup group = go.AddComponent<CanvasGroup>();
-            group.alpha = 0f;
-            group.blocksRaycasts = false;
-            group.interactable = false;
-
-            // Key above, figure below, both centred - a column rather than the south wall's rows,
-            // because one pair has no list to line up with and centring it owns the wall.
-            MakeKeyCap(go.transform, "Key", keyLabel, new Vector2(0f, 150f), new Vector2(460f, 120f), 54);
-            MakeWallIcon(go.transform, "Figure", figureSprite, new Vector2(0f, -110f), 300f, ink);
-            return group;
         }
 
         private static void MakeKeyCap(Transform parent, string name, string label,
@@ -23208,76 +23644,6 @@ namespace IterationRoom.EditorTools
             rect.anchoredPosition = anchoredPosition;
 
             return text;
-        }
-
-        // THE LIVE DIAL, in the calibration room, behind TAB. See `LightingTuner` for the four rules
-        // that make it safe and the one thing it lies about.
-        //
-        // **DISARMED IN A RELEASE PLAYER.** A development panel on the first screen every player sees
-        // is exactly why the first one was deleted; this one checks
-        // `Application.isEditor || Debug.isDebugBuild` in `Awake` and goes inert if neither holds -
-        // `CaptureRig`'s bargain, for the same reason. The object is still built, because the scene
-        // is built once and serves both.
-        //
-        // Surfaces are gathered BY MATERIAL rather than by name, because that is the question being
-        // asked - "everything wearing PanelWhite in this room" is precisely the set a wall slider
-        // should move, and it survives any renaming of the objects themselves.
-        private static void BuildLightingTuner(Transform parent)
-        {
-            var walls = new System.Collections.Generic.List<Renderer>();
-            var floors = new System.Collections.Generic.List<Renderer>();
-            var ceilings = new System.Collections.Generic.List<Renderer>();
-
-            foreach (Renderer r in parent.GetComponentsInChildren<Renderer>(true))
-            {
-                if (!InCalibrationRoom(r.transform)) continue;
-                Material m = r.sharedMaterial;
-                if (m == null) continue;
-
-                if (m.name == "PanelWhite") walls.Add(r);
-                else if (m.name == "FloorWhite") floors.Add(r);
-                else if (m.name == "CeilingWhite") ceilings.Add(r);
-            }
-
-            GameObject go = new GameObject("LightingTuner");
-            go.transform.SetParent(parent, false);
-            LightingTuner tuner = go.AddComponent<LightingTuner>();
-            // The controller is found at runtime rather than wired: the player is not in this room's
-            // hierarchy, and one serialised reference across a scene boundary is all it takes.
-            tuner.fixtures = CalibrationLights;
-            tuner.wallPanels = walls.ToArray();
-            tuner.floors = floors.ToArray();
-            tuner.ceilings = ceilings.ToArray();
-
-            Debug.Log($"[SceneBuilder] LightingTuner wired: {walls.Count} wall, {floors.Count} floor, "
-                    + $"{ceilings.Count} ceiling renderer(s), "
-                    + $"{(CalibrationLights != null ? CalibrationLights.Length : 0)} fixture(s). TAB in play mode.");
-        }
-
-        // **WHAT `ExtractCalibrationRoom` WILL TAKE, WHICH IS NOT THE SAME SET AS `InCalibrationRoom`.**
-        //
-        // That method matches the shell exactly - a parent named `CalibrationRoom` - and the lift
-        // matches a PREFIX, because the room is several siblings: the shell, `CalibrationWall`, its
-        // start button, and `CalibrationRoom_CeilingLights`. Ask the exact question about a fixture
-        // and the answer is no, because its parent is the last of those and not the first.
-        //
-        // The comment on `ExtractCalibrationRoom` records this trap costing a bug once already, for
-        // `CalibrationWall`. It cost a second one here: `WireShadowBudget` used the exact test, missed
-        // all four fixtures, and enrolled them in cycle 1's budget anyway.
-        //
-        // **Anything asking "will the lift take this?" must ask THIS, not the other one.**
-        private static bool LiftedWithCalibrationRoom(Transform t)
-        {
-            for (Transform p = t; p != null; p = p.parent)
-                if (p.name.StartsWith("Calibration")) return true;
-            return false;
-        }
-
-        private static bool InCalibrationRoom(Transform t)
-        {
-            for (Transform p = t; p != null; p = p.parent)
-                if (p.name == CalibrationRoomName) return true;
-            return false;
         }
 
         private static void Stretch(RectTransform rect)

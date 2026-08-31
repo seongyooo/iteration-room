@@ -75,9 +75,6 @@ namespace IterationRoom
         public CameraShaker cameraShaker;
         public EndingSequence endingSequence;
 
-        // The sensitivity step, run once before the first iteration. See SensitivityCalibration.
-        public SensitivityCalibration calibration;
-
         // Reset at a cycle boundary, so a new cycle's wall signs can teach the control again. See
         // EndCycleControl.ResetUseCount for why that is not a contradiction of its no-reset rule.
         public EndCycleControl endCycleControl;
@@ -267,8 +264,9 @@ namespace IterationRoom
                 for (int i = 0; i < cycles.Length; i++) cycles[i]?.SetAwake(i == cycleIndex);
 
             // THE WORLD IS READY. The backdrop goes and the eyelids are what is left underneath -
-            // shut, and opened by whichever comes next: the calibration step, or iteration 1's own
-            // wake-up. Faded rather than cut, so the hand-off from picture to black is not a blink.
+            // shut, and opened by iteration 1's own wake-up - which is the very next thing now that
+            // the calibration step is gone. Faded rather than cut, so the hand-off from picture to
+            // black is not a blink.
             if (loadingBackdrop != null)
             {
                 for (float e = 0f; e < 0.45f; e += Time.unscaledDeltaTime)
@@ -280,36 +278,19 @@ namespace IterationRoom
                 loadingBackdrop.gameObject.SetActive(false);
             }
 
-            // Skipped on either shortcut. Setting the sensitivity is the one thing that genuinely
-            // has to happen before the first iteration, and it is also the one thing nobody wants to
-            // do again on the twentieth run at a boundary.
+            // **THE SENSITIVITY STEP IS GONE, WITH THE ROOM IT LIVED IN** (2026-08-31, by
+            // request). It stood between PLAY and the first iteration: a shell of its own to walk
+            // into, a number to set with the scroll wheel, and an E press on the far wall to leave -
+            // a minute of standing still before the clock had ever run. The number is still
+            // adjustable, on the title screen's SETTINGS page, where it always was.
             //
-            // **AND SKIPPED ON A TOUCH DEVICE, where it is not merely unwanted but IMPASSABLE.**
-            // Every input this step needs is a mouse: the number is driven by the scroll wheel,
-            // `Confirm` refuses unless the pointer is captured, and the button out of the room is an
-            // E press. A phone has none of the three, so a player who pressed PLAY stood in the
-            // calibration room forever - the first screen of the game, and a dead end.
+            // What the room TAUGHT was worth keeping and has moved into the game: the control
+            // pictograms are on room1-1's south wall for iteration 1 (see `ControlsWall`), which is
+            // the wall the wake-up leaves the player looking at.
             //
-            // Nothing is lost by skipping it. The step exists because Unity's WebGL build hands the
-            // engine the browser's raw pointer-lock delta, which no two browsers agree on (see
-            // GameSettings) - a MOUSE problem that touch does not have, since a drag is measured in
-            // screen heights and means the same thing everywhere. The sensitivity is still adjustable
-            // afterwards, on the title screen's SETTINGS page.
-            //
-            // Simply not entering it is the whole of the skip: the page is authored at alpha 0 and
-            // `Begin` is what raises it, which is why the two DebugStart shortcuts above have always
-            // been able to do the same thing.
-            if (calibration != null && !GameInput.TouchDevice
-                && !DebugStart.AtCycleBoundary && DebugStart.StartCycle < 0)
-            {
-                // The one thing before iteration 1 that the player is meant to SEE, so the lids come
-                // up for it. Everything else between here and the first wake-up stays black, and
-                // `WakeUp` shuts them again on its own way in.
-                wakeUpSequence?.OpenInstantly();
-                calibration.Begin();
-                while (!calibration.Confirmed) yield return null;
-                calibration.End();
-            }
+            // The step was already skipped on a touch device and on both debug shortcuts, so nothing
+            // downstream ever assumed it had run.
+
 
             // THE OUTER LOOP IS CYCLES. Exited only by the last one, which has no successor to cross
             // to and goes to the ending instead.
@@ -527,7 +508,13 @@ namespace IterationRoom
                 // `CycleComplete`, nothing between here and the break moves it, and there is exactly
                 // ONE path through this line where there are two through the break. `EndCycleState`
                 // zeroes all three counters a few seconds later, so anything read after it is gone.
-                cycleRecords.Add(new CycleRecord(CycleNumber, IterationNumber, TotalElapsedTime));
+                CycleRecord finished = new CycleRecord(CycleNumber, IterationNumber, TotalElapsedTime);
+                cycleRecords.Add(finished);
+                // **BANKED HERE, NOT AT THE ENDING CARD** (2026-08-31, by request). The run's own
+                // list is what the card reports and it is still built above; this is the persistent
+                // one, and it is written per cycle so that finishing a cycle and then stopping is a
+                // result rather than nothing. See `RunReport.Record` for why it keeps the better.
+                RunReport.Record(finished);
 
                 // The cycle is finished. Either the game is over, or there is another bed.
                 if (!HasNextCycle)
@@ -919,9 +906,10 @@ namespace IterationRoom
             // place watching a room fail would be the game freezing rather than the room failing.
             if (playerController != null) playerController.ControlEnabled = false;
 
-            // BANKED BEFORE THE CARD, not after: the card now waits on a click, and a player who
-            // closes the window while it is up has still finished the run.
-            RunReport.Save(cycleRecords);
+            // **NOTHING IS WRITTEN HERE ANY MORE.** Every cycle banked itself as it finished (see
+            // the `RunReport.Record` call in the cycle loop), so by the time the ending card is up
+            // the stored record is already complete - and writing the run again here would overwrite
+            // per-cycle bests with whatever this particular run happened to do.
 
             if (endingSequence != null)
                 yield return endingSequence.Play(cycleRecords);

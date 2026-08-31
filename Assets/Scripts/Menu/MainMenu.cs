@@ -71,6 +71,26 @@ namespace IterationRoom
         public Button recordBackButton;
         public CanvasGroup recordGroup;
         public Text recordText;
+
+        // **ONE ROW PER CYCLE, AND A ROW IS A PICTURE AND TWO NUMBERS** (2026-08-31, by request).
+        // The page used to be a single padded table, which is the right shape for the ending card -
+        // it reports one run, and the run is the subject. This page reports what the player has ever
+        // done, and a cycle they have never finished is not a blank row, it is **absent**: a table
+        // has to say something in every cell and this does not.
+        //
+        // Parallel arrays rather than a small serializable class, which is what `BedlamCube` settled
+        // on for the same reason: Unity serializes arrays of references and not arrays of structs
+        // holding them. Index i is cycle i+1 throughout.
+        public GameObject[] recordRows;
+        // Two lines with two jobs: which cycle this is, and what it cost. Split because they are read
+        // differently - the heading is scanned to find a row, the detail is read once you have.
+        public Text[] recordRowHead;
+        public Text[] recordRowText;
+
+        // Shown in place of the rows when nothing has been finished at all. The RECORD button is
+        // hidden in that case, so this is only ever seen if a record is cleared while the page is
+        // open - but a page that can be empty needs something to say.
+        public Text recordEmpty;
         public CanvasGroup cycleGroup;
         public Button[] cycleButtons;
 
@@ -457,15 +477,38 @@ namespace IterationRoom
             }
         }
 
+        // **A ROW PER CYCLE THAT HAS ONE, AND NOTHING FOR THE REST.** `RunReport.TryLoad` answers
+        // per cycle, so a player who has cleared cycle 1 sees one row and no trace of the two they
+        // have not reached - which is the point: an empty row is a spoiler about how many cycles
+        // there are, and a blank one is a reproach.
+        private void FillRecord()
+        {
+            int shown = 0;
+
+            for (int i = 0; recordRows != null && i < recordRows.Length; i++)
+            {
+                if (recordRows[i] == null) continue;
+
+                bool have = RunReport.TryLoad(i + 1, out CycleRecord record);
+                recordRows[i].SetActive(have);
+                if (!have) continue;
+
+                shown++;
+                if (recordRowHead != null && i < recordRowHead.Length && recordRowHead[i] != null)
+                    recordRowHead[i].text = $"CYCLE {record.Cycle}";
+                if (recordRowText != null && i < recordRowText.Length && recordRowText[i] != null)
+                    recordRowText[i].text = $"TIME: {RunReport.FormatTime(record.Seconds)}"
+                                          + $"\n{record.Iterations} ITERATIONS";
+            }
+
+            if (recordEmpty != null) recordEmpty.gameObject.SetActive(shown == 0);
+        }
+
         // Filled on the way IN rather than at startup, so a run finished and returned from is on the
         // page without the menu having to be reloaded.
         private void ShowRecord(bool show)
         {
-            if (show && recordText != null)
-            {
-                CycleRecord[] run = RunReport.Load();
-                recordText.text = run != null ? RunReport.Table(run) : string.Empty;
-            }
+            if (show) FillRecord();
 
             if (recordGroup != null)
             {
@@ -514,8 +557,8 @@ namespace IterationRoom
 
             // The title and the buttons go, the background stays: the last thing on screen before
             // the room loads is the room, which is also the first thing after. What greets the
-            // player on the other side is the calibration step, which lives in the room scene -
-            // see SensitivityCalibration for why it is not here.
+            // player on the other side is the first iteration itself: the calibration step that used
+            // to sit between the two was removed on 2026-08-31 along with the room it ran in.
             yield return Fade(menuGroup, 0f);
 
             if (loadingGroup != null) loadingGroup.alpha = 1f;

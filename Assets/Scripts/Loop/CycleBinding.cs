@@ -47,7 +47,9 @@ namespace IterationRoom
         // at the swing tool - which is on the player.
         public BalloonTool swingTool;
 
-        // The E fixtures that live OUTSIDE any cycle - the calibration room's start button, which runs
+        // The E fixtures that live OUTSIDE any cycle. **EMPTY SINCE 2026-08-31**, when the calibration
+        // room took the only one with it; kept because it is the right shape for the next fixture that
+        // needs it. It held the start button, which ran
         // before the first iteration. Cycle fixtures are gathered per cycle below and appended to it.
         public MonoBehaviour[] coreHintTargets;
 

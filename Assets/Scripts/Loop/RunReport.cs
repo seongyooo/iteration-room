@@ -25,6 +25,54 @@ namespace IterationRoom
         private const char EntrySeparator = '|';
         private const char FieldSeparator = ':';
 
+        // **ONE CYCLE, BANKED THE MOMENT IT IS FINISHED** (2026-08-31, by request). The whole run
+        // used to be written in one go at the ending card, which meant a player who cleared cycle 1
+        // and then closed the window during cycle 2 had finished nothing as far as this file was
+        // concerned. A cycle is a complete thing on its own - it has its own bed, its own console
+        // and its own clock - so it is recorded on its own.
+        //
+        // **AND THE BETTER OF THE TWO IS KEPT, which is what makes this a RECORD rather than a log.**
+        // Fewer iterations wins, because that is the number the game is actually about; the clock
+        // breaks a tie. A run that goes badly cannot cost the player a result they already have.
+        public static void Record(CycleRecord record)
+        {
+            var kept = new List<CycleRecord>();
+            bool merged = false;
+
+            CycleRecord[] stored = Load();
+            if (stored != null)
+                foreach (CycleRecord old in stored)
+                {
+                    if (old.Cycle != record.Cycle) { kept.Add(old); continue; }
+                    kept.Add(Better(old, record));
+                    merged = true;
+                }
+
+            if (!merged) kept.Add(record);
+            kept.Sort((a, b) => a.Cycle.CompareTo(b.Cycle));
+            Save(kept);
+        }
+
+        private static CycleRecord Better(CycleRecord a, CycleRecord b)
+        {
+            if (b.Iterations != a.Iterations) return b.Iterations < a.Iterations ? b : a;
+            return b.Seconds < a.Seconds ? b : a;
+        }
+
+        // The record for one cycle, or null if it has never been finished. What the title screen's
+        // page asks per row - a cycle nobody has cleared is not drawn at all.
+        public static bool TryLoad(int cycle, out CycleRecord record)
+        {
+            record = default;
+            CycleRecord[] stored = Load();
+            if (stored == null) return false;
+
+            foreach (CycleRecord r in stored)
+                if (r.Cycle == cycle) { record = r; return true; }
+
+            return false;
+        }
+
         public static void Save(IReadOnlyList<CycleRecord> records)
         {
             if (records == null || records.Count == 0) return;

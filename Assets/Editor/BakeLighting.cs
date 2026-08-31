@@ -64,7 +64,7 @@ namespace IterationRoom.EditorTools
 
             // **`-bakeScenes A,B` BAKES ONLY THOSE**, because tuning light is a loop and the loop is
             // one room. A full run is four scenes and about four minutes at two bounces, and more at
-            // sixteen; the calibration room lives in `IterationRoom` and bakes in seconds, which makes
+            // sixteen; the core scene holds no rooms at all and bakes in seconds, which makes
             // it the right place to answer "did that setting do anything" before paying for the rest.
             string[] args = System.Environment.GetCommandLineArgs();
             for (int i = 0; i < args.Length - 1; i++)

@@ -232,6 +232,18 @@ namespace IterationRoom
                 if (hit.transform == null || hit.transform.IsChildOf(transform)) continue;
                 // Nor the thing it is stacked ON, which `stackedY` already answers for.
                 if (support != null && hit.transform.IsChildOf(support.transform)) continue;
+                // **NOR THE PLAYER, which every other cast in this project already excludes and this
+                // one did not.** `HeldItemClearance.Sweep`, `LevelCarry.Clear` and `PlayerHand`'s own
+                // drop cast all skip the capsule by name; this walked the whole scene with `~0` and
+                // took whatever it hit. The release probe starts AT THE HAND, which is inside the
+                // player's own reach, so a downward ray from there can land on the capsule and report
+                // the player's own body as the floor - and where that height lands, and therefore
+                // whether the object settles on a ledge or clears it, depends on where the player was
+                // standing and whether they were in the air.
+                //
+                // Play reported it as blocks dropped from the third storey catching the deck on some
+                // iterations and not others, and as jumping while throwing "not registering".
+                if (hit.transform.root.CompareTag("Player")) continue;
                 if (hit.point.y > best) best = hit.point.y;
             }
 
