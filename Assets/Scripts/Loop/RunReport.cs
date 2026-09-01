@@ -25,6 +25,29 @@ namespace IterationRoom
         private const char EntrySeparator = '|';
         private const char FieldSeparator = ':';
 
+        // HOW MANY TIMES THIS INSTALLATION HAS BEEN FINISHED. Stored beside the record and for the
+        // same reason - it has to survive the process - and used for one thing: the number the
+        // evaluation board puts after `SUBJECT`.
+        //
+        // It is not a score and nothing reads it as one. What it buys is that a second playthrough
+        // is not a repetition: the facility knows it has done this before, says so in the first
+        // line it prints, and a player who cleared the game once and came back is told they are
+        // subject 002. That is the cheapest piece of continuity in the project and it costs an int.
+        private const string ClearsKey = "iteration.clears";
+
+        // Numbered from one, because the run being evaluated is the one that has just finished and
+        // it counts itself. A first clear is SUBJECT 001.
+        public static int SubjectNumber => PlayerPrefs.GetInt(ClearsKey, 0) + 1;
+
+        // Called once, when the last cycle breaks. Separate from `Record` because a cycle finishing
+        // is not a run finishing - a player who clears cycle 1 and stops has banked a record and has
+        // not been a subject.
+        public static void RecordClear()
+        {
+            PlayerPrefs.SetInt(ClearsKey, PlayerPrefs.GetInt(ClearsKey, 0) + 1);
+            PlayerPrefs.Save();
+        }
+
         // **ONE CYCLE, BANKED THE MOMENT IT IS FINISHED** (2026-08-31, by request). The whole run
         // used to be written in one go at the ending card, which meant a player who cleared cycle 1
         // and then closed the window during cycle 2 had finished nothing as far as this file was
@@ -172,6 +195,24 @@ namespace IterationRoom
         // resolution rather than a more precise measurement taken alongside: `LoopManager.ElapsedTime`
         // is a float summing `Time.deltaTime` frame by frame, so over a ten-minute run the accumulated
         // rounding is on the order of a millisecond or two. The digit is real and it is not a stopwatch.
+        // `H:MM:SS`, and an hour field only when there is an hour to report.
+        //
+        // WHY THE BOARD DOES NOT USE `FormatTime`. That one is deliberately `M:SS.mmm` with no hour
+        // digit, on the reasoning that "this game has never run long enough for one" - which was
+        // true of a CYCLE and is not true of a RUN. A full three-cycle playthrough is expected to
+        // take about an hour, so the ending card's format would print `77:42` and ask the reader to
+        // do the division. The millisecond goes the other way: it is the right resolution for a
+        // cycle's clock, which is a thing to beat, and the wrong one for a total that is a thing to
+        // read.
+        public static string FormatClock(float seconds)
+        {
+            int total = Mathf.Max(0, Mathf.FloorToInt(seconds));
+            int hours = total / 3600;
+            int minutes = total / 60 % 60;
+            int secs = total % 60;
+            return hours > 0 ? $"{hours}:{minutes:00}:{secs:00}" : $"{minutes}:{secs:00}";
+        }
+
         public static string FormatTime(float seconds)
         {
             int total = Mathf.Max(0, Mathf.FloorToInt(seconds));

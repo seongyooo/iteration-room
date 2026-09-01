@@ -185,6 +185,11 @@ namespace IterationRoom
                 if (hand == null || !hand.HandsFull) return;
 
                 hand.MarkInteract();
+                // A WRONG ANSWER, and note where the line sits: past the empty-hands return above,
+                // which the comment already calls "not a press at this fixture at all". Only a
+                // player who offered this lock something is being marked wrong for offering the
+                // wrong thing. See `RunTally.Answer`.
+                RunTally.Answer(false);
                 Flash(deniedColor);
                 return;
             }
@@ -192,6 +197,7 @@ namespace IterationRoom
             // Claimed here rather than in Update, so that everything above this line - out of range,
             // spent, mid-insert, empty-handed - leaves the press for whoever else wants it.
             hand.MarkInteract();
+            RunTally.Answer(true);
 
             // Surrendered before anything moves, so the order on screen is the order of cause: the
             // key leaves the player, goes in, is turned, and then the door opens. It is gone from

@@ -66,7 +66,7 @@ namespace IterationRoom
                 held += Time.deltaTime;
                 if (held >= holdDuration)
                 {
-                    LoopManager.Instance.EndCycleEarly();
+                    LoopManager.Instance.EndCycleEarly(LoopManager.EndReason.Skipped);
                     UseCount++;
                     armed = false;
                     held = 0f;

@@ -135,7 +135,14 @@ namespace IterationRoom
         // The cycle currently being played, and whether anything follows it.
         public Cycle Current =>
             cycles != null && cycleIndex >= 0 && cycleIndex < cycles.Length ? cycles[cycleIndex] : null;
-        private bool HasNextCycle => cycles != null && cycleIndex + 1 < cycles.Length;
+        // A NEXT CYCLE HAS TO EXIST *AND* BE PLAYABLE. The second half is what ends the game at
+        // cycle 3 while leaving cycle 4 standing in the world for the ending to fly past - see
+        // `Cycle.playable`. Without it, "is there another scene loaded" and "is there another act"
+        // are the same question, and they stopped being the same question the moment the building
+        // had to contain a room the game does not enter.
+        private bool HasNextCycle =>
+            cycles != null && cycleIndex + 1 < cycles.Length
+            && cycles[cycleIndex + 1] != null && cycles[cycleIndex + 1].playable;
 
         // The clock's own running total, across every iteration this CYCLE has spent - what
         // EndingSequence reports alongside the iteration count. `totalElapsedTime` accumulates each
@@ -193,10 +200,20 @@ namespace IterationRoom
         // makes only covers the seconds you actually spent. Deciding when to quit *is* deciding how
         // long your past self keeps standing on the pad. See GhostReplayer.Tick, which releases
         // everything once a timeline runs out - without that, quitting early would be free.
-        public void EndCycleEarly()
+        // **WHY THIS TAKES A REASON.** One call ends an iteration early and two very different
+        // things use it: `EndCycleControl` when the player decides the errand has landed, and
+        // `CrushingBarrier`/`KillVolume` when the player dies. They are indistinguishable from in
+        // here - both stop the clock and keep the recording - and the evaluation has to tell them
+        // apart, because one of them is a skill and the other is a fact. Defaulted to `Skipped` so
+        // that the meaning of an un-updated caller is the harmless one.
+        public enum EndReason { Skipped, Killed }
+
+        public void EndCycleEarly(EndReason reason = EndReason.Skipped)
         {
             if (!IterationRunning) return;
             endRequested = true;
+            if (reason == EndReason.Killed) RunTally.Death();
+            else RunTally.Skip();
         }
 
         private readonly List<GhostReplayer> ghosts = new List<GhostReplayer>();
@@ -208,6 +225,24 @@ namespace IterationRoom
 
         private void Start()
         {
+            // A RUN STARTS HERE, and the tally starts with it. Explicitly rather than in a static
+            // initialiser: the Editor can be set to skip the domain reload between play sessions,
+            // and static counters that survived that would quietly judge this run on the last one's
+            // mistakes. See `RunTally.Begin`.
+            RunTally.Begin();
+            GhostArchive.Begin();
+
+            // A TEST RUN THAT WANTS A REPORT BEHIND IT. Off unless an editor menu armed it - see
+            // `DebugStart.Seed`, which carries the whole argument for why the one screen in the game
+            // that reports on the run is also the one screen that cannot be tested without inventing
+            // one. The records below are what the tally is describing, so the two agree.
+            if (DebugStart.SampleReport)
+            {
+                DebugStart.Seed();
+                cycleRecords.Add(new CycleRecord(1, 9, 260.640f));
+                cycleRecords.Add(new CycleRecord(2, 22, 602.759f));
+            }
+
             StartCoroutine(RunLoop());
         }
 
@@ -514,7 +549,11 @@ namespace IterationRoom
                 // list is what the card reports and it is still built above; this is the persistent
                 // one, and it is written per cycle so that finishing a cycle and then stopping is a
                 // result rather than nothing. See `RunReport.Record` for why it keeps the better.
-                RunReport.Record(finished);
+                // **NOT ON A SAMPLED RUN.** `RunReport` keeps the BEST attempt at each cycle and the
+                // title screen reads it, so letting a test jump write into it would put a cycle the
+                // tester never played into the player's permanent record - and `RunReport.Better`
+                // would then defend that invented number against every real run afterwards.
+                if (!DebugStart.SampleReport) RunReport.Record(finished);
 
                 // The cycle is finished. Either the game is over, or there is another bed.
                 if (!HasNextCycle)
@@ -823,6 +862,13 @@ namespace IterationRoom
             //
             // Not inside the foreach: Destroy defers OnDestroy to the end of the frame, so the release
             // is asked for explicitly here rather than waited on.
+            //
+            // AND WHERE THEY WERE STANDING IS KEPT, first of all - before the release, which moves
+            // nobody, and certainly before the destroy. `GhostArchive` is what lets the ending fly
+            // back through cycles 1 and 2 and find them still in them; see its header for why a pose
+            // is kept rather than the ghost.
+            GhostArchive.Capture(ghosts, CycleNumber);
+
             foreach (var ghost in ghosts)
             {
                 if (ghost == null) continue;
@@ -902,9 +948,26 @@ namespace IterationRoom
                 narration?.AnnounceCycleBroken();
             }
 
+            // **AND THEN THE PLAYER LEAVES THE BUILDING.** Everything between the break and the card
+            // - the evaluation on room3-2N's wall, the wall opening, the cable car, the ride up
+            // through cycles 3, 2 and 1 - is `EndingDeparture`, which owns the ORDER of it and
+            // nothing else. Null on any cycle that is not the last, and null-safe here so that a
+            // build without the departure wired still ends the way it always did: break, scrim, card.
+            //
+            // IT RUNS BEFORE CONTROL IS TAKEN, and it has to. The player walks down a ladder, reads
+            // a board and steps into a vehicle in the middle of it; a sequence that ran after the
+            // line below would be a cutscene of somebody else doing that.
+            EndingDeparture departure = Current != null ? Current.departure : null;
+            if (departure != null) yield return departure.Play(cycles);
+
             // Held all the way through the break and taken here, at the scrim. Ten seconds pinned in
             // place watching a room fail would be the game freezing rather than the room failing.
             if (playerController != null) playerController.ControlEnabled = false;
+
+            // A RUN HAS BEEN FINISHED. Banked after the departure rather than before it, so that the
+            // subject number the board printed is the one for THIS run - see `RunReport.SubjectNumber`,
+            // which counts the run being evaluated as the one in progress.
+            if (!DebugStart.SampleReport) RunReport.RecordClear();
 
             // **NOTHING IS WRITTEN HERE ANY MORE.** Every cycle banked itself as it finished (see
             // the `RunReport.Record` call in the cycle loop), so by the time the ending card is up

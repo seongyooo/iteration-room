@@ -77,7 +77,7 @@ namespace IterationRoom
             // Still falling while the lids shut, which is the point - the drop is what is being felt.
             // `EndCycleEarly` then takes the ordinary path: teleport to the bed, reset the rooms, and
             // the wake-up opens the eyes again.
-            loop.EndCycleEarly();
+            loop.EndCycleEarly(LoopManager.EndReason.Killed);
         }
 
         // Kept for a caller that wants to arm it by hand. Nothing needs to: see `spentOnIteration`.

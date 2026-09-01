@@ -77,6 +77,33 @@ namespace IterationRoom
 
         // The loop's rewind. Snapped shut and silent, like `Door.Close` - this runs behind the closed
         // eyelids and a slab slamming under a black screen is the machinery showing through.
+        // **SHUT, AND STAY SHUT, WHATEVER THE PADS SAY.** Used by the cycle-3 teardown: the loop
+        // has stopped, every past self that could hold this open is gone, and a room taking itself
+        // apart should not have a door standing open behind the player.
+        //
+        // **DRIVEN HERE RATHER THAN LATCHED, because nothing else is left to drive it.** `Update`
+        // returns immediately while no iteration is running, which is exactly the state this is
+        // called in - so setting a flag and waiting for `Update` to notice would set a flag and
+        // wait for ever.
+        //
+        // On `EndingClock` like every other sequence that outlives the loop, so the pause menu can
+        // stop it and a stray `timeScale` cannot.
+        public void CloseNow()
+        {
+            StartCoroutine(Shut());
+        }
+
+        private System.Collections.IEnumerator Shut()
+        {
+            while (openAmount > 0f)
+            {
+                float step = closeDuration > 0f ? EndingClock.Delta / closeDuration : 1f;
+                openAmount = Mathf.MoveTowards(openAmount, 0f, step);
+                Apply();
+                yield return null;
+            }
+        }
+
         public void ResetBarrier()
         {
             openAmount = 0f;
@@ -129,7 +156,7 @@ namespace IterationRoom
             if (audioSource != null && crushClip != null) audioSource.PlayOneShot(crushClip);
             // The whole of what dying is. See the class note: the recording keeps everything up to
             // this moment and becomes a ghost, so the death is replayed rather than erased.
-            if (LoopManager.Instance != null) LoopManager.Instance.EndCycleEarly();
+            if (LoopManager.Instance != null) LoopManager.Instance.EndCycleEarly(LoopManager.EndReason.Killed);
         }
 
         private void Apply()

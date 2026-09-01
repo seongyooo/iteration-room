@@ -147,13 +147,22 @@ namespace IterationRoom
 
         private void Update()
         {
-            // Locked out once the player has escaped. The ending owns the screen from that point
-            // and there is no loop left running - pausing over it and pressing Resume would hand
-            // back a frozen room with nothing able to unfreeze it, which is a soft lock at the one
-            // moment the game must not have one.
-            bool endingRunning = LoopManager.Instance != null && LoopManager.Instance.RunOver;
-
-            if (GameInput.PausePressed && !endingRunning)
+            // **~~LOCKED OUT ONCE THE PLAYER HAS ESCAPED~~ OPEN AGAIN, 2026-09-01, by request.**
+            //
+            // It was shut on a real argument: the ending ran on unscaled time, so pausing over it
+            // would freeze nothing, and Resume would hand back a room with no loop able to unfreeze
+            // it. That was true when the ending was a scrim and a card - thirty seconds of watching
+            // with no input.
+            //
+            // The ending is a place now. The player climbs down a ladder, reads a wall, walks out
+            // through a breach and rides a cable car, and a game that will not take Escape for the
+            // last five minutes of itself is a game that cannot be put down. So the two halves of
+            // the old objection are both answered rather than ignored:
+            //   - `EndingClock` is what those sequences time themselves on now, and it stops dead
+            //     while this menu is up - so a pause really is a pause;
+            //   - `controlBeforePause` was always captured and restored, so Resume hands back
+            //     whatever control state the ending had at the moment it was interrupted.
+            if (GameInput.PausePressed)
             {
                 if (IsPaused) Resume();
                 else Pause();

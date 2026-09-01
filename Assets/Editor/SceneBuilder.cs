@@ -13,7 +13,12 @@ namespace IterationRoom.EditorTools
     // One-shot whitebox scene assembly for the Iteration Room prototype.
     // Run via Unity menu "Iteration Room/Build Whitebox Scene", or headlessly:
     //   Unity.exe -batchmode -quit -projectPath <path> -executeMethod IterationRoom.EditorTools.SceneBuilder.Build
-    public static class SceneBuilder
+    // **PARTIAL SINCE 2026-08-31.** This file is 24,000 lines and every new room has made it worse.
+    // The ending's departure - the evaluation board, the breach, the cable car and the exterior - is
+    // three hundred lines that touch nothing else, so it lives in `SceneBuilder.Departure.cs`
+    // instead. Nothing about the build changes: a partial class is one class, `Build` still calls
+    // into it, and everything private here stays reachable from there.
+    public static partial class SceneBuilder
     {
         private const string ScenePath = "Assets/Scenes/IterationRoom.unity";
         private const string MenuScenePath = "Assets/Scenes/MainMenu.unity";
@@ -1544,6 +1549,34 @@ namespace IterationRoom.EditorTools
                 cycleFourRoot, cycleFourBedSpawn, cycleFourGas, cycleFourSignals,
                 testCard, staticNoise);
 
+            // **CYCLE 4 IS BUILT AND NOT PLAYED** (2026-08-31, by request). Everything above stays:
+            // the shell, the bed, the chest, its own scene, its place in `CycleSceneNames`. What
+            // changes is that `LoopManager` will not offer it a bed - see `Cycle.playable`, which is
+            // the whole of the switch and the whole of turning it back on.
+            //
+            // WHY BUILT AT ALL, when the game stops before it. Because the ending FLIES PAST IT. The
+            // cable car leaves room3-2N and climbs the outside of the building, and the last thing
+            // under it as it pulls away is a finished cell with nothing in it - which says "there is
+            // more of this" in the one register this game has ever used, which is architecture. A
+            // cycle 4 deleted to end the game at three would have taken that shot with it.
+            cycleFour.playable = false;
+
+            // THE ENDING'S DEPARTURE. Built last of all, because it measures itself off every cycle
+            // in the building and all four have to exist first - the shaft clears the eastmost wall
+            // of any of them, and the flight path has a waypoint at each one's floor.
+            Transform roomNorth = cycleThreeRoot.Find("Room3_2N_Root/Room3_2N");
+            if (roomNorth == null)
+                Debug.LogError("[SceneBuilder] No Room3_2N under cycle 3 - the ending has no room to "
+                             + "put its board, its breach or its cable car in, and the game will "
+                             + "reach the last cycle and simply stop. Check what BuildBigRoom named it.");
+
+            EndingDeparture departure = BuildEndingDeparture(
+                roomNorth, cycleThreeRoot,
+                new[] { room.transform, cycleTwoRoot, cycleThreeRoot, cycleFourRoot },
+                fpc.transform, fpc, shaker, ghostPrefab, ghostParent.transform,
+                floorMat, panelMat, grooveMat);
+            if (cycleThree != null) cycleThree.departure = departure;
+
             GameObject loopGO = new GameObject("LoopManager");
             LoopManager loop = loopGO.AddComponent<LoopManager>();
             loop.loopDuration = 60f;
@@ -1593,6 +1626,9 @@ namespace IterationRoom.EditorTools
             binding.bedlamPlacer = bedlamPlacer;
             binding.ladderPlacer = ladderPlacer;
             binding.swingTool = player.GetComponent<BalloonTool>();
+            // Where the ending's frozen past selves are parented - core scene, so it crosses like
+            // everything else here. See the departure block in `CycleBinding.Bind`.
+            binding.ghostParent = ghostParent.transform;
             // One per cycle, in cycle order. Cycle 2's is null, and that null is what says it is the
             // last cycle - see LoopManager, which derives "last" from having no successor.
             // BOTH CYCLES HAVE ONE NOW. Cycle 1's sits on the JOIN between the two storeys, outside
@@ -2812,6 +2848,21 @@ namespace IterationRoom.EditorTools
         // **Anything else added to the environment must go in HERE, not in `SetupLighting`.**
         private static void ApplyEnvironment()
         {
+            // **THE SKY IS SET HERE, IN EVERY SCENE, AND IT IS SET AT BUILD TIME ON PURPOSE.**
+            //
+            // Nothing in this game has ever looked at the sky - every room is sealed - so the field
+            // was left at Unity's default, which is the blue procedural one with a sun in it. That
+            // stopped being invisible the moment the ending opened a shaft with a hole in the top:
+            // play's report was that the map "still shows what you get when no background is set",
+            // which is exactly what it was.
+            //
+            // The ending sets this at runtime too, in `FacilityExterior.LightTheOutside`. This is the
+            // belt to that pair of braces: a runtime assignment that does not run leaves the default
+            // showing, and there is no version of this game where the default is the right answer.
+            // Ambient is Trilight below, so the skybox feeds nothing and this cannot move a single
+            // tuned lighting value.
+            RenderSettings.skybox = EndingSkybox();
+
             RenderSettings.ambientMode = AmbientMode.Trilight;
 
             // **AMBIENT IS A FUDGE THIS BUILDING CANNOT DO WITHOUT, AND IT WAS TESTED TWICE.**
@@ -4453,6 +4504,16 @@ namespace IterationRoom.EditorTools
         // room to finish. All three are supported states rather than gaps - see `Cycle.Complete`,
         // which is false forever without a `finalRoom`, and `LoopManager`, which simply keeps
         // iterating.
+        // Whether a transform sits anywhere under an object with this name. Used to hold one room's
+        // panels out of its cycle's display - by ancestry rather than by position, because a room is
+        // a subtree and its panels are three levels down inside it.
+        private static bool IsUnder(Transform t, string ancestor)
+        {
+            for (Transform at = t; at != null; at = at.parent)
+                if (at.name == ancestor) return true;
+            return false;
+        }
+
         private static (Cycle cycle, WallPanelDisplay display) AssembleCycleThree(
             Transform root, Transform bedSpawn, ParticleSystem[] gasEmitters,
             GhostInteractable[] signals, Texture2D testCard, Texture2D staticNoise,
@@ -4461,14 +4522,26 @@ namespace IterationRoom.EditorTools
             // ONE DISPLAY PER CYCLE, gathered by parent name exactly as cycle 2's is: the ERROR
             // spreading from a console means *this bed's cycle is over*, so a panel in a cycle the
             // player has not reached has no business failing.
+            // **AND ROOM3-2N IS LEFT OUT OF IT** (2026-09-01, by request). Its four walls carry the
+            // evaluation at the end of the game (`EvaluationBoard`), and the ERROR wave was washing
+            // red static across the same surfaces the report is printed on - two things shouting on
+            // one wall is neither of them.
+            //
+            // What that costs: room3-2N's panels no longer glitch when the cycle breaks. The player
+            // is in room3-0 for that, one storey up, where the wave still plays across every wall -
+            // so the beat is not lost, it is confined to the room the player is standing in.
             var panels = new System.Collections.Generic.List<Renderer>();
+            int excluded = 0;
             foreach (Renderer r in root.GetComponentsInChildren<Renderer>())
             {
                 if (r.transform.parent == null || !r.transform.parent.name.EndsWith("_Panels")) continue;
+                if (IsUnder(r.transform, "Room3_2N")) { excluded++; continue; }
                 panels.Add(r);
             }
             WallPanelDisplay display = MakeWallPanelDisplay(
                 "WallPanelDisplay_Cycle3", panels.ToArray(), testCard, staticNoise);
+            Debug.Log($"[SceneBuilder] Cycle 3 panel display: {panels.Count} panel(s), {excluded} in "
+                    + "room3-2N held out so the evaluation has its walls to itself.");
 
             GameObject go = new GameObject("Cycle3");
             Cycle cycle = go.AddComponent<Cycle>();
@@ -6892,7 +6965,12 @@ namespace IterationRoom.EditorTools
                            new Vector3(bigOffsetX, 0f, NorthRoomZ),
                            bigWidth, bigDepth, bigHeight,
                            floorMat, grooveMat, panelMat, fixtureMat, corridorMouth, Rect.zero,
-                           CycleFourHole, ladderHole);
+                           CycleFourHole, ladderHole,
+                           // AND A HOLE IN THE EAST WALL, plugged with slabs that slide out of it at
+                           // the very end - see `BuildBreach`. It is cut at build time rather than
+                           // made at runtime because a wall in this project is a generated mesh with
+                           // a chamfered rim, not a scaled cube, and there is no cutting one later.
+                           BreachCutout());
             Transform rS = BuildEmptyRoom(root.transform, "Room3_2S", new Vector3(0f, 0f, -RoomPitch),
                            floorMat, grooveMat, panelMat, fixtureMat,
                            doorwayNorth: false, northCutout: gateNS);
@@ -14358,7 +14436,12 @@ namespace IterationRoom.EditorTools
                                               Material floorMat, Material grooveMat,
                                               Material panelMat, Material fixtureMat,
                                               Rect southCutout, Rect northCutout,
-                                              Rect floorHole, Rect ceilingHole)
+                                              Rect floorHole, Rect ceilingHole,
+                                              // THE EAST WALL CAN BE HOLED TOO, since 2026-08-31:
+                                              // room3-2N's is where the cable car comes through at
+                                              // the end of the game. Defaulted so the one caller
+                                              // that does not want one says nothing.
+                                              Rect eastCutout = default)
         {
             GameObject rootGO = new GameObject(name + "_Root");
             rootGO.transform.SetParent(parent, false);
@@ -14401,7 +14484,7 @@ namespace IterationRoom.EditorTools
             BuildPanelWall(t, "Wall_West", new Vector3(-width / 2f, 0f, 0f),
                 Vector3.forward, Vector3.right, depth, grooveMat, panelMat, Rect.zero, height);
             BuildPanelWall(t, "Wall_East", new Vector3(width / 2f, 0f, 0f),
-                Vector3.forward, Vector3.left, depth, grooveMat, panelMat, Rect.zero, height);
+                Vector3.forward, Vector3.left, depth, grooveMat, panelMat, eastCutout, height);
 
             BuildTallRoomLights(t, name, width, depth, height, fixtureMat);
             BuildMezzanines(t, width, depth, floorMat, panelMat);
@@ -14719,7 +14802,66 @@ namespace IterationRoom.EditorTools
             // that got quieter as the player walked away from a speaker would be a speaker.
             failure.sirenSource = MakeSource(go.transform, "Siren", 0f, 0.55f, loop: true);
             failure.sirenClip = LoadClip(SfxDir, "sfx_alarm_siren");
-            failure.wayDownSign = wayDownHint;
+            failure.wayDownSigns = wayDownHint;
+            // **THE WAY THE PLAYER CAME IN.** Found rather than passed down: it is the one
+            // `CrushingBarrier` in this cycle, and threading it through four call signatures to say
+            // so would be four more places to keep in step. See `FacilityFailure.wayIn`.
+            failure.wayIn = cycleRoot.GetComponentInChildren<CrushingBarrier>(true);
+            if (failure.wayIn == null)
+                Debug.LogWarning("[SceneBuilder] Cycle 3 has no CrushingBarrier - the way into "
+                               + "room3-2N will stand open through the teardown.");
+
+            // **ROOM3-0 GOES RED** (2026-08-31, by request). Its four white ceiling spots and their
+            // emissive faces are handed over to be put out, and one red light is built to replace
+            // them - see the block of fields on `FacilityFailure` for why the faces have to go too
+            // and why they are driven through a property block rather than the material.
+            //
+            // GATHERED BY WALKING, not returned from `BuildBreakRoomThree`. The room is built through
+            // the general `BuildEmptyRoom`, which hands back a Transform and nothing else, and
+            // widening its return for one caller would be a signature change felt by every room in
+            // the game. The names come from `BuildCeilingLights`, which is one function.
+            Transform roomZero = null;
+            foreach (Transform t in cycleRoot.GetComponentsInChildren<Transform>(true))
+                if (t.name == "Room3_0") { roomZero = t; break; }
+
+            if (roomZero == null)
+            {
+                Debug.LogError("[SceneBuilder] No Room3_0 under cycle 3 - the break cannot put its "
+                             + "lights out, and the room will end the game lit white.");
+            }
+            else
+            {
+                Transform fixtures = roomZero.Find("Room3_0_CeilingLights");
+                if (fixtures == null)
+                {
+                    Debug.LogError("[SceneBuilder] Room3_0 has no 'Room3_0_CeilingLights' - check what "
+                                 + "BuildCeilingLights named it. The break will leave the room lit.");
+                }
+                else
+                {
+                    failure.roomLights = fixtures.GetComponentsInChildren<Light>(true);
+                    failure.roomFixtures = fixtures.GetComponentsInChildren<Renderer>(true);
+                }
+
+                // THE ONE LIGHT LEFT. In the middle of the room and low - a red source ABOVE the
+                // player lights the floor and leaves the walls, which is the arrangement that was
+                // just taken away; at head height it washes the panels and the arrow, which are the
+                // only two things in here that are meant to be seen.
+                GameObject alarmGO = new GameObject("AlarmLight");
+                alarmGO.transform.SetParent(roomZero, false);
+                alarmGO.transform.localPosition = new Vector3(0f, 2.4f, 0f);
+                Light alarm = alarmGO.AddComponent<Light>();
+                alarm.type = LightType.Point;
+                alarm.color = new Color(0.85f, 0.06f, 0.06f);
+                alarm.range = 16f;
+                alarm.intensity = 0f;
+                alarm.shadows = LightShadows.None;
+                // Realtime and OFF at build. It is a light that exists for ninety seconds at the very
+                // end of the game; baking it would put a red room into the lightmap of a white one.
+                alarm.lightmapBakeType = LightmapBakeType.Realtime;
+                alarm.enabled = false;
+                failure.alarmLight = alarm;
+            }
             // `cameraShaker` and `narration` live in the core scene and are bound at runtime by
             // `CycleBinding` - see the note there.
 
@@ -15639,11 +15781,40 @@ namespace IterationRoom.EditorTools
             // a storey below and out of sight from here; without this the break ends with a player
             // in a red room with nothing to do. Authored at alpha 0 and raised by `FacilityFailure`,
             // because before the break there is nothing to point at.
-            CanvasGroup wayDown = MakeWallFace(t, "WayDownSign",
-                new Vector3(0f, 2.1f, RoomDepth / 2f - 0.06f), Quaternion.Euler(0f, 180f, 0f),
-                f => MakeWallIcon(f, "WayDown", DownArrowIcon(), Vector2.zero, 1280f,
-                                  new Color(0.85f, 0.10f, 0.10f, 0.95f)),
-                worldWidth: 1.5f, withPlate: false, authoredHeight: 1600f);
+            // **IDENTITY, NOT 180.** This is a north (+Z) wall, and a wall face in this game points
+            // its canvas's local +Z INTO the wall - see `MakeFourWallFaces`, whose north entry is
+            // identity, and the ladder sign, which is -90 on a west wall and describes itself as
+            // facing east into the room. At 180 the arrow was drawn on the inside of the panelling,
+            // which is why the room appeared to have no sign in it at all.
+            // **ONE ON EVERY WALL, NOT ONE ON THE NORTH ONE** (2026-09-01, by request).
+            //
+            // Which way the player is facing when the break ends is not something this sequence gets
+            // to choose - they are standing at a console they have just filled, and the room goes red
+            // around them. A single arrow is an arrow half of them have their back to, in a windowless
+            // room whose only exit is a hole in the floor they cannot see from most of it.
+            //
+            // Every face points its canvas's local +Z INTO its own wall, which is this game's
+            // convention and the one that has been got wrong twice (`docs/gotchas.md`) - so these are
+            // the same four rotations `MakeFourWallFaces` uses.
+            System.Action<Transform> arrow = f =>
+                MakeWallIcon(f, "WayDown", DownArrowIcon(), Vector2.zero, 1280f,
+                             new Color(0.85f, 0.10f, 0.10f, 0.95f));
+
+            CanvasGroup[] wayDown =
+            {
+                MakeWallFace(t, "WayDownSign_North",
+                    new Vector3(0f, 2.1f, RoomDepth / 2f - 0.06f), Quaternion.identity,
+                    arrow, worldWidth: 1.5f, withPlate: false, authoredHeight: 1600f),
+                MakeWallFace(t, "WayDownSign_South",
+                    new Vector3(0f, 2.1f, -RoomDepth / 2f + 0.06f), Quaternion.Euler(0f, 180f, 0f),
+                    arrow, worldWidth: 1.5f, withPlate: false, authoredHeight: 1600f),
+                MakeWallFace(t, "WayDownSign_West",
+                    new Vector3(-RoomWidth / 2f + 0.06f, 2.1f, 0f), Quaternion.Euler(0f, -90f, 0f),
+                    arrow, worldWidth: 1.5f, withPlate: false, authoredHeight: 1600f),
+                MakeWallFace(t, "WayDownSign_East",
+                    new Vector3(RoomWidth / 2f - 0.06f, 2.1f, 0f), Quaternion.Euler(0f, 90f, 0f),
+                    arrow, worldWidth: 1.5f, withPlate: false, authoredHeight: 1600f),
+            };
 
             GameObject seqGO = new GameObject("BreakSequence");
             seqGO.transform.SetParent(t, false);
@@ -15667,7 +15838,7 @@ namespace IterationRoom.EditorTools
         // Carried out of `BuildBreakRoomThree` rather than returned, because it belongs to
         // `FacilityFailure` and that is assembled a scene apart. One field is cheaper than a fourth
         // member on a tuple two callers already thread through.
-        private static CanvasGroup wayDownHint;
+        private static CanvasGroup[] wayDownHint;
 
         // AN ARROW POINTING DOWN, THROUGH A FLOOR. Two marks: the arrow, and the line under it that
         // makes the arrow read as going THROUGH something rather than merely pointing at it.

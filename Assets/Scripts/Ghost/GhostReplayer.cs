@@ -366,6 +366,11 @@ namespace IterationRoom
 
                 if (BalloonField.Instance != null) BalloonField.Instance.PopById(pops[popCursor - 1].balloonId);
                 swingUntil = Time.time + popSwingDuration;
+                // COUNTED PAST THE `armed` GATE, so a past self whose pin was taken off it does not
+                // get credit for the pops it could not make. See the note in `TryTake` below for why
+                // every one of these sits at the point of success rather than at the top of the
+                // method.
+                RunTally.GhostAct();
             }
         }
 
@@ -443,6 +448,7 @@ namespace IterationRoom
                 held.RemoveAt(i);
                 PutDown(item);
                 ApplyEquip(string.Empty);
+                RunTally.GhostAct();
                 return;
             }
         }
@@ -691,6 +697,15 @@ namespace IterationRoom
             // ApplyEquip lays every carried item out, which is what takes custody of this one and
             // shuffles the belt along to make room for whatever it displaces.
             ApplyEquip(itemId);
+
+            // **EVERY `RunTally.GhostAct` IN THIS FILE SITS AT THE POINT OF SUCCESS, PAST EVERY
+            // `return`.** That placement is the whole worth of the COOPERATION figure. A ghost
+            // re-evaluates each recorded action against the world as it is now (CLAUDE.md 1.3) and a
+            // great many of them fail - the object is in the living player's hands, the socket is
+            // already full, an earlier recording's take won the contest. Counting at the top of the
+            // method would count a past self that walked to a spot and did nothing, which is exactly
+            // the thing the player is being told did not have to be done twice.
+            RunTally.GhostAct();
         }
 
         private void TrySurrender(string itemId, string targetName)
@@ -724,6 +739,7 @@ namespace IterationRoom
             // believing it had the thing equipped, and HoldingEquipped would keep arming tool-shaped
             // actions for an object that is sitting in a lock.
             ApplyEquip(string.Empty);
+            RunTally.GhostAct();
         }
 
         // Everything down where it stands, still in play.
@@ -838,6 +854,10 @@ namespace IterationRoom
                     bool now = (signals & bit) != 0u;
                     if (now == ((activeSignals & bit) != 0u)) continue;
                     if (interactables[i] != null) interactables[i].SetGhostSignal(this, now);
+                    // RISING EDGES ONLY, matching `PlayerRecorder.SampleSignals` exactly - a past
+                    // self standing on a pad for ten seconds did one thing. The falling edge is the
+                    // same action ending, not a second one.
+                    if (now) RunTally.GhostAct();
                 }
             }
 

@@ -128,6 +128,17 @@ namespace IterationRoom
         // metre cannot be fought with the keys that made it.
         public bool Mantling => mantle != null;
 
+        // **~~RIDING~~ GONE, AND THE CABLE CAR IS WHY IT WENT.** It stood `HandleMove` aside while
+        // the car carried the player, on the reasoning that a passenger is not walking.
+        //
+        // A passenger IS walking. The ride is a minute long and exists to be looked out of, and the
+        // flag turned the cabin into a camera mount - the player could turn their head and nothing
+        // else. `CableCarRide.CarryPlayer` hands the car'''s own movement to the controller instead,
+        // so the ride happens underneath ordinary walking rather than in place of it.
+        //
+        // Kept as a note rather than deleted silently: "the vehicle takes the controls" is the
+        // obvious shape for a vehicle, and it is the one that was tried.
+
         private Coroutine mantle;
 
         private System.Collections.IEnumerator Mantle(Vector3 to, float seconds)

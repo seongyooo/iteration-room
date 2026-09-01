@@ -43,12 +43,33 @@ local X, so without a quarter roll about its own length the lean happens in the 
 and the ladder tips sideways instead of leaning back — which from the foot reads as no lean at all.
 `docs/gotchas.md`. Check all THREE axes of an authored rotation, never just the angle.
 
-**THE WAY DOWN TO CYCLE 4 IS A ROOM-SIZED HOLE IN THE MIDDLE OF ROOM3-2N'S FLOOR**, not a hatch: it
-is room4-1's whole ceiling, in two leaves that part into the floor either side. So filling room3-0's
-console opens a floor a storey BELOW the room the player is standing in — which is why the break
-raises a sign in room3-0 pointing down, and why the ERROR wave covers both rooms (one
-`WallPanelDisplay` per cycle, so it always did). Cycle 4 is what cycle 3 was when it started: one
-sealed room, a bed, an empty chest, `finalRoom` null. **So the game has no ending again.**
+**THE GAME ENDS AT CYCLE 3, AND CYCLE 4 IS BUILT BUT NOT PLAYED** (2026-08-31, by request). The
+switch is **one bool, `Cycle.playable`**, and `LoopManager.HasNextCycle` asks it as well as asking
+whether a next cycle exists. Cycle 4 still builds, still gets its own scene, and is still in
+`CycleSceneNames` — **it has to be, because the ending FLIES PAST IT**: an unfinished cell under
+room3-2N is how the game says "there is more of this" without a patch note. Deleting it to end at
+three would have deleted that shot. Turning it on later is that bool.
+
+**TO TEST IT: `Iteration Room > Test > Cycle 3 ending`.** It arms the next Play through PlayerPrefs
+(statics do not survive the domain reload, which is why the old shortcut needed a title-screen
+button) and opens the game scene; it is ONE SHOT. `DebugStart.Seed` is the only thing in this project
+that invents data, and it exists because the evaluation board cannot be looked at on a run that
+skipped the two cycles it reports on — a sampled run is never written to `RunReport`.
+
+**WHAT HAPPENS INSTEAD OF A FOURTH BED** — `EndingDeparture` owns the order and nothing else:
+1. the break plays as before, and powers a large **`EvaluationBoard`** on room3-2N's north wall;
+2. the player drops down the ladder shaft (`FacilityFailure` takes the decks and the lift with
+   everything else, so the way down is the fall) and the board prints its grade a line at a time;
+3. the east wall of room3-2N comes apart (`CycleExit`, the same component the hatches use) and a
+   **cable car** comes in through it;
+4. walking into the cabin closes the doors; the car climbs the outside of the building past cycles
+   3, 2 and 1 — **the reverse of the descent the whole game was** — and out to the surface;
+5. `EndingSequence`'s card, unchanged.
+
+**THE ROOM-SIZED HOLE IN ROOM3-2N'S FLOOR IS STILL CUT AND NEVER OPENS.** It is room4-1's whole
+ceiling and `opensWayOutOnBreak` is false, so with no boundary to cross the lids simply stay shut —
+which is what stops the ending's walk to the cable car crossing an open pit with no fall damage under
+it. Do not "fix" it by opening it.
 
 **Rooms are called `room<cycle>-<n>` in design discussion** — `Room1` is `room1-1`, `Room4` is
 `room1-0`, and a cycle always ends in its `-0`. **The code names above are unchanged and are what
@@ -359,6 +380,13 @@ Do not merge these roles. Before adding a system, check whether one of them alre
 | `FinalRoomSequence` | A cycle's `-0`: its console, its exit condition, and the break. Room4 and room2-0 |
 | `Cycle` | One cycle's world: its bed, doors, rooms, signal array, panels — and **which particle systems are its gas**. Anything per-cycle a system outside needs is NAMED here, never gathered by type at runtime |
 | `CaptureRig` | Filming: which HUD is hidden, and the camera that leaves the player's head. Editor/dev builds only, records nothing, and freezes the player through `GameInput.Suspended` alone |
+| `RunTally` | The RAW COUNTS a run produces: right and wrong answers, player and ghost actions, deaths, skips. Counting only |
+| `RunEvaluation` | What those counts are WORTH: the four axes, the final score and the verdict. Scoring only. `EvaluationStandard` is its tuned numbers, authored by `SceneBuilder` |
+| `EvaluationBoard` | The scoreboard on room3-2N's wall: what is printed and how it arrives. Not what it says |
+| `GhostArchive` | Where every past self was standing when its cycle ended. A pose, kept so the ending can put them back |
+| `EndingDeparture` | The ORDER of the last five minutes, and nothing else |
+| `CableCarRide` | The vehicle: its arrival, its doors, boarding, and carrying the player along a path |
+| `FacilityExterior` | What the building looks like from outside: which cycles are awake, which surfaces come off, the cell blocks, the statues |
 
 **Values live in `SceneBuilder`, mechanisms live in components.** Shaders and scripts take the
 number; they do not choose it.
@@ -627,6 +655,31 @@ player less to do.** Do not damage that when adding rooms.
   dropped object ends up depends on every body near it — including a living player who moves
   differently every iteration, which would break "a past self does exactly what you did". One axis,
   real gravity, one known height. Nothing about a fall is recorded; it is *derived* from the release.
+
+- **THE RUN IS GRADED, AND THE GRADE GATES NOTHING.** `RunEvaluation` scores four axes and prints a
+  verdict on room3-2N's wall; `SUBJECT MAY PROCEED` is the last line **whatever the verdict is**, and
+  the cable car comes for a `DEFICIENT` subject exactly as it comes for an `EXEMPLARY` one. A grade
+  that sent the player back to cycle 1 was considered and rejected: the run is an hour long, nothing
+  else in this game has ever taken progress away (a death keeps its recording), and a first-time
+  player would fail any threshold set from the only clear that exists — which is the designer's.
+  - **EVERY AXIS IS A REAL RATIO OF THINGS THE RUN DID.** `MEMORY` is accuracy at the fixtures that
+    can refuse; `COOPERATION` is the past selves' share of every action that changed the world;
+    `ADAPTATION` is the trend across cycles against per-cycle baselines; `EFFICIENCY` is the count
+    and the clock against what an iteration is worth. **Do not make one of them decorative** - the
+    second playthrough is what catches a scoreboard that was not watching.
+  - **COOPERATION IS HIGH FOR EVERYONE AND THAT IS THE MEASUREMENT WORKING.** The game cannot be
+    finished without past selves (room2-7's latch, room3-1's pad), and ghost work grows with the
+    SQUARE of the iteration count. It is not corrected for. `SUBJECTS INVOLVED ... 1` is printed
+    directly under it.
+  - **THE TALLY IS HOOKED IN TWO FILES ON THE GHOST/PLAYER AXIS, AND MUST STAY THAT WAY.**
+    `PlayerRecorder` is the single point every living-player action passes through and `GhostReplayer`
+    is its mirror; counting either side anywhere else is counting two different sets and calling the
+    ratio a measurement. Ghost actions are counted AT THE POINT OF SUCCESS, past every `return` — a
+    re-evaluation that failed is a past self that walked somewhere and did nothing.
+  - **NOTHING IN `RunTally` IS EVER REWOUND**, not by the loop and not by a restart. An attempt made
+    at iteration 9 still happened.
+  - The baselines and bands live in `EvaluationStandard` (§2: values live in `SceneBuilder`) and are
+    **guesses, deliberately lenient**, from a population of one. Retune when there are testers.
 
 Room-by-room reasoning: `docs/puzzle-design.md`.
 

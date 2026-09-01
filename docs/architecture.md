@@ -64,3 +64,37 @@ Only what is not covered above.
 - `Interactables/BalloonTool.cs` — uses an **overlap sphere, not a raycast**: in a room packed with balloons, having to line one up in the crosshair turns a physical act into a shooting gallery.
 - `Loop/IterationLabel.cs` — the eyelids are built first in `BuildUI` so they sit at the back of the canvas and the label draws on top of the black rather than under it.
 - `Capture/CaptureRig.cs` — **the trailer rig: the HUD off, and the eye off the player's head.** **Two independent toggles, not a cycle.** It was a three-state cycle (FULL/CLEAN/BARE) and that read as broken in use: press once and the HUD goes, press again expecting it back and you get BARE, which is also hidden — only the third press returned it, so two of the three states looked identical from the chair. The ITERATION/CYCLE card keeps its own switch because it is the one overlay that is also a trailer asset. **Each control is a bare unmodified letter (K/J/L)**, which is the third attempt: F9–F12 are media keys on most laptops and without Fn the press goes to the system volume, and Alt+letter is a Windows menu accelerator that the Editor's menu bar swallows. Both failed upstream of the game, so the keys moved somewhere nothing else claims. `Awake` logs the rig and its keys, because twice over the symptom of "the key never arrived" was indistinguishable from "the rig is broken". **It hides `Graphic`s, never GameObjects** — `SetActive(false)` breaks two things: `IterationLabel.Show` calls `StartCoroutine`, which throws against an inactive object and would log an exception at every iteration boundary in exactly the takes BARE exists for, and deactivating `TouchControls` unregisters it from `GameInput` on the way down. Disabling the graphics changes only what is drawn, and is re-forced in `LateUpdate` so a component that re-enables its own graphic mid-take cannot undo it. **A disabled `Graphic` is not a raycast target either**, so the end-cycle control cannot be clicked while the HUD is hidden — the bound key still works. What it hides is **named by `SceneBuilder`**, never swept off the canvas — a sweep would also take the eyelids, the gas and the pause menu, and would silently claim whatever gets added next. Detaching freezes the player through **one lever, `GameInput.Suspended`**: `GameInput` is the single place every verb is read, so suspending it there stops the walking, the hand and all eight E fixtures at once, where disabling `FirstPersonController` would stop only the walking and leave E picking things up beside a body nobody is driving. It disables the **Camera component, never the GameObject** — the `AudioListener` is on `PlayerCamera`, and `PlayerLookup.Eye` resolves a disabled component on an active object, so both survive. Flight is unscaled, so the camera still moves at `timeScale` 0. Its two toggle keys are consts here rather than `InputBindings` entries, deliberately — they are not verbs and a settings page listing them would be a capture rig shipped as a feature — and `TakenByAVerb` gives a key up if a player has bound something onto it. Editor and development builds only. **Known limitation: mirrors are wrong from a detached camera**, since `MirrorReflection` renders for `PlayerLookup.Eye`. Shot plan in `docs/trailer-shotlist.md`.
+
+
+---
+
+## The ending's systems (2026-08-31)
+
+Added when the game stopped at cycle 3. Design reasoning is in `docs/cycle-design.md` §9 (the
+departure) and `docs/loop-and-ui.md` (the evaluation); this is the index.
+
+| Script | Owns |
+| --- | --- |
+| `Loop/RunTally.cs` | The raw counts a run produces. Static, never rewound, started by `LoopManager.Start` |
+| `Loop/RunEvaluation.cs` | The four axes, the final score, the verdict. `EvaluationStandard` is its tuned numbers |
+| `Room/EvaluationBoard.cs` | The scoreboard on room3-2N's north wall: what is printed and how it arrives |
+| `Ghost/GhostArchive.cs` | Every past self's pose at the moment its cycle ended. Static, captured in `LoopManager.EndCycleState` |
+| `Room/EndingDeparture.cs` | The ORDER of the last five minutes. Delegates everything, owns nothing else |
+| `Room/CableCarRide.cs` | The vehicle: arrival, doors, boarding, and carrying the player along a path |
+| `Room/FacilityExterior.cs` | The building from outside: cycles woken, surfaces removed, cell blocks, statues |
+| `Editor/SceneBuilder.Departure.cs` | Building all of the above. `SceneBuilder` is `partial` for this |
+
+Hooks added to existing scripts, all of them one or two lines:
+
+- `PlayerRecorder` — `RunTally.PlayerAct()` on a recorded pop, a recorded carry, and each rising
+  edge in the sampled signal mask.
+- `GhostReplayer` — `RunTally.GhostAct()` at the point of success in `DrainPops`, `TryTake`,
+  `TryDrop`, `TrySurrender` and on each rising edge in `ApplySignals`.
+- `FinalSlot`, `KeyLock`, `BedlamPlacer` — `RunTally.Answer(bool)` on both branches of the question.
+- `LoopManager` — `RunTally.Begin()` / `GhostArchive.Begin()` at `Start`; `EndReason` on
+  `EndCycleEarly` so a death is told from a voluntary skip; `GhostArchive.Capture` before the ghosts
+  are destroyed; `RunEnding` yields on `Cycle.departure` before it takes control.
+- `FirstPersonController` — `Riding`, which stands `HandleMove` aside and leaves `HandleLook`
+  running. The precedent is `Mantling` immediately above it.
+- `FacilityFailure` — powers the board on at the break.
+- `CycleBinding` — rebinds the five references the departure makes across a scene boundary.

@@ -71,6 +71,31 @@ namespace IterationRoom
         // way out of a cycle, and `Completed` is what `LoopManager` watches for.
         public FinalRoomSequence finalRoom;
 
+        // WHAT HAPPENS AFTER THE LAST CYCLE BREAKS. Null on every cycle that has another one after
+        // it - a cycle with a successor ends at a hatch in the floor and needs no send-off - and set
+        // on the LAST one, where breaking the cycle is breaking the game.
+        //
+        // Named here for the same reason `finalRoom` and `gasEmitters` are: `LoopManager` needs it
+        // and lives in another scene, so it has to be reachable through the `Cycle` component rather
+        // than found by type. See `EndingDeparture`.
+        public EndingDeparture departure;
+
+        // **WHETHER THE GAME EVER PUTS THE PLAYER IN THIS CYCLE.** True for every cycle that is
+        // played; false for one that exists only to be SEEN.
+        //
+        // Cycle 4 is the second kind (2026-08-31, by request). Its shell is built, its scene loads
+        // with the others, and it stands under room3-2N as an unfinished cell the cable car passes on
+        // the way out - which is how the game says "there is more of this" without a patch note. What
+        // it does not have is a puzzle, so `LoopManager` must not offer it a bed.
+        //
+        // **THE DISTINCTION IS "PLAYABLE", NOT "LOADED", AND THAT IS THE WHOLE TRICK.** Dropping the
+        // cycle from `CycleSceneNames` would also have ended the game at cycle 3 - and it would have
+        // taken the scene out of the world, so there would be nothing out there to look at. The
+        // building has to contain a room the game will not go into.
+        //
+        // Turning cycle 4 on later is this one bool.
+        public bool playable = true;
+
         // WHAT PUTS THE PLAYER OUT WHEN THEY ARRIVE IN THIS CYCLE. Named here rather than found by
         // type at runtime, and that distinction is the fix to a real fault: `CycleBinding.PointGasAt`
         // used to hand `SleepingGas` every ParticleSystem under the cycle root, which is the four wall

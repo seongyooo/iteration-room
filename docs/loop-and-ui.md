@@ -479,3 +479,78 @@ page should look like:
 
 Cycle 3 has never been cleared by a human. **All of the above is a knows-everything run** — played by
 the person who designed it — so a blind player needs considerably more.
+
+---
+
+## The evaluation (2026-08-31)
+
+### What was asked for, and the one part of it that was turned down
+
+The brief was: grade the player at the end, show it on room3-2N's wall like a scoreboard, and — in
+the first version — send a subject who fell short back to cycle 1.
+
+The grading and the board were built as asked. **The gate was not**, and the reasoning was accepted:
+
+- a full run is about an hour, so a forced restart is a session deleted;
+- **nothing else in this game has ever taken progress away.** A death in room3-1 keeps its recording
+  and becomes a ghost like any other run; `RunReport` keeps the *better* of two attempts at a cycle
+  so a bad run cannot cost a result already held. A gate here would be the only punishment in the
+  project;
+- and the threshold could only be set from the one clear that exists, which is the designer's
+  knows-everything run. **Any bar drawn from it fails every first-time player**, so nobody would ever
+  see the ending that most of the work went into.
+
+What the idea became instead: the verdict word varies (`EXEMPLARY` / `QUALIFIED` / `MARGINAL` /
+`DEFICIENT`) and **the last line is `SUBJECT MAY PROCEED` whatever it says**. The cable car comes for
+a deficient subject in exactly the same words as an exemplary one — which is a colder thing for the
+building to say than a refusal would have been, and it costs the player nothing.
+
+### The four axes, and why they are real
+
+| Axis | What it measures | Where the number comes from |
+| --- | --- | --- |
+| `MEMORY` | Did you know the answer before trying it | Accuracy at the three fixtures that can refuse: `FinalSlot`, `KeyLock`, `BedlamPlacer` |
+| `ADAPTATION` | Did you hold up as the facility stopped explaining | Each cycle's cost against a per-cycle baseline, first against last |
+| `COOPERATION` | How much of this was done by people who are you | Past selves' share of every action that changed the world |
+| `EFFICIENCY` | Iterations spent, and seconds inside them | Count against baseline, clock against the 60-second budget |
+
+They could have been decorative and they are not, because **the second playthrough is what catches a
+scoreboard that was not watching**. It is also the house style: `RunReport`'s own comments spend a
+paragraph defending the third decimal of the clock as *"real and not a stopwatch"*.
+
+### Two things worth knowing before reading a `COOPERATION` figure
+
+**It is high for everyone who reaches the board, and that is correct.** The game cannot be finished
+without past selves — room2-7's latch re-locks every iteration and charges five past-self deliveries
+for every trip to room2-0; room3-1's door is a pad somebody else has to be standing on. A player who
+got here cooperated, necessarily.
+
+**It also grows with the square of the iteration count**, because every iteration replays every
+previous one while the living player's own actions grow linearly. A long run scores higher for
+reasons that are not skill. This is deliberately *not* corrected for: the axis is not "did you
+cooperate well", it is "how much of this was done by people who are you", and on that question the
+arithmetic is exactly right.
+
+Which is why `SUBJECTS INVOLVED ... 1` is printed on the line directly beneath it. The facility is
+not being ironic; it is filling in a field on a form, and the number is correct.
+
+### Where the tally is hooked, and why only there
+
+`RunTally` counts, `RunEvaluation` scores, `EvaluationBoard` displays. The ghost/player ratio is
+hooked in **exactly two files** — `PlayerRecorder` and `GhostReplayer` — because those are the single
+points every living-player action and every past-self action pass through. Counting either side
+anywhere else would be counting two different sets and calling the ratio between them a measurement.
+
+Every ghost increment sits **at the point of success, past every `return`**. A ghost re-evaluates each
+recorded action against the world as it is now and a great many fail; a refused replay is a past self
+that walked to a place and did nothing, and it did not help.
+
+Nothing in the tally is ever rewound — not by the loop's reset, not by a restart. An attempt made at
+iteration 9 still happened, and forgiving them would make restarting the cheapest way to raise a score.
+
+### The numbers are guesses
+
+Every value in `EvaluationStandard` — the per-cycle baselines, the target seconds, the three bands —
+comes from a population of one. They are set lenient because the evaluation gates nothing, so being
+generous costs nothing and being harsh costs a first-time player being told they were bad at a game
+they just spent an hour finishing. Retune when there are testers.

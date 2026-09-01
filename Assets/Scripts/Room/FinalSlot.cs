@@ -224,6 +224,11 @@ namespace IterationRoom
             CarryableItem given = hand.Surrender(acceptedItemId);
             if (given == null) return;
 
+            // A RIGHT ANSWER, counted only on the PLAYER's path. `AcceptFromGhost` below reaches
+            // `Accept` too and must never be counted: a past self replaying a delivery the player
+            // already got right is not the player remembering it a second time, and counting it
+            // would make the score climb on its own with every iteration that passed.
+            RunTally.Answer(true);
             Accept(given);
         }
 
@@ -232,6 +237,7 @@ namespace IterationRoom
         // answer here cannot accumulate across a run.
         private void Refuse()
         {
+            RunTally.Answer(false);
             refusedUntil = Time.time + refusedSeconds;
             painter.ForceNextRepaint();
             if (audioSource != null && refuseClip != null) audioSource.PlayOneShot(refuseClip);

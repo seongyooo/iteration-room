@@ -47,6 +47,10 @@ namespace IterationRoom
         // at the swing tool - which is on the player.
         public BalloonTool swingTool;
 
+        // Where a past self is parented. Core-scene, and the ending's statues need it - see the
+        // departure block in `Bind`.
+        public Transform ghostParent;
+
         // The E fixtures that live OUTSIDE any cycle. **EMPTY SINCE 2026-08-31**, when the calibration
         // room took the only one with it; kept because it is the right shape for the next fixture that
         // needs it. It held the start button, which ran
@@ -176,6 +180,41 @@ namespace IterationRoom
             {
                 mount.player = player != null ? player.GetComponent<FirstPersonController>() : null;
                 if (ladderPlacer != null) ladderPlacer.mount = mount;
+            }
+
+            // THE ENDING'S DEPARTURE, and it crosses in BOTH directions at once - which is why it is
+            // bound here rather than trusted to `SceneBuilder`, which wires all of it correctly and
+            // then watches Unity throw half of it away on save.
+            //
+            // Out of the cycle: the shaker the breach rattles, the player the board waits for, the
+            // player the car carries and the controller it stops. Every one of those lives in the
+            // core scene. Into the cycle: nothing - `EndingDeparture` is reached through
+            // `Cycle.departure`, which is a reference within one scene and needs no help.
+            //
+            // Read `cross-scene-report.txt` after touching any of this (CLAUDE.md 3). Cycle 3 is the
+            // only cycle that has a departure, so everything below is guarded on finding one rather
+            // than on which cycle this is.
+            EndingDeparture departure = cycle.worldRoot.GetComponentInChildren<EndingDeparture>(true);
+            if (departure != null)
+            {
+                cycle.departure = departure;
+                departure.cameraShaker = cameraShaker;
+                // Which cycle this is, so the exterior can leave the player's own rooms alone, and
+                // the player, whose height is what says they have finished the climb down.
+                departure.occupied = cycle;
+                departure.player = player;
+
+                if (departure.board != null) departure.board.player = player;
+                if (departure.car != null)
+                {
+                    departure.car.player = player;
+                    departure.car.controller =
+                        player != null ? player.GetComponent<FirstPersonController>() : null;
+                }
+                // The ghost prefab is a PREFAB ASSET rather than a scene object, so it survives the
+                // split on its own and is left alone here. Its PARENT does not - `Ghosts` is an
+                // object in the core scene - so the statues are re-pointed at it.
+                if (departure.exterior != null) departure.exterior.ghostParent = ghostParent;
             }
 
             // The tree's left-click disc, the same direction and the same guard: assigned only when

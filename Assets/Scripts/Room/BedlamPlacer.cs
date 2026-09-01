@@ -96,6 +96,7 @@ namespace IterationRoom
             // player asked this cube a question and it answered no, and the flash is the answer.
             if (!cube.CanSeat(held.itemId))
             {
+                RunTally.Answer(false);
                 cube.ShowRefused();
                 return;
             }
@@ -110,6 +111,11 @@ namespace IterationRoom
             // is a ghost doing something the player did not.
             CarryableItem block = hand.Surrender(held.itemId);
             if (block == null) return;
+
+            // The block belonged and the player knew it did. Counted here rather than beside
+            // `ShowRefused` above so that both branches of the same question are recorded by the
+            // same method - see `RunTally.Answer`, which exists as one call for exactly this reason.
+            RunTally.Answer(true);
 
             // Cannot fail - CanSeat was true a line ago and nothing between can have changed it -
             // but the block is out of the hand's books by now, so a hole here would lose it until

@@ -17,6 +17,11 @@ namespace IterationRoom
         private readonly List<CarryEvent> carries = new List<CarryEvent>();
         private float sampleTimer;
         private bool recording;
+        // The previous sample's mask, for the rising-edge count in `SampleSignals`. Cleared with the
+        // recording rather than kept across iterations: a pad the player was standing on when the
+        // clock ran out is a pad they will be standing on again next iteration only if they walk
+        // back to it, and that walk is a new action.
+        private uint lastSignals;
 
         public void BeginRecording()
         {
@@ -25,6 +30,7 @@ namespace IterationRoom
             pops.Clear();
             carries.Clear();
             sampleTimer = 0f;
+            lastSignals = 0u;
             recording = true;
         }
 
@@ -41,6 +47,7 @@ namespace IterationRoom
         {
             if (!recording || LoopManager.Instance == null) return;
             pops.Add(new PopEvent(LoopManager.Instance.ElapsedTime, balloonId));
+            RunTally.PlayerAct();
         }
 
         // Called by PlayerHand on every take, surrender and equip of an item flagged ghostCarryable.
@@ -52,7 +59,15 @@ namespace IterationRoom
         {
             if (!recording || LoopManager.Instance == null || string.IsNullOrEmpty(itemId)) return;
             carries.Add(new CarryEvent(LoopManager.Instance.ElapsedTime, itemId, kind, instanceName));
+            RunTally.PlayerAct();
         }
+
+        // WHY THE RUN TALLY IS COUNTED HERE AND NOWHERE ELSE ON THE PLAYER'S SIDE. This class is the
+        // single point every living-player action passes through - a pop, a carry, and the signal
+        // sample below are the complete set of things a timeline records, which is to say the
+        // complete set of things a past self will ever be seen to do. `GhostReplayer` is the mirror
+        // of it, and counting the two sides anywhere else would be counting two different sets and
+        // calling the ratio between them a measurement. See `RunTally.PlayerActs`.
 
         private void Update()
         {
@@ -99,6 +114,21 @@ namespace IterationRoom
                 if (interactables[i] != null && interactables[i].PlayerSignal)
                     signals |= 1u << i;
             }
+
+            // RISING EDGES ONLY, which is what makes this comparable with a ghost's side of the same
+            // count (`GhostReplayer.ApplySignals`). A pad HELD for ten seconds is one action, not six
+            // hundred: the level is state, and the moment it went up is the thing the player did.
+            // Counted off the sampled mask rather than off the fixtures, so a bit dropped by the
+            // 32-bit clamp is not counted here either - the tally reports what was recorded, and an
+            // action that never reached a timeline is one no past self will ever perform.
+            uint risen = signals & ~lastSignals;
+            while (risen != 0u)
+            {
+                RunTally.PlayerAct();
+                risen &= risen - 1u;
+            }
+            lastSignals = signals;
+
             return signals;
         }
     }

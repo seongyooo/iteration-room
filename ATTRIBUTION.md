@@ -71,6 +71,9 @@ Iteration Room uses the following third-party assets.
 - **"rubik's cube"** by DoobiDooba — CC BY 4.0
   - Source: https://sketchfab.com/3d-models/rubiks-cube-155420e09a124ec3a3bcca0852280672
   - Author: https://sketchfab.com/DoobiDooba
+- **"SC8_Low-Poly"** by bartholet — CC BY 4.0
+  - Source: https://sketchfab.com/3d-models/sc8-low-poly-ffbafa75fa99458a8bd2eba2b869c996
+  - Author: https://sketchfab.com/bartholet
 - **"Seesaw from Poly by Google"** by IronEqual — CC BY 4.0
   - Source: https://sketchfab.com/3d-models/seesaw-from-poly-by-google-b518b55b56f249ee902205775d2d0cdd
   - Author: https://sketchfab.com/ie-niels

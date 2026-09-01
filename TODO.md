@@ -23,6 +23,58 @@ Two hard blockers, and neither is graphics.
     arriving early under a word that makes it sound like it is not. The reply-draft paragraph that
     said so to them in writing was cut, so this line is the only place the commitment now lives.
 
+- **HOW TO REACH THE ENDING WITHOUT PLAYING AN HOUR**: `Iteration Room > Test > Cycle 3 ending -
+  console filled, sample report`. It arms the next Play (one shot, PlayerPrefs, read
+  `BeforeSceneLoad` - statics do not survive the domain reload) and opens the game scene. The
+  `sample report` variant is the only place in this project that invents data and it is fenced into
+  `DebugStart.Seed`: a jumped run has no cycle 1 or 2 behind it, so without it the board prints three
+  lines and two `INSUFFICIENT DATA` axes and its layout cannot be judged. Sampled runs are never
+  written to `RunReport`.
+
+- **THE ENDING HAS BEEN PLAYED ONCE AND MOST OF WHAT IT FOUND IS FIXED** (2026-09-01). What that
+  first ride found, and where each went: the building rendered black (lightmapped exterior - a
+  directional light now, `docs/gotchas.md`); the default blue skybox showed through the open top of
+  the shaft (set at build time in every scene now); half the cell racks were built inside the real
+  rooms (measured off `BuildingBounds` now rather than off the cable); the car imported lying down
+  (stood up by measurement); it had no colliders at all so it could not be boarded (a cage now); the
+  player fell out of it repeatedly (both open sides seal on boarding, and the faces are 0.5m thick
+  because a thin floor is one a fast relative motion sweeps through); the doors faced the wrong way
+  (an authored constant now - the model cannot say, see the gotcha); Escape did not open the pause
+  menu (it does, and the ending times itself on `EndingClock` so a pause is a real pause).
+  **Still open from that ride:**
+  - **THE BACKDROP IS OFF.** `sci-fi_environment_in_eevee.glb` is imported, licensed and sized, and
+    play's verdict was that it does not look good at this scale. `UseBackdrop` is one bool. Either
+    find a treatment that works or delete the asset and the licence entry together.
+  - **NOBODY HAS SEEN THE CUTAWAY WORK.** It is impossible to tell a missing wall from a black one,
+    so whether the rooms read as a dollhouse is still unanswered - the black was hiding the question.
+    `FacilityExterior` now logs the count and errors if it removes nothing.
+  - **SHADOWS ARE OFF ON THE EXTERIOR SUN.** They would make the cutaway read far better - a lit
+    floor and a dark corner instead of a flat wash - and they would be cast by every renderer in four
+    awake cycles plus a 766k-triangle vehicle. Measure the frame first.
+
+- **THE ENDING'S FIRST BUILD, AND WHAT IS STILL UNPLAYED** (2026-08-31). Grade, board, breach, cable car,
+  exterior. Verified in code only - it builds clean, the model imports at 2.39 x 2.11 x 4.2m with both
+  doors found, the cutaway is computed at runtime and the cross-scene report is down to the five
+  references `CycleBinding` rebinds. **Nobody has seen any of it.** What most needs playing, in order:
+  - **THE ROUTE DOWN AFTER THE BREAK.** `FacilityFailure` takes the decks and the beam lift out with
+    everything else, so the only way from room3-0 to room3-2N's floor is a sixteen-metre drop through
+    the ladder shaft. That is survivable (there is no fall damage) and it is unverified - and it is
+    the pre-existing route, not something the ending introduced.
+  - **WHETHER THE BOARD IS READABLE.** 9m wide, 52pt in a 1500px rect at 32 columns. The width check
+    passes at build; whether a table of twenty rows is legible from where the player lands is not a
+    thing a build can answer.
+  - **WHETHER 67 SECONDS OF RIDE IS RIGHT.** 215m at 3.2m/s. It could easily be half that.
+  - **WHETHER THE ROOMS READ AS ROOMS FROM OUTSIDE.** The cutaway takes off every ceiling and the one
+    wall of each room nearest the cable. Whether that is a dollhouse or a mess is the whole question.
+  - **THE FOUR SCORES ON A REAL RUN.** Every axis is a real ratio but no run has ever produced one.
+    Expect `EvaluationStandard` to need retuning the first time a human sees a number.
+  - **THE CAR HAS NO ARRIVAL OR MOTOR SOUND.** There is no vehicle clip in the library and the two
+    that would fit are a door and an alarm. The doors and the departure use honest clips; the arrival
+    and the hum need generating. See `docs/audio.md`.
+  - **766,000 TRIANGLES IN THE ONE SCENE WHERE EVERY CYCLE IS AWAKE.** The cable car is by far the
+    heaviest prop in the project and it appears exactly where the frame budget is worst. Measure
+    before decimating - `docs/asset-licences.md`.
+
 - **Cycle 3 is not a third act yet** — the beam now drives a lift and the lift reaches deck A, so the
   cycle has a mechanism and a destination for the first time. What it does not have is a REASON:
   there is no `finalRoom`, no exit condition and nothing to carry anywhere, so the cycle cannot be

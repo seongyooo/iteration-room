@@ -455,3 +455,78 @@ cycle's worth of skinned, afterimaged figures is a real cost on any target, and 
 payoff is N of them working at once. Measure before committing to a headcount.
 
 And none of this has been played. It is verified against the code only.
+
+---
+
+## 9. The ending: how the game stops at cycle 3 (2026-08-31)
+
+### The decision
+
+Cycle 4 was designed as the fourth act and is not going to be one yet. A full three-cycle run is
+expected to take **about an hour for a player who has not counted anything** — the recorded figures
+(31 iterations, 14:23) are a knows-everything run by the person who designed it — and a fourth act
+would put the game past the point where a first-time player finishes it at all.
+
+So cycle 3 is the last act, and cycle 4 is deferred rather than deleted.
+
+### Why cycle 4 is still built, still loaded, and still in `CycleSceneNames`
+
+The obvious way to end at cycle 3 is to drop `"Cycle4"` from `SceneBuilder.CycleSceneNames`. That
+works and it is wrong, because it takes the room out of the WORLD as well as out of the game.
+
+The ending flies past the outside of the building, and the last thing under the cable car as it
+pulls away is cycle 4: a finished cell with a bed in it and nothing else, lit differently, that the
+player is never let into. That is the game saying *there is more of this* in the only register it
+has ever used, which is architecture — and it costs nothing, because the room was already built.
+
+The switch is therefore `Cycle.playable`, asked by `LoopManager.HasNextCycle` alongside "does a next
+cycle exist". **"Loaded" and "playable" stopped being the same question the moment the building had
+to contain a room the game will not enter.**
+
+### What replaces the fourth bed
+
+`EndingDeparture` owns the order and delegates every part of it:
+
+| Beat | Owner |
+| --- | --- |
+| The break, unchanged | `FacilityFailure` |
+| The grade printed on room3-2N's north wall | `EvaluationBoard` / `RunEvaluation` |
+| The east wall coming apart | `CycleExit` — the same component the floor hatches use |
+| The car arriving, the doors, boarding, the climb | `CableCarRide` |
+| Cycles woken, ceilings and walls off, past selves stood back up | `FacilityExterior` |
+| The card | `EndingSequence`, unchanged |
+
+**The climb is the reverse of the game.** The player spends an hour descending one hatch at a time;
+they leave by going back up through all of it in one continuous move, past cycle 3, then 2, then 1,
+to the surface — which is the only daylight in the game.
+
+### Three things that were nearly built wrong
+
+**The cutaway was a build-time list of renderers.** `FacilityExterior` held the walls and ceilings as
+serialized `Renderer[]`, gathered by `SceneBuilder`. It built cleanly and logged *"46 walls and 27
+ceilings taken off for the view"* — and 73 of those 74 renderers were in `Cycle1` and `Cycle2` while
+the component was in `Cycle3`, so Unity would have nulled every one of them on save and the ride
+would have been a tour of a solid white building. `cross-scene-report.txt` named all 74. It is a
+`float` now (the cable's X) and the walls are found at runtime; a number crosses no boundary.
+
+**The breach covers were scaled cubes.** Three boxes filling the hole in the east wall — which is
+the thing CLAUDE.md §3 forbids in as many words, because a wall panel here is a generated mesh with a
+6mm chamfer and a scaled box has neither chamfer nor grooves. They would have been three smooth
+patches in a grid wall for the whole of cycle 3, visible long before anything opened. They are
+`BuildPanelWall` segments now, one cell each.
+
+**The board would have graded the player mid-puzzle.** Room3-2N is where the Bedlam cube is, so the
+player is under that panel for most of cycle 3 — a proximity trigger alone starts the readout the
+first time they walk in with a block. It is gated on `PowerOn` (the break) *and* on the player being
+below the board's own centre, which separates this room from room3-0 twelve metres above it without
+a tuned radius.
+
+### The one thing the ride is actually for
+
+`GhostArchive`. Every past self's pose is kept at the cycle boundary, before `LoopManager` destroys
+them, and stood back up as the exterior is revealed — so the rooms the car climbs past have dozens of
+people frozen mid-errand in them. Cycle 3's ghosts need no archive: they are still alive and still
+standing, because the ending has never destroyed them (`EndingSequence`: *"the ghosts are left
+standing... the people it took to get out"*).
+
+An empty building would make this an architectural tour. The statues are the argument.

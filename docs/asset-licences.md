@@ -44,6 +44,43 @@ Two of those are attributions to the wrong person, which is worse than no attrib
 licence class that cannot be sold. The lesson is the one `FloorButton`'s audio already recorded: a
 list of every instance of a thing, maintained by hand, is a list that will be wrong.
 
+### The cable car, and the one thing about it that is not a licence question (2026-08-31)
+
+**`Assets/ArtAssets/Facility/cable_car.glb` — "SC8_Low-Poly" by `bartholet`, CC-BY-4.0.**
+`https://sketchfab.com/3d-models/sc8-low-poly-ffbafa75fa99458a8bd2eba2b869c996`. It is the vehicle
+the player leaves the building in, and it is the only asset in `ArtAssets/Facility`. Commercial use
+with attribution, so it is not a blocker; the file carries its own `asset.extras`, so
+`ATTRIBUTION.md` and the CREDITS page pick it up with nothing typed by hand.
+
+It is worth recording next to the licence because it was checked at the same time: **it is 766,000
+triangles and 39MB**, which makes it comfortably the heaviest single prop in the project. "Low-Poly"
+in the title is relative to the CAD it was decimated from, not to this game. It appears once, for
+about a minute, in the one scene where every cycle in the building is awake at the same time and the
+whole exterior is lit — so if the ending ever drops frames, this is the first thing to look at and
+decimating it is the first thing to try. It has not been touched yet, deliberately: measuring first
+is cheaper than optimising a model that turns out to be fine.
+
+Its useful structure, since it decides what the ending could be built out of: the two doors
+(`SC8_Door-L-LowPoly`, `SC8_Door-R-LowPoly`) and their glass are separate nodes, so they can be slid
+open; the cabin glass (`SC8_glass_lowPoly`) is separate from the hull, so it can take a transparent
+URP material. `SceneBuilder.SplitDoor` depends on those names and warns if it cannot find them.
+
+### The backdrop that was downloaded and then deleted (2026-09-01)
+
+**`sci-fi_environment_in_eevee.glb` - "Sci-Fi Environment In Eevee" by `born2012`, CC-BY-4.0.**
+Imported as `Assets/ArtAssets/Facility/backdrop.glb`, used for one build, **and removed from the
+project.** No attribution is owed because nothing of it ships; the entry is here so that the next
+person to consider it knows it was tried.
+
+Why it did not work is the useful part. It is 578k triangles with no textures at all - abstract
+greeble, which is exactly the right raw material - and it still looked wrong scaled to 265m, because
+**it is a sculpture**. It has a composition, a middle, and shapes that read as individual objects, so
+enlarging it produces a prop that has obviously been enlarged. The shot wants the opposite of a
+composition: something with no middle and no edge that repeats until it stops being countable.
+
+That is built now instead - see `SceneBuilder.BuildGantries` and `BuildCellGrid`. Cubes on a regular
+pitch, which is a thing a downloaded model cannot be.
+
 ### The licence that is not plain CC-BY
 
 **~~`cctv_camera.glb` — CC-BY-NC-4.0~~ GONE 2026-08-28, and how it went is the part worth keeping.**
@@ -1640,3 +1677,69 @@ CC AttributionCreative Commons Attribution
 Learn more
 Published 2 years ago
 https://sketchfab.com/3d-models/clipboard-7mb-a5f71d0bd08d4653880a92f19dbbf72a
+
+SC8_Low-Poly
+3D Model
+Avatar of bartholet
+bartholet
+
+Follow
+576
+576 Downloads
+1.9k
+1874 Views
+23
+Unlike
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 767.1k
+Vertices: 382.2k
+More model information
+Bartholet Space Cab Gondola
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 3 years ago
+https://sketchfab.com/3d-models/sc8-low-poly-ffbafa75fa99458a8bd2eba2b869c996
+
+Sci-Fi Environment In Eevee
+3D Model
+Avatar of born2012
+John Doe
+
+Follow
+1.4k
+1383 Downloads
+7.5k
+7512 Views
+213
+Unlike
+
+Download 3D Model
+
+Add to
+
+Embed
+
+Share
+Report
+Triangles: 578.7k
+Vertices: 323.6k
+More model information
+This is a Sci-Fi Environment In Eevee when i started blender. It’s a tutorial from https://www.youtube.com/@TheDucky3D.
+
+License:
+CC AttributionCreative Commons Attribution
+
+Learn more
+Published 4 years ago
+https://sketchfab.com/3d-models/sci-fi-environment-in-eevee-382c79f758ff4590a134e2c60c124d94

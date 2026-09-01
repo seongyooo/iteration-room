@@ -1621,3 +1621,112 @@ shorter than the object — a six-metre ladder across a 1.75m corridor — no sl
 either way along the axis leaves it exactly as buried. The old code still picked a direction to
 refuse; it now blocks in **at most one** direction ever, so the opposite is open by construction and
 nothing in this system can trap anybody.
+
+---
+
+## A WALL SIGN'S CANVAS POINTS ITS +Z INTO THE WALL (2026-09-01)
+
+**The readable side of a world-space canvas in this project is its LOCAL -Z**, so a sign that looks
+in code as though it is turned away from the room is the one that can be read, and a sign rotated to
+"face the player" is drawn on the inside of the panelling.
+
+The convention is stated in three places and nowhere as a rule, which is how it got broken twice in
+one day:
+
+| Wall | Rotation used | Canvas forward |
+| --- | --- | --- |
+| North (+Z) | `identity` | +Z, into the wall |
+| South (−Z) | `Euler(0,180,0)` | −Z, into the wall |
+| West (−X) | `Euler(0,−90,0)` | −X, into the wall |
+| East (+X) | `Euler(0,90,0)` | +X, into the wall |
+
+`MakeFourWallFaces` uses all four. `BuildLadderSign` uses the west entry and its own comment says
+the −90 makes it *"face east, into the room"* — which is the convention stated in the opposite
+words, and is exactly what makes it easy to get wrong.
+
+**What it cost.** Two signs on north walls were authored at `Euler(0,180,0)`, on the reasoning that a
+sign on the far wall should be turned to face the player:
+
+- **room3-0's way-down arrow.** The break raised it, correctly, to alpha 1 — onto the inside of the
+  wall. The room read as having no sign in it at all, at the one moment the player needs to be told
+  where to go.
+- **The evaluation board.** It printed its entire report, a line at a time, into the panelling.
+
+Neither produced an error, a warning, or a missing reference. Both looked like "the thing never
+fired", which sent the search to the trigger and the wiring rather than to the rotation.
+
+**Check a new sign by which way its wall faces, not by which way the player does.** And if a sign is
+blank, rule the rotation out before looking at what raises it — a canvas facing a wall and a canvas
+that was never told to appear are indistinguishable from inside the room.
+
+
+---
+
+## THE OUTSIDE OF THIS BUILDING IS LIGHTMAPPED BLACK, AND NO AMOUNT OF AMBIENT FIXES IT (2026-09-01)
+
+The ending flies the player round the outside of the facility. The first ride was past a building
+that rendered **completely black**, and it read as broken geometry rather than as unlit geometry -
+which sent the search to the cutaway code and the wall names instead of to the lighting.
+
+**The cause, in three facts:**
+
+1. Every light in this game is a spot set into a ceiling pointing DOWN inside a sealed room. Nothing
+   has ever lit an exterior surface, because until this sequence there was no vantage point outside
+   a room.
+2. The building is **lightmap-static** - the project bakes GI. Its exterior faces were baked with
+   nothing outside to light them, so they carry a lightmap that is black. **A black lightmap is not
+   a surface waiting for light; it is a surface that already has its answer.**
+3. So raising `RenderSettings.ambientLight` does nothing to it. A lightmapped surface takes no
+   ambient.
+
+**The tell that identifies it instantly**: in the same frame, the imported backdrop model was lit
+correctly and the facility was black. The backdrop is not static. If some things in a shot are lit
+and the *static* ones are not, it is the lightmap, not the ambient.
+
+**What does work**: a realtime light, which adds on top of a lightmap. But note the second half -
+twenty-one realtime POINT lights were added first and were not enough, because **URP hands each
+renderer only a handful of additional lights, chosen per object**, and the building's walls are
+enormous single meshes. A **directional** is not an additional light: it is the main light, every
+renderer gets it, and it costs one. That is `FacilityExterior.sun`.
+
+It is authored disabled and switched on at the reveal. It has to be: shadows are off, so it passes
+straight through walls, and enabled during play it would flood every sealed room in the building.
+
+---
+
+## THE DEFAULT SKYBOX IS INVISIBLE UNTIL IT IS NOT (2026-09-01)
+
+Nothing in this game had ever looked at the sky - every room is sealed - so `RenderSettings.skybox`
+was left at Unity's default, the blue procedural one with a sun in it. That was free for a year and
+stopped being free the moment the ending opened a shaft with a hole in the top of it. Play's report
+was that the map "still shows what you get when no background is set", which is exactly what it was.
+
+It is set in `ApplyEnvironment` now, at build time, in **every scene** - and also at runtime by the
+ending. The build-time half is the belt to that brace: a runtime assignment that does not run leaves
+the default showing, and there is no version of this game where the default is the right answer.
+Ambient is `Trilight`, so the skybox feeds nothing and this cannot move a tuned lighting value.
+
+**A field nothing looks at is not a field that is set correctly.**
+
+---
+
+## A MODEL CANNOT ALWAYS TELL YOU WHICH WAY ITS DOOR FACES (2026-09-01)
+
+`cable_car.glb`'s facing was derived: take the two door leaves, average their offset from the cabin
+centre, call that the doorway's outward normal, yaw the cabin so it points at the room. Sound
+reasoning, and it produced a car that play reported as backwards.
+
+Measured off the file, both leaves sit at the same place - the build logs
+`L=(0.08, -2.05, 0.00) R=(0.08, -2.05, 0.00)`. They are two leaves of one sliding door, modelled
+nearly shut and near the cabin's own middle, so the horizontal signal is **0.08 in a hull 1.74
+wide**. That is noise wearing the shape of an answer, and averaging it produced a confident direction
+with nothing behind it.
+
+CLAUDE.md's rule is to *measure a rotation off the object rather than write it* (learned from the
+chess set and the ladder). **The rule assumes the measurement exists.** Where it does not, a constant
+that is honest about being a constant beats a derivation that is wrong - so the facing is now one
+authored number, `CabinDoorYaw`, with the offsets logged beside it so it can be re-checked.
+
+**And the better fix was to stop needing the answer.** The cabin's collision cage now opens on BOTH
+sides to be boarded and seals both the instant somebody is aboard, so which way the visible doorway
+points is a cosmetic question rather than one that decides whether the vehicle can be entered.
