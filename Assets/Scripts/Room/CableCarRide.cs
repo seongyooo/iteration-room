@@ -77,7 +77,19 @@ namespace IterationRoom
         // that closely at the one moment they move.
         public Transform doorLeft;
         public Transform doorRight;
-        public Vector3 doorOpenOffset = new Vector3(0.62f, 0f, 0f);
+        // **THE LEAVES SLIDE ALONG THE CABIN'S LOCAL Y, WHICH IS SIDEWAYS - NOT ALONG X, WHICH IS
+        // THE DOORWAY'S NORMAL.**
+        //
+        // This was `(0.62, 0, 0)` and that is the axis a door opens THROUGH, not the one it opens
+        // ALONG: one leaf was travelling 0.62m straight out of the doorway and into the space the
+        // player walks in by, and the other the same distance into the cabin. It read as the doors
+        // not opening, and as something in the way of the entrance.
+        //
+        // Derived rather than guessed. The two leaves are measured at the same place in the model
+        // except for their native Y (+-0.08 - the build logs it), so native Y is the doorway's WIDTH
+        // axis. `SplitDoor` parents each pivot under the model with no rotation of its own, so a
+        // `localPosition` written here is in the model's frame, and the model's Y is that same axis.
+        public Vector3 doorOpenOffset = new Vector3(0f, 0.62f, 0f);
         public float doorSeconds = 1.6f;
 
         // **THE CAR TURNS SIDE-ON BEFORE IT LEAVES** (2026-09-01, by request).
@@ -91,11 +103,17 @@ namespace IterationRoom
         // on and the reason the glass was taken down to almost nothing. It is also what a real
         // gondola does - it hangs square to its rope and the doors face the platform.
         //
-        // TURNED WHILE STATIONARY, between the doors closing and the first metre of travel. Rotating
-        // a moving cabin around a standing passenger is a way to put them through a wall; rotating a
-        // stopped one about its own centre, with the player near that centre, moves nothing.
+        // **IT TURNS WHERE THE ROPE TURNS** (2026-09-01, by request), not on the platform before it
+        // leaves. The first leg of the path runs straight out from the wall and the car takes it nose
+        // first, the way it arrived; the rope then bends upward, and that is where a real one would
+        // swing round its own hanger. Turning early made the departure read as a pirouette.
+        //
+        // The bend is the first corner in the path, and `Ride` works out where along the run that
+        // falls rather than being told - so a path with a different first leg turns in the right
+        // place without this number changing.
         public float travelYaw = 90f;
-        public float turnSeconds = 2.2f;
+        // How much of the whole run the turn is spread over, centred on the bend.
+        public float turnSpan = 0.09f;
 
         // How tall the cabin is, measured off the model at build time. Read by `SceneBuilder` to
         // hang the rope at the top of the hanger arm rather than at a guessed height - the two have
@@ -234,37 +252,34 @@ namespace IterationRoom
         public IEnumerator BoardAndDepart()
         {
             yield return WaitForBoarding();
-            yield return TurnForTravel();
+            yield return ShutTheDoors();
             yield return Ride();
         }
 
-        // The quarter turn onto the rope - see `travelYaw`. It also guarantees the doors are shut
-        // before anything moves: `WaitForBoarding` closes them, and this is the last chance to
-        // notice that they are not.
-        private IEnumerator TurnForTravel()
+        // **THE DOORS, SHUT AND THEN NAILED SHUT.** `WaitForBoarding` slides them closed over
+        // `doorSeconds`; an animation is something that can be interrupted - by a pause, by a
+        // coroutine being stopped, by the car not being active for a frame - and play twice reported
+        // the car leaving with its doors open. This waits for the slide and then writes the shut pose
+        // outright, which cannot be interrupted.
+        private IEnumerator ShutTheDoors()
         {
-            if (car == null) yield break;
-
-            // **SNAPPED SHUT RATHER THAN TRUSTED.** Play saw the car leave with its doors open. The
-            // slide that closes them is an animation over `doorSeconds` and anything that interrupts
-            // it - a pause, a coroutine stopped, a frame where the car was not yet active - leaves
-            // them wherever they were. This is one assignment and it cannot be interrupted.
-            if (doorLeft != null) doorLeft.localPosition = shutLeft;
-            if (doorRight != null) doorRight.localPosition = shutRight;
-
-            Quaternion from = car.rotation;
-            Quaternion to = from * Quaternion.Euler(0f, travelYaw, 0f);
-
             float t = 0f;
-            while (t < turnSeconds)
+            while (t < doorSeconds)
             {
                 t += EndingClock.Delta;
-                car.rotation = Quaternion.Slerp(from, to, Mathf.SmoothStep(0f, 1f, t / turnSeconds));
-                CarryPlayer();
                 yield return null;
             }
-            car.rotation = to;
-            CarryPlayer();
+
+            if (doorLeft != null) doorLeft.localPosition = shutLeft;
+            if (doorRight != null) doorRight.localPosition = shutRight;
+        }
+
+        // How far along the whole run the path's first corner falls. The car travels nose-first up to
+        // it and has finished turning by the time it is past - see `travelYaw`.
+        private float BendProgress()
+        {
+            if (path == null || path.Length < 3) return 0f;
+            return Vector3.Distance(path[0], path[1]) / Mathf.Max(0.01f, PathLength());
         }
 
         // THE RIDE. The car walks the path; the player rides in it and is otherwise left alone.
@@ -283,6 +298,10 @@ namespace IterationRoom
             float length = PathLength();
             float duration = Mathf.Max(1f, length / Mathf.Max(0.1f, speed));
 
+            // Where it docked, and where along the run the rope turns - both fixed for the ride.
+            Quaternion docked = car.rotation;
+            float bend = BendProgress();
+
             float t = 0f;
             while (t < duration)
             {
@@ -292,6 +311,15 @@ namespace IterationRoom
                 // that accelerates through the interesting part is one the eye cannot track.
                 Progress = Ease(raw);
                 car.position = PathPoint(Progress);
+
+                // AND IT SWINGS AT THE CORNER. Eased across `turnSpan` centred on the bend, so the
+                // cabin is still nose-first as it leaves the platform and side-on by the time the
+                // rope is vertical - which is the one moment there is anything to look at through the
+                // flank.
+                float turn = Mathf.SmoothStep(0f, 1f,
+                    Mathf.InverseLerp(bend - turnSpan * 0.5f, bend + turnSpan * 0.5f, Progress));
+                car.rotation = Quaternion.Slerp(docked, docked * Quaternion.Euler(0f, travelYaw, 0f),
+                                                turn);
                 if (motor != null) motor.volume = Mathf.Clamp01(raw * 8f) * (1f - Mathf.Clamp01((raw - 0.9f) * 10f));
                 CarryPlayer();
                 yield return null;

@@ -102,6 +102,13 @@ namespace IterationRoom
         //
         // This is a shutter parked behind the panelling directly above the mouth, where the wall is
         // intact, so it is invisible until it descends. It comes down with the rest of the teardown.
+        // **THE LADDER PICTOGRAM, TAKEN DOWN WITH THE STRUCTURES** (2026-09-01, by request). It is
+        // the sign on room3-2N's west wall that explains the hole in the ceiling, and once the decks
+        // and the lift have gone it is a diagram of a route that no longer exists. Hidden rather than
+        // faded: everything else in this sequence is leaving, and a sign that lingers politely while
+        // the room comes apart is the odd one out.
+        public CanvasGroup ladderSign;
+
         public Transform mouthShutter;
         public float mouthShutterDrop = 2.7f;
         public float mouthShutterSeconds = 2.0f;
@@ -231,6 +238,7 @@ namespace IterationRoom
             // from where the player is standing, and only the first stops anything walking back.
             wayIn?.CloseNow();
             StartCoroutine(DropShutter());
+            if (ladderSign != null) ladderSign.alpha = 0f;
 
             // THE WHITE LIGHT GOES OUT AND THE RED ONE COMES UP, on the same beat as the
             // announcement - the facility saying it and the room showing it are one event.

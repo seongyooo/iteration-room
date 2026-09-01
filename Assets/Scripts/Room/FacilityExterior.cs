@@ -120,7 +120,17 @@ namespace IterationRoom
         //
         // Flat rather than trilight, because there is no floor and no ceiling to a shaft - the three
         // bands exist to describe a room and there is no room out here to describe.
-        public Color endingAmbient = new Color(0.62f, 0.64f, 0.68f);
+        // **0.62 -> 0.34, 2026-09-01.** Play reported three things that are all this number: the
+        // shaft and the racks blown out, the rooms too bright to look back into, and - in the room
+        // the player is standing in - the panels going pale the moment the report finished, which is
+        // the moment this is written.
+        //
+        // That last one is the tell. `RenderSettings` is global, so raising the ambient for the view
+        // OUTSIDE also floods the room the player has not left yet, and room3-2N is lit for standing
+        // in rather than for being looked at. It was set when the exterior had no light of its own;
+        // there is a directional and twenty-one point fixtures out there now, so the ambient can go
+        // back to being fill.
+        public Color endingAmbient = new Color(0.34f, 0.35f, 0.38f);
         // And the sky, which is what the OPEN TOP of the shaft shows. Without this it is Unity's
         // default procedural sky - play called it "the editor's default screen", which is exactly
         // what it is and exactly what it looks like at the end of a game set entirely indoors.
@@ -208,7 +218,11 @@ namespace IterationRoom
                     // `lightmapIndex = -1` makes a renderer forget it was baked, so it falls back to
                     // the ambient and the realtime lights - which is exactly the state this scene
                     // wants for a building being looked at from outside for the first time.
-                    if (r.lightmapIndex >= 0) { r.lightmapIndex = -1; unbaked++; }
+                    // **UNCONDITIONAL.** It was gated on `lightmapIndex >= 0`, and Unity writes
+                    // 65535 rather than -1 for "no lightmap" in some paths - so a renderer carrying
+                    // that value kept whatever it had and stayed dark while everything round it
+                    // lifted. Setting it either way costs nothing and cannot leave one behind.
+                    if (r.lightmapIndex != -1) { r.lightmapIndex = -1; unbaked++; }
 
                     if (!r.name.StartsWith("Backing")) continue;
                     r.GetPropertyBlock(block);
@@ -225,15 +239,22 @@ namespace IterationRoom
                 foreach (Light light in cycle.worldRoot.GetComponentsInChildren<Light>(true))
                     if (light != null && light.enabled) { light.enabled = false; doused++; }
 
-                // The emissive panels those fixtures sit in, killed with them - a dark room with
-                // four glowing white squares in its ceiling is a room with the lights still on.
-                foreach (Renderer r in cycle.worldRoot.GetComponentsInChildren<Renderer>(true))
+                // **AND THE FIXTURES THEMSELVES GO** (2026-09-01, by request). Switching the lights
+                // off left the panels they sit in hanging in mid-air: the ceiling that held them has
+                // been taken away by the cutaway, so what is left is four white rectangles floating
+                // where the lid used to be, in every room. Blacking out their emission was not
+                // enough - the geometry is still there and still lit by the sun.
+                //
+                // The whole `*_CeilingLights` group, which is the object `BuildCeilingLights` makes
+                // and the only thing under it.
+                foreach (Transform t in cycle.worldRoot.GetComponentsInChildren<Transform>(true))
                 {
-                    if (r == null || r.name != "Panel") continue;
-                    r.GetPropertyBlock(block);
-                    block.SetColor(LitPropertyIds.EmissionColor, Color.black);
-                    r.SetPropertyBlock(block);
+                    if (t == null || !t.name.EndsWith("_CeilingLights")) continue;
+                    foreach (Renderer r in t.GetComponentsInChildren<Renderer>(true))
+                        if (r != null) r.enabled = false;
                 }
+
+
             }
 
             Debug.Log($"[FacilityExterior] Outside: {painted} backing slab(s) repainted, {unbaked} "

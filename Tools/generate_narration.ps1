@@ -239,6 +239,17 @@ function Write-Language([string]$lang) {
         Write-Line $voice $dir $tens[$i] ("voice_num_{0:00}.wav" -f (($i + 2) * 10)) $rateDigit
         $count++
     }
+    # **THE ONE SPOKEN SENTENCE THE ENDING ADDS.** Said once the report has been read out, so the
+    # player standing in a wrecked room with nothing to do knows that something is coming and that
+    # waiting is the right thing to be doing. Everything else this voice says at the end is a number.
+    if ($lang -eq "ko") {
+        $transport = "이송 수단을 호출했습니다. 잠시만 기다려 주십시오."
+    } else {
+        $transport = "Transport has been called. Please stand by."
+    }
+    Write-Line $voice $dir $transport "voice_transport_called.wav" $rateSentence
+    $count++
+
     foreach ($key in $words.Keys) {
         Write-Line $voice $dir $words[$key] ("voice_word_{0}.wav" -f $key) $rateDigit
         $count++

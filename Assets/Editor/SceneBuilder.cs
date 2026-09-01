@@ -4654,6 +4654,26 @@ namespace IterationRoom.EditorTools
         // Whether a transform sits anywhere under an object with this name. Used to hold one room's
         // panels out of its cycle's display - by ancestry rather than by position, because a room is
         // a subtree and its panels are three levels down inside it.
+        // Whether a wall panel sits behind one of room3-0's way-down arrows. Measured against the
+        // sign's own position rather than listed by name: the signs are built before this runs and
+        // moving one should take its exclusion with it.
+        private static bool BehindAWayDownSign(Renderer panel)
+        {
+            if (wayDownHint == null) return false;
+            foreach (CanvasGroup sign in wayDownHint)
+            {
+                if (sign == null) continue;
+                // The sign is 1.5m across; a cell is 1.75. One cell's reach either way covers the
+                // panel it is printed on and its neighbours, which is what the eye reads as "behind
+                // the arrow".
+                if ((panel.bounds.center - sign.transform.position).sqrMagnitude
+                    < WayDownSignReach * WayDownSignReach) return true;
+            }
+            return false;
+        }
+
+        private const float WayDownSignReach = 1.9f;
+
         private static bool IsUnder(Transform t, string ancestor)
         {
             for (Transform at = t; at != null; at = at.parent)
@@ -4683,6 +4703,11 @@ namespace IterationRoom.EditorTools
             {
                 if (r.transform.parent == null || !r.transform.parent.name.EndsWith("_Panels")) continue;
                 if (IsUnder(r.transform, "Room3_2N")) { excluded++; continue; }
+                // **AND THE PANELS BEHIND ROOM3-0'S ARROWS** (2026-09-01, by request: only the red
+                // arrow on those, no ERROR under it). The arrow is a canvas ON the wall and the wave
+                // is the wall itself, so without this the one thing in the room that says where to go
+                // is printed over red static.
+                if (BehindAWayDownSign(r)) { excluded++; continue; }
                 panels.Add(r);
             }
             WallPanelDisplay display = MakeWallPanelDisplay(
@@ -14991,10 +15016,28 @@ namespace IterationRoom.EditorTools
             // therefore out of sight, which is the whole trick that lets this be parked in the wall.
             float behindFace = GrooveDepth + WallThickness / 2f;
 
-            GameObject shutter = Prim(PrimitiveType.Cube, "CorridorShutter", room,
-                new Vector3(centreX, GateHeight + GateHeight / 2f, -bigDepth / 2f - behindFace),
-                new Vector3(width, GateHeight, WallThickness),
-                MakeColorMaterial("CorridorShutter", new Color(0.52f, 0.53f, 0.56f)));
+            // **A PANEL WALL, NOT A GREY SLAB** (2026-09-01, by request: it should not read as a
+            // different object from the wall it fills). It was one cube in a flat grey, which is the
+            // one thing in this building that nothing else is - every surface here is white panels
+            // standing proud of a dark backing, and a plain slab in the middle of that is a patch.
+            //
+            // Built with the same call the wall itself is, so it arrives with the same chamfered
+            // panels, the same backing and the same groove. What tells the player it moved is that it
+            // moves, not that it is a different colour.
+            GameObject shutter = new GameObject("CorridorShutter");
+            shutter.transform.SetParent(room, false);
+            shutter.transform.localPosition = new Vector3(
+                centreX, GateHeight + GateHeight / 2f, -bigDepth / 2f - behindFace);
+
+            // The wall's own two materials, fetched by name rather than threaded down through four
+            // signatures. `MakeColorMaterial` loads an existing asset before it makes one, so these
+            // are the same two objects every other wall in the building is built with - which is the
+            // whole point of the change.
+            BuildPanelWall(shutter.transform, "Panels", new Vector3(0f, -GateHeight / 2f, 0f),
+                Vector3.right, Vector3.forward, width,
+                MakeColorMaterial("GrooveDark", new Color(0.04f, 0.04f, 0.045f)),
+                MakeColorMaterial("PanelWhite", PanelLitColor),
+                Rect.zero, GateHeight);
 
             Debug.Log($"[SceneBuilder] Corridor shutter: {width:0.##} x {GateHeight:0.##}m parked "
                     + $"above room3-2N's mouth, dropping {GateHeight:0.##}m at the break.");
@@ -15020,6 +15063,8 @@ namespace IterationRoom.EditorTools
             failure.sirenSource = MakeSource(go.transform, "Siren", 0f, 0.55f, loop: true);
             failure.sirenClip = LoadClip(SfxDir, "sfx_alarm_siren");
             failure.wayDownSigns = wayDownHint;
+            // The pictogram that explains the ceiling hole, taken down with the decks it describes.
+            failure.ladderSign = ladderSignHint;
             // **THE WAY THE PLAYER CAME IN.** Found rather than passed down: it is the one
             // `CrushingBarrier` in this cycle, and threading it through four call signatures to say
             // so would be four more places to keep in step. See `FacilityFailure.wayIn`.
@@ -15585,6 +15630,8 @@ namespace IterationRoom.EditorTools
                 worldWidth: 0.85f, withPlate: false, authoredHeight: 1600f);
 
             if (face != null) face.alpha = 1f;
+            // Kept so the teardown can take it down - see `FacilityFailure.ladderSign`.
+            ladderSignHint = face;
         }
 
         // HOW WIDE THE CUBE'S RECESS IS, and it is the RIM: `BuildFinalSlot` cuts the hole at 0.80
@@ -15592,6 +15639,11 @@ namespace IterationRoom.EditorTools
         // wants to be a little over that - 0.42m here, which is 12mm of daylight on each side. The
         // 0.34 this inherited from cycle 1's console gave a 0.27m hole for a 0.40m object.
         private const float CycleThreeSlotSize = 0.53f;
+
+        // How deep the console's recess is cut. A quarter of the block that goes in it, which is
+        // enough that the sides catch a shadow and the imprint reads as being DOWN there, and not so
+        // deep that the colours at the bottom stop being legible from a standing eye.
+        private const float CubeRecessDepth = 0.10f;
 
         // THE FLOOR OF THAT RECESS, AS THE CUBE'S OWN UNDERSIDE.
         //
@@ -15603,18 +15655,55 @@ namespace IterationRoom.EditorTools
         // Read out rather than written down, which is the point: there is one statement of the
         // packing in this project and this is not a second one. Change the solution and the recess
         // changes with it.
+        // **AND IT IS A REAL CAVITY NOW** (2026-09-01, by request: *the groove is not carved, make it
+        // carved*). It was a printed square: a flat dark quad with the sixteen coloured tiles laid
+        // 6mm proud of it, so the imprint was a picture of a hole rather than a hole.
+        //
+        // The tiles drop `CubeRecessDepth` and four inner walls run down to them, which is what makes
+        // the shadow. `BuildFinalSlot`'s own flat "Hole" is switched off on the way past - it is the
+        // thing this replaces, and left on it would sit across the mouth of the cavity.
         private static void BuildCubeRecessFloor(Transform slotRoot, float across)
         {
             const int n = BedlamCells;
             float tile = across / n;
+
+            // The flat stand-in goes. Found by name because that is what `BuildFinalSlot` calls it,
+            // and a rename there should show up here rather than silently leaving both.
+            Transform flat = slotRoot.Find("Hole");
+            if (flat == null)
+                Debug.LogWarning("[SceneBuilder] The cycle-3 slot has no 'Hole' to replace with a "
+                               + "cavity - check what BuildFinalSlot named it. The recess will have "
+                               + "a flat quad across its mouth.");
+            else
+            {
+                Renderer flatRenderer = flat.GetComponent<Renderer>();
+                if (flatRenderer != null) flatRenderer.enabled = false;
+            }
+
+            // The four sides of the cavity, in the same near-black the flat hole used - a groove wall
+            // is the shadowed part of the recess and has no business being lighter than one.
+            Material sideMat = MakeColorMaterial("CubeRecessSide", new Color(0.05f, 0.05f, 0.06f));
+            float half = across / 2f;
+            foreach (int axis in new[] { 0, 1 })
+                foreach (int side in new[] { -1, 1 })
+                {
+                    Vector3 at = axis == 0
+                        ? new Vector3(side * half, -CubeRecessDepth / 2f, 0f)
+                        : new Vector3(0f, -CubeRecessDepth / 2f, side * half);
+                    Vector3 size = axis == 0
+                        ? new Vector3(0.006f, CubeRecessDepth, across)
+                        : new Vector3(across, CubeRecessDepth, 0.006f);
+                    Prim(PrimitiveType.Cube, $"RecessSide_{axis}{side}", slotRoot,
+                         at, size, sideMat, removeCollider: true);
+                }
             // A hair of the dark hole left between tiles, so the grid reads as sixteen cells rather
             // than as one mottled square.
             float gap = tile * 0.10f;
 
             GameObject grid = new GameObject("CubeFace");
             grid.transform.SetParent(slotRoot, false);
-            // Above the hole quad `BuildFinalSlot` laid down, which stays as the grout under it.
-            grid.transform.localPosition = new Vector3(0f, 0.006f, 0f);
+            // At the BOTTOM of the cavity now, not 6mm above the pedestal's top face.
+            grid.transform.localPosition = new Vector3(0f, -CubeRecessDepth, 0f);
 
             for (int x = 0; x < n; x++)
             {
@@ -15861,7 +15950,15 @@ namespace IterationRoom.EditorTools
         // The id and the colour stay because the SLOT still needs both: a recess is cut to a shape
         // and lit in a colour, and the shape it is cut to is a cube whichever object fills it.
         private const string CycleThreeKeyItemId = "Cycle3Key";
-        private static readonly Color CycleThreeKeyColor = new Color(0.16f, 0.78f, 0.36f);
+        // **NOT GREEN ANY MORE** (2026-09-01, by request). This is the slot's RIM - the ring that
+        // says idle / ready / refused - and it was a green nothing else in the building is. One
+        // escape object per cycle means the colour never distinguished anything, and green beside a
+        // recess printed in the cube's own blue, red and amber was the one wrong note in the room.
+        //
+        // Pale, so the ring reads as a lit edge rather than as a colour, and the only colours at the
+        // console are the ones the object that goes in it is made of. Refused is still red, and it is
+        // `FinalSlot`'s own.
+        private static readonly Color CycleThreeKeyColor = new Color(0.88f, 0.89f, 0.92f);
 
         // ROOM3-0 ITSELF: one recess, one hatch, and the break.
         //
@@ -16062,6 +16159,9 @@ namespace IterationRoom.EditorTools
         // `FacilityFailure` and that is assembled a scene apart. One field is cheaper than a fourth
         // member on a tuple two callers already thread through.
         private static CanvasGroup[] wayDownHint;
+        // Room3-2N's ladder pictogram, kept so the teardown can take it down - see
+        // `FacilityFailure.ladderSign`.
+        private static CanvasGroup ladderSignHint;
 
         // AN ARROW POINTING DOWN, THROUGH A FLOOR. Two marks: the arrow, and the line under it that
         // makes the arrow read as going THROUGH something rather than merely pointing at it.
@@ -19716,6 +19816,7 @@ namespace IterationRoom.EditorTools
             set.iterationsWord = LoadClip(dir, "voice_word_iterations");
             set.minutesWord = LoadClip(dir, "voice_word_minutes");
             set.totalWord = LoadClip(dir, "voice_word_total");
+            set.transportCalledLine = LoadClip(dir, "voice_transport_called");
 
             // Element 0 is "Nine.", counting down to "One." at the end.
             set.countdownLines = new AudioClip[9];

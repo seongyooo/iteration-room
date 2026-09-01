@@ -94,7 +94,7 @@ namespace IterationRoom.EditorTools
         private const float ExteriorLightStandoff = 26f;
         private const float ExteriorLightPitch = 22f;
         private const float ExteriorLightRange = 130f;
-        private const float ExteriorLightIntensity = 3.6f;
+        private const float ExteriorLightIntensity = 2.2f;
 
         // **HOW FAR UP ITS WALL THE REPORT IS PRINTED, TO ITS CENTRE - RAISED FROM 4.6 (2026-09-01,
         // by request: the bottom was cut off).**
@@ -110,7 +110,11 @@ namespace IterationRoom.EditorTools
         //
         // At 11.2m tall the face then spans roughly 2.5m to 13.7m of a 16.2m wall, which is margin
         // top and bottom and the type sitting where the eye rests.
-        private const float BoardHeight = 3f * RoomHeight / 2f;
+        // **LOWER THAN THE WALL'S MIDDLE** (2026-09-01, by request: still too high). The middle of a
+        // three-storey wall is 8.1m up, and a report printed there is read by craning. The player
+        // arrives on the floor of this room and stays on it, so the type belongs at the height they
+        // are standing at - a storey up, not three.
+        private const float BoardHeight = RoomHeight;
         // Clear of the panelling by more than the chamfer is deep, so the type never z-fights the
         // wall it is printed on.
         private const float WallStandoff = 0.12f;
@@ -145,6 +149,18 @@ namespace IterationRoom.EditorTools
         // How deep each face of the cabin's cage is. Generous - see the note where they are built.
         private const float CabinCageThickness = 0.5f;
 
+        // How far the cabin's floor slab reaches back past its own doorway, toward the room. It is
+        // collision only - nothing is drawn out there - so it costs nothing and removes the seam the
+        // player has to cross. See where it is used.
+        // The invisible floor across the breach - see `BuildBreachBlockers`. Far enough out to meet
+        // the cabin's own slab with room to spare.
+        private const float ApronReach = 4.5f;
+        private const float ApronThickness = 0.4f;
+
+        private const float CabinThresholdReach = 1.2f;
+        // And how far below the room's floor that slab's top sits, so it can never be a step UP.
+        private const float CabinThresholdDrop = 0.03f;
+
         // How tall the cabin's collision cage is. Head height plus a little - the roof is there to
         // stop a jump putting the player on top of a moving car, not to be noticed.
         private const float CabinWallHeight = 2.3f;
@@ -164,7 +180,15 @@ namespace IterationRoom.EditorTools
         // THE BREACH: three cells wide, three rows tall, in room3-2N's east wall. Three cells is
         // 5.25m and the cabin is 4.2 - a car that exactly filled its hole would be a car threading a
         // needle, and the wall is being torn open rather than fitted with a door.
-        private const int BreachCells = 3;
+        // **FOUR, NOT THREE** (2026-09-01, by request). Three cells centred on the wall put the
+        // opening's edges at +-0.875m, and this wall's own panel boundaries are at 0, +-1.75, +-3.5 -
+        // so the hole cut across the middle of a cell at each end and the covers' grid ran half a
+        // cell out of step with the wall they sit in. An EVEN count lands the edges on +-3.5, which
+        // is a boundary, and the two grids line up.
+        //
+        // It costs a wider hole: 7m against 5.25. `BuildBreachBlockers` fills whatever the cabin does
+        // not, so the extra is closed off the same way the old extra was.
+        private const int BreachCells = 4;
         private const int BreachRows = 3;
 
         // Where the hole sits along that wall: on the room's own centreline. The wall is 21m of
@@ -248,6 +272,7 @@ namespace IterationRoom.EditorTools
             // room below is a storey and a half down from room3-0, so this line is unambiguous, and
             // it is taken off the room rather than typed as a world Y that a moved room would break.
             departure.descentY = roomNorth.position.y + 2.2f;
+            departure.shaftLid = BuildShaftLid(cycleThreeRoot);
             departure.board = board;
             departure.car = car;
             departure.exterior = exterior;
@@ -356,14 +381,22 @@ namespace IterationRoom.EditorTools
                     // spacing is ~840px, and the rect is 900. The three blocks below are laid out so
                     // none of them can reach the next, and the whole face is 1400px tall against the
                     // 1050 it was - which is also what raises it clear of the floor.
+                    // **CENTRED ON THE FACE, WHICH IS CENTRED ON THE WALL** (2026-09-01, by
+                    // request). The face was already at the wall's middle and the TEXT was not: an
+                    // `UpperLeft` block anchored at +200 in a 1400-tall canvas starts near the top
+                    // and runs down, so the printed report sat from about 6m to 13m up a 16m wall
+                    // while the thing containing it was centred at 8.
+                    //
+                    // The report is twenty-one lines at 38pt, so it is about 840 units tall; anchored
+                    // at -30 its own middle lands on the face's middle, which is the wall's.
                     body = MakeBoardLine(f, "Body", BoardBodyPt, BoardInk,
-                                         new Vector2(0f, 200f), new Vector2(BoardAuthoredWidth, 900f),
+                                         new Vector2(0f, -30f), new Vector2(BoardAuthoredWidth, 900f),
                                          TextAnchor.UpperLeft);
                     verdict = MakeBoardLine(f, "Verdict", 130, BoardInk,
                                             new Vector2(0f, -350f), new Vector2(BoardAuthoredWidth, 190f),
                                             TextAnchor.MiddleCenter);
                     footer = MakeBoardLine(f, "Footer", 46, BoardFadedInk,
-                                           new Vector2(0f, -530f), new Vector2(BoardAuthoredWidth, 100f),
+                                           new Vector2(0f, -560f), new Vector2(BoardAuthoredWidth, 100f),
                                            TextAnchor.MiddleCenter);
                 },
                 worldWidth: BoardWorldWidth, withPlate: false, authoredHeight: BoardAuthoredHeight);
@@ -616,8 +649,20 @@ namespace IterationRoom.EditorTools
             // The faces overlap at the corners rather than meeting, for the same reason every wall
             // in this building overruns its own length: two colliders that merely touch leave a seam
             // exactly where a sweep will find it.
-            Box(cage.transform, "Floor", new Vector3(0f, -t / 2f, 0f),
-                new Vector3(halfX * 2f + t, t, halfZ * 2f + t));
+            // **THE FLOOR REACHES BACK INTO THE ROOM AND SITS A HAIR BELOW IT.**
+            //
+            // Play could not walk into the car - only jump in - which is a step, and a step means the
+            // two floors were not meeting the way the arithmetic says they do. Rather than keep
+            // deriving where the millimetres went, the threshold is made impossible to catch on:
+            // the slab runs `CabinThresholdReach` further toward the room than the cabin needs, so it
+            // is unambiguously under the player before they leave the room floor, and its top sits
+            // `CabinThresholdDrop` BELOW that floor so there is nothing to step up onto.
+            //
+            // A 3cm drop is well inside the controller's step offset in the other direction, so
+            // walking out again is unaffected.
+            Box(cage.transform, "Floor",
+                new Vector3(-CabinThresholdReach / 2f, -t / 2f - CabinThresholdDrop, 0f),
+                new Vector3(halfX * 2f + t + CabinThresholdReach, t, halfZ * 2f + t));
             Box(cage.transform, "Roof", new Vector3(0f, wall + t / 2f, 0f),
                 new Vector3(halfX * 2f + t, t, halfZ * 2f + t));
             Box(cage.transform, "Wall_ZMin", new Vector3(0f, wall / 2f, -halfZ),
@@ -677,6 +722,15 @@ namespace IterationRoom.EditorTools
                              + $"{measuredHalfDepth:0.00} (half-extents) against the "
                              + $"{CarHalfWidth} x {CarHalfDepth} the breach and the docking point "
                              + "were built from. Update those two constants.");
+
+            // **AND THE TWO FLOORS ARE CHECKED AGAINST EACH OTHER AT BUILD TIME.** The threshold
+            // above makes a small mismatch harmless; this is what would catch a large one, which
+            // would otherwise present as "the car cannot be boarded" with nothing to point at.
+            float roomFloorY = path.Length > 0 ? path[0].y : carRoot.transform.position.y;
+            if (Mathf.Abs(carRoot.transform.position.y - roomFloorY) > 0.05f)
+                Debug.LogError($"[SceneBuilder] The cable car rests at y={carRoot.transform.position.y:0.00} "
+                             + $"against a room floor at {roomFloorY:0.00}. Its floor and the room's "
+                             + "have to be level or the doorway is a step.");
 
             car.cabinHeight = box.size.y;
             // IT RISES INTO THE PLATFORM along the rope, from below the room it is arriving at. See
@@ -750,6 +804,51 @@ namespace IterationRoom.EditorTools
         // What fills the rest of the opening - the hole is three cells wide and the cabin is two
         // metres - is `BuildBreachBlockers`, below.
 
+        // **THE LID THAT SEALS ROOM3-0'S FLOOR ONCE THE PLAYER IS BELOW IT.**
+        //
+        // Parked in the service void under that floor, where nothing can see it, and raised into the
+        // hole by `EndingDeparture.SealTheShaft`. A slab rather than a panel wall: this is a floor
+        // being filled in from underneath, so what the player sees from room3-2N is its underside -
+        // which is a ceiling, and takes the ceiling's material.
+        private static Transform BuildShaftLid(Transform cycleThreeRoot)
+        {
+            Transform roomZero = null;
+            foreach (Transform t in cycleThreeRoot.GetComponentsInChildren<Transform>(true))
+                if (t.name == "Room3_0") { roomZero = t; break; }
+
+            if (roomZero == null)
+            {
+                Debug.LogWarning("[SceneBuilder] No Room3_0 to seal - its floor will stand open "
+                               + "behind the player for the rest of the game.");
+                return null;
+            }
+
+            Rect hole = LadderShaftHole(LadderShaftXZ.x - RoomZeroX, LadderShaftXZ.y - RoomZeroZ);
+
+            // Exactly the hole, less a hair at each edge so its sides never share a plane with the
+            // shaft's - CLAUDE.md 3: nothing may be exactly the size of the hole it sits in.
+            GameObject lid = Prim(PrimitiveType.Cube, "ShaftLid", roomZero,
+                new Vector3(hole.center.x, -ShaftLidPark, hole.center.y),
+                new Vector3(hole.width - 0.04f, WallThickness, hole.height - 0.04f),
+                CeilingMaterial(), removeCollider: true);
+
+            // **NOT DRAWN UNTIL IT MOVES** (2026-09-01, by request: it is visible where it waits).
+            // The service void it parks in is not as closed as it looked from the numbers - from
+            // room3-2N you can see up into it through the shaft. `EndingDeparture.SealTheShaft`
+            // switches the renderer on as it starts to rise, which is the frame it enters the hole.
+            Renderer lidRenderer = lid.GetComponent<Renderer>();
+            if (lidRenderer != null) lidRenderer.enabled = false;
+
+            Debug.Log($"[SceneBuilder] Room3-0's shaft lid: {hole.width:0.##} x {hole.height:0.##}m "
+                    + $"parked {ShaftLidPark:0.##}m under its floor, rising into the hole once the "
+                    + "player is down in room3-2N.");
+            return lid.transform;
+        }
+
+        // How far below room3-0's floor the lid waits. Deep enough to be inside the service void and
+        // out of sight from either room; the rise in `EndingDeparture` covers it.
+        private const float ShaftLidPark = 1.9f;
+
         // **THE ONLY WAY THROUGH THE BREACH IS INTO THE CAR.**
         //
         // The opening is 5.25m across and the cabin covers about 2.1 of it, so without these there
@@ -759,6 +858,25 @@ namespace IterationRoom.EditorTools
         private static void BuildBreachBlockers(Transform roomNorth, Rect hole)
         {
             const float bigWidth = 2f * RoomWidth;
+
+            // **AND A FLOOR ACROSS THE WHOLE OPENING.**
+            //
+            // Play could still only jump into the car after the cabin's own slab was extended back
+            // toward the room, which says the gap is not at the cabin's edge - it is in the opening
+            // itself, where the room's floor slab ends and there is nothing until the car. One
+            // continuous surface at the room's own floor height removes the question rather than
+            // answering it again.
+            //
+            // **IT IS COLLISION ONLY AND IT IS NOT THE OLD WALKWAY.** That was a visible white slab
+            // hanging outside a hole in a wall, which is a place to stand and therefore a place to
+            // fall off; this cannot be seen and cannot be reached except through the doorway, because
+            // the blockers below close everything either side of the car.
+            GameObject apron = new GameObject("BreachApron");
+            apron.transform.SetParent(roomNorth, false);
+            apron.transform.localPosition = new Vector3(
+                bigWidth / 2f + ApronReach / 2f, -ApronThickness / 2f, 0f);
+            apron.AddComponent<BoxCollider>().size =
+                new Vector3(ApronReach, ApronThickness, hole.width);
 
             GameObject go = new GameObject("BreachBlockers");
             go.transform.SetParent(roomNorth, false);
@@ -984,7 +1102,12 @@ namespace IterationRoom.EditorTools
             Light sun = go.AddComponent<Light>();
             sun.type = LightType.Directional;
             sun.color = new Color(1f, 0.98f, 0.94f);
-            sun.intensity = 1.35f;
+            // 1.35 -> 0.85 with the ambient (see `FacilityExterior.endingAmbient`). The two were
+            // set together when nothing lit the outside at all, and together they were overexposing
+            // every surface that faces the light while leaving the ones that face away black. Less of
+            // both, and the ratio between them is what makes the building readable rather than either
+            // one being large.
+            sun.intensity = 0.85f;
             // **NO SHADOWS, AND IT IS A TRADE RATHER THAN AN OVERSIGHT.** Shadows would make the
             // cutaway read far better - a room with one wall off would have a lit floor and a dark
             // corner instead of a flat wash. They would also be cast by every renderer in four awake

@@ -32,6 +32,19 @@ namespace IterationRoom
         // See `CycleExit`'s header, which makes that argument for the hatch and it holds here.
         public CycleExit breach;
 
+        // **THE HOLE THE PLAYER CAME DOWN THROUGH, SHUT BEHIND THEM** (2026-09-01, by request).
+        //
+        // Room3-0 sits on top of room3-2N and the only way between them is the ladder shaft. The
+        // ladder went with the rest of the structures, so the drop is one-way already - but a hole
+        // standing open in the ceiling says otherwise, and the whole of this sequence is the building
+        // closing itself off one route at a time.
+        //
+        // It rises INTO the hole from the service void underneath, so it is out of sight until it
+        // moves and the player watches the ceiling seal from directly below it.
+        public Transform shaftLid;
+        public float shaftLidRise = 1.9f;
+        public float shaftLidSeconds = 2.6f;
+
         public CameraShaker cameraShaker;
         // The PA, for one chime as the walls start printing - see `NarrationDirector.Attention`.
         public NarrationDirector narration;
@@ -78,6 +91,10 @@ namespace IterationRoom
 
             // A beat once they are down, before the walls start talking. They have just dropped a
             // storey and a half through a hole in the dark; the room gets a moment to be a room.
+            //
+            // And the way back closes over their head while they take it - see `shaftLid`. Started
+            // rather than waited on: it is something to notice, not something to wait for.
+            StartCoroutine(SealTheShaft());
             yield return Wait(1.6f);
 
             // 2. THE REPORT, on every wall of the room they have just landed in.
@@ -117,6 +134,13 @@ namespace IterationRoom
                     yield return null;
                 }
                 yield return Wait(afterVerdict);
+
+                // **AND THEN IT TELLS THEM TO WAIT.** The report ends and nothing happens for a few
+                // seconds while the wall shakes and the car climbs the shaft, and a player alone in a
+                // wrecked room with no instruction reads that as being stuck. One line fixes it, and
+                // it is the only thing the facility says at the end that is not a number.
+                narration?.AnnounceTransportCalled();
+                yield return Wait(4.2f);
             }
 
             // 3. THE WALL. Shaken first, then opened - the same order of cause the break upstairs
@@ -158,6 +182,30 @@ namespace IterationRoom
 
             // And it stops. `LoopManager` brings the scrim up from here, over a player sitting in a
             // cable car above the facility - which is the shot the whole ending is built to reach.
+        }
+
+        // The lid, up into the ceiling hole. On the ending's own clock like everything else here.
+        private IEnumerator SealTheShaft()
+        {
+            if (shaftLid == null) yield break;
+
+            // Drawn from here on. It is built with its renderer off because where it waits turns out
+            // to be visible from below - see the note in `BuildShaftLid`.
+            Renderer lid = shaftLid.GetComponent<Renderer>();
+            if (lid != null) lid.enabled = true;
+
+            Vector3 from = shaftLid.localPosition;
+            Vector3 to = from + Vector3.up * shaftLidRise;
+
+            float t = 0f;
+            while (t < shaftLidSeconds)
+            {
+                t += EndingClock.Delta;
+                shaftLid.localPosition =
+                    Vector3.Lerp(from, to, Mathf.SmoothStep(0f, 1f, t / shaftLidSeconds));
+                yield return null;
+            }
+            shaftLid.localPosition = to;
         }
 
         private static IEnumerator Wait(float seconds)

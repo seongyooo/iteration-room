@@ -54,6 +54,10 @@ namespace IterationRoom
             public AudioClip iterationsWord;
             public AudioClip minutesWord;
             public AudioClip totalWord;
+
+            // "Transport has been called. Please stand by." Said once the report is read out, so a
+            // player standing in a wrecked room knows that waiting is the right thing to be doing.
+            public AudioClip transportCalledLine;
         }
 
         public VoiceSet english;
@@ -222,6 +226,14 @@ namespace IterationRoom
         // here would mean either a silent fixture or a borrowed sentence that says the wrong thing.
         // The words are on the wall; this is only what makes the player look up.
         public void Attention() => Chime();
+
+        // Chimed, because it is the last thing the facility says to the subject and the one piece of
+        // it that is an instruction rather than a figure.
+        public void AnnounceTransportCalled()
+        {
+            Chime();
+            Speak(Lines.transportCalledLine);
+        }
 
         // ======================================================== THE REPORT, READ ALOUD
         //
