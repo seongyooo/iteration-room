@@ -82,7 +82,13 @@ namespace IterationRoom.EditorTools
         // itself was centred low enough that its lower third was down among the player's feet. It is
         // 11.2m tall now and centred at 6.8, so it spans roughly 1.2m to 12.4m of a 16.2m room -
         // clear of the floor, and the whole of it above head height.
-        private const float BoardHeight = 6.8f;
+        // **CENTRED ON THE WALL** (2026-09-01, by request). Room3-2N is three storeys tall, so its
+        // walls' middle is half of that - derived rather than typed, because the room's height is
+        // `3 * RoomHeight` and a number written here would not follow it if that changed.
+        //
+        // At 11.2m tall the face then spans roughly 2.5m to 13.7m of a 16.2m wall, which is margin
+        // top and bottom and the type sitting where the eye rests.
+        private const float BoardHeight = 3f * RoomHeight / 2f;
         // Clear of the panelling by more than the chamfer is deep, so the type never z-fights the
         // wall it is printed on.
         private const float WallStandoff = 0.12f;

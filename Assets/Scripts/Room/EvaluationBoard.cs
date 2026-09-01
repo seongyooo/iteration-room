@@ -72,6 +72,10 @@ namespace IterationRoom
         public AudioClip lineClip;
         public AudioClip verdictClip;
 
+        // The PA, which reads out each cycle's row as it appears. Bound at runtime like everything
+        // else that crosses into the core scene - see `CycleBinding`.
+        public NarrationDirector narration;
+
         // How close the player has to be for the readout to start, measured HORIZONTALLY. Generous
         // on purpose - it should have begun by the time they are looking at it, not be a wire they
         // trip - and 26m covers the far corner of a room that is 17.5 by 21 (22.7m away), so landing anywhere in it starts the readout.
@@ -85,6 +89,10 @@ namespace IterationRoom
         // Pacing. A line every `linePause`, with `sectionPause` at a blank - so the board reads in
         // paragraphs rather than as a scroll.
         public float linePause = 0.32f;
+        // The extra beat after a CYCLE row, on top of `linePause`. Those rows are the only ones the
+        // PA reads aloud, and they need long enough not to be cut off by the next one - four or five
+        // seconds of assembled clips. See `NarrationDirector.AnnounceCycleResult`.
+        public float cycleLinePause = 4.2f;
         public float sectionPause = 0.7f;
         // How long a score takes to roll from nothing to its value. The roll is what makes the
         // number read as measured rather than looked up.
@@ -223,11 +231,22 @@ namespace IterationRoom
                 {
                     iterations += record.Iterations;
                     seconds += record.Seconds;
+                    // **THE VOICE AND THE WALL TOGETHER.** Spoken as the row is printed rather than
+                    // after the table is complete: the announcement is what the wall is saying, not a
+                    // summary of it, and a PA reading out a table the player finished reading a
+                    // minute ago is a PA talking to itself.
+                    //
+                    // The line takes about four seconds to say and the row takes `linePause` to
+                    // print, so the wall runs ahead - which is the right way round. The reader
+                    // catches up; the reverse would mean waiting for the voice with nothing on screen.
+                    narration?.AnnounceCycleResult(record.Cycle, record.Iterations, record.Seconds);
                     yield return Line(Row($"CYCLE {record.Cycle:00}",
                                           $"{record.Iterations,3}   {RunReport.FormatClock(record.Seconds)}"));
+                    yield return Wait(cycleLinePause);
                 }
 
             yield return Blank();
+            narration?.AnnounceTotalResult(iterations, seconds);
             // The column heading arrives AFTER the rows it describes, which is the wrong way round
             // on paper and the right way round here: the rows are printed one at a time and the
             // reader has already worked out what the two numbers are by the time this confirms it.

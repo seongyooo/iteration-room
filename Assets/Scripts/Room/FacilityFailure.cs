@@ -92,6 +92,20 @@ namespace IterationRoom
         // on screen, with the rest of the structures leaving, because it is one of them.
         public CrushingBarrier wayIn;
 
+        // **AND THE MOUTH OF THE CORRIDOR, WHICH IS THE HOLE THE PLAYER ACTUALLY SEES.**
+        //
+        // Closing `wayIn` was not enough and the reason is worth keeping: that barrier is at the
+        // room3-1 END of the corridor, twenty-two metres away. What room3-2N has is a permanent
+        // opening in its south wall - the corridor's mouth, which was authored as a hole and has
+        // never had anything to close it. So the barrier shut, correctly, out of sight, and the
+        // player went on looking at an open doorway.
+        //
+        // This is a shutter parked behind the panelling directly above the mouth, where the wall is
+        // intact, so it is invisible until it descends. It comes down with the rest of the teardown.
+        public Transform mouthShutter;
+        public float mouthShutterDrop = 2.7f;
+        public float mouthShutterSeconds = 2.0f;
+
         // The evaluation board on room3-2N's wall. Powered on at the break; everything else about it
         // is its own - see `EvaluationBoard`.
         public EvaluationBoard board;
@@ -212,9 +226,11 @@ namespace IterationRoom
                 foreach (CanvasGroup sign in wayDownSigns)
                     if (sign != null) sign.alpha = 1f;
 
-            // And the way back shuts. It is scenery leaving like everything else, so it goes with
-            // the wave rather than before it.
+            // And the way back shuts - both ends of it. The barrier is at the far end of the
+            // corridor and the shutter is the mouth of it in this room; only the second is visible
+            // from where the player is standing, and only the first stops anything walking back.
             wayIn?.CloseNow();
+            StartCoroutine(DropShutter());
 
             // THE WHITE LIGHT GOES OUT AND THE RED ONE COMES UP, on the same beat as the
             // announcement - the facility saying it and the room showing it are one event.
@@ -247,6 +263,27 @@ namespace IterationRoom
             // down. The way out is the hole in room3-0's floor, which is the hole the player climbed
             // in through, and the arrow is the only thing in the room that says so. Nothing here
             // pushes them toward it and nothing hurries them.
+        }
+
+        // The corridor's mouth, filled in. Eased like everything else in this sequence, and on the
+        // ending's own clock so a pause stops it half-closed rather than letting it finish behind
+        // the menu.
+        private IEnumerator DropShutter()
+        {
+            if (mouthShutter == null) yield break;
+
+            Vector3 from = mouthShutter.localPosition;
+            Vector3 to = from + Vector3.down * mouthShutterDrop;
+
+            float t = 0f;
+            while (t < mouthShutterSeconds)
+            {
+                t += EndingClock.Delta;
+                mouthShutter.localPosition =
+                    Vector3.Lerp(from, to, Mathf.SmoothStep(0f, 1f, t / mouthShutterSeconds));
+                yield return null;
+            }
+            mouthShutter.localPosition = to;
         }
 
         // Out, and their faces with them. Once - there is nothing that turns them back on.

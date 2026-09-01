@@ -184,23 +184,60 @@ namespace IterationRoom
             if (cycles == null) return;
 
             var block = new MaterialPropertyBlock();
-            int painted = 0;
+            int painted = 0, unbaked = 0, doused = 0;
 
             foreach (Cycle cycle in cycles)
             {
                 if (cycle == null || cycle.worldRoot == null) continue;
+                // The room the player is standing in is left exactly as it is - they are inside it,
+                // reading a wall, and it is lit for that.
+                if (occupied != null && cycle == occupied) continue;
+
                 foreach (Renderer r in cycle.worldRoot.GetComponentsInChildren<Renderer>(true))
                 {
-                    if (r == null || !r.name.StartsWith("Backing")) continue;
+                    if (r == null) continue;
+
+                    // **THE BAKED LIGHTMAP IS THROWN AWAY, AND THIS IS WHAT ACTUALLY FIXES BLACK.**
+                    //
+                    // Repainting the albedo was not enough and the arithmetic says why: a
+                    // lightmapped surface renders as albedo TIMES its baked irradiance, and the
+                    // outside of this building was baked with nothing out there to light it. Black
+                    // times 0.45 is still black. It is not a surface waiting for light; it has its
+                    // answer and the answer is zero.
+                    //
+                    // `lightmapIndex = -1` makes a renderer forget it was baked, so it falls back to
+                    // the ambient and the realtime lights - which is exactly the state this scene
+                    // wants for a building being looked at from outside for the first time.
+                    if (r.lightmapIndex >= 0) { r.lightmapIndex = -1; unbaked++; }
+
+                    if (!r.name.StartsWith("Backing")) continue;
                     r.GetPropertyBlock(block);
                     block.SetColor(LitPropertyIds.BaseColor, exteriorPaint);
                     r.SetPropertyBlock(block);
                     painted++;
                 }
+
+                // **AND THE CEILING FIXTURES GO OUT** (2026-09-01, by request: too bright). With the
+                // lids off, every room's four downlights point straight at the camera from above -
+                // twenty rooms' worth of bare spots in shot at once. The interiors are lit by the
+                // exterior sun and the raised ambient now, which is what a cutaway wants: an even
+                // wash that shows the floor plan, not four hotspots per room.
+                foreach (Light light in cycle.worldRoot.GetComponentsInChildren<Light>(true))
+                    if (light != null && light.enabled) { light.enabled = false; doused++; }
+
+                // The emissive panels those fixtures sit in, killed with them - a dark room with
+                // four glowing white squares in its ceiling is a room with the lights still on.
+                foreach (Renderer r in cycle.worldRoot.GetComponentsInChildren<Renderer>(true))
+                {
+                    if (r == null || r.name != "Panel") continue;
+                    r.GetPropertyBlock(block);
+                    block.SetColor(LitPropertyIds.EmissionColor, Color.black);
+                    r.SetPropertyBlock(block);
+                }
             }
 
-            Debug.Log($"[FacilityExterior] Repainted {painted} backing slab(s) - the outside of this "
-                    + "building is GrooveDark until something says otherwise.");
+            Debug.Log($"[FacilityExterior] Outside: {painted} backing slab(s) repainted, {unbaked} "
+                    + $"renderer(s) taken off their baked lightmap, {doused} ceiling fixture(s) out.");
         }
 
         // TAKING THE LID AND ONE WALL OFF EVERY ROOM, worked out here rather than at build time.

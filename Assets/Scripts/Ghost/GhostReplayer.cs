@@ -427,15 +427,33 @@ namespace IterationRoom
         // Three ways to be ineligible, all of them real: hidden (not in play yet), already seated in
         // a socket or in the living player's hand (both `IsCarried` with no ghost), and held by
         // another ghost when this item has nowhere a hand-over could matter - a pin.
-        private CarryableItem Eligible(CarryableItem item, bool hasSocket)
+        // **ANY OBJECT CAN CHANGE HANDS BETWEEN PAST SELVES** (2026-09-01, by request).
+        //
+        // This used to be gated: a hand-over was only reproduced for an item that had somewhere to
+        // GO - a socket - on the reasoning that taking a pin off a past self accomplishes nothing
+        // because there is no destination the transfer could matter for. The gate then had to be
+        // opened by hand for the mirrors (`ghostHandover`), which have no socket and for which which
+        // hand holds them is the entire puzzle.
+        //
+        // That second exception is what shows the rule was wrong. "Somewhere to go" is a guess about
+        // whether a hand-over matters, made in the one place that cannot know - and it was wrong
+        // about the mirrors, and wrong again about cycle 1's clipboard, which play found could not
+        // be passed between past selves at all.
+        //
+        // **The take is a fact the player performed.** `PlayerHand.Take` records one whether it came
+        // off the floor or out of a past self's hands, and CLAUDE.md 1.4 is that a ghost reproduces
+        // what happened rather than something equivalent to it. A hand-over that accomplishes
+        // nothing is a past self doing something that accomplished nothing, which is exactly what
+        // the recording says it did.
+        //
+        // The two conditions that remain are the real ones: the object must be ghost-carryable at
+        // all, and it must not be in the LIVING player's hands - a ghost never reaches into their
+        // pocket, and that test is `IsFreeForGhost`/`HeldByGhost` rather than anything here.
+        private CarryableItem Eligible(CarryableItem item)
         {
             if (item == null || !item.ghostCarryable) return null;
             if (item.IsFreeForGhost) return item;
-            // **OR THE OBJECT SAYS SO ITSELF.** Having a socket was a proxy for "a hand-over of this
-            // is worth reproducing", and it excluded the mirrors - which have no socket and for which
-            // WHICH HAND holds them is the whole puzzle. See `CarryableItem.ghostHandover`.
-            bool handover = hasSocket || item.ghostHandover;
-            return handover && item.HeldByGhost != null ? item : null;
+            return item.HeldByGhost != null ? item : null;
         }
 
         private void TryDrop(string itemId)
@@ -621,10 +639,6 @@ namespace IterationRoom
             // pocket. Falling through to the generic paths below on that rejection is correct: this
             // ghost is still entitled to A pin even when it specifically cannot have the one it
             // originally got.
-            // A hand-over is only ever eligible for an item with somewhere to GO - see the fallback
-            // below, and the note on FindHeldByGhost.
-            bool hasSocket = ItemRegistry.FindSocket(itemId) != null;
-
             CarryableItem item = null;
             if (!string.IsNullOrEmpty(instanceName))
             {
@@ -638,7 +652,7 @@ namespace IterationRoom
                 // honest answer is that the errand does not happen this iteration - the same answer
                 // a ghost already gets when the key is gone or the socket is full. It costs a pop;
                 // it buys "a past self does exactly what you did" holding without exception.
-                item = Eligible(ItemRegistry.FindInstance(itemId, instanceName), hasSocket);
+                item = Eligible(ItemRegistry.FindInstance(itemId, instanceName));
             }
             else
             {
@@ -646,7 +660,9 @@ namespace IterationRoom
                 // every one made now carries it. Kept because the alternative is a recording that
                 // silently does nothing at all.
                 item = ItemRegistry.FindFreeForGhost(itemId);
-                if (item == null && hasSocket) item = ItemRegistry.FindHeldByGhost(itemId);
+                // No socket test any more - see `Eligible`. A recording that says this ghost took
+                // the thing another one is holding is reproduced whatever the thing is.
+                if (item == null) item = ItemRegistry.FindHeldByGhost(itemId);
             }
 
             if (item == null) return;

@@ -80,6 +80,23 @@ namespace IterationRoom
         public Vector3 doorOpenOffset = new Vector3(0.62f, 0f, 0f);
         public float doorSeconds = 1.6f;
 
+        // **THE CAR TURNS SIDE-ON BEFORE IT LEAVES** (2026-09-01, by request).
+        //
+        // It docks with its doorway facing the breach, because that is the side the player walks in
+        // through. That is the wrong way round for the next minute: the doorway end is the narrow
+        // end, so a car that travelled as it docked would spend the whole ride showing the building
+        // through a doorframe.
+        //
+        // A quarter turn puts the long glazed flank outward, which is the side the cabin has windows
+        // on and the reason the glass was taken down to almost nothing. It is also what a real
+        // gondola does - it hangs square to its rope and the doors face the platform.
+        //
+        // TURNED WHILE STATIONARY, between the doors closing and the first metre of travel. Rotating
+        // a moving cabin around a standing passenger is a way to put them through a wall; rotating a
+        // stopped one about its own centre, with the player near that centre, moves nothing.
+        public float travelYaw = 90f;
+        public float turnSeconds = 2.2f;
+
         // How tall the cabin is, measured off the model at build time. Read by `SceneBuilder` to
         // hang the rope at the top of the hanger arm rather than at a guessed height - the two have
         // to agree or the car dangles below its own cable.
@@ -217,7 +234,37 @@ namespace IterationRoom
         public IEnumerator BoardAndDepart()
         {
             yield return WaitForBoarding();
+            yield return TurnForTravel();
             yield return Ride();
+        }
+
+        // The quarter turn onto the rope - see `travelYaw`. It also guarantees the doors are shut
+        // before anything moves: `WaitForBoarding` closes them, and this is the last chance to
+        // notice that they are not.
+        private IEnumerator TurnForTravel()
+        {
+            if (car == null) yield break;
+
+            // **SNAPPED SHUT RATHER THAN TRUSTED.** Play saw the car leave with its doors open. The
+            // slide that closes them is an animation over `doorSeconds` and anything that interrupts
+            // it - a pause, a coroutine stopped, a frame where the car was not yet active - leaves
+            // them wherever they were. This is one assignment and it cannot be interrupted.
+            if (doorLeft != null) doorLeft.localPosition = shutLeft;
+            if (doorRight != null) doorRight.localPosition = shutRight;
+
+            Quaternion from = car.rotation;
+            Quaternion to = from * Quaternion.Euler(0f, travelYaw, 0f);
+
+            float t = 0f;
+            while (t < turnSeconds)
+            {
+                t += EndingClock.Delta;
+                car.rotation = Quaternion.Slerp(from, to, Mathf.SmoothStep(0f, 1f, t / turnSeconds));
+                CarryPlayer();
+                yield return null;
+            }
+            car.rotation = to;
+            CarryPlayer();
         }
 
         // THE RIDE. The car walks the path; the player rides in it and is otherwise left alone.

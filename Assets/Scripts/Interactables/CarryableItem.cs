@@ -47,19 +47,10 @@ namespace IterationRoom
         // nothing currently sets it false.
         public bool ghostCarryable = true;
 
-        // **REPRODUCING A HAND-OVER OFF ANOTHER PAST SELF MATTERS FOR THIS OBJECT.**
-        //
-        // `GhostReplayer.Eligible` lets a ghost take something out of ANOTHER ghost's hands only when
-        // the object has somewhere to go, on the reasoning that "a pin has no destination a hand-over
-        // could matter for" - three interchangeable pins reshuffling between past selves reads as
-        // random and buys nothing.
-        //
-        // That reasoning silently excluded the MIRRORS, which have no socket and for which which
-        // hand holds them is the entire puzzle: a pane is a position in space bending light. So a
-        // player who took a mirror off a past self and stood in its place had that take refused for
-        // every later iteration, and the thing they did was never reproduced. Reported from play as
-        // exactly that. Having a socket was never the real question; this is.
-        public bool ghostHandover;
+        // ~~`ghostHandover`~~ GONE 2026-09-01. It was a per-object opt-in that let an item with no
+        // socket still be passed between past selves; the mirrors were the only thing that set it.
+        // Every object can now, so there is nothing left to opt into - see `GhostReplayer.Eligible`.
+
 
         // The ghost currently holding this, if any. A ghost's custody is CUSTODY, not ownership:
         // every way out of it has to land the item somewhere (socket, floor, player, origin), or an

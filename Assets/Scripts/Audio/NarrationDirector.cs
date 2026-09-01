@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace IterationRoom
@@ -40,6 +41,19 @@ namespace IterationRoom
             // Spoken the first time the player reaches Room3, alongside the same instruction lighting
             // up on all four of its walls.
             public AudioClip manualTerminationLine;
+
+            // **THE PIECES THE END-OF-RUN REPORT IS BUILT OUT OF.** Nothing else in this game says a
+            // number the writer did not know in advance; the evaluation says four of them per run
+            // and cannot know any. See `AnnounceCycleResult`.
+            //
+            // Indexed BY VALUE, not packed: 0-19 sit at their own index and the tens at 20, 30 ... 90,
+            // so `numbers[n]` is the clip for n whenever there is one. The gaps in between are null
+            // and never asked for - `Number` decomposes anything past nineteen into a ten and a unit.
+            public AudioClip[] numbers;
+            public AudioClip cycleWord;
+            public AudioClip iterationsWord;
+            public AudioClip minutesWord;
+            public AudioClip totalWord;
         }
 
         public VoiceSet english;
@@ -196,6 +210,115 @@ namespace IterationRoom
             voiceSource.Stop();
             voiceSource.clip = clip;
             voiceSource.Play();
+        }
+
+        // **THE FACILITY CLEARING ITS THROAT, WITH NOTHING AFTER IT.**
+        //
+        // Used when the evaluation starts printing on room3-2N's walls. Every important line this
+        // voice has ever said is preceded by this sound, so on its own it means *the building is
+        // about to tell you something* - which is exactly what a wall full of type is.
+        //
+        // A chime rather than a spoken line because there is no clip for one, and inventing a line
+        // here would mean either a silent fixture or a borrowed sentence that says the wrong thing.
+        // The words are on the wall; this is only what makes the player look up.
+        public void Attention() => Chime();
+
+        // ======================================================== THE REPORT, READ ALOUD
+        //
+        // **THE FACILITY SAYS WHAT THE WALLS ARE PRINTING** (2026-09-01, by request). One call per
+        // cycle as its row appears, so the voice and the wall arrive together rather than the voice
+        // summarising something already finished.
+        //
+        // "CYCLE ONE, NINE ITERATIONS, FOUR MINUTES" is five clips played back to back. It is
+        // assembled rather than pre-rendered because the numbers are the run's, and a facility that
+        // reads out a figure it could not have known before the player produced it is the only kind
+        // of announcement worth making here.
+        //
+        // MINUTES ONLY, rounded. The wall carries the seconds; a PA that reads "four minutes and
+        // twenty seconds point six" is a PA nobody listens to the end of.
+        public void AnnounceCycleResult(int cycle, int iterations, float seconds)
+        {
+            var line = new List<AudioClip> { Lines.cycleWord };
+            Number(cycle, line);
+            Number(iterations, line);
+            line.Add(Lines.iterationsWord);
+            Number(Mathf.Max(1, Mathf.RoundToInt(seconds / 60f)), line);
+            line.Add(Lines.minutesWord);
+            SpeakSequence(line);
+        }
+
+        public void AnnounceTotalResult(int iterations, float seconds)
+        {
+            var line = new List<AudioClip> { Lines.totalWord };
+            Number(iterations, line);
+            line.Add(Lines.iterationsWord);
+            Number(Mathf.Max(1, Mathf.RoundToInt(seconds / 60f)), line);
+            line.Add(Lines.minutesWord);
+            SpeakSequence(line);
+        }
+
+        // A number as clips. 0-19 are whole words in both languages, because "thirteen" is not "ten
+        // three" and 십삼 assembled out of 십 and 삼 sounds like spelling rather than speaking. Past
+        // that both languages are regular, so a ten and a unit covers everything to 99.
+        //
+        // Anything larger is clamped rather than dropped: a run of a hundred iterations is a run this
+        // should still be able to describe, and "ninety nine" is a better failure than silence.
+        private void Number(int value, List<AudioClip> into)
+        {
+            if (Lines.numbers == null) return;
+            value = Mathf.Clamp(value, 0, 99);
+
+            if (value < 20) { Add(into, value); return; }
+
+            Add(into, value / 10 * 10);
+            if (value % 10 != 0) Add(into, value % 10);
+        }
+
+        private void Add(List<AudioClip> into, int index)
+        {
+            if (index >= 0 && index < Lines.numbers.Length && Lines.numbers[index] != null)
+                into.Add(Lines.numbers[index]);
+        }
+
+        // How long to leave between the clips of an assembled line. Short - these are the words of
+        // one sentence, not separate announcements - and the clips are rendered without a full stop
+        // so the synthesizer does not put its own pause on the end of each.
+        public float clipGap = 0.06f;
+
+        // **PLAYED IN SEQUENCE, WHICH `Speak` CANNOT DO.** That method deliberately STOPS whatever is
+        // talking and starts the new clip, because announcements replace each other - a countdown
+        // that stacked would slur. An assembled sentence is the opposite case: five clips that are
+        // one utterance, and each has to finish.
+        //
+        // On `EndingClock`, so it stops with a pause rather than talking over a frozen game.
+        private Coroutine speaking;
+
+        private void SpeakSequence(List<AudioClip> clips)
+        {
+            if (voiceSource == null || clips == null || clips.Count == 0) return;
+            if (speaking != null) StopCoroutine(speaking);
+            speaking = StartCoroutine(PlayInOrder(clips));
+        }
+
+        private System.Collections.IEnumerator PlayInOrder(List<AudioClip> clips)
+        {
+            foreach (AudioClip clip in clips)
+            {
+                if (clip == null) continue;
+
+                voiceSource.Stop();
+                voiceSource.clip = clip;
+                voiceSource.Play();
+
+                float wait = clip.length + clipGap;
+                float t = 0f;
+                while (t < wait)
+                {
+                    t += EndingClock.Delta;
+                    yield return null;
+                }
+            }
+            speaking = null;
         }
 
         private void Chime()

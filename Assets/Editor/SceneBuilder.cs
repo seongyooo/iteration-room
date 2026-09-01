@@ -350,15 +350,74 @@ namespace IterationRoom.EditorTools
         // drawing into geometry: the recesses catch real shadow and ambient occlusion.
         // Deep enough to catch ambient occlusion, shallow enough that the panels' white side faces
         // don't wash the seam out when you view a wall at a grazing angle.
-        private const float GrooveDepth = 0.025f;
+        //
+        // **25mm -> 15mm, 2026-09-01, and the grazing-angle clause above is exactly why.**
+        //
+        // Play reported the black seams breaking up into dashes on walls seen edge-on. It is not
+        // resolution and it is not the aliasing everyone reaches for first: the groove is a real
+        // trench 50mm wide and 25mm deep, so past a certain angle the near panel's own edge OCCLUDES
+        // the dark backing at the bottom of it. Between "fully visible" and "fully hidden" there is a
+        // band of angles where the occlusion resolves differently pixel to pixel, and a line that is
+        // there in one pixel and gone in the next is a line that looks broken.
+        //
+        // The angle it starts at is `atan(width / depth)` from the wall's normal, so the depth is the
+        // only term worth touching - the width is what makes the grid read at all:
+        //
+        //     25mm -> starts at 63.4 deg, a 26.6 deg band of flicker
+        //     15mm -> starts at 73.3 deg, a 16.7 deg band
+        //     10mm -> starts at 78.7 deg, an 11.3 deg band          <- here
+        //
+        // **AND THEN 15mm -> 10mm THE SAME DAY, FOR A DIFFERENT REASON, MEASURED OFF THE PIXELS.**
+        //
+        // 15 fixed the breaking-up and the seams still read as soft and a little dirty rather than
+        // as clean black lines. Reading the actual luma across one at 4x magnification says why, and
+        // says it is NOT antialiasing:
+        //
+        //     11 -> 55 -> 132 -> 125 -> 161 -> 153 -> 161 -> 162 -> 183 -> 196
+        //
+        // Two things in that. There are eight distinct intermediate values, so the antialiasing is
+        // working - and the ramp is NOT MONOTONIC. It rises, dips, rises, dips. Antialiasing cannot
+        // do that. What can is a sequence of SURFACES: the panel face, the lit chamfer on its rim,
+        // the groove's side wall, and the backing at the bottom.
+        //
+        // **THE SIDE WALL IS MOST OF THAT BAND.** The chamfer is under two pixels at the distance
+        // that was measured; the 15mm of side wall, seen at an angle, is the rest of the six. So the
+        // seam is not a line at all, it is a small lit trench - which is exactly what the first
+        // paragraph of this comment says it was built to be, and exactly what stops it reading as a
+        // crisp black line. **More MSAA cannot touch it** (see the note by `m_MSAA`, which is at 4
+        // and is where it should stay); the only lever is how much side wall there is to see.
+        //
+        // `PanelChamfer` goes 6mm -> 3mm with it, which is the constraint that kept this at 15
+        // before: 10mm of relief under a 6mm chamfer leaves 4mm of straight side and the panel
+        // starts becoming a shallow pyramid. At 3mm it leaves 7mm, which is still a groove wall.
+        //
+        // What it costs, and it is a real trade: shallower shadow in the seam, less for SSAO to
+        // resolve the grid off the depth buffer (see the near-clip note in `BuildPlayer`), and a
+        // thinner lit rim. **The building reads slightly flatter and the lines read sharper.** If
+        // that is the wrong way round, 15/6 and 25/6 are both one edit away.
+        private const float GrooveDepth = 0.010f;
 
         // HOW WIDE THE CHAMFER ON A PANEL'S FRONT RIM IS - see `ChamferedPanelMesh`.
         //
-        // 6mm against the panel's own 25mm of relief. Large enough that the band is a line the eye
-        // reads rather than an aliased pixel at the far end of a room, and small enough that 19mm of
+        // 6mm against the panel's own relief. Large enough that the band is a line the eye reads
+        // rather than an aliased pixel at the far end of a room, and small enough that a good deal of
         // straight side is left to be the groove wall - a chamfer that ate the whole depth would turn
         // every panel into a shallow pyramid and lose the flat face the room is made of.
-        private const float PanelChamfer = 0.006f;
+        //
+        // **6mm -> 3mm, 2026-09-01, and it went with the groove.** `GrooveDepth` went to 10mm to
+        // make the seams read as lines rather than as small trenches, and 10mm of relief under a 6mm
+        // chamfer leaves 4mm of straight side - the shallow pyramid this note warns about. 3mm
+        // leaves 7mm.
+        //
+        // It is also half of what was making the band soft in the first place: a chamfer is a lit
+        // rim, and a lit rim between a white face and a black backing is a third value in the middle
+        // of the transition. Narrower rim, tighter transition.
+        //
+        // **THE RISK THIS TAKES IS THE ONE THE PARAGRAPH ABOVE NAMES**: too small and the band is an
+        // aliased pixel rather than a line the eye reads. MSAA is at 4 now (it was 2 when that was
+        // written), which is what makes 3mm affordable - but it is the thing to look at if the
+        // panels start to look like plain cubes at the far end of a room.
+        private const float PanelChamfer = 0.003f;
 
         // HOW FAR THE WEAR PASS IS ALLOWED TO DULL A SURFACE, as a fraction of its authored
         // smoothness - see `MakeSmoothnessMap`. 0.72 means the dullest patch reflects about three
@@ -2562,25 +2621,73 @@ namespace IterationRoom.EditorTools
                 : "[SceneBuilder] URP on LegacyLightProbes - Adaptive Probe Volumes are OFF by "
                 + "choice, not for want of a bake. See SceneBuilder.AnyBakedProbeVolumes.");
 
-            // **MSAA 2, NOT 4** (2026-08-25, after play reported lag). Authored here rather than left
-            // in the asset for the reason every tuned value is (CLAUDE.md §2) - it was 4 and nothing
-            // anywhere said why, which is how a number nobody has examined survives.
+            // **MSAA 4 AGAIN, 2026-09-01, and this deliberately re-opens a decision.**
             //
-            // **THIS GAME ALREADY HAS A SECOND ANTIALIASER.** The player camera runs SMAA
-            // (`BuildPlayer`), so MSAA is not carrying the picture on its own - it is buying extra
-            // coverage on geometric edges, which this building does have a lot of in the panel
-            // grooves. 4x at 1080p in HDR is four full colour and depth samples per pixel of
-            // bandwidth for the second half of a job already being done.
+            // It was 4, went to 2 on 2026-08-25 after play reported lag, and is back at 4 because
+            // play reported the thing 2 was not enough for: stair-stepping on the black panel
+            // grooves. Both reports are real and they pull opposite ways, so what settles it is that
+            // this is the RIGHT TOOL for that particular artefact and the alternatives are worse
+            // trades:
             //
-            // 2 keeps the geometric coverage that SMAA cannot give (SMAA only sees the resolved
-            // image) at half the bandwidth. **Use "Disabled" to turn MSAA off entirely** - that is the
-            // bigger saving and the one to try next if the frame rate is still short.
+            //   - The groove is a GEOMETRIC edge between 0.04 and 0.85 albedo - the highest-contrast
+            //     edge in the game, and there are thousands of them. MSAA is coverage sampling, which
+            //     is exactly what a geometric edge needs; 2 samples give three levels of coverage
+            //     (0, half, full) and 4 give five. On an edge this contrasty that difference is
+            //     visible.
+            //   - SMAA is already running at High (`BuildPlayer`) and cannot fix it: it is a
+            //     morphological filter on the RESOLVED image, so the information MSAA would have kept
+            //     is gone before it sees the frame.
+            //   - Render scale 1.25 also works and costs more - every pixel of the whole pipeline,
+            //     post-processing included, against MSAA's extra samples at edges only.
+            //   - `GrooveDark` 0.04 -> 0.12 was measured at about a 20% reduction in displayed
+            //     contrast. That is a mitigation, not a fix, and it repaints the whole building.
+            //
+            // **THE GROOVE DEPTH WENT FIRST, AND IT IS WHY THIS IS WORTH SPENDING.** 25mm -> 15mm
+            // (see `GrooveDepth`) fixed the seams BREAKING UP at grazing angles, which was the larger
+            // and uglier half and cost nothing. What is left is ordinary edge aliasing, which is the
+            // half that has to be bought.
+            //
+            // **IF IT LAGS AGAIN, THIS IS THE FIRST THING TO PUT BACK TO `_2x`** - one word - and the
+            // ENDING is where to measure it: four cycles awake at once and a 766k-triangle cable car
+            // is the heaviest frame in the game by a distance, and an ordinary room says nothing
+            // about it. "Disabled" is the bigger saving after that.
             //
             // BY NAME, because `m_MSAA` is an enum and `SetIfPresent(int)` refuses those on purpose:
             // MsaaQuality's values are 1/2/4/8 and its INDICES are 0/1/2/3, so assigning the number
             // you want picks a different mode. The first attempt at this line did exactly that and
             // was silently ignored by the guard, which is the guard working.
-            SetEnumByName(so, "m_MSAA", "_2x");
+            SetEnumByName(so, "m_MSAA", "_4x");
+
+            // **RENDER SCALE 1.25, 2026-09-01 - SUPERSAMPLING, AND THE LAST LEVER THERE IS.**
+            //
+            // Authored here rather than left in the asset for the reason the MSAA above is: it sat at
+            // 1 with nothing anywhere saying so, which is the state that note calls "a number nobody
+            // has examined".
+            //
+            // WHY IT IS BEING SPENT. The panel grooves still stair-step at distance and at the edge
+            // of the frame, in a STILL frame. Everything cheaper has been tried and the ladder is
+            // worth writing down, because the next person will be tempted to climb it again:
+            //
+            //   - `GrooveDepth` 25 -> 15 -> 10mm and `PanelChamfer` 6 -> 3mm. These fixed the seams
+            //     breaking up at grazing angles and narrowed the soft transition band. Free, and they
+            //     are the reason this is now ordinary edge aliasing rather than three problems at once.
+            //   - MSAA 2 -> 4. Helped, and it is the right tool for a geometric edge.
+            //   - TAA was considered and RULED OUT: the artefact is visible in a still frame, and TAA
+            //     accumulates across frames. It would buy ghosting and fix nothing here.
+            //
+            // What is left is a thin, very high contrast line (albedo 0.04 against 0.85) that falls
+            // below a pixel at distance. No spatial filter recovers detail finer than its own
+            // sampling rate - the only thing that does is sampling finer, which is this.
+            //
+            // 1.25 rather than 1.5: 1.56x the pixels against 2.25x. **This is the most expensive
+            // change in the rendering setup** - unlike MSAA it costs every pixel of every pass,
+            // post-processing included.
+            //
+            // **MEASURE IT IN THE ENDING.** Four cycles awake at once plus a 766k-triangle cable car
+            // is the heaviest frame in the game by a distance, and an ordinary room says nothing
+            // about it. If it is short, this goes back to 1 before MSAA goes back to 2 - it is the
+            // bigger saving and the more recent decision.
+            SetIfPresent(so, "m_RenderScale", 1.25f);
 
             // **DEPTH BIAS 0.5, NOT URP'S DEFAULT 1** (2026-08-24, by request). Authored here rather
             // than left to the asset for the reason every tuned value is (CLAUDE.md §2) - the asset is
@@ -2673,6 +2780,12 @@ namespace IterationRoom.EditorTools
         }
 
         private static void SetFloatIfPresent(SerializedObject so, string path, float value)
+        {
+            SerializedProperty p = so.FindProperty(path);
+            if (p != null && p.propertyType == SerializedPropertyType.Float) p.floatValue = value;
+        }
+
+        private static void SetIfPresent(SerializedObject so, string path, float value)
         {
             SerializedProperty p = so.FindProperty(path);
             if (p != null && p.propertyType == SerializedPropertyType.Float) p.floatValue = value;
@@ -7066,7 +7179,10 @@ namespace IterationRoom.EditorTools
             // with a SOCKET, and a mirror has none. So a player who took a pane off a ghost and stood
             // in its place had that take refused in every later iteration - the one thing this cycle
             // is about, silently not accumulating. See `CarryableItem.ghostHandover`.
-            foreach (CarryableItem pane in mirrors) if (pane != null) pane.ghostHandover = true;
+            // ~~`ghostHandover = true`~~ NOT NEEDED SINCE 2026-09-01: every object can be passed
+            // between past selves, so the mirrors no longer have to ask for it. See
+            // `GhostReplayer.Eligible`, which records why the exception is what showed the rule was
+            // wrong.
             // THE WEST PLATE, which is where the beam has had to arrive since 2026-08-21.
             LaserReceiver receiver = BuildLaserReceiver(rN, "LaserReceiver",
                 new Vector3(-bigWidth / 2f + 0.18f, BeamHeight, 5f), Vector3.right, propMat);
@@ -14768,6 +14884,11 @@ namespace IterationRoom.EditorTools
         private static readonly string[] FailureKeeps =
         {
             "Floor", "Ceiling", "Wall_", "Gate", "ReflectionProbe", "_CeilingLights", "_Gas",
+            // **THE CORRIDOR SHUTTER IS PART OF THE SHELL, NOT FURNITURE.** Without this line the
+            // teardown gathers it like everything else and drives it out of the room - and it is the
+            // one object in here whose entire job is to arrive DURING the teardown. It would have
+            // left at the same moment it was asked to close.
+            "CorridorShutter",
         };
 
         // How far a thing travels before it is switched off. Down goes clear under the floor slab;
@@ -14783,6 +14904,62 @@ namespace IterationRoom.EditorTools
         // a thing is hung or held up and goes sideways. Measured off each object rather than listed,
         // so a new prop is classified by what it is rather than by being remembered here.
         private const float FailureStandingClearance = 0.35f;
+
+        // **THE SHUTTER OVER ROOM3-2N'S CORRIDOR MOUTH.**
+        //
+        // The mouth is a permanent cutout in that room's south wall - `BuildBigRoom` is handed it as
+        // `corridorMouth` and there has never been anything to close it, because until the cycle had
+        // an ending there was never a moment that wanted it closed.
+        //
+        // **PARKED BEHIND THE PANELLING DIRECTLY ABOVE THE OPENING**, where the wall is intact (the
+        // cutout stops at `GateHeight` and everything above it is ordinary wall). Sitting at the
+        // BACKING depth rather than the panel depth is what hides it: the panels stand proud of the
+        // backing by `GrooveDepth`, so a slab at the backing plane is behind them and out of sight
+        // until it descends past the opening's lintel.
+        //
+        // It is one slab and not a `BuildPanelWall`, deliberately: a shutter is a shutter and should
+        // read as a different object from the wall it drops out of - it is the building sealing
+        // itself, not a wall growing back.
+        private static Transform BuildMouthShutter(Transform cycleRoot)
+        {
+            Transform room = null;
+            foreach (Transform t in cycleRoot.GetComponentsInChildren<Transform>(true))
+                if (t.name == "Room3_2N") { room = t; break; }
+
+            if (room == null)
+            {
+                Debug.LogWarning("[SceneBuilder] No Room3_2N to hang a corridor shutter in - the "
+                               + "mouth will stand open through the teardown.");
+                return null;
+            }
+
+            const float bigDepth = 2f * RoomDepth;
+            const float bigOffsetX = GridCellWidth / 2f;
+
+            // The mouth's own width and its centre along the wall, both taken from the same values
+            // `BuildCycleThreeShell` cut the opening with - see `corridorMouth` there.
+            Rect gate = GateCutout(RoomWidth);
+            float width = gate.width;
+            float centreX = -bigOffsetX;
+
+            // **AT THE BACKING PLANE, NOT AT THE FACE.** The first placement put it `WallThickness`
+            // INTO the room, which is in front of the panels rather than behind them - a slab parked
+            // in mid-air above the doorway for the whole of cycle 3.
+            //
+            // `BuildPanelWall` sets its backing at `GrooveDepth + WallThickness/2` behind the face,
+            // and the panels stand at the face. Anything at the backing's depth is behind them and
+            // therefore out of sight, which is the whole trick that lets this be parked in the wall.
+            float behindFace = GrooveDepth + WallThickness / 2f;
+
+            GameObject shutter = Prim(PrimitiveType.Cube, "CorridorShutter", room,
+                new Vector3(centreX, GateHeight + GateHeight / 2f, -bigDepth / 2f - behindFace),
+                new Vector3(width, GateHeight, WallThickness),
+                MakeColorMaterial("CorridorShutter", new Color(0.52f, 0.53f, 0.56f)));
+
+            Debug.Log($"[SceneBuilder] Corridor shutter: {width:0.##} x {GateHeight:0.##}m parked "
+                    + $"above room3-2N's mouth, dropping {GateHeight:0.##}m at the break.");
+            return shutter.transform;
+        }
 
         private static FacilityFailure BuildFacilityFailure(Transform cycleRoot, BedlamCube cube,
                                                             WallPanelDisplay panels)
@@ -14810,6 +14987,12 @@ namespace IterationRoom.EditorTools
             if (failure.wayIn == null)
                 Debug.LogWarning("[SceneBuilder] Cycle 3 has no CrushingBarrier - the way into "
                                + "room3-2N will stand open through the teardown.");
+
+            // AND THE MOUTH OF THE CORRIDOR, WHICH IS THE HOLE THE PLAYER SEES. See
+            // `FacilityFailure.mouthShutter`: the barrier above is twenty-two metres away at the far
+            // end, and closing it left this end standing open.
+            failure.mouthShutter = BuildMouthShutter(cycleRoot);
+            failure.mouthShutterDrop = GateHeight;
 
             // **ROOM3-0 GOES RED** (2026-08-31, by request). Its four white ceiling spots and their
             // emissive faces are handed over to be put out, and one red light is built to replace
@@ -17572,8 +17755,13 @@ namespace IterationRoom.EditorTools
             //
             // It is not a coincidence of placement, it is a coincidence of CONSTANTS. A panel is inset
             // from its cell boundary by `GridLineThickness / 2` = 0.025, and a backing starts
-            // `GrooveDepth` = 0.025 behind the wall face. The two numbers are equal, so the two planes
-            // land on each other, and no amount of moving things along Z will separate them.
+            // `GrooveDepth` = 0.025 behind the wall face. The two numbers were equal, so the two
+            // planes landed on each other, and no amount of moving things along Z would separate them.
+            //
+            // **THE TWO ARE NO LONGER EQUAL** - `GrooveDepth` went to 0.015 on 2026-09-01 for reasons
+            // that have nothing to do with this - so the coincidence is gone by accident. The fix
+            // below is what actually holds, and this paragraph is kept because the NEXT time two
+            // unrelated constants land on each other it will be the fastest way to recognise it.
             //
             // Widening the WALLS broke it, and the corridor stood 20mm wider than its mouth for a day.
             //
@@ -18183,8 +18371,9 @@ namespace IterationRoom.EditorTools
             // of the room. At 0.05 the corner reaches 0.077m, comfortably inside the standoff.
             cam.nearClipPlane = 0.05f;
             // Pulled in from the default 1000 to keep depth precision concentrated where the scene
-            // actually is (~22m across both rooms). The panels are 0.025m proud of their backing,
-            // and SSAO resolves those grooves off the depth buffer.
+            // actually is (~22m across both rooms). The panels stand `GrooveDepth` proud of
+            // their backing and SSAO resolves those grooves off the depth buffer - so that number
+            // and this one are related: a shallower groove gives SSAO less to find.
             cam.farClipPlane = 100f;
 
             // Opt the camera into the volume stack - URP cameras ignore post-processing otherwise.
@@ -19475,6 +19664,18 @@ namespace IterationRoom.EditorTools
 
             set.iterationGenericLine = LoadClip(dir, "voice_iteration_generic");
             set.tenSecondsLine = LoadClip(dir, "voice_ten_seconds");
+
+            // THE ASSEMBLED REPORT'''S PIECES. Indexed BY VALUE rather than packed - 0-19 at their own
+            // index and the tens at 20, 30 ... 90 - so the gaps between are null on purpose and
+            // NarrationDirector.Number never asks for one. See its note.
+            set.numbers = new AudioClip[100];
+            for (int i = 0; i < 20; i++) set.numbers[i] = LoadClip(dir, $"voice_num_{i:00}");
+            for (int t = 20; t <= 90; t += 10) set.numbers[t] = LoadClip(dir, $"voice_num_{t:00}");
+
+            set.cycleWord = LoadClip(dir, "voice_word_cycle");
+            set.iterationsWord = LoadClip(dir, "voice_word_iterations");
+            set.minutesWord = LoadClip(dir, "voice_word_minutes");
+            set.totalWord = LoadClip(dir, "voice_word_total");
 
             // Element 0 is "Nine.", counting down to "One." at the end.
             set.countdownLines = new AudioClip[9];

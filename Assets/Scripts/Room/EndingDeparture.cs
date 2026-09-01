@@ -33,6 +33,8 @@ namespace IterationRoom
         public CycleExit breach;
 
         public CameraShaker cameraShaker;
+        // The PA, for one chime as the walls start printing - see `NarrationDirector.Attention`.
+        public NarrationDirector narration;
 
         // How long after the board finishes before the wall opens. A beat: the verdict is the last
         // thing the facility says about the player, and something arriving on top of it would step
@@ -81,6 +83,11 @@ namespace IterationRoom
             // 2. THE REPORT, on every wall of the room they have just landed in.
             if (board != null)
             {
+                // The building says it is about to speak, and then the walls speak. Ahead of the
+                // first line rather than under it, so the player has a moment to turn round.
+                narration?.Attention();
+                yield return Wait(1.1f);
+
                 board.Begin();
                 // **THE WAIT IS BOUNDED TWICE, AND THE SECOND BOUND IS THE ONE THAT MATTERS.**
                 //

@@ -200,6 +200,50 @@ function Write-Language([string]$lang) {
         $count++
     }
 
+    # ================================================================ THE REPORT, SPOKEN
+    #
+    # **NUMBERS ARE ASSEMBLED FROM CLIPS, NOT SYNTHESISED PER SENTENCE.** The evaluation the facility
+    # reads out at the end of the game contains numbers nobody can know in advance - how many
+    # iterations each cycle took and how long - so the line has to be built at runtime out of pieces.
+    # See `NarrationDirector.AnnounceCycleResult`.
+    #
+    # 0-19 are whole words and 20-90 are the tens, which is the split that lets ONE code path serve
+    # both languages: English needs it because "thirteen" is not "ten three", and Korean gets it for
+    # free because 십삼 assembled from 십 and 삼 sounds like someone spelling rather than speaking.
+    # Past twenty both languages are regular, so tens + unit covers 20-99 in either.
+    #
+    # SINO-KOREAN throughout, for the reason the countdown above already records: this is a machine
+    # reading a clock, not a person counting objects.
+    if ($lang -eq "ko") {
+        $units = @("영", "일", "이", "삼", "사", "오", "육", "칠", "팔", "구",
+                   "십", "십일", "십이", "십삼", "십사", "십오", "십육", "십칠", "십팔", "십구")
+        $tens  = @("이십", "삼십", "사십", "오십", "육십", "칠십", "팔십", "구십")
+        $words = @{ "cycle" = "사이클"; "iterations" = "회 반복"; "minutes" = "분"; "total" = "합계" }
+    } else {
+        $units = @("Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+                   "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
+                   "Seventeen", "Eighteen", "Nineteen")
+        $tens  = @("Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety")
+        $words = @{ "cycle" = "Cycle"; "iterations" = "iterations"; "minutes" = "minutes"
+                    "total" = "Total" }
+    }
+
+    # NO FULL STOP ON ANY OF THESE. A number in the middle of an assembled sentence is not the end of
+    # one, and the synthesizer drops its pitch and pauses on a period - which is what turns a read-out
+    # into a list of separate announcements. The gap between clips is `NarrationDirector.clipGap`.
+    for ($i = 0; $i -lt $units.Length; $i++) {
+        Write-Line $voice $dir $units[$i] ("voice_num_{0:00}.wav" -f $i) $rateDigit
+        $count++
+    }
+    for ($i = 0; $i -lt $tens.Length; $i++) {
+        Write-Line $voice $dir $tens[$i] ("voice_num_{0:00}.wav" -f (($i + 2) * 10)) $rateDigit
+        $count++
+    }
+    foreach ($key in $words.Keys) {
+        Write-Line $voice $dir $words[$key] ("voice_word_{0}.wav" -f $key) $rateDigit
+        $count++
+    }
+
     Write-Host "Wrote $count $lang clips to $dir"
 }
 

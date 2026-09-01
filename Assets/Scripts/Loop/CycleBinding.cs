@@ -203,8 +203,13 @@ namespace IterationRoom
                 // the player, whose height is what says they have finished the climb down.
                 departure.occupied = cycle;
                 departure.player = player;
+                departure.narration = narration;
 
-                if (departure.board != null) departure.board.player = player;
+                if (departure.board != null)
+                {
+                    departure.board.player = player;
+                    departure.board.narration = narration;
+                }
                 if (departure.car != null)
                 {
                     departure.car.player = player;
