@@ -39,13 +39,35 @@ namespace IterationRoom.EditorTools
         private const float ShaftInnerMargin = 30f;
         // Extra room either side of the cable, so the car is never scraping the shaft wall.
         private const float ShaftClearance = 14f;
-        // How far a cell block has to stay clear of the real building. Half a room: close enough that
-        // the racks crowd it, far enough that nothing is ever inside a room the player walked through.
-        private const float CellKeepOut = 5f;
-        // A ceiling on the racks. Cubes are cheap and this is not about the cubes - it is about the
-        // one scene in the game where all four cycles are awake at once and a 766k-triangle vehicle
-        // is on screen. If the ending ever drops frames, turn this down first.
-        private const int MaxCells = 240;
+        // How far a cell block has to stay clear of the real building.
+        //
+        // **5m -> 2m (2026-09-01, by request: the racks should crowd the building, not stand off it).**
+        // Two metres is the width of the service void between two of the real cycles, so the fake
+        // cells sit against the played ones the way the played ones sit against each other. It only
+        // has to be enough that nothing lands inside a room the player walked through, and the test
+        // below is against the real bounds, so it is enough.
+        // A hand's breadth. It used to hold the whole building ENVELOPE clear at 5m; it is now the
+        // gap between a fake cell and a real room's outer face, and 0.4m is two wall build-ups - the
+        // same distance two real rooms sit apart. See where it is used.
+        private const float CellKeepOut = 0.4f;
+        // A ceiling on the racks - a SAFETY VALVE now, not a shaping tool.
+        //
+        // **240 WAS SHAPING THE RACKS AND NOBODY MEANT IT TO.** The loop below runs x outer, z, then
+        // y inner, so a cap does not thin the field out evenly - it fills whole columns from one
+        // corner and then stops dead. At 240 that was twenty-two columns of a hundred and twenty-six:
+        // three quarters of the shaft had no cells in it at all, and the ones it did have were all on
+        // one side. What the racks look like was being decided by an arithmetic accident.
+        //
+        // The region and the pitch shape them now (see `BuildCellGrid`), and this is only here to
+        // stop a future change to either from minting geometry without limit. Hitting it is an ERROR,
+        // not a quiet truncation - a silently clipped field is exactly what this replaces.
+        //
+        // 3000 cubes on one shared material is instanced and costs almost nothing next to the
+        // 766k-triangle cable car in the same frame.
+        // 8000: comfortably past what the region actually produces, which is the point - the shape
+        // has to come from the geometry and not from here. 3000 was hit on the first build after the
+        // keep-out stopped excluding the whole envelope, and the assert below said so.
+        private const int MaxCells = 8000;
 
         // **HOW FAR BEYOND THE WALL THE CAR WAITS, AND IT IS THE CABIN'S OWN HALF-WIDTH.** That
         // puts its near face on the wall plane: the breach opens straight into the cabin, its floor
@@ -209,7 +231,8 @@ namespace IterationRoom.EditorTools
             // The cable, as data rather than as a list of renderers - which wall each room loses is
             // worked out against it at runtime. See `FacilityExterior.cablePath`.
             exterior.cablePath = path;
-            exterior.cellBlocks = BuildExterior(root.transform, BuildingBounds(cycleRoots), path, shaftX);
+            exterior.cellBlocks = BuildExterior(root.transform, cycleRoots,
+                                               BuildingBounds(cycleRoots), path, shaftX);
 
             // THE ROPE, and the walkway out to it. Both are built with the car rather than with the
             // exterior because both are part of GETTING IN: the rope says the car is hung rather than
@@ -1046,8 +1069,8 @@ namespace IterationRoom.EditorTools
         // 46.8 - so two of the four columns landed at x = 0.8 and x = 16.8, which is cycle 1 and
         // cycle 3. They were built through the rooms the ride exists to show. Everything here is now
         // measured off `BuildingBounds`, and the cells are held OUT of that box by name.
-        private static GameObject[] BuildExterior(Transform parent, Bounds building, Vector3[] path,
-                                                  float cableX)
+        private static GameObject[] BuildExterior(Transform parent, Transform[] cycleRoots,
+                                                  Bounds building, Vector3[] path, float cableX)
         {
             GameObject root = new GameObject("Exterior");
             root.transform.SetParent(parent, false);
@@ -1098,7 +1121,7 @@ namespace IterationRoom.EditorTools
                  new Vector3(shaft.center.x, shaft.center.y, shaft.max.z + 2f),
                  new Vector3(shaft.size.x, shaft.size.y, 4f));
 
-            int cells = BuildCellGrid(root.transform, building, shaft, cableX, cellMat);
+            int cells = BuildCellGrid(root.transform, cycleRoots, building, shaft, cableX, cellMat);
             BuildGantries(root.transform, shaft, building, shellMat);
 
             Debug.Log($"[SceneBuilder] Exterior: shaft {shaft.size.x:0.#} x {shaft.size.y:0.#} x "
@@ -1204,8 +1227,8 @@ namespace IterationRoom.EditorTools
         // **HELD OUT OF THE BUILDING BY TEST, not by a chosen offset.** Every candidate is checked
         // against the real bounds before it is built, so a room that moves cannot end up with a cell
         // block inside it - which is the failure this replaces.
-        private static int BuildCellGrid(Transform parent, Bounds building, Bounds shaft,
-                                         float cableX, Material cellMat)
+        private static int BuildCellGrid(Transform parent, Transform[] cycleRoots, Bounds building,
+                                         Bounds shaft, float cableX, Material cellMat)
         {
             GameObject racks = new GameObject("CellRacks");
             racks.transform.SetParent(parent, false);
@@ -1213,30 +1236,91 @@ namespace IterationRoom.EditorTools
             // One cell is about the size of a room in the game, which is what makes the reading
             // work: the player recognises the scale before they work out what they are looking at.
             Vector3 cell = new Vector3(RoomWidth, RoomHeight, RoomDepth);
-            // A gap of half a cell, so the rack reads as separate rooms rather than as a solid wall
-            // with lines on it.
-            Vector3 pitch = cell + new Vector3(cell.x * 0.5f, ServiceVoid + WallThickness * 2f,
-                                               cell.z * 0.6f);
+
+            // **~~A GAP OF HALF A CELL~~ A DIVIDER, 2026-09-01, and this reverses a stated choice.**
+            //
+            // It read: *"a gap of half a cell, so the rack reads as separate rooms rather than as a
+            // solid wall with lines on it"*. That was a decision, and the request is the other one:
+            // the racks should read as CRAMMED - cells packed against cells, the way the played
+            // cycles already are.
+            //
+            // The vertical pitch was never the problem and does not move: `RoomHeight` plus the
+            // service void is exactly `StoreyDrop`, so a rack already had the same storey spacing as
+            // the cycles the player walked through. It was the two HORIZONTAL ones - gaps of 4.4m and
+            // 6.3m - that made the field read as separate towers standing apart while the real rooms
+            // share their walls. Now all three match the building.
+            //
+            // Two rooms in here are `2 * WallThickness` apart. So are two cells.
+            Vector3 pitch = cell + new Vector3(WallThickness * 2f,
+                                               ServiceVoid + WallThickness * 2f,
+                                               WallThickness * 2f);
 
             // The building's own envelope, plus the margin the cells have to stay clear of. Anything
             // whose footprint touches this is skipped.
-            Bounds keepOut = building;
-            keepOut.Expand(new Vector3(CellKeepOut * 2f, CellKeepOut * 2f, CellKeepOut * 2f));
+            // **WHAT THE CELLS HAVE TO AVOID IS THE ROOMS, NOT THE BOUNDING BOX ROUND THEM**
+            // (2026-09-01, by request: *"the rooms I walked through should have countless rooms right
+            // beside them and right above them"*).
+            //
+            // The whole envelope was being held clear, and that envelope is 40 x 44 x 164m of mostly
+            // EMPTY SPACE - cycle 2 wanders twenty metres west and two rooms south, so its bounding
+            // box contains far more air than building. Excluding it put the nearest fake cell a long
+            // way from the nearest real room, and the racks read as a separate structure standing
+            // near the player's one rather than as the same lattice continuing.
+            //
+            // Tested against each room's own bounds instead, so cells fill the gaps BETWEEN the real
+            // rooms as well as the space around them. The result is what was asked for: walk out of
+            // a cell and the cells above it, below it and either side of it are the same cell.
+            var rooms = new List<Bounds>();
+            foreach (Transform cycle in cycleRoots ?? new Transform[0])
+            {
+                if (cycle == null) continue;
+                foreach (Transform t in cycle.GetComponentsInChildren<Transform>(true))
+                {
+                    if (t == null || !t.name.StartsWith("Room") || t.name.EndsWith("_Root")) continue;
+                    Bounds b = MeasuredBounds(t.gameObject);
+                    if (b.size.sqrMagnitude > 1f) rooms.Add(b);
+                }
+            }
+
+            // A hand's breadth, so a cell may touch a room's outer face but never share space with
+            // it. `CellKeepOut` is what that is; it is no longer holding the whole envelope clear.
+            Vector3 clearance = Vector3.one * CellKeepOut;
 
             int built = 0;
             int index = 0;
+            bool capped = false;
 
-            for (float x = shaft.min.x + pitch.x; x < shaft.max.x; x += pitch.x)
-                for (float z = shaft.min.z + pitch.z; z < shaft.max.z; z += pitch.z)
-                    for (float y = shaft.min.y + pitch.y; y < shaft.max.y; y += pitch.y)
+            // **THE GRID IS ANCHORED TO THE BUILDING, NOT TO THE SHAFT.** It ran from the shaft's
+            // own corner, which is an arbitrary phase - so a cell landed wherever the arithmetic put
+            // it and the two lattices were simply offset from each other. Started from the building's
+            // centre and stepped outward, a cell sits where the NEXT ROOM ALONG would be, which is
+            // the whole of what makes it read as one lattice rather than two.
+            Vector3 origin = building.center;
+            int nx = Mathf.CeilToInt((shaft.size.x * 0.5f) / pitch.x);
+            int nz = Mathf.CeilToInt((shaft.size.z * 0.5f) / pitch.z);
+            int ny = Mathf.CeilToInt((shaft.size.y * 0.5f) / pitch.y);
+
+            for (int ix = -nx; ix <= nx; ix++)
+                for (int iz = -nz; iz <= nz; iz++)
+                    for (int iy = -ny; iy <= ny; iy++)
                     {
                         index++;
-                        var at = new Vector3(x, y, z);
-                        if (keepOut.Contains(at)) continue;
+                        var at = origin + new Vector3(ix * pitch.x, iy * pitch.y, iz * pitch.z);
+
+                        // Not through a room the player has walked in.
+                        var box = new Bounds(at, cell + clearance);
+                        bool clash = false;
+                        foreach (Bounds room in rooms)
+                            if (room.Intersects(box)) { clash = true; break; }
+                        if (clash) continue;
                         // And not through the cable either: a cell in the way of the ride is a cell
                         // the car flies into.
                         if (Mathf.Abs(at.x - cableX) < cell.x * 1.5f) continue;
-                        if (built >= MaxCells) continue;
+                        if (built >= MaxCells)
+                        {
+                            capped = true;
+                            continue;
+                        }
 
                         GameObject block = Prim(PrimitiveType.Cube, $"Cell_{index}", racks.transform,
                             Vector3.zero, cell, cellMat, removeCollider: true);
@@ -1255,6 +1339,12 @@ namespace IterationRoom.EditorTools
 
                         built++;
                     }
+
+            if (capped)
+                Debug.LogError($"[SceneBuilder] The cell racks hit `MaxCells` ({MaxCells}). The field "
+                             + "is not shaped by that cap - it fills whole columns from one corner "
+                             + "and stops, so hitting it leaves three quarters of the shaft empty on "
+                             + "one side. Raise it, or tighten the region the grid runs over.");
 
             return built;
         }
