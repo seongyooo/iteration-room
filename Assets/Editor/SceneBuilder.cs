@@ -249,6 +249,40 @@ namespace IterationRoom.EditorTools
         // with a look.
         private const float CeilingLightIntensity = 7.022f;
 
+        // **HOW BRIGHT THE VISIBLE PANEL IS - WHICH IS NOT HOW BRIGHT THE ROOM IS.**
+        //
+        // A ceiling fixture is two objects: the spot above at `CeilingLightIntensity`, which lights
+        // the room, and an emissive panel, which is the white rectangle you see in the ceiling. They
+        // are one thing modelled twice, and `MakeEmissiveMaterial` marks the panel `RealtimeEmissive`
+        // so that exactly one of them contributes to GI (see the note there - making both contribute
+        // lit the room twice over). **So this number changes nothing about the light in the room.**
+        //
+        // **3.5 -> 2.0, 2026-09-01, and it is an ANTIALIASING fix.** Measured off a screenshot: the
+        // panels' rims had literally zero intermediate pixels - 133 straight to 255 with nothing
+        // between - while the wall grooves in the same frame had eight. The coverage was being
+        // computed correctly and then thrown away:
+        //
+        //     25% covered -> 0.25 x 3.5 + 0.75 x 0.23 = 1.05 linear
+        //     50%         -> 1.87
+        //     75%         -> 2.68
+        //
+        // Every one of those is past the display's white point, so all three resolve to 255 and the
+        // edge is a hard step. **No amount of MSAA reaches it** - the samples are taken and then
+        // clipped. The only fix is for partial coverage to land below white, which is this.
+        //
+        // WHAT IT DOES CHANGE, and none of it is the room's brightness:
+        //   - the panel is less glaring to look straight at;
+        //   - bloom, which has a 1.2 threshold - so the overshoot goes from 2.3 to 0.8, about a third
+        //     of the glow it had;
+        //   - reflections. The walls are 0.85 smoothness and the reflection probes bake the room with
+        //     these panels in it, so a dimmer panel is a dimmer highlight in every wall and floor.
+        //
+        // **IT IS READ IN TWO PLACES AND BOTH MUST MOVE TOGETHER.** The fixtures here, and
+        // `ChessReward.litPanelEmission`, which is what Room2West brings its own ceiling back up to.
+        // That one was the component's own default until this constant existed, which is the state
+        // CLAUDE.md 2 exists to prevent - a tuned number only an inspector knows.
+        private const float CeilingPanelEmission = 2.0f;
+
         // **155 DEGREES, WIDENED FROM 130** (same pass). A wider cone from 5.41m spreads the same
         // flux over more floor, so the bright pool under each fixture softens and the room reads
         // evenly lit rather than spotted. It is the other half of the same decision as the intensity
@@ -7009,7 +7043,7 @@ namespace IterationRoom.EditorTools
             // shared by every room in a cycle, and `ChessReward` dims cycle 1's through a property
             // block - a third cycle borrowing either would be a third cycle that goes dark when a
             // board on another storey is finished.
-            Material fixtureMat = MakeEmissiveMaterial("CeilingFixtureCycle3", Color.white, 3.5f);
+            Material fixtureMat = MakeEmissiveMaterial("CeilingFixtureCycle3", Color.white, CeilingPanelEmission);
 
             GameObject root = new GameObject("Room_Cycle3");
             // AXIS-ALIGNED, unlike cycle 2. That cycle turns 180 about its own bed so its hall can be
@@ -10544,7 +10578,7 @@ namespace IterationRoom.EditorTools
             BuildDoorPocketFill(r1, "Pocket2_1", 0f, grooveMat, capFarSide: false, yaw: 180f);
             BuildDoorPocketFill(r2, "Pocket2_2", 0f, grooveMat, capFarSide: false, yaw: 180f);
 
-            Material fixtureMat = MakeEmissiveMaterial("CeilingFixtureCycle2", Color.white, 3.5f);
+            Material fixtureMat = MakeEmissiveMaterial("CeilingFixtureCycle2", Color.white, CeilingPanelEmission);
             Light[] room1Lights = null;
             Renderer[] room1Panels = null;
             for (int i = 0; i < rooms.Length; i++)
@@ -11262,7 +11296,7 @@ namespace IterationRoom.EditorTools
             //
             // Far enough out that no slab or wall overrun can touch Room1: this spans Z -26.95 to
             // -16.45 against Room1's -5.25 to 5.25.
-            Material fixtureMat = MakeEmissiveMaterial("CeilingFixture", Color.white, 3.5f);
+            Material fixtureMat = MakeEmissiveMaterial("CeilingFixture", Color.white, CeilingPanelEmission);
 
             // Shadows only in Room1. Every additional light's shadow shares one atlas, and the
             // rooms past the first hold nothing that casts a shadow worth the map: Room2 is
@@ -11927,6 +11961,12 @@ namespace IterationRoom.EditorTools
             ChessReward reward = boardGO.AddComponent<ChessReward>();
             reward.lights = roomLights;
             reward.fixturePanels = roomPanels;
+            // AUTHORED, NOT LEFT TO THE COMPONENT'S DEFAULT. This is what the room's panels come back
+            // UP to when the board is finished, so it has to be the same number the rest of the
+            // building's fixtures are built at or this one room ends up brighter than every other.
+            // See `CeilingPanelEmission`.
+            reward.litPanelEmission =
+                new Color(CeilingPanelEmission, CeilingPanelEmission, CeilingPanelEmission);
             reward.boardWest = halfWest;
             reward.boardEast = halfEast;
             reward.boardCollider = boardCollider;
@@ -15640,7 +15680,7 @@ namespace IterationRoom.EditorTools
             // Its own fixture material, like cycles 2 and 3: `CeilingFixture` is one emissive
             // material shared by every room in a cycle, and a fourth cycle borrowing another's would
             // be a fourth cycle that goes dark when something two storeys up is finished.
-            Material fixtureMat = MakeEmissiveMaterial("CeilingFixtureCycle4", Color.white, 3.5f);
+            Material fixtureMat = MakeEmissiveMaterial("CeilingFixtureCycle4", Color.white, CeilingPanelEmission);
 
             GameObject root = new GameObject("Room_Cycle4");
             // Axis-aligned, like cycle 3 and for the same reason: one room, nothing to avoid, and
