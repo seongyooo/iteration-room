@@ -55,8 +55,12 @@ namespace IterationRoom
         // and its own clock - so it is recorded on its own.
         //
         // **AND THE BETTER OF THE TWO IS KEPT, which is what makes this a RECORD rather than a log.**
-        // Fewer iterations wins, because that is the number the game is actually about; the clock
-        // breaks a tie. A run that goes badly cannot cost the player a result they already have.
+        // **THE CLOCK WINS, AND THE ITERATION COUNT BREAKS THE TIE** (2026-09-02, by request; it was
+        // the other way round). Iterations was the obvious axis - it is what the game is named after -
+        // but it is also the one the player has the least control over: `EndCycleControl` means an
+        // iteration is worth exactly as long as it takes to add one thing, so a run can trade one for
+        // the other freely. Time is what actually says a run went well. A run that goes badly still
+        // cannot cost the player a result they already have.
         public static void Record(CycleRecord record)
         {
             var kept = new List<CycleRecord>();
@@ -78,8 +82,8 @@ namespace IterationRoom
 
         private static CycleRecord Better(CycleRecord a, CycleRecord b)
         {
-            if (b.Iterations != a.Iterations) return b.Iterations < a.Iterations ? b : a;
-            return b.Seconds < a.Seconds ? b : a;
+            if (!Mathf.Approximately(a.Seconds, b.Seconds)) return b.Seconds < a.Seconds ? b : a;
+            return b.Iterations < a.Iterations ? b : a;
         }
 
         // The record for one cycle, or null if it has never been finished. What the title screen's
