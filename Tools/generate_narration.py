@@ -493,15 +493,35 @@ def median_f0(audio, lo=70.0, hi=320.0):
 
 
 def stretch(audio, factor):
-    """Longer by `factor`, and lower by the same ratio. Linear interpolation is enough: stretching
-    only ever moves energy DOWN the spectrum, so there is nothing to alias, and the tannoy chain
-    lowpasses at 3.4 kHz anyway (`SceneBuilder.AddTannoyFilters`)."""
+    """Longer by `factor`, and lower by the same ratio - a tape played slower.
+
+    **BAND-LIMITED, NOT LINEARLY INTERPOLATED, AND THE DIFFERENCE IS AUDIBLE.** The first version of
+    this used `np.interp` on the theory that stretching only ever moves energy DOWN the spectrum, so
+    there is nothing to alias, and that the tannoy chain lowpasses at 3.4 kHz anyway. Both halves of
+    that were wrong. Aliasing is not the failure mode - RECONSTRUCTION ERROR is: linear interpolation
+    between two samples is a crude lowpass whose error grows with frequency, and it lands hardest on
+    the consonants. Measured on this clip, the 3-6 kHz band went from 0.43% of the total energy to
+    0.23% - half the band gone - and the error against a correct resample sat only 18.9 dB below the
+    signal. Play heard it immediately, as the last consonant of "terminated" smearing. And the
+    3.4 kHz lowpass is applied by Unity at RUNTIME; these WAVs are clean masters, and the error was
+    under the cutoff in any case.
+
+    Zero-padding the spectrum is exact band-limited interpolation (what `scipy.signal.resample`
+    does, without the dependency). It assumes the clip wraps around, which is free here: every clip
+    starts and ends in silence."""
     n = int(round(len(audio) * factor))
-    if n <= 1:
-        return audio
-    src = np.arange(len(audio), dtype=np.float64)
-    at = np.linspace(0.0, len(audio) - 1.0, n)
-    return np.interp(at, src, audio).astype(np.float32)
+    if n <= 1 or n == len(audio):
+        return np.asarray(audio, dtype=np.float32)
+
+    spectrum = np.fft.rfft(np.asarray(audio, dtype=np.float64))
+    out = np.zeros(n // 2 + 1, dtype=complex)
+    keep = min(len(spectrum), len(out))
+    out[:keep] = spectrum[:keep]
+    # The source's Nyquist bin becomes an ordinary bin once there is room above it; left at full
+    # value it is counted twice on the way back and rings by half a sample.
+    if keep == len(spectrum) < len(out):
+        out[keep - 1] *= 0.5
+    return (np.fft.irfft(out, n) * (n / len(audio))).astype(np.float32)
 
 
 def match_register(out, names):
@@ -534,30 +554,34 @@ def match_register(out, names):
                   f"x{factor:.2f} is past the cap, left alone")
             continue
         path = os.path.join(out, name + ".wav")
-        write_wav(path, retrim(stretch(read_wav(path), factor)))
+        body, padded = split_pad(read_wav(path))
+        stretched = stretch(body, factor)
+        if padded:
+            stretched = np.concatenate(
+                [stretched, np.zeros(int(TAIL_SILENCE * TARGET_RATE), dtype=np.float32)])
+        write_wav(path, stretched)
         corrected.append((name, pitches[name], target, factor))
     return corrected
 
 
-def retrim(audio):
-    """Put the tail silence back to `TAIL_SILENCE` after a stretch.
+def split_pad(audio):
+    """Separate the tail silence `pad_tail` appended from the recording in front of it.
 
-    **THE PADDING IS A WALL-CLOCK AMOUNT AND MUST NOT SCALE WITH PITCH.** `pad_tail` adds a fixed
-    0.75s for the reverb to ring out; stretching the whole clip multiplies that too, which is how a
-    x1.39 correction turned a 2.33s clip into 3.24s and pushed the announcement that FOLLOWS it past
-    the wake-up (see `NarrationDirector.AnnounceNewCycle` - the two clips plus the blink have to fit
-    inside 5.2s). The reverb needs the same three quarters of a second whatever register the line is
-    read in.
+    **THE PADDING IS A WALL-CLOCK AMOUNT AND MUST NOT BE STRETCHED.** It is a fixed 0.75s for the
+    reverb to ring out; scaling it with a x1.39 register correction took a 2.33s clip to 3.24s and
+    pushed the announcement that FOLLOWS it past the wake-up (`NarrationDirector.AnnounceNewCycle` -
+    the two clips plus the blink have to fit inside 5.2s). The reverb needs the same three quarters
+    of a second whatever register the line is read in.
 
-    Only exact zeros are trimmed, which is precisely what `pad_tail` wrote and what interpolating
-    between zeros gives back - the recording's own decay is never silent and is left alone."""
-    keep = int(TAIL_SILENCE * TARGET_RATE)
+    Split HERE, before the resample, because only here are the padded samples EXACTLY zero. Trimming
+    afterwards was tried and is what a band-limited resample quietly breaks: it leaves ringing across
+    the silence rather than zeros, so an exact-zero test finds nothing and the clip keeps its
+    stretched padding. Any threshold picked to paper over that is a guess about how loud a recorded
+    reverb tail gets, which is a different question."""
     end = len(audio)
     while end > 0 and audio[end - 1] == 0.0:
         end -= 1
-    if len(audio) - end <= keep:
-        return audio
-    return np.concatenate([audio[:end], np.zeros(keep, dtype=np.float32)])
+    return audio[:end], len(audio) - end
 
 
 def report_register(corrected):
