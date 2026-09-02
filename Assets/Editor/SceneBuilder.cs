@@ -316,6 +316,15 @@ namespace IterationRoom.EditorTools
         // are taken from the same camera in the same pose, so nothing between them moves except the
         // light.
         private const string MenuBackgroundDarkPath = TexturesDir + "/MenuBackgroundDark.png";
+        // THE APP ICON IS A RENDER OF THE ROOM, taken on the same build and from the same camera as
+        // the two above. `PlayerBuilder` reads this file and hands it to `PlayerSettings.SetIcons`;
+        // nothing in the game draws it. Square and tighter - see `CaptureAppIcon` for the framing
+        // and for the one thing a menu background does not have to survive: being 32 pixels wide.
+        private const string AppIconPath = TexturesDir + "/AppIcon.png";
+        // A PRESS SHOT OF ROOM1, and it lives OUTSIDE Assets on purpose - nothing in the game draws
+        // it, so importing it would only add a texture to every player build. `Build/` is where the
+        // things that leave this machine already live.
+        private const string Room1ShotPath = "Build/Screenshots/room1.png";
         // The menu capture's tripwire colour, and how much of it a frame is allowed to show.
         // Magenta because the room is white panelling and black grooves and cannot produce it; the
         // threshold is 1% against a measured 0 stray pixels out of 1920x1080, so the margin is
@@ -1974,6 +1983,8 @@ namespace IterationRoom.EditorTools
             }
 
             CaptureMenuBackground(shotCam, room.transform);
+            CaptureAppIcon(shotCam);
+            CaptureRoom1Shot(shotCam);
             room.SetActive(wasAwake);
 
             BuildMainMenuScene();
@@ -2253,19 +2264,150 @@ namespace IterationRoom.EditorTools
                     + "for the dark one. Zero would mean the flicker has nothing to show.");
         }
 
+        // THE WALL AND NOTHING ELSE (2026-09-02, by request), which makes the icon a MARK rather
+        // than a photograph - and a mark is the only thing that survives being drawn 32 pixels wide
+        // in a taskbar.
+        //
+        // **THE FIRST ATTEMPT WAS A PHOTOGRAPH AND IT FAILED FOR A REASON ALREADY WRITTEN DOWN.**
+        // It was the menu camera with a narrower lens, on the theory that the doorway is the one
+        // dark shape in a white room. The doorway is a CLOSED DOOR of almost exactly the wall's own
+        // value, the black grid outweighed it, and the bed and nightstand were sliced by the bottom
+        // edge. The note at the menu capture's call site had already recorded the same failure from
+        // the other end - a square shot of a wall "came back as wallpaper ... a surface that is in
+        // shade at that angle so the room stopped being bright". Both attempts were photographs of a
+        // room that has no silhouette in it.
+        //
+        // What is left when the furniture goes is the thing the room is actually made of: a grid of
+        // pale panels in black grooves. Two decisions make that read:
+        //
+        // 1. **A CLEAN WALL.** Room1's EAST wall - no doorway (that is north), no controls wall
+        //    (south), no furniture in front of it. The camera turns its back on everything.
+        // 2. **CENTRED ON A GROOVE INTERSECTION, NOT ON A PANEL.** The cell is 1.75 x 1.3519, so it
+        //    is not square and a single panel centred in a square frame reads as a letterbox. An
+        //    intersection is symmetrical by construction: the cross lands dead centre whatever the
+        //    cell aspect is. `GridCellWidth`/`GridCellHeight` divide both wall spans exactly, so
+        //    z = 0 and y = 2 x GridCellHeight are both on the grid - these are derived, not tuned.
+        //
+        // The frame is stated in METRES OF WALL rather than as a lens angle, because that is what
+        // decides the picture; the fov follows from the standoff.
+        //
+        // **HOW WIDE WAS DECIDED BY MEASUREMENT, NOT BY TASTE.** A groove is `GridLineThickness`,
+        // 0.05m, so how bold the mark is depends entirely on how much wall is in frame - and the
+        // icon is drawn at 32 pixels in a taskbar. The first framing was 2.0m of half-extent, which
+        // put the centre cross plus the next groove out on all four sides in frame and looked well
+        // at full size; downsampled, it measured 0.05/4.0 = 1.25% of the width, i.e. **0.4 pixels**
+        // at 32, and turned to grey mush. Sizes 48 and up were fine, 16 and 32 were not.
+        //
+        // 0.7m is the answer to that: 0.05/1.4 = 3.6% of the width, 1.1 pixels at 32, and the mark
+        // is one groove intersection - a bold cross on a pale panel - which is legible at every
+        // size an icon is ever drawn at. What it costs is the panelling: at this range only the
+        // centre cross is in frame, because its neighbours are a whole cell away (1.75 and 1.3519).
+        // **Raising this number back toward 1.4 brings the neighbours in and takes the small sizes
+        // out again** - that trade is the whole of this constant, and it has been measured once.
+        //
+        // It also puts the frame at y 2.00 to 3.40, which happens to drop the two specular hotspots
+        // the wider version caught - the ceiling fixtures reflected in an 0.85-smoothness wall,
+        // which sit up at about y = 4.27.
+        // ONE PRESS SHOT OF ROOM1, deliberately NOT the title screen's picture.
+        //
+        // The menu background is square to the north wall from the back of the room, which is a
+        // designed surface rather than a view - that is what it is for, and it is why it also makes
+        // the itch.io cover. A store page that used it twice would be showing the same picture
+        // twice, so this one is composed the other way: **a player's eye, at the player's own field
+        // of view**, standing where somebody who just got out of the bed would stand.
+        //
+        // 60 degrees is `FirstPersonController`'s own fov. The menu shot deliberately runs narrower
+        // (41.3) because a 60 bows the wall grid at the corners - here that bowing is wanted, since
+        // it is exactly what the game looks like in the hand. A screenshot that is easier on the eye
+        // than the game is a lie about the game.
+        //
+        // SQUARE TO THE NORTH WALL (2026-09-02, by request), the same facing the menu uses and for
+        // the same reason it uses it: a wall parallel to the image plane does not converge at all,
+        // so every groove projects perfectly horizontal or vertical. An angled shot was written
+        // first and replaced.
+        //
+        // What still separates this from the title screen's picture is the OBSERVER, not the aim.
+        // The menu stands 9.85m back at 2.0m with a 41.3-degree lens - a camera height and a lens
+        // chosen for a composition. This stands at `standingEyeHeight`, 1.6m, at 60 degrees, close
+        // enough that the bed and the nightstand fill the lower frame. Same room, same facing, a
+        // person's eye instead of a camera's.
+        private static void CaptureRoom1Shot(Camera cam)
+        {
+            if (cam == null)
+                return;
+
+            Vector3 previousPos = cam.transform.position;
+            Quaternion previousRot = cam.transform.rotation;
+            float previousFov = cam.fieldOfView;
+            try
+            {
+                // Dead centre in X, like the menu: a grid is symmetrical and a picture of one that
+                // is nearly-but-not-quite centred reads as a mistake. Level, because pitching would
+                // put the wall into convergence and throw away what square buys.
+                const float eyeY = 1.6f;                  // FirstPersonController.standingEyeHeight
+                Vector3 eye = new Vector3(0f, eyeY, -2.2f);
+                cam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(Vector3.forward, Vector3.up));
+                cam.fieldOfView = 60f;                    // the player's own, not the menu's 41.3
+                CaptureMenuFrame(cam, Room1ShotPath, 1920, 1080, TextureImporterType.Default, "Room1 press shot");
+            }
+            finally
+            {
+                cam.transform.SetPositionAndRotation(previousPos, previousRot);
+                cam.fieldOfView = previousFov;
+            }
+        }
+
+        private static void CaptureAppIcon(Camera cam)
+        {
+            if (cam == null)
+                return;
+
+            // Half the wall the square frame covers, in metres. THIS is the framing knob: raise it
+            // to pull back and take in more cells, lower it to sit closer to one intersection.
+            const float iconHalfExtent = 0.7f;
+            const float iconStandoff = 3.5f;
+
+            float previousFov = cam.fieldOfView;
+            Vector3 previousPos = cam.transform.position;
+            Quaternion previousRot = cam.transform.rotation;
+            try
+            {
+                // Room1 is centred on the origin, so its east wall's interior face is at +X. The
+                // aim point is the intersection two rows up (mid-wall) at z = 0, which is a column
+                // boundary because 10.5 divides by 1.75 exactly.
+                float wallX = RoomWidth / 2f;
+                Vector3 aim = new Vector3(wallX, GridCellHeight * 2f, 0f);
+                cam.transform.SetPositionAndRotation(aim - Vector3.right * iconStandoff,
+                                                     Quaternion.LookRotation(Vector3.right, Vector3.up));
+                cam.fieldOfView = 2f * Mathf.Atan2(iconHalfExtent, iconStandoff) * Mathf.Rad2Deg;
+
+                // 1024 square: the largest icon Windows or macOS asks for, and Unity downscales the
+                // rest from it. Written as a Default texture rather than a Sprite because it is not
+                // drawn by anything in the game - `PlayerSettings.SetIcons` is its only consumer.
+                CaptureMenuFrame(cam, AppIconPath, 1024, 1024, TextureImporterType.Default, "App icon");
+            }
+            finally
+            {
+                cam.fieldOfView = previousFov;
+                cam.transform.SetPositionAndRotation(previousPos, previousRot);
+            }
+        }
+
         private static void CaptureMenuFrame(Camera cam, string path,
-                                             int width = 1920, int height = 1080)
+                                             int width = 1920, int height = 1080,
+                                             TextureImporterType importAs = TextureImporterType.Sprite,
+                                             string label = "Menu background")
         {
             if (cam == null)
             {
-                Debug.LogWarning("[SceneBuilder] No player camera; menu background not captured.");
+                Debug.LogWarning($"[SceneBuilder] No player camera; {label} not captured.");
                 return;
             }
 
             if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
             {
-                Debug.LogWarning("[SceneBuilder] No graphics device (-nographics): keeping the existing "
-                               + "menu background. Rebuild from the Editor to refresh it.");
+                Debug.LogWarning($"[SceneBuilder] No graphics device (-nographics): keeping the existing "
+                               + $"{label}. Rebuild from the Editor to refresh it.");
                 return;
             }
 
@@ -2343,7 +2485,7 @@ namespace IterationRoom.EditorTools
                     if (stray <= MenuCaptureMaxStray)
                         png = Downsample(shot, width, height).EncodeToPNG();
                     else if (attempt < attempts)
-                        Debug.LogWarning($"[SceneBuilder] Menu background attempt {attempt}: {stray:P1} of the "
+                        Debug.LogWarning($"[SceneBuilder] {label} attempt {attempt}: {stray:P1} of the "
                                        + "frame is clear colour, so the room did not render. Retrying.");
                 }
             }
@@ -2370,18 +2512,28 @@ namespace IterationRoom.EditorTools
             // behind the title screen and the build reported success.
             if (png == null)
             {
-                Debug.LogError($"[SceneBuilder] Menu background NOT captured - {stray:P1} of the frame came back "
+                Debug.LogError($"[SceneBuilder] {label} NOT captured - {stray:P1} of the frame came back "
                              + "clear colour on both attempts. The previous PNG is kept. Build again from the "
                              + "Editor; if it persists, the camera is no longer inside the room.");
                 return;
             }
 
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
             File.WriteAllBytes(path, png);
+
+            // A FRAME THAT IS NOT AN ASSET DOES NOT GO THROUGH THE IMPORTER, and must not: a press
+            // screenshot is written outside Assets/ precisely so it is not imported, not given a
+            // .meta, and not carried into every player build as a texture nothing draws.
+            if (!path.StartsWith("Assets/"))
+            {
+                Debug.Log($"[SceneBuilder] {label} captured to {path}");
+                return;
+            }
 
             AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
             if (AssetImporter.GetAtPath(path) is TextureImporter importer)
             {
-                importer.textureType = TextureImporterType.Sprite;
+                importer.textureType = importAs;
                 importer.spriteImportMode = SpriteImportMode.Single;
                 importer.mipmapEnabled = false;
                 importer.maxTextureSize = 2048;
@@ -2395,7 +2547,7 @@ namespace IterationRoom.EditorTools
                 importer.SaveAndReimport();
             }
 
-            Debug.Log($"[SceneBuilder] Menu background captured to {path}");
+            Debug.Log($"[SceneBuilder] {label} captured to {path}");
         }
 
         // What fraction of the frame is still wearing the camera's clear colour. Compared with a
@@ -19665,6 +19817,28 @@ namespace IterationRoom.EditorTools
             return (echo, verb);
         }
 
+        // **THE GAME'S OWN EFFECTS SIT UNDER THE PA** (2026-09-02, by request: the announcer is
+        // quieter than everything else in the building).
+        //
+        // Measured, and the guess written into `Tools/generate_narration.py` was WRONG: the tannoy
+        // chain is not where the voice loses level. HP240 + LP3400 costs 0.1 dB - speech energy is
+        // already inside that band - and `echo.dryMix` and `verb.dryLevel` are both unity gain. The
+        // gap is in the FILES. The voice set sits at -17.2 dBFS RMS and the effects at -14.8, so the
+        // effects are 2.4 dB louder before a single source volume is applied.
+        //
+        // And there is nothing left to turn up. `voiceSource` is already at 1.0, `AudioSource.volume`
+        // clamps there, and the voice files already peak at full scale with the limiter working - so
+        // the effects come down instead. **-4 dB.** The player makes that back on the system volume;
+        // what cannot be fixed anywhere else is the RATIO, which is why `AudioListener.volume` (the
+        // settings slider) is no use here - it moves both sides together.
+        //
+        // Applied HERE because this is the only method in the project that makes an `AudioSource`:
+        // 53 call sites, one number, and a new fixture is quiet by default rather than by memory.
+        //
+        // **THE PA IS NOT AN EFFECT.** The two sources carrying the announcer pass `pa: true` and are
+        // left at what they ask for.
+        private const float SfxLevel = 0.63f;
+
         // spatialBlend 0 is 2D (heard the same everywhere), 1 is fully positional.
         private static AudioSource MakeSource(Transform parent, string name, float spatialBlend, float volume,
                                               bool loop = false, bool pa = false)
@@ -19767,28 +19941,6 @@ namespace IterationRoom.EditorTools
             const int rate = 44100;
             int count = (int)(rate * seconds);
             float[] data = new float[count];
-
-        // **THE GAME'S OWN EFFECTS SIT UNDER THE PA** (2026-09-02, by request: the announcer is
-        // quieter than everything else in the building).
-        //
-        // Measured, and the guess written into `Tools/generate_narration.py` was WRONG: the tannoy
-        // chain is not where the voice loses level. HP240 + LP3400 costs 0.1 dB - speech energy is
-        // already inside that band - and `echo.dryMix` and `verb.dryLevel` are both unity gain. The
-        // gap is in the FILES. The voice set sits at -17.2 dBFS RMS and the effects at -14.8, so the
-        // effects are 2.4 dB louder before a single source volume is applied.
-        //
-        // And there is nothing left to turn up. `voiceSource` is already at 1.0, `AudioSource.volume`
-        // clamps there, and the voice files already peak at full scale with the limiter working - so
-        // the effects come down instead. **-4 dB.** The player makes that back on the system volume;
-        // what cannot be fixed anywhere else is the RATIO, which is why `AudioListener.volume` (the
-        // settings slider) is no use here - it moves both sides together.
-        //
-        // Applied HERE because this is the only method in the project that makes an `AudioSource`:
-        // 53 call sites, one number, and a new fixture is quiet by default rather than by memory.
-        //
-        // **THE PA IS NOT AN EFFECT.** The two sources carrying the announcer pass `pa: true` and are
-        // left at what they ask for.
-        private const float SfxLevel = 0.63f;
 
             var rng = new System.Random(seed);
             float low = 0f, mid = 0f, high = 0f;
