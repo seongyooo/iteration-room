@@ -119,6 +119,31 @@ to everything it plays, and what makes the siren feel like it is coming out of t
 `WallPanelDisplay.BeginAlarm` pulses on the same period, because a light that swells out of time with
 the sound reads as two unrelated things.
 
+## The voice stays Gwen, and seven alternatives were heard (2026-09-02)
+
+Asked for something lower and calmer. Seven candidates were auditioned on two real lines
+("Cycle terminated." and "Iteration one, sixty seconds remaining."), run through an offline copy of
+the tannoy chain, and **the current voice was kept** — Gwen, Warm/Alto/Professional, median F0
+184.5 Hz. The rejected set, by measured F0: Mona 175.0, Ivanna 173.6, Benjamin 121.2, Jamie 104.5,
+Stillwater 103.5, Steven 89.6, Adrian 84.5. The audition renders are written to
+`Build/VoiceAudition/` (git-ignored) by the script in this project's history; 448 characters of API
+credit, if it is ever worth redoing.
+
+**What the exercise settled that a re-run should not have to rediscover:**
+
+- **The chain highpasses at 240 Hz, so every male candidate has its fundamental removed entirely.**
+  That is not a fault — a real tannoy does exactly that and the ear rebuilds the missing fundamental
+  from the harmonics — but it means a low F0 does not predict how deep the voice will *sound* in the
+  room, and a candidate must be judged on the processed render, never on the library preview.
+- **ANY MEASUREMENT TAKEN AFTER THE CHAIN REPORTS THE REVERB, NOT THE VOICE.** Three metrics were
+  tried — energy below the cutoff, level lost through the chain, and the share of frames that stay
+  periodic — and all three were confounded the same way, because the reverb adds correlated energy
+  across the whole clip. One of them had a voice getting 12 dB *louder* for passing through a
+  filter, and another had breathiness *improving* to 100% voiced. Do not revive them without
+  solving that first. F0 measured on the dry master is the only number here worth trusting.
+
+---
+
 ## The PA is English-only, and subtitled (2026-09-02)
 
 There were two voice sets, `Voice` and `Voice/ko`, and `NarrationDirector` picked between them at
