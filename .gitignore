@@ -133,7 +133,9 @@ __pycache__/
 # Trailer captures. Recorder writes 1080p60 MP4 here; none of it belongs in git - and Unity's
 # Recorder sometimes drops one at the project root instead, so catch those too.
 /Recordings/
-/*.mp4
+# Screen recordings, wherever they are dropped. This was `/*.mp4` - root only - and a 277MB
+# capture sitting in `docs/` was one `git add .` away from being in this history for good.
+*.mp4
 
 # The TTS generator's environment - torch and the MeloTTS packs, ~3GB.
 # Created by hand, never by the build; see the header of Tools/generate_narration.py.
