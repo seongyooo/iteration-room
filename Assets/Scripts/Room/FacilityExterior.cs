@@ -239,7 +239,7 @@ namespace IterationRoom
             if (cycles == null) return;
 
             var block = new MaterialPropertyBlock();
-            int painted = 0, unbaked = 0, doused = 0;
+            int painted = 0, unbaked = 0, doused = 0, powered = 0;
 
             foreach (Cycle cycle in cycles)
             {
@@ -276,6 +276,28 @@ namespace IterationRoom
                     painted++;
                 }
 
+                // **AND THE PANELS ARE POWERED UP, WHICH IS WHY THEY WERE BLACK** (2026-09-02).
+                //
+                // `WallPanelDisplay` drives these surfaces through a property block: dark at the top
+                // of every iteration, sweeping white as the player sits up. What it does NOT do is
+                // leave them white when a cycle ENDS - the break blows them out and the cycle is then
+                // put to sleep, so whatever the last frame wrote is what the cable car flies past.
+                // Repainting the backing slab did nothing about it, because the panels sit in FRONT
+                // of the backing and it is the panels that are dark.
+                //
+                // `SetPowered(1)` rather than `PowerUp()`: the second runs a 1.4-second sweep on
+                // `Time.deltaTime`, and these rooms are revealed all at once behind a wall panel
+                // sliding aside. There is nobody in them to watch a boot sequence.
+                foreach (WallPanelDisplay panels in
+                         cycle.worldRoot.GetComponentsInChildren<WallPanelDisplay>(true))
+                {
+                    if (panels == null) continue;
+                    panels.StopAllCoroutines();
+                    panels.SetFlare(0f);
+                    panels.SetPowered(1f);
+                    powered++;
+                }
+
                 // **~~AND THE CEILING FIXTURES GO OUT~~ THE LIGHTS STAY ON**, 2026-09-01. Switching
                 // them off is what turned every room black, and the console line printed by this very
                 // method is what proves it: *0 renderer(s) taken off their baked lightmap*. Nothing in
@@ -305,7 +327,8 @@ namespace IterationRoom
             }
 
             Debug.Log($"[FacilityExterior] Outside: {painted} backing slab(s) repainted, {unbaked} "
-                    + $"renderer(s) taken off their baked lightmap, {doused} fixture(s) hidden. "
+                    + $"renderer(s) taken off their baked lightmap, {doused} fixture(s) hidden, "
+                    + $"{powered} panel wall(s) powered back up. "
                     + "The lights inside them stay on - see the note above.");
         }
 
