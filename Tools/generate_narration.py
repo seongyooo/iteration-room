@@ -37,6 +37,7 @@
 #   C:\eleven\python Tools\generate_narration.py --only voice_ride --force
 
 import argparse
+import math
 import os
 import re
 import sys
@@ -436,6 +437,135 @@ def pad_tail(audio, text):
     return np.concatenate([audio, np.zeros(int(TAIL_SILENCE * TARGET_RATE), dtype=np.float32)])
 
 
+# **AND ONE CLIP CAME BACK IN THE WRONG REGISTER, WHICH IS A SYNTHESIS FAULT, NOT A PLAYBACK ONE.**
+#
+# Play reported `voice_cycle_terminated` as read too fast AND pitched higher than everything else.
+# Measured: its median F0 is 250.6 Hz against 180 for the announcer's ordinary register - rank 2 of
+# 255, +4.6 semitones, and nearly SIX above the lines it is actually heard beside (`cycle_broken`
+# 165.8, `new_cycle` 162.1, `all_cycles_broken` 160.9). Every file is 22.05 kHz mono 16-bit and all
+# 255 `.meta` files are identical, so nothing about playback explains it.
+#
+# **THE CAUSE IS THE CALL, AND IT IS SYSTEMATIC.** Every clip is synthesised alone, so a two-word
+# line gives the model no context to settle into - and the eight next-highest clips in the set are
+# all `report_*` number fragments, which are the other short ones. Short text reads high and quick.
+#
+# **SO THE CORRECTION IS A RESAMPLE, WHICH FIXES BOTH COMPLAINTS WITH ONE NUMBER.** Slowing the clip
+# lowers its pitch by the same ratio - a tape played slower - so "too fast" and "too high" are one
+# fault with one remedy. Pitch-shifting alone would fix the second and leave the first, and would
+# need formant correction to avoid sounding like a different person.
+#
+# **THE TARGET EXCLUDES THE `report_*` FRAGMENTS ON PURPOSE.** The whole set's median is 191.7 Hz,
+# but 203 of the 255 clips are short number fragments carrying the same defect, so they bias it
+# upward. The remaining 52 sit at 180.4, and the 31 iteration lines - the voice the player hears
+# most - independently agree at 180.7. That agreement is why 180 is the register and not a taste.
+#
+# **THE FACTOR IS MEASURED AT GENERATION TIME, NEVER WRITTEN DOWN.** A re-synthesis comes back at a
+# different pitch every time (`stability` is 0.75, not 1.0), so a hardcoded number would be wrong
+# the moment this clip is regenerated. Naming the clip is the decision; the arithmetic is not.
+REGISTER_MATCHED = {"voice_cycle_terminated"}
+
+# Anything past this is a measurement gone wrong rather than a clip in the wrong register.
+REGISTER_MAX_STRETCH = 1.6
+
+
+def median_f0(audio, lo=70.0, hi=320.0):
+    """Median fundamental over the voiced frames, by autocorrelation. NaN if nothing is voiced."""
+    win, hop = int(0.040 * TARGET_RATE), int(0.020 * TARGET_RATE)
+    lag_lo, lag_hi = int(TARGET_RATE / hi), int(TARGET_RATE / lo)
+    found = []
+    for start in range(0, max(0, len(audio) - win), hop):
+        frame = audio[start:start + win].astype(np.float64)
+        if np.sqrt(np.mean(frame ** 2)) < 0.02:
+            continue
+        frame = frame - frame.mean()
+        ac = np.correlate(frame, frame, "full")[win - 1:]
+        if ac[0] <= 0:
+            continue
+        window = ac[lag_lo:lag_hi]
+        if window.size == 0:
+            continue
+        lag = int(np.argmax(window)) + lag_lo
+        # A weak peak is an unvoiced frame - a consonant, or room tone - and has no pitch to report.
+        if ac[lag] / ac[0] < 0.30:
+            continue
+        found.append(TARGET_RATE / lag)
+    return float(np.median(found)) if found else float("nan")
+
+
+def stretch(audio, factor):
+    """Longer by `factor`, and lower by the same ratio. Linear interpolation is enough: stretching
+    only ever moves energy DOWN the spectrum, so there is nothing to alias, and the tannoy chain
+    lowpasses at 3.4 kHz anyway (`SceneBuilder.AddTannoyFilters`)."""
+    n = int(round(len(audio) * factor))
+    if n <= 1:
+        return audio
+    src = np.arange(len(audio), dtype=np.float64)
+    at = np.linspace(0.0, len(audio) - 1.0, n)
+    return np.interp(at, src, audio).astype(np.float32)
+
+
+def match_register(out, names):
+    """Pull the clips in `REGISTER_MATCHED` back to the announcer's own register - see the note
+    above. Reads what is on DISK, like `normalise`, so an `--only` run cannot set a target from
+    three clips."""
+    pitches = {}
+    for name in names:
+        path = os.path.join(out, name + ".wav")
+        if not os.path.exists(path):
+            continue
+        f0 = median_f0(read_wav(path))
+        if not np.isnan(f0):
+            pitches[name] = f0
+
+    ordinary = [f for n, f in pitches.items() if not n.startswith("voice_report_")]
+    if not ordinary:
+        return []
+
+    target = float(np.median(ordinary))
+    corrected = []
+    for name in sorted(REGISTER_MATCHED):
+        if name not in pitches:
+            continue
+        factor = pitches[name] / target
+        if factor <= 1.02:                      # already in register, or below it
+            continue
+        if factor > REGISTER_MAX_STRETCH:
+            print(f"  ! {name} measured {pitches[name]:.0f} Hz against {target:.0f} - "
+                  f"x{factor:.2f} is past the cap, left alone")
+            continue
+        path = os.path.join(out, name + ".wav")
+        write_wav(path, retrim(stretch(read_wav(path), factor)))
+        corrected.append((name, pitches[name], target, factor))
+    return corrected
+
+
+def retrim(audio):
+    """Put the tail silence back to `TAIL_SILENCE` after a stretch.
+
+    **THE PADDING IS A WALL-CLOCK AMOUNT AND MUST NOT SCALE WITH PITCH.** `pad_tail` adds a fixed
+    0.75s for the reverb to ring out; stretching the whole clip multiplies that too, which is how a
+    x1.39 correction turned a 2.33s clip into 3.24s and pushed the announcement that FOLLOWS it past
+    the wake-up (see `NarrationDirector.AnnounceNewCycle` - the two clips plus the blink have to fit
+    inside 5.2s). The reverb needs the same three quarters of a second whatever register the line is
+    read in.
+
+    Only exact zeros are trimmed, which is precisely what `pad_tail` wrote and what interpolating
+    between zeros gives back - the recording's own decay is never silent and is left alone."""
+    keep = int(TAIL_SILENCE * TARGET_RATE)
+    end = len(audio)
+    while end > 0 and audio[end - 1] == 0.0:
+        end -= 1
+    if len(audio) - end <= keep:
+        return audio
+    return np.concatenate([audio[:end], np.zeros(keep, dtype=np.float32)])
+
+
+def report_register(corrected):
+    for name, was, target, factor in corrected:
+        print(f"  {name:28} {was:5.1f} Hz -> {was / factor:5.1f} Hz  "
+              f"(x{factor:0.3f} slower and lower, register {target:.0f} Hz)")
+
+
 def write_wav(path, audio):
     audio = np.clip(np.asarray(audio, dtype=np.float32), -1.0, 1.0)
     with wave.open(path, "wb") as w:
@@ -482,6 +612,14 @@ def normalise(out, names):
         return 1.0
 
     gain = RMS_TARGET / max(1e-9, (total / samples) ** 0.5)
+
+    # **A GAIN NOBODY CAN HEAR IS NOT WORTH REWRITING 255 FILES FOR.** These WAVs are tracked source,
+    # so every rewrite is a binary diff in the history whether or not the audio changed - and a run
+    # that corrects ONE clip still moves the whole set's measured RMS a hair, which came out as
+    # +0.08 dB across 254 files that nothing had touched. The threshold is well under the ~1 dB a
+    # listener can pick up in an A/B, so anything it skips is inaudible by construction.
+    if abs(20.0 * math.log10(max(gain, 1e-9))) < 0.10:
+        return 1.0
 
     for path, data in audio.items():
         # Soft-limited rather than clipped, and rather than refusing the gain: a handful of
@@ -557,7 +695,20 @@ def main():
                         help="regenerate clips that already exist (spends credits)")
     parser.add_argument("--only", default=None,
                         help="only clips whose filename starts with this")
+    # Offline, and costs nothing: re-registers and re-levels what is already on disk. The register
+    # pass needs no API, so after a hand edit or a partial run it is the cheapest way to put the
+    # whole set back in agreement with itself.
+    parser.add_argument("--register-only", action="store_true",
+                        help="skip synthesis; just match register and re-level the clips on disk")
     args = parser.parse_args()
+
+    if args.register_only:
+        out = audio_dir()
+        names = [n for n, _ in script()]
+        report_register(match_register(out, names))
+        gain = normalise(out, names)
+        print(f"Levelled the whole set by x{gain:0.2f}.  ->  {out}")
+        return
 
     api = client()
     if args.list_voices:
@@ -591,6 +742,9 @@ def main():
         retries += tries - 1
         print(f"  {name:28} {len(text):4} chars  {text}"
               + (f"   (x{tries})" if tries > 1 else ""))
+
+    # BEFORE the levelling, so the gain is measured on the audio that actually ships.
+    report_register(match_register(out, [n for n, _ in script()]))
 
     gain = normalise(out, [n for n, _ in script()])
     print(f"\n{made} clip(s) written, {skipped} already present, {characters} characters spent"
