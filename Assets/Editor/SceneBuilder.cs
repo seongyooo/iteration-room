@@ -7286,21 +7286,21 @@ namespace IterationRoom.EditorTools
                            new[] { pads[1] });
             BuildPanelGate(rS, "Gate3_2S_North", new Vector3(0f, 0f, RoomDepth / 2f),
                            Vector3.right, Vector3.back, RoomWidth, panelMat, grooveMat,
-                           new[] { pads[1] }, withCavityLiner: false);
+                           new[] { pads[1] }, withCavityLiner: false, withAudio: false);
 
             BuildPanelGate(r1, "Gate3_1_East", new Vector3(RoomWidth / 2f, 0f, 0f),
                            Vector3.forward, Vector3.left, RoomDepth, panelMat, grooveMat,
                            new[] { pads[2] });
             BuildPanelGate(rE, "Gate3_2E_West", new Vector3(-RoomWidth / 2f, 0f, 0f),
                            Vector3.forward, Vector3.right, RoomDepth, panelMat, grooveMat,
-                           new[] { pads[2] }, withCavityLiner: false);
+                           new[] { pads[2] }, withCavityLiner: false, withAudio: false);
 
             BuildPanelGate(r1, "Gate3_1_West", new Vector3(-RoomWidth / 2f, 0f, 0f),
                            Vector3.forward, Vector3.right, RoomDepth, panelMat, grooveMat,
                            new[] { pads[3] });
             BuildPanelGate(rW, "Gate3_2W_East", new Vector3(RoomWidth / 2f, 0f, 0f),
                            Vector3.forward, Vector3.left, RoomDepth, panelMat, grooveMat,
-                           new[] { pads[3] }, withCavityLiner: false);
+                           new[] { pads[3] }, withCavityLiner: false, withAudio: false);
 
             // EVERY GATE PROVED CLEAR, which is the one thing this room can get silently wrong. The
             // opening is cut out of two walls' collision and two liners are built into the cavity
@@ -14651,7 +14651,8 @@ namespace IterationRoom.EditorTools
         private static Door[] BuildPanelGate(Transform parent, string name,
                                              Vector3 wallCentreAtBase, Vector3 rightDir, Vector3 inward,
                                              float wallWidth, Material panelMat, Material grooveMat,
-                                             FloorButton[] pads, bool withCavityLiner = true)
+                                             FloorButton[] pads, bool withCavityLiner = true,
+                                             bool withAudio = true)
         {
             GateSpan(wallWidth, out float openMin, out float openMax, out float leafTravel, out int leaves);
 
@@ -14679,7 +14680,20 @@ namespace IterationRoom.EditorTools
             AudioSource audio = MakeSource(root.transform, "GateAudio", spatialBlend: 1f, volume: 0.7f);
             audio.transform.localPosition = wallCentreAtBase + rightDir * openCentre
                                           + Vector3.up * (GateHeight / 2f);
-            AudioClip openClip = LoadClip(SfxDir, "sfx_door_open");
+            // **ONE DOORWAY MAKES ONE SOUND, AND FOR A WHILE IT MADE TWO** (2026-09-02, by request:
+            // room3-1's doors are louder than everything else in the game).
+            //
+            // Every doorway in room3-1 is built TWICE - once from room3-1 and once from the room on
+            // the far side, `Gate3_1_South` and `Gate3_2S_North` being the same opening. They are
+            // driven by the same pad, so they open together, and each had its own source playing the
+            // same clip from 0.1m away. Two identical waveforms in sync do not average, they ADD:
+            // that is +6 dB exactly, on the one door in the game that is built as a pair.
+            //
+            // Per source these gates were 0.7 against an ordinary door's 1.0 - QUIETER, which is why
+            // turning the number down was the wrong instinct and why it is back at 0.7. The far side
+            // is simply silent, which is the rule the leaves either side of this line already follow:
+            // two copies of the same slide half a frame apart is a flam.
+            AudioClip openClip = withAudio ? LoadClip(SfxDir, "sfx_door_open") : null;
 
             var doors = new Door[leaves];
             for (int i = 0; i < leaves; i++)
