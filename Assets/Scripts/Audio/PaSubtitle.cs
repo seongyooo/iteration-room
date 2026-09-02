@@ -19,6 +19,15 @@ namespace IterationRoom
     // **IT IS NOT A TRANSCRIPT.** Nothing here reads the audio; `NarrationDirector` hands over the
     // line as it fires the clip, so the two are one call and cannot drift apart. A line with no
     // subtitle key simply shows nothing rather than showing the key.
+    //
+    // **AND IT IS OFF IN ENGLISH** (2026-09-02, by request). This is a SUBTITLE - it exists because
+    // the audio is in a language the player may not have picked, which is true for exactly one of
+    // the two. An English player was being handed a written copy of a sentence they had just heard
+    // in their own language, twice a minute, for the length of a run.
+    //
+    // The rule for a new line does not change: still `Caption("pa.<key>")` beside the clip, because
+    // the Korean player still needs it and a missing key is silent in both. What changed is only
+    // whether the finished text is drawn.
     public class PaSubtitle : MonoBehaviour
     {
         public CanvasGroup group;
@@ -52,6 +61,20 @@ namespace IterationRoom
             if (group != null) group.alpha = 0f;
         }
 
+        // The picker is on the title screen and in the pause menu, so a language CAN move while a
+        // line is on screen. Switching to English mid-sentence should take the sentence with it.
+        private void OnEnable() => Loc.Changed += OnLanguageChanged;
+        private void OnDisable() => Loc.Changed -= OnLanguageChanged;
+
+        private void OnLanguageChanged()
+        {
+            if (!Wanted) Clear();
+        }
+
+        // **WHETHER A SUBTITLE IS WANTED AT ALL** - see the note on the class. Asked per line rather
+        // than cached, because the answer changes with a setting and this is one comparison.
+        private static bool Wanted => Loc.Current != GameLanguage.English;
+
         // **ON THE ENDING'S CLOCK, NOT `Time.deltaTime`.** Half of what the PA says happens after the
         // loop has stopped - the report, the transport line, the five on the way up in the cable car -
         // where `Time.timeScale` is whatever the ending left it at. `EndingClock` is unscaled and
@@ -60,6 +83,9 @@ namespace IterationRoom
         {
             if (label == null || group == null) return;
             if (string.IsNullOrEmpty(text)) return;
+            // Gated HERE rather than at `NarrationDirector.Caption`: the announcer's job is to say
+            // what it is saying, and whether that gets drawn is this component's own question.
+            if (!Wanted) return;
 
             if (showing != null) StopCoroutine(showing);
             showing = StartCoroutine(Run(text));

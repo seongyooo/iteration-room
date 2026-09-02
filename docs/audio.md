@@ -125,6 +125,18 @@ There were two voice sets, `Voice` and `Voice/ko`, and `NarrationDirector` picke
 runtime. There is one now. What a Korean-language player gets instead is a **caption** — `PaSubtitle`,
 bottom centre, drawn from `Loc`'s `pa.*` keys.
 
+**An English player gets none** (decided 2026-09-02, after playing it). The caption first shipped for
+everybody, which meant the English player read a written copy of a sentence they had just heard in
+their own language, twice a minute, for the length of a run. It is a *subtitle*: it earns its place
+exactly where the audio is in a language the player did not choose, which is one of the two. The gate
+is `PaSubtitle.Wanted`, a single comparison against `Loc.Current`, asked per line so that changing
+the language in the pause menu takes effect on the next one — and clearing anything already on screen.
+
+The authoring rule is deliberately **not** gated with it: every `Announce*` still calls
+`Caption("pa.<key>")` beside its clip. A key that only matters in Korean is still a key, and making
+the call conditional would mean a new line silently having no Korean caption while looking correct to
+whoever wrote it.
+
 **Why the audio is not translated.** The PA is the facility talking to *itself*: the same category as
 `ROOM 2` over a doorway, `ERROR` on room2-0's console, and the title. `Loc`'s own header has said
 since 2026-08-20 that translating the facility's signage "changes where the game is set, not what
