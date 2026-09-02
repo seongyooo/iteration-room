@@ -224,7 +224,7 @@ whole exercise exists to create:
 - **A title change is unasked-for and unresolved.** The P.S. offered to change *Iteration Room*; the
   reply does not mention it either way. Treat it as open, not as approved.
 
-## The answer to it — SCHEDULED 2026-08-31 01:05 KST
+## The answer to it — SENT 2026-08-31 01:05 KST
 
 Gmail scheduled send, same thread, from `seonlineseon@gmail.com` — the address the first letter went
 out from, because a rights record is worth most when it is one unbroken thread. **It lands in
@@ -232,7 +232,8 @@ Vancouver on Sunday 2026-08-30 at 09:05 PDT** (KST is 16 hours ahead in August).
 for this one: it is not a progress report, it is an acknowledgement of theirs, and the "wait until
 there is something to show" rule governs the *next* mail.
 
-**BOTH AUTHORS ARE ON IT — confirmed 2026-08-30 before the send.** The first attempt was written by
+**BOTH AUTHORS WERE ON IT — confirmed before the send, and it worked**: her closing note came back
+to both as well. **Landed in Vancouver Sunday 2026-08-30 at 09:05 PDT.** The first attempt was written by
 pressing Reply on Jess's mail, which in Gmail addresses the sender alone; it was cancelled and
 rewritten as Reply-all, and the queued mail now reads `Jess, Lucas`. This was a small thing here and
 would not have been rude either way — the condition that matters is in *her* mail, which already
@@ -263,6 +264,35 @@ Thank you again for watching it, and for the way you answered.
 
 Best regards,
 Seongyo Kim
+
+### AND SHE CLOSED THE THREAD — 2026-08-30 12:20 PDT, about three hours after it arrived
+
+> Of course! No worries at all.
+>
+> Looking forward to seeing how it progresses!
+>
+> Cheers,
+>
+> -Jess
+
+**"OF COURSE!" IS NOT PERMISSION, AND MUST NEVER BE QUOTED AS ANY PART OF ONE.** Read what it
+answers. The mail she is replying to says *"I understand the position... That works for me"* — so
+"of course, no worries at all" agrees that **the arrangement is fine**, meaning stay in touch and
+settle terms nearer release. It grants nothing, and it cannot: **the thing she declined is still
+declined**, in her own earlier words, three paragraphs up this same thread.
+
+This is written down because the misreading is easy and expensive. A cheerful two-line note is the
+last thing in the thread, so it is the first thing an eye lands on, and "Of course!" in isolation
+looks exactly like a yes. **The operative document in this correspondence is her mail of 2026-08-30
+06:32 KST, not this one.** `docs/asset-licences.md` §"The film" stays open.
+
+**What it does settle**: the exchange ended cordially and on their initiative, both authors are on
+the thread, and the invitation to keep them posted is live rather than polite. Three hours' turnaround
+on a Sunday for a mail that needed no reply is a real signal about how they feel about the project.
+
+**Do not reply to it.** It closes the thread; anything added now is noise on a correspondence that
+ended well. **The next mail is the one with something to show in it** — cycle 3 finishable, or a real
+trailer — and after that, the store-page conversation.
 
 ### THE MAIL IS SHORT ON PURPOSE, AND TWO SENTENCES IN IT ARE NOT OPTIONAL
 
