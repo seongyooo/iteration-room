@@ -19480,8 +19480,8 @@ namespace IterationRoom.EditorTools
             paGO.transform.SetParent(root.transform, false);
             NarrationDirector narration = paGO.AddComponent<NarrationDirector>();
             // 2D on purpose: a room-wide tannoy has no position you could walk away from.
-            narration.voiceSource = MakeSource(paGO.transform, "Voice", 0f, 1f);
-            narration.chimeSource = MakeSource(paGO.transform, "Chime", 0f, 0.7f);
+            narration.voiceSource = MakeSource(paGO.transform, "Voice", 0f, 1f, pa: true);
+            narration.chimeSource = MakeSource(paGO.transform, "Chime", 0f, 0.7f, pa: true);
             // Both go through the same speaker, so both get the same treatment.
             (AudioEchoFilter voiceEcho, AudioReverbFilter voiceReverb) =
                 AddTannoyFilters(narration.voiceSource);
@@ -19652,7 +19652,8 @@ namespace IterationRoom.EditorTools
         }
 
         // spatialBlend 0 is 2D (heard the same everywhere), 1 is fully positional.
-        private static AudioSource MakeSource(Transform parent, string name, float spatialBlend, float volume, bool loop = false)
+        private static AudioSource MakeSource(Transform parent, string name, float spatialBlend, float volume,
+                                              bool loop = false, bool pa = false)
         {
             GameObject go = new GameObject(name);
             go.transform.SetParent(parent, false);
@@ -19661,7 +19662,7 @@ namespace IterationRoom.EditorTools
             source.playOnAwake = false;
             source.loop = loop;
             source.spatialBlend = spatialBlend;
-            source.volume = volume;
+            source.volume = pa ? volume : volume * SfxLevel;
             // Linear rather than the logarithmic default: the room is only ~10m across, and the
             // default curve is still near full volume across the whole of it.
             source.rolloffMode = AudioRolloffMode.Linear;
@@ -19752,6 +19753,28 @@ namespace IterationRoom.EditorTools
             const int rate = 44100;
             int count = (int)(rate * seconds);
             float[] data = new float[count];
+
+        // **THE GAME'S OWN EFFECTS SIT UNDER THE PA** (2026-09-02, by request: the announcer is
+        // quieter than everything else in the building).
+        //
+        // Measured, and the guess written into `Tools/generate_narration.py` was WRONG: the tannoy
+        // chain is not where the voice loses level. HP240 + LP3400 costs 0.1 dB - speech energy is
+        // already inside that band - and `echo.dryMix` and `verb.dryLevel` are both unity gain. The
+        // gap is in the FILES. The voice set sits at -17.2 dBFS RMS and the effects at -14.8, so the
+        // effects are 2.4 dB louder before a single source volume is applied.
+        //
+        // And there is nothing left to turn up. `voiceSource` is already at 1.0, `AudioSource.volume`
+        // clamps there, and the voice files already peak at full scale with the limiter working - so
+        // the effects come down instead. **-4 dB.** The player makes that back on the system volume;
+        // what cannot be fixed anywhere else is the RATIO, which is why `AudioListener.volume` (the
+        // settings slider) is no use here - it moves both sides together.
+        //
+        // Applied HERE because this is the only method in the project that makes an `AudioSource`:
+        // 53 call sites, one number, and a new fixture is quiet by default rather than by memory.
+        //
+        // **THE PA IS NOT AN EFFECT.** The two sources carrying the announcer pass `pa: true` and are
+        // left at what they ask for.
+        private const float SfxLevel = 0.63f;
 
             var rng = new System.Random(seed);
             float low = 0f, mid = 0f, high = 0f;
