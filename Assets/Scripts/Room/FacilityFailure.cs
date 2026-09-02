@@ -167,6 +167,13 @@ namespace IterationRoom
         // but a cycle boundary is not a thing to leave to one call site being disciplined.
         public bool Played { get; private set; }
 
+        // **WHETHER THE STRUCTURES WAIT.** Set by the builder for cycle 3 and cleared by
+        // `EndingDeparture` when the player reaches the floor the structures are on - see the note in
+        // `Run`. Nothing else reads it, and a cycle that leaves it false tears down at the break.
+        public bool held;
+
+        public void ReleaseStructures() => held = false;
+
         public void Play()
         {
             if (Played) return;
@@ -193,9 +200,29 @@ namespace IterationRoom
             }
             cameraShaker?.SetIntensity(1f);
 
+            // **~~AND HERE IT WAITED FOR SOMEBODY TO WATCH~~ REVERTED 2026-09-01, by request.**
+            //
+            // It was held here until the player reached room3-2N's floor, on the reasoning that
+            // everything below this line happens down there and was otherwise playing to an empty
+            // room. Tried and turned down: what it actually produces is a room that is still intact
+            // when you land in it and then starts coming apart around you, which reads as a delayed
+            // reaction rather than as consequence. The break is one event, and it happens when the
+            // console fills.
+            //
+            // `held` and `ReleaseStructures` stay, unset. It is one bool if it is ever wanted again.
+            while (held) yield return null;
+
             // THE CUBE GOES DOWN, on its own and before anything else. It is the only object in the
             // room the player made, so it is the only one worth watching leave.
             yield return SinkCube();
+
+            // And the way back shuts - both ends of it. Down here with the movers rather than up at
+            // the console, because both ends of it are in THIS room and the player is now in it: the
+            // barrier is at the far end of the corridor and the shutter is its mouth. The ladder
+            // pictogram goes with them - it describes a route that is about to stop existing.
+            wayIn?.CloseNow();
+            StartCoroutine(DropShutter());
+            if (ladderSign != null) ladderSign.alpha = 0f;
 
             // AND THEN THE ROOM. Every mover on its own clock, all of them at once - a coroutine per
             // structure rather than a queue, because the stagger is in the delays and a queue would
@@ -233,12 +260,7 @@ namespace IterationRoom
                 foreach (CanvasGroup sign in wayDownSigns)
                     if (sign != null) sign.alpha = 1f;
 
-            // And the way back shuts - both ends of it. The barrier is at the far end of the
-            // corridor and the shutter is the mouth of it in this room; only the second is visible
-            // from where the player is standing, and only the first stops anything walking back.
-            wayIn?.CloseNow();
-            StartCoroutine(DropShutter());
-            if (ladderSign != null) ladderSign.alpha = 0f;
+
 
             // THE WHITE LIGHT GOES OUT AND THE RED ONE COMES UP, on the same beat as the
             // announcement - the facility saying it and the room showing it are one event.

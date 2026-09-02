@@ -261,7 +261,7 @@ namespace IterationRoom
         // coroutine being stopped, by the car not being active for a frame - and play twice reported
         // the car leaving with its doors open. This waits for the slide and then writes the shut pose
         // outright, which cannot be interrupted.
-        private IEnumerator ShutTheDoors()
+        public IEnumerator ShutTheDoors()
         {
             float t = 0f;
             while (t < doorSeconds)

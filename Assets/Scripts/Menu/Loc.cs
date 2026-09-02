@@ -113,6 +113,34 @@ namespace IterationRoom
             { "end.title",          "C Y C L E   B R O K E N" },
             { "end.clickContinue",  "CLICK TO CONTINUE" },
 
+
+            // ---------------------------------------------------------------- THE PA, SUBTITLED
+            //
+            // **THE ONE PLACE THE FACILITY'S OWN VOICE APPEARS IN THIS TABLE, AND IT IS NOT AN
+            // EXCEPTION TO THE RULE ABOVE.** The AUDIO stays English in every language, exactly like
+            // the signage - the building is an English-language facility and it is talking to itself.
+            // What is localised is the CAPTION, which is the game handing the player a translation of
+            // something it is deliberately not translating. See `PaSubtitle`.
+            //
+            // Sentence case rather than the shouted caps the wall displays use: this is subtitling, and
+            // a full-screen line in capitals reads as the game raising its voice.
+            { "pa.iteration",        "Iteration {0}. Sixty seconds remaining." },
+            { "pa.iterationGeneric", "New iteration. Sixty seconds remaining." },
+            { "pa.tenSeconds",       "Ten seconds remaining." },
+            { "pa.newCycle",         "New cycle initialized." },
+            { "pa.cycleTerminated",  "Cycle terminated." },
+            { "pa.cycleBroken",      "Containment failure. Cycle broken." },
+            { "pa.manualTermination","Manual termination available. Hold N to end the cycle." },
+            { "pa.allCyclesBroken",  "All cycles have been destroyed. You will pay the price for destroying them." },
+            { "pa.transportCalled",  "Transport has been called. Please stand by." },
+            { "pa.cycleResult",      "Cycle {0}. {1} iterations, {2} minutes." },
+            { "pa.totalResult",      "Total. {0} iterations, {1} minutes." },
+            { "pa.ride0",            "Your experiment is complete." },
+            { "pa.ride1",            "Your data has been assimilated. Improved results have been obtained." },
+            { "pa.ride2",            "Thank you for your participation." },
+            { "pa.ride3",            "You are being removed from the test environment." },
+            { "pa.ride4",            "Guidance will continue." },
+
         };
 
         private static readonly Dictionary<string, string> Korean = new Dictionary<string, string>
@@ -168,6 +196,29 @@ namespace IterationRoom
 
             { "end.title",          "사 이 클  파 괴" },
             { "end.clickContinue",  "클릭하면 계속" },
+
+
+            // THE PA, SUBTITLED - see the note in the English table. The audio stays English; this is
+            // what the player reads under it.
+            //
+            // "이터레이션" IS NOT TRANSLATED, for the reason it never has been: it is the game's own
+            // word, the title, and the unit the whole loop is counted in.
+            { "pa.iteration",        "이터레이션 {0}. 60초 남았습니다." },
+            { "pa.iterationGeneric", "새 이터레이션. 60초 남았습니다." },
+            { "pa.tenSeconds",       "10초 남았습니다." },
+            { "pa.newCycle",         "새 사이클을 시작합니다." },
+            { "pa.cycleTerminated",  "사이클을 종료했습니다." },
+            { "pa.cycleBroken",      "격리 실패. 사이클이 파괴되었습니다." },
+            { "pa.manualTermination","수동 종료 가능. N 키를 길게 누르십시오." },
+            { "pa.allCyclesBroken",  "모든 사이클이 파괴되었습니다. 당신은 사이클을 파괴한 대가를 치르게 될 것입니다." },
+            { "pa.transportCalled",  "이송 수단을 호출했습니다. 잠시만 기다려 주십시오." },
+            { "pa.cycleResult",      "사이클 {0}. {1}회 반복, {2}분." },
+            { "pa.totalResult",      "합계. {0}회 반복, {1}분." },
+            { "pa.ride0",            "지금까지의 귀하의 실험은 끝났습니다." },
+            { "pa.ride1",            "귀하의 데이터를 학습하여 더 좋은 결과물을 얻었습니다." },
+            { "pa.ride2",            "실험에 참가해주셔서 감사합니다." },
+            { "pa.ride3",            "실험 환경에서 나오는 중입니다." },
+            { "pa.ride4",            "계속해서 안내하겠습니다." },
 
         };
     }

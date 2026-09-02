@@ -134,3 +134,13 @@ __pycache__/
 # Recorder sometimes drops one at the project root instead, so catch those too.
 /Recordings/
 /*.mp4
+
+# The TTS generator's environment - torch and the MeloTTS packs, ~3GB.
+# Created by hand, never by the build; see the header of Tools/generate_narration.py.
+.venv-tts/
+Tools/__pycache__/
+.venv-qwen/
+
+# Voice audition clips - regenerable from Tools/generate_narration.py, and nothing reads them.
+docs/voice-samples/
+

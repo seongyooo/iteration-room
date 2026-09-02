@@ -204,6 +204,10 @@ namespace IterationRoom
                 departure.occupied = cycle;
                 departure.player = player;
                 departure.narration = narration;
+                // The break. It no longer holds anything back (see `FacilityFailure.held`, reverted
+                // 2026-09-01) - the reference is kept because the hold is one bool away if it is ever
+                // wanted, and re-finding it across a scene boundary is the expensive half.
+                departure.failure = cycle.worldRoot.GetComponentInChildren<FacilityFailure>(true);
 
                 if (departure.board != null)
                 {

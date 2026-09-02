@@ -118,3 +118,68 @@ to everything it plays, and what makes the siren feel like it is coming out of t
 
 `WallPanelDisplay.BeginAlarm` pulses on the same period, because a light that swells out of time with
 the sound reads as two unrelated things.
+
+## The PA is English-only, and subtitled (2026-09-02)
+
+There were two voice sets, `Voice` and `Voice/ko`, and `NarrationDirector` picked between them at
+runtime. There is one now. What a Korean-language player gets instead is a **caption** — `PaSubtitle`,
+bottom centre, drawn from `Loc`'s `pa.*` keys.
+
+**Why the audio is not translated.** The PA is the facility talking to *itself*: the same category as
+`ROOM 2` over a doorway, `ERROR` on room2-0's console, and the title. `Loc`'s own header has said
+since 2026-08-20 that translating the facility's signage "changes where the game is set, not what
+language it is played in". The announcer was the one thing on the wrong side of that line — a building
+that switches to Korean because its subject speaks Korean is a building that knows who is in it and is
+trying to be helpful, which this one is not.
+
+**And the honest reason it changed now**: the Korean clips were generated, played, and judged awkward.
+The design argument above is why the change is an improvement rather than a retreat, but it is not
+what prompted it.
+
+What it costs and what it buys: one set of clips to generate instead of two, one tannoy trim instead
+of two (Korean needed half the slap and half the tail because it packs more syllables into a second —
+that whole tuning is gone), and no possibility of a half-translated PA. What it costs is that a
+caption can only be read while looking at the screen, where a voice reaches a player facing a wall.
+
+### The engine changed too, and for a different reason
+
+`Tools/generate_narration.ps1` drove the Windows built-in synthesizer (SAPI: Zira, Heami). Those
+voices ship with the operating system and **carry no redistribution licence** — fine for a prototype,
+not shippable. `Tools/generate_narration.py` replaces it with **MeloTTS**, which is MIT, so the code
+and the audio are both ours.
+
+**Why MeloTTS and not the better-sounding models**, in the order the alternatives were ruled out:
+
+- **Piper** (`OHF-Voice/piper1-gpl`) — no Korean voices at all, GPL-3.0, and its own docs say
+  "intended for personal use and text to speech research only".
+- **Kokoro-82M** — Apache-2.0 and good, but its `VOICES.md` lists eight languages and Korean is not
+  one of them.
+- **Coqui XTTS-v2** — CPML, which is non-commercial.
+- **Chatterbox Multilingual** — MIT and does have Korean, but it is a voice-cloning model: timbre
+  drifts between calls, and the evaluation report is **assembled at runtime from separately
+  synthesised word clips**, so the same sentence would come out sounding like six people reading one
+  word each. It also watermarks its output.
+- **Qwen3-TTS** — Apache-2.0 on code *and* weights, a 2026 model, and audibly the best of them. Its
+  `instruct` parameter takes a plain-language direction ("a calm, flat public-address announcement")
+  and it works: the Korean voice measured 237 Hz without it and **148 Hz with it**, which is a thing
+  no amount of pitch-shifting buys honestly. It was tried and its Korean was still judged awkward —
+  and once the PA stopped being translated, the only question left was English, where MeloTTS's
+  `EN-AU` won a blind-ish comparison against Qwen's `sohee` by ear.
+
+If the voice is ever revisited, **Qwen3-TTS with `instruct` is where to start**, and the samples in
+this decision were `docs/voice-samples/` (git-ignored; regenerate them).
+
+**A fixed speaker is a hard requirement, not a preference.** `AnnounceCycleResult` plays "cycle",
+"one", "nine", "iterations", "four", "minutes" as six clips back to back. Anything that re-derives the
+voice per call breaks that sentence.
+
+### The delivery
+
+`SENTENCE_SPEED` / `DIGIT_SPEED` in the generator are translations of SAPI's `Rate -2` / `-1`, which
+were tuned because the default cadence read as a screen reader rather than a PA. The clips are
+**levelled per language** by one shared gain, not per clip — the relative loudness inside a language is
+part of the reading, but the two packs came out nearly three times apart from each other.
+
+**The echo is not in the clips and never was.** `SceneBuilder.AddTannoyFilters` is what makes this a
+tannoy: high-pass 340, low-pass 3600, distortion 0.17, a 105 ms slap at 0.33 wet, and a 2.1 s tail. A
+raw clip auditioned outside the game sounds dry because it *is* dry. Judge a voice with the chain on.

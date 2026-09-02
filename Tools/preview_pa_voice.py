@@ -32,12 +32,12 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 VOICE = os.path.join(ROOT, "Assets", "Audio", "Voice")
 
 # --- mirrors SceneBuilder.AddTannoyFilters ---
-HP_FREQ, HP_Q = 340.0, 1.0
-LP_FREQ, LP_Q = 3600.0, 1.6
-DISTORTION = 0.17
-ECHO_DELAY_MS, ECHO_DECAY, ECHO_WET = 105.0, 0.22, 0.33
-REVERB_DECAY = 2.1
-REVERB_WET = 0.34          # stands in for reverbLevel 250 / room -350
+HP_FREQ, HP_Q = 240.0, 1.0
+LP_FREQ, LP_Q = 3400.0, 0.7
+DISTORTION = 0.10
+ECHO_DELAY_MS, ECHO_DECAY, ECHO_WET = 105.0, 0.22, 0.21
+REVERB_DECAY = 1.8
+REVERB_WET = 0.29          # stands in for reverbLevel 210 / room -350
 REVERB_DAMPING = 0.55      # stands in for roomHF -900 / decayHFRatio 0.55
 
 

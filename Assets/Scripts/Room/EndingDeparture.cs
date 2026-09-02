@@ -46,6 +46,10 @@ namespace IterationRoom
         public float shaftLidSeconds = 2.6f;
 
         public CameraShaker cameraShaker;
+
+        // The break, held at the point where it would start emptying room3-2N - see
+        // `FacilityFailure.held`. Released the moment the player is standing in that room.
+        public FacilityFailure failure;
         // The PA, for one chime as the walls start printing - see `NarrationDirector.Attention`.
         public NarrationDirector narration;
 
@@ -92,10 +96,19 @@ namespace IterationRoom
             // A beat once they are down, before the walls start talking. They have just dropped a
             // storey and a half through a hole in the dark; the room gets a moment to be a room.
             //
+            // **AND NOW THE ROOM COMES APART, WITH SOMEBODY IN IT.** The break has been holding at
+            // this point since the console filled - see `FacilityFailure.held`. Everything it does
+            // from here is in this room: the cube into the floor, the decks, the lift, the corridor
+            // sealing behind them.
+            failure?.ReleaseStructures();
+
             // And the way back closes over their head while they take it - see `shaftLid`. Started
             // rather than waited on: it is something to notice, not something to wait for.
             StartCoroutine(SealTheShaft());
-            yield return Wait(1.6f);
+
+            // Long enough for the teardown to be most of the way through before the walls start
+            // printing. Two things competing for the player's attention is neither of them.
+            yield return Wait(6.5f);
 
             // 2. THE REPORT, on every wall of the room they have just landed in.
             if (board != null)
@@ -174,14 +187,51 @@ namespace IterationRoom
             if (car != null) yield return car.Arrive();
 
             // 6. BOARDING AND THE CLIMB, as one step - the car leaves the moment somebody is
-            //    aboard. See `CableCarRide.BoardAndDepart`. The building is already lit - see `FacilityExterior.LightTheOutside`,
+            //    aboard. See `CableCarRide.BoardAndDepart`. The PA talks the whole way up. The building is already lit - see `FacilityExterior.LightTheOutside`,
             //    which turns everything on at the reveal rather than a storey at a time as the car
             //    passes. Lighting it progressively was a pacing idea that cost the first half of the
             //    ride: the half of the building not yet reached was simply black.
-            if (car != null) yield return car.BoardAndDepart();
+            if (car != null)
+            {
+                yield return car.WaitForBoarding();
+
+                // Aboard. Cycle 3 loses its lids too now - see
+                // `FacilityExterior.CutAwayTheLastCycle` for why it could not before.
+                exterior?.CutAwayTheLastCycle();
+
+                Coroutine talking = StartCoroutine(NarrateTheRide());
+                yield return car.ShutTheDoors();
+                yield return car.Ride();
+                StopCoroutine(talking);
+            }
 
             // And it stops. `LoopManager` brings the scrim up from here, over a player sitting in a
             // cable car above the facility - which is the shot the whole ending is built to reach.
+        }
+
+        // **THE RIDE IS A MINUTE LONG AND IT WAS SILENT.**
+        //
+        // Five lines spread across the climb, keyed off where the car actually is rather than off a
+        // clock - so they stay where they were put if the speed or the path ever changes, and the
+        // last one does not land after the ride has finished.
+        //
+        // Nothing waits on them: a line that overran would otherwise hold up the one below it and
+        // the set would drift late. `NarrationDirector.Speak` cancels whatever is talking, so a
+        // late line is cut rather than queued, which is the right way round here - the car is
+        // somewhere specific and the line is about being there.
+        private IEnumerator NarrateTheRide()
+        {
+            if (narration == null || car == null) yield break;
+
+            // Spread across the middle of the run. Nothing at the very start (the doors are still
+            // closing) and nothing at the very end (the card is about to come up).
+            float[] at = { 0.06f, 0.24f, 0.44f, 0.64f, 0.84f };
+
+            for (int i = 0; i < at.Length; i++)
+            {
+                while (car.Progress < at[i]) yield return null;
+                narration.AnnounceRideLine(i);
+            }
         }
 
         // The lid, up into the ceiling hole. On the ending's own clock like everything else here.

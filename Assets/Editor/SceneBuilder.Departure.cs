@@ -39,6 +39,8 @@ namespace IterationRoom.EditorTools
         private const float ShaftInnerMargin = 30f;
         // Extra room either side of the cable, so the car is never scraping the shaft wall.
         private const float ShaftClearance = 14f;
+        // How wide the well in the shaft's roof is - the way out, and the only place the sky shows.
+        private const float ShaftWellSpan = 20f;
         // How far a cell block has to stay clear of the real building.
         //
         // **5m -> 2m (2026-09-01, by request: the racks should crowd the building, not stand off it).**
@@ -597,12 +599,16 @@ namespace IterationRoom.EditorTools
             {
                 if (renderer == null || renderer.sharedMaterial == null) continue;
                 if (!renderer.sharedMaterial.name.Contains("glass")) continue;
-                // **ALMOST NOT THERE** (2026-09-01, by request). At 0.22 the cabin glazing was a
-                // pale film over the one view the whole ending is built to deliver. The frames still
-                // read as glazed because the mullions and the door leaves are opaque geometry; what
-                // is gone is the wash over everything beyond them.
-                renderer.sharedMaterial = MakeGlassMaterial("CableCarGlass", null,
-                    new Color(0.93f, 0.96f, 1f, 0.05f), 0.97f);
+                // **TAKEN OUT ENTIRELY** (2026-09-01, by request: it is not clear enough). It had
+                // already gone 0.22 -> 0.05 alpha and even that is a film over the one view the whole
+                // ending exists to deliver.
+                //
+                // Nothing is lost by removing it: the cabin still reads as glazed because the
+                // mullions, the door leaves and the frame are all opaque geometry, and a window is
+                // read from its frame rather than from its pane. `MakeGlassMaterial` is no longer
+                // called for the car, so `CableCarGlass.mat` is dead - see the licence note if it
+                // ever comes back.
+                renderer.enabled = false;
             }
 
             // **A FLOOR TO STAND ON, AND WITHOUT IT THE CAR CANNOT BE BOARDED AT ALL.**
@@ -1208,7 +1214,11 @@ namespace IterationRoom.EditorTools
             // The building is white; so is what it stands in. What separates the two is that the
             // racks are a shade darker and further away, which is enough.
             Material shellMat = MakeColorMaterial("ShaftShell", new Color(0.78f, 0.79f, 0.82f));
-            Material cellMat = MakeColorMaterial("CellBlockShell", new Color(0.62f, 0.63f, 0.66f));
+            // 0.62 -> 0.80. The racks read grey beside a white building, and the difference was albedo:
+            // a real room's panels are 0.85 and these were two thirds of that. They are the same
+            // cells; what separates them from the played ones is distance and the fact that they are
+            // shut, not that they are made of something darker.
+            Material cellMat = MakeColorMaterial("CellBlockShell", new Color(0.80f, 0.81f, 0.84f));
 
             // THE SHAFT. A box round everything, faces turned inward - built as six slabs rather than
             // an inverted cube because a cube with a flipped normal is a mesh whose winding is
@@ -1228,21 +1238,80 @@ namespace IterationRoom.EditorTools
             // ~~AN IMPORTED BACKDROP~~ BUILT, BELOW. See `BuildGantries` for why a sculpture cannot
             // do this job however large it is scaled.
 
+            // **AND EVERY ONE OF THEM IS OVERSIZED BY THE THICKNESS OF THE OTHERS.**
+            //
+            // This is where the sky was coming in. Each wall sits 2m OUTSIDE the box, so a west wall
+            // sized to `shaft.size.z` spans exactly min.z to max.z - and the south wall, which is
+            // supposed to close that end, sits at min.z - 2 and starts at min.x. Neither of them
+            // covers x < min.x AND z < min.z, so the four corners were 4m x 4m open slits running
+            // the full 85m height of the shaft. From anywhere on the ride with a line through one,
+            // that is a tall bright strip of skybox - which is exactly how it was reported, and it
+            // survived building a roof because the roof was never the hole.
+            //
+            // `Overlap` is the wall thickness doubled: enough for every slab to run past the ones it
+            // meets. Cheap, and it cannot be got wrong the way a corner post can.
+            const float Overlap = 8f;
+
             Slab(root.transform, "Shaft_Floor", shellMat,
                  new Vector3(shaft.center.x, shaft.min.y - 2f, shaft.center.z),
-                 new Vector3(shaft.size.x, 4f, shaft.size.z));
+                 new Vector3(shaft.size.x + Overlap, 4f, shaft.size.z + Overlap));
             Slab(root.transform, "Shaft_West", shellMat,
                  new Vector3(shaft.min.x - 2f, shaft.center.y, shaft.center.z),
-                 new Vector3(4f, shaft.size.y, shaft.size.z));
+                 new Vector3(4f, shaft.size.y, shaft.size.z + Overlap));
             Slab(root.transform, "Shaft_East", shellMat,
                  new Vector3(shaft.max.x + 2f, shaft.center.y, shaft.center.z),
-                 new Vector3(4f, shaft.size.y, shaft.size.z));
+                 new Vector3(4f, shaft.size.y, shaft.size.z + Overlap));
             Slab(root.transform, "Shaft_South", shellMat,
                  new Vector3(shaft.center.x, shaft.center.y, shaft.min.z - 2f),
-                 new Vector3(shaft.size.x, shaft.size.y, 4f));
+                 new Vector3(shaft.size.x + Overlap, shaft.size.y, 4f));
             Slab(root.transform, "Shaft_North", shellMat,
                  new Vector3(shaft.center.x, shaft.center.y, shaft.max.z + 2f),
-                 new Vector3(shaft.size.x, shaft.size.y, 4f));
+                 new Vector3(shaft.size.x + Overlap, shaft.size.y, 4f));
+
+            // **AND A ROOF, WITH A HOLE ONLY WHERE THE RIDE GOES OUT** (2026-09-01, by request:
+            // sky is visible in the distance).
+            //
+            // The top was left wide open because the ride climbs out of it. True of the last ten
+            // seconds and wrong for the other fifty: from down in the shaft the open top is a bright
+            // patch a long way off, and a facility with a skylight is not a facility.
+            //
+            // **THE FIRST ATTEMPT LEFT A GAP AND THAT IS WORTH RECORDING.** It centred the four
+            // slabs on the CABLE and sized them from the shaft's half-width, which only covers the
+            // shaft if the two share a centre - and they do not, because the cable runs up the east
+            // side. One side came up short by exactly the offset between them, so the sky moved
+            // rather than went. Each slab is measured between the shaft's own edge and the well now,
+            // so neither assumption is being made.
+            Vector3 exit = path != null && path.Length > 0 ? path[path.Length - 1] : shaft.center;
+            float wellHalf = ShaftWellSpan / 2f;
+            float roofY = shaft.max.y + 2f;
+
+            void RoofSlab(string name, float x0, float x1, float z0, float z1)
+            {
+                if (x1 - x0 < 0.5f || z1 - z0 < 0.5f) return;
+                Slab(root.transform, name, shellMat,
+                     new Vector3((x0 + x1) / 2f, roofY, (z0 + z1) / 2f),
+                     new Vector3(x1 - x0, 4f, z1 - z0));
+
+                // **AND IT CASTS NOTHING.** This is the one thing between the sun and everything in
+                // the shaft, so a shadow-casting lid would put the whole exterior - racks, building,
+                // cable and all - into shade, and the fix for a bright patch of sky would be a black
+                // ending. It exists to stop the eye leaving, not to stop the light arriving.
+                Transform t = root.transform.Find(name);
+                Renderer r = t != null ? t.GetComponent<Renderer>() : null;
+                if (r != null) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
+
+            // West and east of the well, full depth; then north and south of it, only as wide as the
+            // well so the four do not overlap into the opening.
+            // Out to 4m PAST the walls, not to the middle of them - same reason as the overlap
+            // above, and the roof/wall join is a seam the eye is looking straight up at.
+            RoofSlab("Shaft_Roof_West", shaft.min.x - 4f, exit.x - wellHalf, shaft.min.z - 4f, shaft.max.z + 4f);
+            RoofSlab("Shaft_Roof_East", exit.x + wellHalf, shaft.max.x + 4f, shaft.min.z - 4f, shaft.max.z + 4f);
+            RoofSlab("Shaft_Roof_South", exit.x - wellHalf, exit.x + wellHalf, shaft.min.z - 4f, exit.z - wellHalf);
+            RoofSlab("Shaft_Roof_North", exit.x - wellHalf, exit.x + wellHalf, exit.z + wellHalf, shaft.max.z + 4f);
+
+            Debug.Log($"[SceneBuilder] Shaft roof at y={roofY:0.#}, with a {ShaftWellSpan}m well at "
+                    + $"({exit.x:0.#}, {exit.z:0.#}) where the ride leaves. Everything else is closed.");
 
             int cells = BuildCellGrid(root.transform, cycleRoots, building, shaft, cableX, cellMat);
             BuildGantries(root.transform, shaft, building, shellMat);
@@ -1250,7 +1319,7 @@ namespace IterationRoom.EditorTools
             Debug.Log($"[SceneBuilder] Exterior: shaft {shaft.size.x:0.#} x {shaft.size.y:0.#} x "
                     + $"{shaft.size.z:0.#}m round a building of {building.size.x:0.#} x "
                     + $"{building.size.y:0.#} x {building.size.z:0.#}m, {cells} cells in the racks. "
-                    + "Open at the top, which is where the ride goes.");
+                    + "Roofed, bar the well the ride climbs out through.");
 
             return new[] { root };
         }

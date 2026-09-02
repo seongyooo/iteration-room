@@ -78,7 +78,15 @@ namespace IterationRoom
         // what shows THROUGH the grooves on the inside, so painting it white would flatten every
         // wall in the building at the moment the ride is looking into them. 0.45 reads as a grey
         // structure from outside while still being clearly darker than the 0.85 panels beside it.
-        public Color exteriorPaint = new Color(0.45f, 0.46f, 0.48f);
+        // 0.45 -> 0.78, to the same value as the shaft shell. 0.45 was chosen against a Flat 0.45
+        // ambient, where it was the brightest thing out there; with the real ambient back (see
+        // `LightTheOutside`) it is a mid-grey skin on a building whose panels are 0.85, and grey next
+        // to white is exactly what play reported.
+        //
+        // **THE COST, STATED**: this slab is also what shows through the grooves from INSIDE, so the
+        // grid on every wall in the opened rooms lightens with it. At the distance the ride looks
+        // from, a white building beats a crisp groove.
+        public Color exteriorPaint = new Color(0.78f, 0.79f, 0.82f);
 
         // What a past self is built from. The ghost prefab, instantiated frozen - see `RaiseGhosts`.
         public GhostReplayer ghostPrefab;
@@ -130,13 +138,38 @@ namespace IterationRoom
         // in rather than for being looked at. It was set when the exterior had no light of its own;
         // there is a directional and twenty-one point fixtures out there now, so the ambient can go
         // back to being fill.
-        public Color endingAmbient = new Color(0.34f, 0.35f, 0.38f);
+        // 0.62 -> 0.34 -> 0.45. The first was set when nothing lit the outside at all; the second
+        // when the rooms read black, which turned out to be their own lights being switched off
+        // rather than anything to do with this. With those back on it only has to carry the shaft
+        // walls and the cell racks, and this is what those want.
+        // **~~THE AMBIENT FOR THE OUTSIDE~~ UNUSED SINCE 2026-09-01** - see `LightTheOutside`. It
+        // was 0.62, then 0.34, then 0.45, and every one of those was an attempt to find a single flat
+        // value that lit a 250m shaft and a room interior at the same time. There is not one, and
+        // there did not need to be: the environment the game already runs on does both.
+        //
+        // Kept as a field so the three numbers and this note stay attached to the mistake.
+        public Color endingAmbient = new Color(0.45f, 0.46f, 0.50f);
         // And the sky, which is what the OPEN TOP of the shaft shows. Without this it is Unity's
         // default procedural sky - play called it "the editor's default screen", which is exactly
         // what it is and exactly what it looks like at the end of a game set entirely indoors.
         public Material endingSkybox;
 
         private readonly List<GameObject> raised = new List<GameObject>();
+
+        // **AND THE PLAYER'S OWN CYCLE, ONCE THEY ARE NOT STANDING IN IT** (2026-09-01, by
+        // request). Cycle 3 is held back at the reveal because taking the lid off a room somebody is
+        // inside is the building disassembling itself around a person, not a dollhouse being opened.
+        // The moment they are in the car that objection is gone, and the three rooms they spent the
+        // last act in are the ones they most want to look back down at.
+        //
+        // Called by `EndingDeparture` after boarding. It is the same two passes, with nothing held
+        // out this time.
+        public void CutAwayTheLastCycle()
+        {
+            occupied = null;
+            Cutaway();
+            PaintTheOutside();
+        }
 
         // Everything at once, called the moment the wall opens. The car has not moved yet, so the
         // cost of this frame is hidden behind a wall panel sliding aside.
@@ -160,11 +193,23 @@ namespace IterationRoom
         // The ambient, the sky, and every fixture out there. One call, no pacing - see `shaftLights`.
         private void LightTheOutside()
         {
-            // Flat, and written rather than blended: this is a hard cut that happens behind a wall
-            // coming apart, and a fade would be an environment visibly changing while the player
-            // watches it.
-            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-            RenderSettings.ambientLight = endingAmbient;
+            // **~~FLAT, AT `endingAmbient`~~ THE AMBIENT IS LEFT EXACTLY WHERE IT IS**, 2026-09-01,
+            // and this was the black walls all along - not the lightmap, not the room lights.
+            //
+            // `ApplyEnvironment` sets Trilight at 0.356 / 0.763 / 0.521, and CLAUDE.md is explicit
+            // that this constant "is doing almost all of the wall and ceiling lighting": measured,
+            // walls read 149 of 255 with it and 13 without, because the ceiling fixtures are
+            // DOWNLIGHTS and a vertical surface only ever catches the tail of that cone. Switching
+            // to Flat 0.45 here threw away the equator band - 0.763, the one that actually faces a
+            // wall - across every room in the building at once, which is why the interiors went
+            // black on the ride and the racks outside read grey.
+            //
+            // There is nothing to replace it with: the outside wants the same even white fill the
+            // inside has always had, and it is already set. The right amount of work here is none.
+            //
+            // If the shaft ever needs to be darker than the rooms, it has to come from the shaft's
+            // own lights and materials - never from an environment setting, which is per SCENE and
+            // therefore per everything.
 
             if (endingSkybox != null)
             {
@@ -231,19 +276,21 @@ namespace IterationRoom
                     painted++;
                 }
 
-                // **AND THE CEILING FIXTURES GO OUT** (2026-09-01, by request: too bright). With the
-                // lids off, every room's four downlights point straight at the camera from above -
-                // twenty rooms' worth of bare spots in shot at once. The interiors are lit by the
-                // exterior sun and the raised ambient now, which is what a cutaway wants: an even
-                // wash that shows the floor plan, not four hotspots per room.
-                foreach (Light light in cycle.worldRoot.GetComponentsInChildren<Light>(true))
-                    if (light != null && light.enabled) { light.enabled = false; doused++; }
+                // **~~AND THE CEILING FIXTURES GO OUT~~ THE LIGHTS STAY ON**, 2026-09-01. Switching
+                // them off is what turned every room black, and the console line printed by this very
+                // method is what proves it: *0 renderer(s) taken off their baked lightmap*. Nothing in
+                // this building is lightmapped at all, so a room has exactly one source of light - its
+                // own four ceiling spots - and putting those out leaves it with the flat ambient and
+                // nothing else. An ambient dim enough not to wash out the shaft cannot light a room.
+                //
+                // The request was never about the illumination. It was about the FIXTURES: with the
+                // lid gone, the panels they sit in were left hanging in mid-air, four white rectangles
+                // per room where the ceiling used to be. That is the loop below and it is the whole of
+                // it - a spot with no visible fixture reads as light from above, which is what a room
+                // with its roof off should look like.
 
-                // **AND THE FIXTURES THEMSELVES GO** (2026-09-01, by request). Switching the lights
-                // off left the panels they sit in hanging in mid-air: the ceiling that held them has
-                // been taken away by the cutaway, so what is left is four white rectangles floating
-                // where the lid used to be, in every room. Blacking out their emission was not
-                // enough - the geometry is still there and still lit by the sun.
+                // **THE FIXTURES THEMSELVES GO** (2026-09-01, by request). Blacking out their emission
+                // was not enough - the geometry is still there and still lit by the sun.
                 //
                 // The whole `*_CeilingLights` group, which is the object `BuildCeilingLights` makes
                 // and the only thing under it.
@@ -251,14 +298,15 @@ namespace IterationRoom
                 {
                     if (t == null || !t.name.EndsWith("_CeilingLights")) continue;
                     foreach (Renderer r in t.GetComponentsInChildren<Renderer>(true))
-                        if (r != null) r.enabled = false;
+                        if (r != null && r.enabled) { r.enabled = false; doused++; }
                 }
 
 
             }
 
             Debug.Log($"[FacilityExterior] Outside: {painted} backing slab(s) repainted, {unbaked} "
-                    + $"renderer(s) taken off their baked lightmap, {doused} ceiling fixture(s) out.");
+                    + $"renderer(s) taken off their baked lightmap, {doused} fixture(s) hidden. "
+                    + "The lights inside them stay on - see the note above.");
         }
 
         // TAKING THE LID AND ONE WALL OFF EVERY ROOM, worked out here rather than at build time.

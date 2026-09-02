@@ -42,30 +42,50 @@ namespace IterationRoom
             // up on all four of its walls.
             public AudioClip manualTerminationLine;
 
-            // **THE PIECES THE END-OF-RUN REPORT IS BUILT OUT OF.** Nothing else in this game says a
-            // number the writer did not know in advance; the evaluation says four of them per run
-            // and cannot know any. See `AnnounceCycleResult`.
+            // **THE REPORT, AS THREE PHRASES** (2026-09-02). It was six word clips and five joins
+            // - "Cycle", "One", "Nine", "iterations", "Four", "minutes" - and it sounded like a list
+            // being read out, because every one of those words was synthesised ALONE and a word on
+            // its own is read flat and falling. No gap length fixes that; the fault is inside each
+            // clip. See the note in `Tools/generate_narration.py`.
             //
-            // Indexed BY VALUE, not packed: 0-19 sit at their own index and the tens at 20, 30 ... 90,
-            // so `numbers[n]` is the clip for n whenever there is one. The gaps in between are null
-            // and never asked for - `Number` decomposes anything past nineteen into a ten and a unit.
-            public AudioClip[] numbers;
-            public AudioClip cycleWord;
-            public AudioClip iterationsWord;
-            public AudioClip minutesWord;
-            public AudioClip totalWord;
+            // Now: "Cycle one," + "nine iterations," + "four minutes." Each is a phrase the
+            // synthesizer read AS a phrase, and the commas are load-bearing - a clause ending in one
+            // is read as continuing, so the three arrive as one sentence.
+            //
+            // Indexed BY VALUE with element 0 unused, so `cycleLines[3]` is cycle three and there is
+            // no arithmetic to get wrong at four in the morning.
+            public AudioClip[] cycleLines;
+            public AudioClip[] iterationCountLines;
+            public AudioClip[] minuteLines;
 
-            // "Transport has been called. Please stand by." Said once the report is read out, so a
-            // player standing in a wrecked room knows that waiting is the right thing to be doing.
+            // "Total," - the same shape as a `cycleLines` entry, for the row that is not a cycle.
+            public AudioClip totalLine;
+
             public AudioClip transportCalledLine;
+
+            // What it says on the way out, in order. See `EndingDeparture.NarrateTheRide`.
+            public AudioClip[] rideLines;
         }
 
+        // **ONE SET, AND IT IS ENGLISH IN EVERY LANGUAGE** (2026-09-02, by request). There was a
+        // Korean set beside this; it is gone, along with `korean`, `koreanTannoy` and the per-call
+        // fallback that chose between them. The PA is the facility talking to ITSELF - the same
+        // category as the signage, which has always stayed English (see `Loc`) - and what a player
+        // who does not speak it gets is a SUBTITLE, which is how a foreign announcement is handled
+        // anywhere else. `PaSubtitle` is that, and every `Announce*` below feeds it.
+        //
+        // The Korean clips were generated and played and the verdict was that they were awkward.
+        // That is the honest reason this changed; the design argument above is why the change is an
+        // improvement rather than a retreat.
         public VoiceSet english;
-        public VoiceSet korean;
 
-        // HOW MUCH THE HORN RINGS, PER LANGUAGE (2026-08-21, by request: the Korean PA was too
-        // reverberant). The tannoy chain is otherwise shared - see `SceneBuilder.AddTannoyFilters` -
-        // and only these three values move.
+        // Where the words go. Optional - a scene without one has a talking PA and no captions,
+        // which is what every build before this was.
+        public PaSubtitle subtitle;
+
+        // HOW MUCH THE HORN RINGS. It was per LANGUAGE until 2026-09-02, because Korean puts more
+        // syllables in the same second and a 105ms slap with a 2.1s tail under that was a smear; with
+        // the Korean voice retired there is one voice and one trim.
         //
         // **The band-limiting is what makes it a PA, not the tail.** `docs/audio.md` records that
         // finding: high-pass 340 / low-pass 3600 is what the ear reads as "coming out of a speaker",
@@ -86,8 +106,7 @@ namespace IterationRoom
 
         public AudioEchoFilter voiceEcho;
         public AudioReverbFilter voiceReverb;
-        public TannoyTrim englishTannoy;
-        public TannoyTrim koreanTannoy;
+        public TannoyTrim tannoy;
 
         // Applied on wake and again if the language moves under a live scene. It cannot today - the
         // picker is on the title screen and this lives in the game scene - but a filter left on the
@@ -98,9 +117,7 @@ namespace IterationRoom
 
         private void ApplyTannoy()
         {
-            TannoyTrim trim = GameSettings.Language == GameLanguage.Korean && koreanTannoy != null
-                ? koreanTannoy
-                : englishTannoy;
+            TannoyTrim trim = tannoy;
             if (trim == null) return;
 
             if (voiceEcho != null) voiceEcho.wetMix = trim.echoWetMix;
@@ -115,21 +132,21 @@ namespace IterationRoom
         // every language.
         public AudioClip announcementChime;
 
-        // **RESOLVED PER CALL, NOT CACHED IN Awake.** The language can be changed from the title
-        // screen while this object already exists in a loaded scene, and a cached set would keep
-        // announcing in the language the run started in. It is a field read and a null check.
+        // One set now - see the note on `english`. Kept as a property rather than flattened to the
+        // field so every call site below reads the same as it did.
+        private VoiceSet Lines => english;
+
+        // The caption for whatever is being said, in the player's language. Called by every
+        // `Announce*`, right beside the clip it belongs to, so the two cannot drift apart.
         //
-        // Korean falls back to English rather than going silent, so a build whose `Voice/ko` folder
-        // was never generated still has a talking PA - the same rule `Loc` follows for missing
-        // strings, and for the same reason: half-translated should look unfinished, not broken.
-        private VoiceSet Lines
+        // `Loc.Get` falls through to English for a missing Korean key, so a half-translated build
+        // captions in English rather than showing a key - the same rule the rest of the UI follows.
+        private void Caption(string key, params object[] args)
         {
-            get
-            {
-                if (GameSettings.Language == GameLanguage.Korean
-                    && korean != null && korean.iterationGenericLine != null) return korean;
-                return english;
-            }
+            if (subtitle == null || string.IsNullOrEmpty(key)) return;
+
+            string line = Loc.Get(key);
+            subtitle.Show(args != null && args.Length > 0 ? string.Format(line, args) : line);
         }
 
         // No chime in front of this one. It fires at the top of every iteration, which is the one
@@ -139,12 +156,17 @@ namespace IterationRoom
         {
             bool haveLine = Lines.iterationLines != null && number >= 1 && number <= Lines.iterationLines.Length;
             Speak(haveLine ? Lines.iterationLines[number - 1] : Lines.iterationGenericLine);
+            // The number is in the caption whether or not there is a clip for it - the generic line
+            // says "new iteration" because there is no recording of "thirty-one", but the wall knows
+            // which one it is and so does the player.
+            Caption(haveLine ? "pa.iteration" : "pa.iterationGeneric", number);
         }
 
         public void AnnounceTenSeconds()
         {
             Chime();
             Speak(Lines.tenSecondsLine);
+            Caption("pa.tenSeconds");
         }
 
         // secondsRemaining runs 9 down to 1. No chime - the digits come fast enough that one in
@@ -154,18 +176,23 @@ namespace IterationRoom
             if (Lines.countdownLines == null) return;
             int index = 9 - secondsRemaining;
             if (index < 0 || index >= Lines.countdownLines.Length) return;
+            // **NO CAPTION.** The countdown is nine digits a second apart and the clock is already on
+            // screen counting them. A subtitle here would be a second clock, redrawn nine times, over
+            // the most tense ten seconds of the loop.
             Speak(Lines.countdownLines[index]);
         }
 
         public void AnnounceNewCycle()
         {
             Speak(Lines.newCycleLine);
+            Caption("pa.newCycle");
         }
 
         public void AnnounceCycleTerminated()
         {
             Chime();
             Speak(Lines.cycleTerminatedLine);
+            Caption("pa.cycleTerminated");
         }
 
         // "Containment failure. Cycle broken." Chimed, because it is the most important thing the
@@ -177,6 +204,7 @@ namespace IterationRoom
         {
             Chime();
             Speak(Lines.cycleBrokenLine);
+            Caption("pa.cycleBroken");
         }
 
         // "All cycles have been destroyed. You will pay the price for destroying them." Chimed, like
@@ -191,6 +219,7 @@ namespace IterationRoom
         {
             Chime();
             Speak(Lines.allCyclesBrokenLine);
+            Caption("pa.allCyclesBroken");
         }
 
         // "Manual termination available. Hold N to end the cycle." Chimed, because it is an
@@ -204,6 +233,7 @@ namespace IterationRoom
         {
             Chime();
             Speak(Lines.manualTerminationLine);
+            Caption("pa.manualTermination");
         }
 
         // Announcements replace each other instead of stacking. The countdown fires once a second
@@ -211,6 +241,10 @@ namespace IterationRoom
         private void Speak(AudioClip clip)
         {
             if (voiceSource == null || clip == null) return;
+            // **AND IT CANCELS A SEQUENCE.** `Speak` has always stopped the source; what it did not do
+            // was stop the coroutine feeding it, so an assembled line went on writing clip after clip
+            // over whatever this was saying. That is the other half of the cutting-off.
+            if (speaking != null) { StopCoroutine(speaking); speaking = null; }
             voiceSource.Stop();
             voiceSource.clip = clip;
             voiceSource.Play();
@@ -227,12 +261,32 @@ namespace IterationRoom
         // The words are on the wall; this is only what makes the player look up.
         public void Attention() => Chime();
 
+        // **WHETHER THE VOICE IS STILL TALKING**, so a caller can wait for it instead of racing it.
+        //
+        // This is what the evaluation board needed and did not have: it fired a cycle's line and then
+        // printed the next row on a timer, so a line that ran a shade long was cut off mid-word by
+        // the next one. A tuned pause is a guess about clip lengths; this is the fact.
+        public bool Speaking => speaking != null
+                             || (voiceSource != null && voiceSource.isPlaying);
+
+        // One of the ride lines, by index. Out of range is silence rather than an error - the ride is
+        // paced by where the car IS, so asking for a line that does not exist means the path grew.
+        public void AnnounceRideLine(int index)
+        {
+            if (Lines.rideLines == null || index < 0 || index >= Lines.rideLines.Length) return;
+
+            Chime();
+            SpeakSequence(new List<AudioClip> { Lines.rideLines[index] });
+            Caption("pa.ride" + index);
+        }
+
         // Chimed, because it is the last thing the facility says to the subject and the one piece of
         // it that is an instruction rather than a figure.
         public void AnnounceTransportCalled()
         {
             Chime();
             Speak(Lines.transportCalledLine);
+            Caption("pa.transportCalled");
         }
 
         // ======================================================== THE REPORT, READ ALOUD
@@ -241,61 +295,75 @@ namespace IterationRoom
         // cycle as its row appears, so the voice and the wall arrive together rather than the voice
         // summarising something already finished.
         //
-        // "CYCLE ONE, NINE ITERATIONS, FOUR MINUTES" is five clips played back to back. It is
-        // assembled rather than pre-rendered because the numbers are the run's, and a facility that
-        // reads out a figure it could not have known before the player produced it is the only kind
-        // of announcement worth making here.
+        // "Cycle one, nine iterations, four minutes" is THREE clips played back to back - see the
+        // note on `VoiceSet.cycleLines` for why three and not six. It is assembled rather than
+        // pre-rendered whole because the numbers are the run's, and a facility that reads out a
+        // figure it could not have known before the player produced it is the only kind of
+        // announcement worth making here.
         //
         // MINUTES ONLY, rounded. The wall carries the seconds; a PA that reads "four minutes and
         // twenty seconds point six" is a PA nobody listens to the end of.
+        //
+        // **~~PHRASED, AND THE CLIPS TRIMMED~~ BOTH REVERTED 2026-09-01, by request: it came out
+        // WORSE.** Every clip carries about 0.12s of lead and 0.83s of tail from the synthesizer, so
+        // six of them back to back put a second of silence between every word. That was measured, and
+        // cutting it looked like the obvious fix - along with a longer beat where a comma belongs.
+        //
+        // Played, it was worse. Which is the finding: a second between words is what makes this read
+        // as a TANNOY reading a figure off a screen rather than a person saying a sentence, and the
+        // padding SAPI adds is doing work nobody chose but everybody had got used to. The delivery
+        // was never the problem the measurement said it was.
+        //
+        // Both halves are one revert and they go together - trimmed clips at the old uniform spacing
+        // would be the same sentence spoken at a gallop. `git log` has the code if it is ever wanted.
         public void AnnounceCycleResult(int cycle, int iterations, float seconds)
         {
-            var line = new List<AudioClip> { Lines.cycleWord };
-            Number(cycle, line);
-            Number(iterations, line);
-            line.Add(Lines.iterationsWord);
-            Number(Mathf.Max(1, Mathf.RoundToInt(seconds / 60f)), line);
-            line.Add(Lines.minutesWord);
-            SpeakSequence(line);
+            int minutes = Mathf.Max(1, Mathf.RoundToInt(seconds / 60f));
+
+            SpeakSequence(new List<AudioClip>
+            {
+                Pick(Lines.cycleLines, cycle),
+                Pick(Lines.iterationCountLines, iterations),
+                Pick(Lines.minuteLines, minutes),
+            });
+
+            // The same figures the wall is printing, in the player's language. Rounded to minutes
+            // like the speech, not like the board - the board has room for the seconds and this does
+            // not, and a caption that disagreed with the voice over it would read as a mistake.
+            Caption("pa.cycleResult", cycle, iterations, minutes);
         }
 
         public void AnnounceTotalResult(int iterations, float seconds)
         {
-            var line = new List<AudioClip> { Lines.totalWord };
-            Number(iterations, line);
-            line.Add(Lines.iterationsWord);
-            Number(Mathf.Max(1, Mathf.RoundToInt(seconds / 60f)), line);
-            line.Add(Lines.minutesWord);
-            SpeakSequence(line);
+            int minutes = Mathf.Max(1, Mathf.RoundToInt(seconds / 60f));
+
+            SpeakSequence(new List<AudioClip>
+            {
+                Lines.totalLine,
+                Pick(Lines.iterationCountLines, iterations),
+                Pick(Lines.minuteLines, minutes),
+            });
+
+            Caption("pa.totalResult", iterations, minutes);
         }
 
-        // A number as clips. 0-19 are whole words in both languages, because "thirteen" is not "ten
-        // three" and 십삼 assembled out of 십 and 삼 sounds like spelling rather than speaking. Past
-        // that both languages are regular, so a ten and a unit covers everything to 99.
-        //
-        // Anything larger is clamped rather than dropped: a run of a hundred iterations is a run this
-        // should still be able to describe, and "ninety nine" is a better failure than silence.
-        private void Number(int value, List<AudioClip> into)
+        // One phrase by the number it names. **CLAMPED, NOT DROPPED**: a run past the highest
+        // recording is a run this should still be able to describe, and "ninety-nine iterations" is a
+        // better failure than a gap in the middle of the sentence. Null if the set is short, which
+        // `PlayInOrder` skips - so a half-generated folder shortens the line instead of stalling it.
+        private static AudioClip Pick(AudioClip[] clips, int value)
         {
-            if (Lines.numbers == null) return;
-            value = Mathf.Clamp(value, 0, 99);
-
-            if (value < 20) { Add(into, value); return; }
-
-            Add(into, value / 10 * 10);
-            if (value % 10 != 0) Add(into, value % 10);
-        }
-
-        private void Add(List<AudioClip> into, int index)
-        {
-            if (index >= 0 && index < Lines.numbers.Length && Lines.numbers[index] != null)
-                into.Add(Lines.numbers[index]);
+            if (clips == null || clips.Length <= 1) return null;
+            return clips[Mathf.Clamp(value, 1, clips.Length - 1)];
         }
 
         // How long to leave between the clips of an assembled line. Short - these are the words of
         // one sentence, not separate announcements - and the clips are rendered without a full stop
         // so the synthesizer does not put its own pause on the end of each.
-        public float clipGap = 0.06f;
+        // **0.06 -> 0.14, because the pieces are phrases now** (2026-09-02). Six words at 0.06 was
+        // as tight as a single breath, which is right for words; three clauses want the beat a comma
+        // gets. The clips already end in commas - this is the pause those commas ask for.
+        public float clipGap = 0.14f;
 
         // **PLAYED IN SEQUENCE, WHICH `Speak` CANNOT DO.** That method deliberately STOPS whatever is
         // talking and starts the new clip, because announcements replace each other - a countdown

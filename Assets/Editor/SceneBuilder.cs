@@ -327,9 +327,22 @@ namespace IterationRoom.EditorTools
         private const string VoiceDir = AudioDir + "/Voice";
         private const string SfxDir = AudioDir + "/SFX";
 
-        // Must match the range Tools/generate_narration.ps1 writes out. Past this the announcer
+        // Must match the range Tools/generate_narration.py writes out. Past this the announcer
         // falls back to a generic line rather than going silent.
         private const int NarrationIterationLines = 30;
+
+        // What the PA says on the way up in the cable car, in order. Five, matching
+        // `Tools/generate_narration.py` and the five points `EndingDeparture.NarrateTheRide` fires
+        // them at - a mismatch is silence at the end rather than an error, so it is one number.
+        private const int NarrationRideLines = 5;
+
+        // How many cycles the spoken report can name, and how high its counts go. Must match
+        // `REPORT_CYCLES` / `REPORT_MAX` in `Tools/generate_narration.py` - the generator writes one
+        // clip per value and this loads them by the same names, so a mismatch is a null in the middle
+        // of a sentence. `NarrationDirector.Pick` clamps rather than dropping, so a run past the top
+        // says the highest figure it has instead of a gap.
+        private const int NarrationReportCycles = 4;
+        private const int NarrationReportMax = 99;
 
         // The attribution shown at the bottom of the title screen. Everything in this project is
         // generated from a script except the two furniture models and the HUD typeface, so this is
@@ -483,6 +496,13 @@ namespace IterationRoom.EditorTools
         // The map is still generated and still carries metallic in red; only its alpha is now a flat
         // 1.0, which multiplies smoothness by nothing. Set this back below 1 to re-enable it.
         private const float WearFloor = 1.0f;
+
+        // **HOW GLOSSY A WALL PANEL IS, IN ONE PLACE.** Every room's panels are given this, and
+        // `CheckWallSmoothness` fails the build if the asset does not come out carrying it - which
+        // is the only way this particular fault announces itself, a matte wall being a perfectly
+        // valid material. 0.03 is the matte default `MakeColorMaterial` stamps on everything; at
+        // that roughness there is no specular response at all and the room stops reflecting itself.
+        private const float WallSmoothness = 0.85f;
 
         // Natural door proportions, deliberately NOT snapped to the grid - the panelling is cut
         // around it instead, so it reads as a doorway rather than a missing panel.
@@ -846,6 +866,13 @@ namespace IterationRoom.EditorTools
         // read by its NUMBER from across a drawer, which a 57mm sphere at arm's length is not.
         private const float BilliardBallSize = 0.13f;
 
+        // **WHICH WAY UP THE DIGIT IS, AND IT IS ONE SIGN.** The held pose reads the number's upright
+        // off the texture's V axis (see `OrientBilliardBall`), and whether +V is up or down on the
+        // printed digit depends on the exporter's convention and Unity's import flip - two guesses
+        // multiplied together. Rather than pick one and hope, this is the sign of that answer: if the
+        // numbers come out upside down in the hand, it is -1f, and nothing else changes.
+        private const float BilliardDigitFlip = 1f;
+
         // THE WAY DOWN OUT OF CYCLE 2, one grid cell in the middle of room2-0's floor. Centred on the
         // room rather than offset like cycle 1's `CycleExitHole`, which sits 2m behind that console
         // because the console is in the middle of ITS room; here the pedestals are the thing that is
@@ -963,7 +990,7 @@ namespace IterationRoom.EditorTools
             Material propMat = MakeColorMaterial("PropLight", new Color(0.85f, 0.85f, 0.85f));
             Material panelMat = MakeColorMaterial("PanelWhite", PanelLitColor);
             Texture2D surfaceGrain = MakeNoiseNormalMap("SurfaceGrain", 512, 2.5f);
-            ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), 0.85f);
+            ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), WallSmoothness);
             // SMOOTHNESS 0.65, UP FROM 0.3, and BUMP 0.6, DOWN FROM 1.8. Settled 2026-08-20. They are
             // one decision, not two, and the order they happened in is the whole lesson.
             //
@@ -1097,7 +1124,7 @@ namespace IterationRoom.EditorTools
             // (0.2) and the floor carries three times it (0.6), because the wall has a panel grid to
             // break up its reflection and the floor is one bare slab. See the floor's own comment.
             Texture2D surfaceGrain = MakeNoiseNormalMap("SurfaceGrain", 512, 2.5f);
-            ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), 0.85f);
+            ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), WallSmoothness);
             // Floor and ceiling: plain white, matte, with the same plaster grain the walls get -
             // just at a far higher repeat count, since a slab face is 9 x 10.9m against a wall
             // panel's 1.7 x 0.9m.
@@ -1776,6 +1803,7 @@ namespace IterationRoom.EditorTools
                     + "sizes have stopped repeating - see ChamferedPanelMesh.");
 
             CheckHintAnchors();
+            CheckWallSmoothness();
 
             BakeReflectionProbes();
 
@@ -2713,15 +2741,25 @@ namespace IterationRoom.EditorTools
             // below a pixel at distance. No spatial filter recovers detail finer than its own
             // sampling rate - the only thing that does is sampling finer, which is this.
             //
-            // 1.25 rather than 1.5: 1.56x the pixels against 2.25x. **This is the most expensive
-            // change in the rendering setup** - unlike MSAA it costs every pixel of every pass,
-            // post-processing included.
+            // ~~1.25 rather than 1.5~~ **BACK TO 1.0, 2026-09-01, by request: cycle 2 drops frames.**
             //
-            // **MEASURE IT IN THE ENDING.** Four cycles awake at once plus a 766k-triangle cable car
-            // is the heaviest frame in the game by a distance, and an ordinary room says nothing
-            // about it. If it is short, this goes back to 1 before MSAA goes back to 2 - it is the
-            // bigger saving and the more recent decision.
-            SetIfPresent(so, "m_RenderScale", 1.25f);
+            // It was the most expensive change in the rendering setup and it went first, exactly as
+            // the note above said it should. Unlike MSAA it costs every pixel of every pass,
+            // post-processing included - 1.25 is 1.56x the pixels, so this is 36% of all pixel work
+            // back, and it takes the MSAA resolve down with it because that scales with the buffer.
+            //
+            // **MSAA STAYS AT 4**, deliberately. It is the cheaper of the two and it is the right
+            // tool for the problem this pair was raised to fix - a thin, very high contrast groove
+            // line (albedo 0.04 against 0.85) stair-stepping at grazing angles. Giving up the
+            // supersample loses the sub-pixel detail; giving up MSAA as well would put the stepping
+            // straight back.
+            //
+            // **AND IT MAY NOT BE THE RIGHT LEVER, WHICH IS WORTH RECORDING.** Fill cost is uniform
+            // and this complaint is not: cycle 2 alone is slow, and cycle 2 alone has twenty-odd
+            // ghosts (skinned, afterimage-shaded, animation-scrubbed, growing with the iteration
+            // count), 210 pool balls and a water surface. If the frame rate still falls as the
+            // iterations pile up, the cost is the ghosts and no rendering number will touch it.
+            SetIfPresent(so, "m_RenderScale", 1.0f);
 
             // **DEPTH BIAS 0.5, NOT URP'S DEFAULT 1** (2026-08-24, by request). Authored here rather
             // than left to the asset for the reason every tuned value is (CLAUDE.md §2) - the asset is
@@ -4770,6 +4808,31 @@ namespace IterationRoom.EditorTools
             Debug.Log($"[SceneBuilder] {root.name} starts asleep; LoopManager wakes it at the boundary.");
         }
 
+        // **THE WALLS ARE MOSTLY WHAT THEY REFLECT, AND NOTHING SAID WHEN THEY STOPPED.**
+        //
+        // `PanelWhite` is authored once with its gloss and then referred to from a dozen places, so
+        // any one of them calling `MakeColorMaterial` instead of `FindColorMaterial` republishes it
+        // matte - and a matte white wall is not an error, an exception or a missing asset. It is a
+        // room that looks very slightly flat, in every room at once, discoverable only by eye. It
+        // shipped that way for a day and was found by play, not by anything here.
+        //
+        // Run BEFORE the probes bake, deliberately: the probes capture these walls, so a flattened
+        // material would otherwise be baked into twenty cubemaps as well.
+        private static void CheckWallSmoothness()
+        {
+            Material panel = AssetDatabase.LoadAssetAtPath<Material>($"{MaterialsDir}/PanelWhite.mat");
+            if (panel == null || !panel.HasProperty("_Smoothness")) return;
+
+            float smoothness = panel.GetFloat("_Smoothness");
+            if (Mathf.Approximately(smoothness, WallSmoothness)) return;
+
+            Debug.LogError($"[SceneBuilder] PanelWhite came out of the build at {smoothness:0.###} "
+                         + $"smoothness, not {WallSmoothness}. Something re-authored it after "
+                         + "ApplySurfaceDetail - look for a MakeColorMaterial(\"PanelWhite\", ...) "
+                         + "that should be FindColorMaterial. Every wall in the game is flat until "
+                         + "it is fixed; see the note on FindColorMaterial.");
+        }
+
         private static void BakeReflectionProbes()
         {
             if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
@@ -5274,6 +5337,30 @@ namespace IterationRoom.EditorTools
 
             EditorUtility.SetDirty(mat);
             return mat;
+        }
+
+        // **FETCHING A MATERIAL IS NOT THE SAME CALL AS MAKING ONE, AND CONFUSING THE TWO FLATTENED
+        // EVERY WALL IN THE GAME.**
+        //
+        // `MakeColorMaterial` is a WRITE. It loads the asset if it is there, then re-authors it -
+        // colour, shader, and the matte 0.03 smoothness below. That is right for the place that owns
+        // a material and wrong everywhere else, because a caller that only wants a REFERENCE to an
+        // existing material silently republishes it with defaults.
+        //
+        // Which is what happened: `BuildMouthShutter` fetched the wall's two materials by name, on
+        // the good reasoning that the shutter should be built out of the same panels as the wall
+        // beside it. It ran after `ApplySurfaceDetail` had given `PanelWhite` its 0.85, so it put
+        // 0.03 back - and 0.03 is no specular response at all. Every wall in every room of every
+        // cycle stopped reflecting anything, which reads as a lighting fault a long way from
+        // anything to do with a shutter, and cost a round of chasing the reflection probes (which
+        // were fine, 20/20, capturing rooms correctly).
+        //
+        // So: use this to REFER to a material somebody else authors, and `MakeColorMaterial` only
+        // where the material is yours. `CheckWallSmoothness` catches the next one of these.
+        private static Material FindColorMaterial(string name, Color fallback)
+        {
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>($"{MaterialsDir}/{name}.mat");
+            return mat != null ? mat : MakeColorMaterial(name, fallback);
         }
 
         private static Material MakeColorMaterial(string name, Color color)
@@ -13497,7 +13584,6 @@ namespace IterationRoom.EditorTools
 
             float y = -frontH / 2f + 0.016f + BilliardBallSize / 2f;
 
-            Sprite icon = BilliardIcon();
             var built = new System.Collections.Generic.List<CarryableItem>();
 
             foreach (var spec in BilliardPlan)
@@ -13510,8 +13596,13 @@ namespace IterationRoom.EditorTools
                     continue;
                 }
 
+                // **ONE ICON PER BALL, NOT ONE FOR ALL OF THEM** (2026-09-01, by request). The
+                // number is the whole of what a billiard ball is here - room2-0 wants a 5, a 3 and a
+                // 4 and refuses everything else - so a HUD line reading BALL 5 next to a picture of
+                // an anonymous sphere was the one place in the game where the icon said less than
+                // the label did.
                 built.Add(MakeBilliardBall(node, drawer, spec.id,
-                    new Vector3(spec.x, y, spec.z), spec.yaw, icon));
+                    new Vector3(spec.x, y, spec.z), spec.yaw, BilliardIcon(spec.id)));
             }
 
             Object.DestroyImmediate(set);
@@ -13595,7 +13686,9 @@ namespace IterationRoom.EditorTools
             // orientations therefore measured nine different "widths": the first build came out with
             // radii spread 23% apart, which is a drawer of visibly mismatched balls. A sphere has to
             // be measured as a sphere, so this takes the extent of the actual vertices.
-            (Vector3 centre, float radius) = OrientBilliardBall(root.transform, model, yaw, -22f);
+            (Vector3 centre, float radius) = OrientBilliardBall(root.transform, model, yaw, -22f,
+                                                                out Vector3 numberDir,
+                                                                out Vector3 numberUp);
 
             float modelScale = radius > 0.0001f ? BilliardBallSize / (2f * radius) : 1f;
             model.transform.localScale = Vector3.one * modelScale;
@@ -13618,6 +13711,25 @@ namespace IterationRoom.EditorTools
             item.icon = icon;
             item.floorY = BilliardBallSize / 2f;
             item.handLocalPosition = HandPoseFor(BilliardBallSize);
+
+            // **AND IT IS HELD WITH THE NUMBER TOWARD THE EYE** (2026-09-01, by request). Which ball
+            // this is is the only fact about it that matters, and the drawer pose puts the number
+            // UPWARDS with a scatter tilt on top - correct for a ball lying in a tray, and in the
+            // hand it means looking at the blank underside of a sphere.
+            //
+            // Derived, not authored. Each ball is scattered to its own `yaw`, so there is no single
+            // euler that turns all five to face the player; the number's direction is measured off
+            // the mesh (see `OrientBilliardBall`) and the rotation that takes it to the eye is
+            // computed from it. Writing a number here would be right for one ball out of five.
+            //
+            // The eye is where `handLocalPosition` says the ball is, negated - the hand hangs off the
+            // camera, so the direction back to it is exactly the direction the object is offset in.
+            // Taken from the same value rather than assumed to be straight ahead, because it is not:
+            // the ball sits 0.28 right and 0.24 down.
+            Vector3 toEye = -item.handLocalPosition.normalized;
+            item.handLocalEuler =
+                (Quaternion.LookRotation(toEye, Vector3.up)
+                 * Quaternion.Inverse(Quaternion.LookRotation(numberDir, numberUp))).eulerAngles;
             // The root is unscaled and so is the drawer body, so this only says "do not change it".
             item.handLocalScale = Vector3.one;
             item.requiresOpenDrawer = drawer;
@@ -13650,9 +13762,19 @@ namespace IterationRoom.EditorTools
         //
         // Returns the ball's centre and radius IN THE ROOT'S FRAME, before scaling. Rotation-invariant
         // by construction, which `ModelBounds` is not - see the call site.
+        //
+        // **AND IT REPORTS WHERE THE NUMBER ENDED UP**, in the root's frame and after the rotation,
+        // because the hand pose needs it and re-deriving it at the call site would be the same
+        // measurement written twice. `numberUp` is the digit's own upright, taken from the texture's
+        // V axis: the vertex above the middle of the map in UV is above the middle of the digit on
+        // the ball. It is unused in the drawer - a ball in a tray is allowed any roll - and is what
+        // makes the number the right way up in the hand.
         private static (Vector3 centre, float radius) OrientBilliardBall(
-            Transform root, GameObject model, float yaw, float tilt)
+            Transform root, GameObject model, float yaw, float tilt,
+            out Vector3 numberDir, out Vector3 numberUp)
         {
+            numberDir = Vector3.up;
+            numberUp = Vector3.forward;
             MeshFilter filter = model.GetComponentInChildren<MeshFilter>();
             Mesh mesh = filter != null ? filter.sharedMesh : null;
             Vector3[] verts = mesh != null ? mesh.vertices : null;
@@ -13674,16 +13796,11 @@ namespace IterationRoom.EditorTools
             }
             else
             {
-                int best = -1;
-                float bestSqr = float.MaxValue;
-                Vector2 middle = new Vector2(0.5f, 0.5f);
-                for (int i = 0; i < uvs.Length; i++)
-                {
-                    float d = (uvs[i] - middle).sqrMagnitude;
-                    if (d >= bestSqr) continue;
-                    bestSqr = d;
-                    best = i;
-                }
+                int best = NearestUV(uvs, new Vector2(0.5f, 0.5f));
+                // A short step along the texture's V axis from the same point. 0.10 is far enough to
+                // be a different vertex on a sphere this dense and near enough to still be on the
+                // digit's own patch of the map.
+                int above = NearestUV(uvs, new Vector2(0.5f, 0.6f));
 
                 Vector3 outward = filter.transform.TransformPoint(verts[best]) - filter.transform.position;
                 Vector3 inRoot = root.InverseTransformDirection(outward);
@@ -13693,6 +13810,20 @@ namespace IterationRoom.EditorTools
                         * Quaternion.AngleAxis(tilt, Vector3.right)
                         * Quaternion.FromToRotation(inRoot.normalized, Vector3.up)
                         * model.transform.localRotation;
+
+                // AFTER the rotation, so these are where the number actually points now.
+                Vector3 dir = root.InverseTransformDirection(
+                    filter.transform.TransformPoint(verts[best]) - filter.transform.position);
+                Vector3 up = root.InverseTransformDirection(
+                    filter.transform.TransformPoint(verts[above]) - filter.transform.TransformPoint(verts[best]));
+
+                if (dir.sqrMagnitude > 1e-8f) numberDir = dir.normalized;
+                // Only the part of it across the face - the step along V also goes round the sphere,
+                // and a `LookRotation` up-vector that is not perpendicular quietly skews the roll.
+                up = Vector3.ProjectOnPlane(up, numberDir) * BilliardDigitFlip;
+                numberUp = up.sqrMagnitude > 1e-8f
+                    ? up.normalized
+                    : Vector3.ProjectOnPlane(Vector3.up, numberDir).normalized;
             }
 
             // MEASURED AFTER THE ROTATION, which costs nothing to say and is free to be true: a
@@ -13718,6 +13849,22 @@ namespace IterationRoom.EditorTools
             return (centre, radius);
         }
 
+        // Nearest vertex to a point on the texture. Two calls want it, and a linear scan of a
+        // twelve-hundred-vertex sphere twice per ball is not worth being cleverer than.
+        private static int NearestUV(Vector2[] uvs, Vector2 target)
+        {
+            int best = 0;
+            float bestSqr = float.MaxValue;
+            for (int i = 0; i < uvs.Length; i++)
+            {
+                float d = (uvs[i] - target).sqrMagnitude;
+                if (d >= bestSqr) continue;
+                bestSqr = d;
+                best = i;
+            }
+            return best;
+        }
+
         // Depth-first by exact name. `Transform.Find` walks a PATH and these nodes are two levels down
         // under a machine-generated root, so the path would be a second thing to keep in step with the
         // export.
@@ -13729,16 +13876,78 @@ namespace IterationRoom.EditorTools
             return null;
         }
 
-        // A BALL WITH A NUMBER SPOT ON IT, for the HUD line that says what is in the hand. A plain
-        // disc would be the beach ball's icon at a different size; the white circle bitten out of the
-        // middle is the one mark that separates a billiard ball from every other sphere in this game.
-        private static Sprite BilliardIcon()
+        // A BALL WITH ITS NUMBER IN THE SPOT, for the HUD line that says what is in the hand. A
+        // plain disc would be the beach ball's icon at a different size; the white circle bitten out
+        // of the middle is the one mark that separates a billiard ball from every other sphere in
+        // this game, and the digit in it is the one mark that separates the five from each other.
+        //
+        // **SEVEN-SEGMENT, because that is the only alphabet `IconCanvas` has.** It draws discs,
+        // capsules, arcs and bars in normalised coordinates and there is no font rasteriser at this
+        // end of the build - the one bitmap font in this file (`BlitGlyph`) knows three letters and
+        // writes into a raw `Color[]`, which is a different pipeline. Seven bars is a digit, it is
+        // legible at 128px in a way a hand-drawn outline would not be, and a machine-shaped numeral
+        // is the right register for a facility HUD anyway.
+        //
+        // The spot is opened from 0.155 to 0.21 to hold one: the digit's far corner sits at 0.19
+        // from the middle, so anything tighter clips it. A ball with no number - the cue - keeps the
+        // small blank spot, which is what a cue ball looks like.
+        private static Sprite BilliardIcon(string id)
         {
             var icon = new IconCanvas(128);
             Vector2 mid = new Vector2(0.5f, 0.5f);
+
+            bool numbered = id != null && id.Length == 1 && id[0] >= '0' && id[0] <= '9';
+
             icon.Disc(mid, 0.40f);
-            icon.Disc(mid, 0.155f, -1f);
-            return SaveSprite(icon, "icon_billiard");
+            icon.Disc(mid, numbered ? 0.21f : 0.155f, -1f);
+            if (numbered) BilliardDigit(icon, mid, id[0]);
+
+            return SaveSprite(icon, $"icon_billiard_{(numbered ? id : "cue")}");
+        }
+
+        // One digit as seven bars, filled back INTO the hole the spot bit out - so the icon reads
+        // ring, white circle, dark number, which is what the object looks like.
+        //
+        //      a          Segments are named the way every seven-segment display names them, so the
+        //   f     b       table below can be read against any datasheet rather than against a
+        //      g          drawing that only exists here.
+        //   e     c
+        //      d
+        private static void BilliardDigit(IconCanvas icon, Vector2 mid, char digit)
+        {
+            const float h = 0.135f;    // half the digit's height, middle bar to top bar
+            const float w = 0.075f;    // half its width
+            const float t = 0.026f;    // half the stroke
+
+            // a b c d e f g, in that order.
+            string on;
+            switch (digit)
+            {
+                case '0': on = "1111110"; break;
+                case '1': on = "0110000"; break;
+                case '2': on = "1101101"; break;
+                case '3': on = "1111001"; break;
+                case '4': on = "0110011"; break;
+                case '5': on = "1011011"; break;
+                case '6': on = "1011111"; break;
+                case '7': on = "1110000"; break;
+                case '8': on = "1111111"; break;
+                case '9': on = "1111011"; break;
+                default: return;
+            }
+
+            void Seg(int index, Vector2 centre, Vector2 half)
+            {
+                if (on[index] == '1') icon.Bar(centre, half);
+            }
+
+            Seg(0, mid + new Vector2(0f, h), new Vector2(w, t));              // a, top
+            Seg(1, mid + new Vector2(w, h / 2f), new Vector2(t, h / 2f));     // b, upper right
+            Seg(2, mid + new Vector2(w, -h / 2f), new Vector2(t, h / 2f));    // c, lower right
+            Seg(3, mid + new Vector2(0f, -h), new Vector2(w, t));             // d, bottom
+            Seg(4, mid + new Vector2(-w, -h / 2f), new Vector2(t, h / 2f));   // e, lower left
+            Seg(5, mid + new Vector2(-w, h / 2f), new Vector2(t, h / 2f));    // f, upper left
+            Seg(6, mid, new Vector2(w, t));                                   // g, middle
         }
 
         private static (Drawer, CarryableItem[]) BuildNightstand(Transform parent, string pinItemId = ToolItemId)
@@ -15030,13 +15239,17 @@ namespace IterationRoom.EditorTools
                 centreX, GateHeight + GateHeight / 2f, -bigDepth / 2f - behindFace);
 
             // The wall's own two materials, fetched by name rather than threaded down through four
-            // signatures. `MakeColorMaterial` loads an existing asset before it makes one, so these
-            // are the same two objects every other wall in the building is built with - which is the
-            // whole point of the change.
+            // signatures, so these are the same two objects every other wall in the building is
+            // built with - which is the whole point of the change.
+            //
+            // **`FindColorMaterial`, NOT `MakeColorMaterial`.** The second one re-authors what it
+            // finds, and this line ran after the walls had been given their gloss: it put the matte
+            // default back on `PanelWhite` and took the reflection off every wall in the game. See
+            // the note on `FindColorMaterial`.
             BuildPanelWall(shutter.transform, "Panels", new Vector3(0f, -GateHeight / 2f, 0f),
                 Vector3.right, Vector3.forward, width,
-                MakeColorMaterial("GrooveDark", new Color(0.04f, 0.04f, 0.045f)),
-                MakeColorMaterial("PanelWhite", PanelLitColor),
+                FindColorMaterial("GrooveDark", new Color(0.04f, 0.04f, 0.045f)),
+                FindColorMaterial("PanelWhite", PanelLitColor),
                 Rect.zero, GateHeight);
 
             Debug.Log($"[SceneBuilder] Corridor shutter: {width:0.##} x {GateHeight:0.##}m parked "
@@ -19281,35 +19494,35 @@ namespace IterationRoom.EditorTools
             // THE NUMBERS LIVE HERE, not in the component (CLAUDE.md §2). English is what
             // `AddTannoyFilters` just authored, restated so switching back is a real assignment
             // rather than "whatever the filter happens to hold".
-            narration.englishTannoy = new NarrationDirector.TannoyTrim
+            narration.tannoy = new NarrationDirector.TannoyTrim
             {
-                echoWetMix = 0.33f,
-                reverbDecayTime = 2.1f,
-                reverbLevel = 250f,
-            };
-            // Roughly half the slap and half the tail. Enough that the horn is still in a room, not
-            // so much that a one-syllable countdown digit is still ringing when the next one lands.
-            narration.koreanTannoy = new NarrationDirector.TannoyTrim
-            {
-                echoWetMix = 0.15f,
-                reverbDecayTime = 1.1f,
-                reverbLevel = 80f,
+                echoWetMix = 0.21f,
+                reverbDecayTime = 1.8f,
+                reverbLevel = 210f,
             };
 
-            // BOTH LANGUAGES WIRED IN, one chosen at runtime - see `NarrationDirector.Lines` for why
-            // it is not loaded on demand. The two folders carry the SAME FILENAMES, which is what lets
-            // one gather serve both; `Tools/generate_narration.ps1` writes them.
+            // **ONE SET. THE KOREAN FOLDER IS GONE** (2026-09-02, by request) - the PA speaks English
+            // in every language and the player reads a subtitle, which is the same rule the signage
+            // has always followed. See `PaSubtitle` and `NarrationDirector.english`.
             narration.english = LoadVoiceSet(VoiceDir);
-            narration.korean = LoadVoiceSet(VoiceDir + "/ko");
             narration.announcementChime = LoadClip(SfxDir, "sfx_chime");
 
-            // Say so rather than shipping a silent PA. A missing Korean folder is not an error - the
-            // director falls back to English - but it is never what anybody intended, and a language
-            // that quietly stops talking is exactly the kind of fault that survives to a release.
-            if (narration.korean == null || narration.korean.iterationGenericLine == null)
-                Debug.LogWarning("[SceneBuilder] No Korean voice lines in " + VoiceDir + "/ko - the PA "
-                               + "will speak English in both languages. Run "
-                               + "Tools/generate_narration.ps1 -Language ko");
+            // THE CAPTIONS. Found rather than threaded down, because the HUD is built long before the
+            // PA is and the two have no other reason to know about each other. Same scene, so this is
+            // not one of the references `SplitCyclesIntoScenes` can null - see `cross-scene-report.txt`.
+            PaSubtitle subtitle = Object.FindFirstObjectByType<PaSubtitle>();
+            if (subtitle == null)
+                Debug.LogWarning("[SceneBuilder] No PaSubtitle in the scene - the PA will speak with "
+                               + "no captions, so a player who does not read English gets nothing.");
+            narration.subtitle = subtitle;
+            if (subtitle != null) subtitle.narration = narration;
+
+            // Say so rather than shipping a silent PA. There is one folder now, so this is no longer
+            // a translation warning - it is "the generator has never been run in this checkout", which
+            // is the state a fresh clone is in.
+            if (narration.english == null || narration.english.iterationGenericLine == null)
+                Debug.LogWarning("[SceneBuilder] No voice lines in " + VoiceDir + " - the PA will be "
+                               + "silent. Run Tools/generate_narration.py (see its header).");
 
             // --- room tone and machinery ---
             GameObject ambienceGO = new GameObject("Ambience");
@@ -19360,20 +19573,46 @@ namespace IterationRoom.EditorTools
             // Band-limit first. A horn driver has no bottom and no top, and losing both is most of
             // what makes a voice read as "coming out of a speaker" rather than as narration - the
             // ear identifies the channel long before it identifies the reverb.
+            // **340 -> 240** (2026-09-02, by request: the PA sounds sharp). Measured: the chain was
+            // taking the 0-300 Hz band from 16.9% of the clip's energy down to 9.8%, which is 42% of
+            // the voice's body removed - and a voice with no body is all edge whatever else is done
+            // to it. At 240 it comes back to 16.6%, i.e. to where the recording had it.
+            //
+            // Still a high-pass, and still doing the job `docs/audio.md` records: what makes this
+            // read as "coming out of a speaker" is the band being LIMITED, not where exactly the
+            // bottom is. A telephone starts at 300; a horn on a wall is bigger than a telephone.
             AudioHighPassFilter hp = go.AddComponent<AudioHighPassFilter>();
-            hp.cutoffFrequency = 340f;
+            hp.cutoffFrequency = 240f;
             hp.highpassResonanceQ = 1f;
 
             AudioLowPassFilter lp = go.AddComponent<AudioLowPassFilter>();
-            lp.cutoffFrequency = 3600f;
+            lp.cutoffFrequency = 3400f;
             // Slightly resonant rather than flat: a real horn has a peak up there, and that peak is
             // the nasal honk of every station announcement ever made.
-            lp.lowpassResonanceQ = 1.6f;
+            // **Q 1.6 -> 0.7, AND THIS IS THE WHOLE OF THE SHARPNESS** (2026-09-02).
+            //
+            // A resonant low-pass PEAKS at its own cutoff, and the cutoff sat at 3.6 kHz - which is
+            // very close to where the ear is most sensitive. So the filter that was supposed to be
+            // taking the top off was putting a bump exactly where "harsh" lives. Measured through the
+            // whole chain, the 3-5 kHz band went from 8.1% of the clip's energy to 10.0%: the
+            // treatment was making the voice brighter than the recording.
+            //
+            // At 0.7 it is flat into the corner and that band drops to 6.2%. It reads as the same
+            // announcer through the same speaker, without the edge.
+            //
+            // The resonance was there to give the horn a formant - a cheap speaker does have one -
+            // and that idea is not wrong, it was just an octave and a half too high and far too
+            // strong. If it is ever wanted back, it belongs low and gentle, not on the cutoff.
+            lp.lowpassResonanceQ = 0.7f;
 
             // Just enough drive to suggest an overdriven line. Past ~0.3 the words stop being
             // intelligible, and the announcer has actual information in them (the iteration number).
+            // 0.17 -> 0.10. Measured, it barely moves the spectrum (3-5 kHz 10.0% -> 9.5%), so it is
+            // NOT what was making this sharp - but it is grit on a voice that no longer has a
+            // resonance to hide behind, and halving it costs nothing. Some is wanted: a horn that
+            // does not break up at all is a hi-fi speaker.
             AudioDistortionFilter dist = go.AddComponent<AudioDistortionFilter>();
-            dist.distortionLevel = 0.17f;
+            dist.distortionLevel = 0.10f;
 
             // The slap off the far wall. 105ms is roughly the round trip across a room this size,
             // so it reads as this room rather than as an effect.
@@ -19381,7 +19620,11 @@ namespace IterationRoom.EditorTools
             echo.delay = 105f;
             echo.decayRatio = 0.22f;
             echo.dryMix = 1f;
-            echo.wetMix = 0.33f;
+            // 0.33 -> 0.24 -> 0.15 -> 0.21 (2026-09-02, four passes by ear in one afternoon: too
+            // much, less, too little, and this). The overshoot is the useful part of that record -
+            // 0.15 was past the point where the horn stops being in a room at all. The slap DELAY is not touched - that is the round trip across a room this
+            // size, and the room is the same room. What changes is how much of it comes back.
+            echo.wetMix = 0.21f;
 
             // And the tail. Preset is set to User first: assigning any individual property switches
             // it there anyway, and setting it explicitly keeps the intent readable.
@@ -19392,10 +19635,16 @@ namespace IterationRoom.EditorTools
             // Dark tail. Hard painted panels absorb almost nothing low and quite a lot high, and a
             // bright tail would fight the band-limiting the horn just did.
             verb.roomHF = -900f;
-            verb.decayTime = 2.1f;
+            // **2.1 -> 1.3 -> 1.8, AND THIS IS MOST OF WHAT "IT RINGS" MEANT.** The echo is one slap at
+            // 105ms and easy to blame; the ringing is this, a two-second tail under every syllable.
+            // At 1.3 the room is still a hall rather than a cupboard, and the words stop smearing
+            // into each other - which matters more here than anywhere, because the report's three
+            // phrases are already separate clips and a long tail bridges the gaps into mush.
+            verb.decayTime = 1.8f;
             verb.decayHFRatio = 0.55f;
             verb.reflectionsLevel = -650f;
-            verb.reverbLevel = 250f;
+            // 250 -> 140 -> 210, with the decay above. Both halves of the tail, not just length.
+            verb.reverbLevel = 210f;
             verb.diffusion = 100f;
             verb.density = 100f;
 
@@ -19805,18 +20054,36 @@ namespace IterationRoom.EditorTools
             set.iterationGenericLine = LoadClip(dir, "voice_iteration_generic");
             set.tenSecondsLine = LoadClip(dir, "voice_ten_seconds");
 
-            // THE ASSEMBLED REPORT'''S PIECES. Indexed BY VALUE rather than packed - 0-19 at their own
-            // index and the tens at 20, 30 ... 90 - so the gaps between are null on purpose and
-            // NarrationDirector.Number never asks for one. See its note.
-            set.numbers = new AudioClip[100];
-            for (int i = 0; i < 20; i++) set.numbers[i] = LoadClip(dir, $"voice_num_{i:00}");
-            for (int t = 20; t <= 90; t += 10) set.numbers[t] = LoadClip(dir, $"voice_num_{t:00}");
+            // THE REPORT'S PHRASES. **Indexed BY VALUE with element 0 unused**, so `cycleLines[3]`
+            // is cycle three - no arithmetic between the number the game has and the clip it needs.
+            //
+            // It was word clips and a number-assembling code path until 2026-09-02; see
+            // `NarrationDirector.AnnounceCycleResult` for why six words could not be made to sound
+            // like a sentence, and `Tools/generate_narration.py` for what replaced them.
+            set.cycleLines = new AudioClip[NarrationReportCycles + 1];
+            for (int i = 1; i < set.cycleLines.Length; i++)
+                set.cycleLines[i] = LoadClip(dir, $"voice_report_cycle_{i:00}");
 
-            set.cycleWord = LoadClip(dir, "voice_word_cycle");
-            set.iterationsWord = LoadClip(dir, "voice_word_iterations");
-            set.minutesWord = LoadClip(dir, "voice_word_minutes");
-            set.totalWord = LoadClip(dir, "voice_word_total");
+            set.iterationCountLines = new AudioClip[NarrationReportMax + 1];
+            set.minuteLines = new AudioClip[NarrationReportMax + 1];
+            for (int i = 1; i <= NarrationReportMax; i++)
+            {
+                set.iterationCountLines[i] = LoadClip(dir, $"voice_report_iterations_{i:00}");
+                set.minuteLines[i] = LoadClip(dir, $"voice_report_minutes_{i:00}");
+            }
+
+            set.totalLine = LoadClip(dir, "voice_report_total");
+
             set.transportCalledLine = LoadClip(dir, "voice_transport_called");
+
+            // **AND WHAT IT SAYS ON THE WAY OUT.** Five clips have sat on disk in both languages
+            // since the ride lines were written and NOTHING LOADED THEM, so `rideLines` was null and
+            // `AnnounceRideLine` returned at its own null guard every time - a minute of silence with
+            // no error anywhere to say why. A `VoiceSet` field nothing here assigns is a line the game
+            // cannot speak: every one of them is loaded in this method, and only here.
+            set.rideLines = new AudioClip[NarrationRideLines];
+            for (int i = 0; i < set.rideLines.Length; i++)
+                set.rideLines[i] = LoadClip(dir, $"voice_ride_{i}");
 
             // Element 0 is "Nine.", counting down to "One." at the end.
             set.countdownLines = new AudioClip[9];
@@ -20254,6 +20521,80 @@ namespace IterationRoom.EditorTools
             return (group, rect);
         }
 
+        // THE PA'S WORDS, ALONG THE BOTTOM OF THE SCREEN.
+        //
+        // Bottom centre because everything else on this HUD is at the TOP - the clock and the end-cycle
+        // prompt top right, the carried item top left, the iteration card dead centre. The bottom
+        // eighth of the screen is the only strip a caption can own without ever colliding with one of
+        // them, and it is where a subtitle belongs anyway.
+        //
+        // **WHITE ON A DARK PLATE, NOT RED.** The iteration card is red because it is the facility
+        // announcing itself onto a near-white wall; this is a subtitle, and a subtitle that competes
+        // with the thing it is subtitling is a bad one. The plate is what makes it legible over a lit
+        // floor - white text alone disappears into this building, which is the same reason the card
+        // above is not white either.
+        private static PaSubtitle BuildPaSubtitle(Transform canvas)
+        {
+            GameObject root = new GameObject("PaSubtitle");
+            root.transform.SetParent(canvas, false);
+            CanvasGroup group = root.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            // It is never clicked and never blocks the crosshair.
+            group.blocksRaycasts = false;
+            group.interactable = false;
+
+            // ADDED, not fetched. `CanvasGroup` is not a `Graphic`, so unlike `Image` and `Text` it
+            // does NOT replace the plain `Transform` on its way in - the object still has one, and
+            // asking it for a `RectTransform` throws. `IterationLabelGroup` above does the same thing
+            // for the same reason.
+            RectTransform rect = root.AddComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0f);
+            rect.anchorMax = new Vector2(0.5f, 0f);
+            rect.pivot = new Vector2(0.5f, 0f);
+            rect.sizeDelta = new Vector2(1180f, 110f);
+            rect.anchoredPosition = new Vector2(0f, 90f);
+
+            // The plate, sized by the rect rather than by the text: a backing that grew and shrank with
+            // every line would draw the eye to the box instead of the words.
+            GameObject plateGO = new GameObject("Plate");
+            plateGO.transform.SetParent(root.transform, false);
+            Image plate = plateGO.AddComponent<Image>();
+            plate.color = new Color(0f, 0f, 0f, 0.62f);
+            RectTransform plateRect = plate.GetComponent<RectTransform>();
+            plateRect.anchorMin = Vector2.zero;
+            plateRect.anchorMax = Vector2.one;
+            plateRect.offsetMin = Vector2.zero;
+            plateRect.offsetMax = Vector2.zero;
+
+            GameObject textGO = new GameObject("Line");
+            textGO.transform.SetParent(root.transform, false);
+            Text text = textGO.AddComponent<Text>();
+            // **THE KOREAN FACE, ALWAYS.** This is the one label in the game that is guaranteed to
+            // carry Hangul, and the default UI font draws it as empty boxes. `KoreanUIFont` falls back
+            // to the ordinary face when it is not there, so an English build is unchanged.
+            Font korean = KoreanUIFont();
+            text.font = korean != null ? korean : UIFont();
+            text.fontSize = 28;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.color = Color.white;
+            // WRAPS, unlike every other label in this HUD. The longest line - "all cycles have been
+            // destroyed, you will pay the price for destroying them" - is genuinely two lines wide at
+            // this size, and a caption is the one place where a second line is correct rather than a
+            // bug. Vertical overflow so a third line is never clipped away silently.
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            RectTransform textRect = text.GetComponent<RectTransform>();
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = new Vector2(24f, 8f);
+            textRect.offsetMax = new Vector2(-24f, -8f);
+
+            PaSubtitle subtitle = root.AddComponent<PaSubtitle>();
+            subtitle.group = group;
+            subtitle.label = text;
+            return subtitle;
+        }
+
         private static (IterationLabel label, WakeUpSequence wakeUp, Transform canvas, CanvasGroup loading, CaptureRig capture) BuildUI(PlayerHand hand)
         {
             GameObject canvasGO = new GameObject("Canvas");
@@ -20372,6 +20713,8 @@ namespace IterationRoom.EditorTools
             label.cycleLabel = cycleText;
 
             BuildSleepingGas(canvasGO.transform);
+            // Wired to the PA in `BuildAudio`, which runs later - `narration` does not exist yet.
+            BuildPaSubtitle(canvasGO.transform);
             GameObject timerGO = BuildCountdownTimer(canvasGO.transform);
             GameObject endCycleGO = BuildEndCycleControl(canvasGO.transform);
             GameObject carriedGO = BuildCarriedItems(canvasGO.transform, hand);

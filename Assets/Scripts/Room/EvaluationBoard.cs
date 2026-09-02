@@ -242,11 +242,16 @@ namespace IterationRoom
                     narration?.AnnounceCycleResult(record.Cycle, record.Iterations, record.Seconds);
                     yield return Line(Row($"CYCLE {record.Cycle:00}",
                                           $"{record.Iterations,3}   {RunReport.FormatClock(record.Seconds)}"));
-                    yield return Wait(cycleLinePause);
+                    // **WAIT FOR THE VOICE, DO NOT TIME IT.** `cycleLinePause` was a guess at how long
+                    // five assembled clips take, and a guess that is a shade short cuts the line off
+                    // mid-word - which is exactly what play heard. The row is already on the wall by
+                    // now, so what this waits for is the sentence about it finishing.
+                    yield return WaitForVoice();
                 }
 
             yield return Blank();
             narration?.AnnounceTotalResult(iterations, seconds);
+            yield return WaitForVoice();
             // The column heading arrives AFTER the rows it describes, which is the wrong way round
             // on paper and the right way round here: the rows are printed one at a time and the
             // reader has already worked out what the two numbers are by the time this confirms it.
@@ -293,6 +298,21 @@ namespace IterationRoom
             var sb = new StringBuilder();
             foreach (string line in printed) sb.AppendLine(line);
             Fill(bodies, sb.ToString());
+        }
+
+        // Until the PA has stopped talking, with a ceiling on it so a missing clip cannot stall the
+        // end of the game. The cap is long enough that only a fault reaches it.
+        private IEnumerator WaitForVoice()
+        {
+            yield return Wait(0.2f);
+
+            float t = 0f;
+            while (narration != null && narration.Speaking && t < 12f)
+            {
+                t += EndingClock.Delta;
+                yield return null;
+            }
+            yield return Wait(0.35f);
         }
 
         private static IEnumerator Wait(float seconds)
