@@ -793,4 +793,5 @@ and only the second answers whether something is understandable or enjoyable.
 | `docs/lupini-permission-email.md` | Draft asking the director of *Iteration 1* for permission |
 | `docs/gotchas.md` | Costly one-time discoveries |
 | `docs/decisions.md` | Rejected ideas and open questions |
+| `docs/future-ideas.md` | Candidate ideas, not specifications. Its §7/§10/§13 are marked at the top: one unbuilt, one shipped, one void |
 | `iteration-game-spec.md` | Original spec |

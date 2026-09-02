@@ -132,7 +132,7 @@ console onto another bed one floor down. That dodges the first objection outrigh
 cycle nothing changes and the player never meets a puzzle box. The second objection stands and is
 paid: accumulated ghosts *are* discarded. What makes it payable is that the discard now happens at
 the one moment every ghost is working at once, with the player walking through them to reach the
-opening — spent rather than deleted, which is the climax `Iteration — Future Ideas.md` §14 has always
+opening — spent rather than deleted, which is the climax `docs/future-ideas.md` §14 has always
 asked for.
 
 This also supplies the **ghost reset trigger** that this entry said still had "its own answer to

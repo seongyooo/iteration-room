@@ -412,17 +412,14 @@ gone through it**, so the room works; what is below is what a clear cannot answe
    picked to prove the supply rather than tuned. Room2 holds ~70 balloons and a 60-second loop, so
    whether three hands clear it at a rate worth playing is a play-test question. One number in
    `SceneBuilder.BuildNightstand`.
-2. **`Iteration — Future Ideas.md` sits at the repo root and is untracked.** Every other design
-   document is in `docs/`, which `CLAUDE.md` §7 indexes. Two things in it need reconciling with what
-   is already true: §10's ghost-tool rule is **shipped**, not future work, and §13 restates this
-   file's Room-extension plan, so the two will drift.
-3. **A number lock (future-ideas §7) is knowledge, not accumulation.** Once the player knows the
-   combination, no iteration reduces the work and ghosts cannot help — the one puzzle shape where the
-   core rule stops applying. §7 also contradicts §14, which asks for no new operations before the
-   final escape. Decide before it is built. (§8's chess board is **settled and built** — the way out
-   was to tell the player the arrangement and charge them the walk, which moves it into accumulation.
-   See `docs/puzzle-design.md`.)
-4. **Room2West's four picked numbers are playable but still unmeasured.** The 15-iteration clear
+2. **A number lock (`docs/future-ideas.md` §7) is knowledge, not accumulation — AND IT IS NOT IN THE
+   GAME.** Nothing of it is built, so this is a decision standing in front of a build, not a defect.
+   Once the player knows the combination, no iteration reduces the work and ghosts cannot help: the
+   one puzzle shape where this game's core rule stops applying. §7 also contradicts §14, which asks
+   for no new operations before the final escape. **Decide before anything is built.** (§8's chess
+   board is **settled and built** — the way out was to tell the player the arrangement and charge
+   them the walk, which moves it into accumulation. See `docs/puzzle-design.md`.)
+3. **Room2West's four picked numbers are playable but still unmeasured.** The 15-iteration clear
    proves the room works end to end; it does not say these are the right values, and each is one
    constant: `ScatteredPieceCount` (12 — how many iterations the room is), `HeldPieceScale` (0.28 — a
    king fills 0.31m of the view), `ChessReward.openTravel` (1.7 each way, which leaves both halves
@@ -432,7 +429,7 @@ gone through it**, so the room works; what is below is what a clear cannot answe
    past selves carrying pieces have now been on screen and nothing was reported wrong, which is not
    the same as having looked at whether a ghost reads as *carrying a rook*. `ghostLocalEuler` was
    tuned for the key; one number if it does not.
-5. **Timed chains (future-ideas §4) fight `signals` semantics.** A ghost advances by elapsed time and
+4. **Timed chains (`docs/future-ideas.md` §4) fight `signals` semantics.** A ghost advances by elapsed time and
    can skip several recorded frames in one tick, which is why press-type interactables stretch their
    pulse. Narrow timing windows are exactly where that bites. Plain simultaneity is safe; sequencing
    with delays needs its own design pass.

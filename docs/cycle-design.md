@@ -30,7 +30,7 @@ the real deficiency. **The game has one verb.**
 | Room4 | escape object → recess |
 
 Even the reward objects are fetch-and-place. A fourth room of the same shape adds two minutes and no
-new experience — and `Iteration — Future Ideas.md` §12 already asks that rooms not repeat a type.
+new experience — and `docs/future-ideas.md` §12 already asks that rooms not repeat a type.
 
 A cycle boundary is a place to put **different verbs** without renegotiating anything inside the
 existing rooms.
@@ -64,7 +64,7 @@ arrive by ghost. By the time the console is full, most of them are gone. The cod
 
 **The moment they are all working is the FINAL LAP, and it already exists.** Carrying the last object
 to the console, past past selves running the errands they were given, *is* the climax
-`Future Ideas` §1 and §14 asked for — and it needs nothing built. What follows completion is properly
+`docs/future-ideas.md` §1 and §14 asked for — and it needs nothing built. What follows completion is properly
 a **stillness**: the facility broken, the panels gone to `ERROR`, the player walking out alone through
 what they made. The ghosts are spent by the lap, not by the walk.
 
@@ -183,7 +183,7 @@ price of not serialising ghosts.
 2. **`RunOver` has no way back.** Set at `LoopManager.cs:333`, never cleared, and `AcceptsInput`
    (`:86`) is derived from it — so once true every interactable in the game is dead forever. →
    Keep `RunOver` for the *final* cycle's true ending and add **`CycleBreaking`** for the boundary:
-   movement allowed, `AcceptsInput` false. That matches `Future Ideas` §14 — no new operations
+   movement allowed, `AcceptsInput` false. That matches `docs/future-ideas.md` §14 — no new operations
    demanded right before the escape.
 
 3. **`FinalRoomSequence.Completed` has no reset.** `ResetRoom` deliberately does not clear it and
@@ -447,7 +447,7 @@ The paradigm is **a container, not a verb.** It creates somewhere to put new kin
 not supply one. If cycle 2 turns out to be another corridor of fetch-and-place rooms, this will have
 been an elaborate way to ship the same game twice. The candidates that would actually add a verb —
 accumulated workload (the tree and the axes) and simultaneous work — are in
-`Iteration — Future Ideas.md` §3 and §4, with the hard decision already taken in `docs/decisions.md`
+`docs/future-ideas.md` §3 and §4, with the hard decision already taken in `docs/decisions.md`
 (threshold as a **headcount**, nothing stored).
 
 **Ghost crowding is still unprofiled.** It stops growing without bound under this design, but a
