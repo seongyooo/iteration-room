@@ -393,18 +393,8 @@ gone through it**, so the room works; what is below is what a clear cannot answe
 
 ## Queued fixes
 
-1. **Decide the mirrored `ERROR`, and the panel UVs behind it.** Wall panels are `PrimitiveType.Cube`,
-   and a Unity cube's +X and -X faces carry opposite U directions - so the test card that reads
-   correctly on the west wall reads MIRRORED on the east, and the same holds north against south.
-   **Seen 2026-08-11 and liked**: a display showing its picture backwards is a display that has
-   stopped working, which is what that room is for. So this is a decision to make deliberately, not
-   a defect to clear - and it is only a decision because nothing had ever put a TEXTURE on a panel
-   before; flat colour has no handedness. Flipping it is a per-panel `_BaseMap_ST` U scale of -1
-   chosen from which wall the panel is on, computed once in `BeginGlitch`.
-   The shipped 2026-08-11 itch build has the mirroring in it.
-
-2. **`nightstand.glb` is no longer referenced by anything** — the nightstand is built from primitives now. 8.8MB of Git LFS that nothing loads. Delete it once it is clear nothing else wants it.
-3. **Crouch, and which key is left for it.** Sprint shipped on **Shift**, the conventional key — the old plan paired Ctrl-sprint with Shift-crouch, and that inversion only existed to free Shift, so it went with it. Crouch therefore needs its own key (Ctrl, or C) rather than the swap. It also still interacts with something tuned: crouch changes the eye height the near-clip corner analysis assumed.
+1. **`nightstand.glb` is no longer referenced by anything** — the nightstand is built from primitives now. 8.8MB of Git LFS that nothing loads. Delete it once it is clear nothing else wants it.
+2. **Crouch, and which key is left for it.** Sprint shipped on **Shift**, the conventional key — the old plan paired Ctrl-sprint with Shift-crouch, and that inversion only existed to free Shift, so it went with it. Crouch therefore needs its own key (Ctrl, or C) rather than the swap. It also still interacts with something tuned: crouch changes the eye height the near-clip corner analysis assumed.
 
 ## Open, from the future-ideas review
 

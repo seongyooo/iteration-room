@@ -4,6 +4,24 @@ Ideas weighed and not taken, and the questions still open. Kept because the grou
 
 ---
 
+### Decided 2026-09-02: the mirrored `ERROR` stays mirrored
+
+Wall panels are `PrimitiveType.Cube`, and a Unity cube's +X and -X faces carry opposite U directions,
+so the glitch card that reads correctly on the west wall reads BACKWARDS on the east — and the same
+holds north against south. This sat in `TODO.md` for three weeks as a thing to fix.
+
+**It is not a defect and it is not being fixed. A display showing its picture backwards is a display
+that has stopped working, which is exactly what that room is for.** Seen first on 2026-08-11, liked
+then, and confirmed as intent 2026-09-02. The 2026-08-11 itch build already shipped with it.
+
+It was only ever a question because nothing had put a TEXTURE on a wall panel before — flat colour has
+no handedness. **Anything that puts a second texture on a panel inherits this**, and inherits it as
+a decision rather than as a surprise: if a future card must read correctly on every wall, the fix is a
+per-panel `_BaseMap_ST` U scale of −1 chosen from which wall the panel is on, computed once in
+`BeginGlitch`. Do not apply that globally — it would un-break the thing the room is about.
+
+---
+
 ### Decided 2026-08-12: accumulated work is RE-PERFORMED, never stored
 
 The tree that has to be felled, the aquarium that has to be filled, and anything else shaped like
