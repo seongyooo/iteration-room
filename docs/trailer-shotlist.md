@@ -4,9 +4,14 @@ What to film, how to reach each shot, and what it costs to set up. The rig that 
 `CaptureRig` (`Assets/Scripts/Capture/CaptureRig.cs`); the encoder is already configured by
 `Assets/Editor/RecorderSetup.cs`.
 
-**Status: the rig is verified in code only.** It compiles and the scene builds with it wired. Nobody
-has pressed F9 or F10 yet. Everything below about *how a shot will look* is a plan, not an
-observation.
+**Status: the rig works; the shots are still a plan.** K, L and J have all been pressed and all three
+do what §2 says (2026-09-02). Everything below about *how a shot will look* is still a plan rather
+than an observation — nothing in §3 has been filmed.
+
+**The rig is editor/development-build only** (`CaptureRig.Awake`: `Application.isEditor ||
+Debug.isDebugBuild`). A release player never arms it, so filming has to happen in the Editor or in a
+Development Build — and a shipped build must be made with Development Build OFF. `TODO.md` carries
+that as a release checklist item.
 
 ---
 

@@ -464,11 +464,21 @@ gone through it**, so the room works; what is below is what a clear cannot answe
   still in `Assets/ArtAssets/Nature` and is now referenced by nothing - delete it with
   `nightstand.glb` when the orphans are swept.
 
-## The capture rig, built 2026-08-23, unplayed
+## The capture rig, built 2026-08-23 — THE KEYS WORK (2026-09-02)
 
-`CaptureRig` hides the HUD (F9, three steps) and takes the camera off the player's head (F10).
-Verified in code only: **the two keys have never been pressed.** `docs/trailer-shotlist.md` is what it
+`CaptureRig` hides the HUD (**K**), takes the camera off the player's head (**L**) and toggles the
+iteration card on its own (**J**). **All three have now been pressed and all three do what they say**
+— which retires the "verified in code only" status the rest of this section was written under, but
+retires it for the KEYS ALONE. Nothing below has been filmed. `docs/trailer-shotlist.md` is what it
 is for.
+
+**IT MUST NOT BE ARMED IN A SHIPPED BUILD, AND TODAY IT DISARMS ITSELF.** `CaptureRig.Awake` sets
+`armed = Application.isEditor || Debug.isDebugBuild`, so a release player reads no keys and touches
+no camera; the component stays in the scene on purpose, because deleting it would leave
+`SceneBuilder`'s wiring pointing at nothing. **So the release job is a checklist item, not code: build
+with Development Build OFF and check the player's log for the `[CaptureRig] armed.` line — if that
+line is there, the build is wrong.** Same pass as gating the cycle picker (Next steps §6) and keeping
+`DebugStart`/the Test menu out of a player.
 
 - **Shot F has no shortcut.** `DebugStart.AtCycleBoundary` does exactly what filming the console
   needs - stands the player in the last room with the three escape objects on the floor, everything
