@@ -182,10 +182,30 @@ namespace IterationRoom
             Speak(Lines.countdownLines[index]);
         }
 
+        // **IT WAITS FOR THE LINE IN FRONT OF IT** (2026-09-02) - the one announcement in the game
+        // that is always spoken directly after another one.
+        //
+        // Ending a cycle early fires "Cycle terminated." and then this, and `CloseEyes` is all that
+        // sits between them: 0.74s of lids plus 0.7s held, with no yield after it, so this landed
+        // 1.44s in. The terminated line's speech ends at 1.20s - so the WORDS survived and nothing
+        // sounded broken enough to look at, while ~0.9s of the reverb tail was cut off by
+        // `Speak`'s `voiceSource.Stop()` and "New cycle" started on top of what was left. Reported
+        // as the line being read too fast. It is not: it is read at 4.28 syllables a second, the
+        // same rate as every other clip in the set. It was being trodden on.
+        //
+        // This is also why the 0.75s of tail silence `Tools/generate_narration.py` now pads onto
+        // every clip did nothing here - the clip was never reaching its own end.
+        //
+        // It fits: the terminated clip runs 2.33s, this one 2.70s, and `WakeUp` gives 3.77s before
+        // `AnnounceIteration` - which lands 0.2s after this finishes. Anything added to that gap has
+        // to be checked against those three numbers, because `Speak` would cut this one in turn.
+        //
+        // The cost is that on an early end this is heard as the eyes open rather than under the shut
+        // lids. Nothing else changes: when the clock simply runs out the voice is idle and this
+        // speaks in the same frame it always did.
         public void AnnounceNewCycle()
         {
-            Speak(Lines.newCycleLine);
-            Caption("pa.newCycle");
+            SpeakAfterCurrent(Lines.newCycleLine, "pa.newCycle");
         }
 
         public void AnnounceCycleTerminated()
@@ -248,6 +268,40 @@ namespace IterationRoom
             voiceSource.Stop();
             voiceSource.clip = clip;
             voiceSource.Play();
+        }
+
+        // **QUEUED BEHIND WHATEVER IS TALKING, instead of replacing it.**
+        //
+        // `Speak` stops the source, and that is right for everything that uses it: the countdown
+        // fires once a second and an announcement that arrives means the one before it is no longer
+        // the news. A line that FOLLOWS another line is the opposite case, and the only one in the
+        // game - see `AnnounceNewCycle`.
+        //
+        // The caption goes with the clip rather than with the call, so the subtitle appears when the
+        // words do. Same rule as every other `Announce*`: the two are written on one line so they
+        // cannot drift apart.
+        private void SpeakAfterCurrent(AudioClip clip, string key)
+        {
+            if (voiceSource == null || clip == null) return;
+
+            if (speaking != null) { StopCoroutine(speaking); speaking = null; }
+            speaking = StartCoroutine(SpeakWhenFree(clip, key));
+        }
+
+        private System.Collections.IEnumerator SpeakWhenFree(AudioClip clip, string key)
+        {
+            // Waits on the SOURCE, never on `Speaking` - that property is true because of this very
+            // coroutine, so asking it here would wait for itself and never speak.
+            while (voiceSource.isPlaying)
+                yield return null;
+
+            voiceSource.clip = clip;
+            voiceSource.Play();
+            Caption(key);
+
+            // Cleared as the clip starts, not when it ends: from here on `Speaking` is the source's
+            // own answer, which is what every caller actually wants to know.
+            speaking = null;
         }
 
         // **THE FACILITY CLEARING ITS THROAT, WITH NOTHING AFTER IT.**
