@@ -5,8 +5,11 @@
 # it because it is MIT and free, and was judged mushy and, once pitched down far enough to stop
 # sounding sharp, male. Both are in `git log` if either is ever wanted back.
 #
-# **WHY PAYING WON.** The whole set is 115 clips and about 1,700 characters - six percent of one month
-# on the cheapest paid tier, which is where the commercial licence starts. Against that: this is the
+# **WHY PAYING WON.** The whole set is 255 clips and 4,857 characters - measured 2026-09-02, against
+# a month's allowance of 37,935 on this account, so a complete re-voice is about an eighth of it.
+# (It was written here as "115 clips and 1,700 characters" while the set was half its present size;
+# the argument is unchanged, the numbers were not.) The cheapest paid tier is where the commercial
+# licence is understood to start - understood, not checked: see `docs/asset-licences.md`. Against that: this is the
 # most-replayed audio in the game (the iteration line alone fires thirty-odd times in a run), and two
 # days went into open-source engines that did not get there. The reproducible-from-a-script property
 # survives in the shape that matters - the generated WAVs are committed, so a fresh clone builds and

@@ -131,20 +131,40 @@ attribution is now generated, so it is met.
 | What | Source | Licence | Notes |
 |---|---|---|---|
 | `Audio/SFX/*.wav` | `Tools/generate_sfx.py` | **Own work** | Synthesised from the Python standard library, seeded. No sample is sourced. |
-| `Audio/Voice/*.wav` | `Tools/generate_narration.ps1` → Windows SAPI, **`Microsoft Zira Desktop`** | **⚠️ UNRESOLVED FOR A PAID RELEASE** | See below. |
+| `Audio/Voice/*.wav` | `Tools/generate_narration.py` → **ElevenLabs**, `eleven_multilingual_v2`, voice "Gwen" | **Paid plan; terms to confirm before selling** | See below. |
 
-### The announcer is the least obvious risk in this list
+### The announcer, and what changed about its risk
 
-The 45 PA lines are rendered by a **voice that ships with Windows**. Microsoft licenses those voices
-for use *with Windows*; whether that grants the right to **redistribute the rendered audio inside a
-commercial product** is a separate question, and the answer is not obviously yes. It is easy to miss
-because nothing was downloaded and no licence was ever clicked through — the audio simply came out of
-the operating system.
+**THE OLD ENTRY HERE IS RESOLVED AND IS NOT WHAT THIS IS ANY MORE.** It described Windows SAPI
+(`Microsoft Zira Desktop`) driven by a `generate_narration.ps1` that no longer exists — voices that
+ship with the operating system, carrying no redistribution licence, with nothing ever clicked
+through. That engine is two generations gone (SAPI → MeloTTS → ElevenLabs; `docs/audio.md`), so the
+"we never agreed to anything" version of this risk is closed.
 
-This does not affect a free build. **Resolve it before money changes hands.** The cheapest fix is
-already designed in: `generate_narration.ps1`'s own note says takes can be replaced by dropping files
-in under the same names, because no C# refers to how they were made. A commercial TTS licence, or an
-actual voice actor, is a drop-in.
+**What it is now**, and the line between checked and unchecked matters:
+
+*Verified, 2026-09-02, from the API itself:*
+
+- The account is on a **paid tier** (`starter`), not the free tier.
+- The voice is **"Gwen — warm, grounded, alto, professional, calming"**, id `QByd5J8pzbnMMEP2G7eR`,
+  taken from ElevenLabs' shared Voice Library. Its record says `category: professional` — a
+  Professional Voice Clone — and it belongs to **another user**, not to this account
+  (`free_users_allowed: False`, `financial_rewards_enabled: False`).
+
+*NOT verified, and this is the open item:*
+
+- **Nobody in this repo has read ElevenLabs' terms.** The generator's header records the belief that
+  the commercial licence starts at the cheapest paid tier, and that belief is why the tier was paid
+  for — but it is a note written while choosing an engine, not a licence review. Two questions have
+  to be answered against the actual terms before money changes hands: whether a `starter` plan
+  covers **redistributing rendered audio inside a sold product**, and what using **another user's
+  shared professional voice** requires (attribution, notice period, or a different plan).
+
+This does not affect a free build. **Resolve it before the store page.** The cheap escape is still
+designed in and is unchanged by the engine swap: takes are replaced by dropping files into
+`Assets/Audio/Voice` under the same names, because no C# refers to how they were made. A different
+voice, a different vendor, or an actual voice actor is a drop-in — and the register and levelling
+passes in `Tools/generate_narration.py` are the only things that would need re-running.
 
 ## Generated, and therefore not a licence question
 

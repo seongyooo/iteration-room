@@ -180,12 +180,27 @@ caption can only be read while looking at the screen, where a voice reaches a pl
 
 ### The engine changed too, and for a different reason
 
-`Tools/generate_narration.ps1` drove the Windows built-in synthesizer (SAPI: Zira, Heami). Those
-voices ship with the operating system and **carry no redistribution licence** — fine for a prototype,
-not shippable. `Tools/generate_narration.py` replaces it with **MeloTTS**, which is MIT, so the code
-and the audio are both ours.
+**THERE HAVE BEEN THREE. THE CURRENT ONE IS ELEVENLABS** (2026-09-02) — everything under this heading
+about MeloTTS is the SECOND engine and is kept as the record of why the open-source route was taken
+and why it was then left, not as a description of what generates the audio today.
 
-**Why MeloTTS and not the better-sounding models**, in the order the alternatives were ruled out:
+| | engine | why it went |
+|---|---|---|
+| 1st | Windows SAPI (Zira, Heami), driven by `generate_narration.ps1` | ships with the OS, carries no redistribution licence |
+| 2nd | MeloTTS (MIT) | mushy, and once pitched down far enough to stop sounding sharp, male |
+| 3rd | **ElevenLabs**, `eleven_multilingual_v2`, voice "Gwen" | current |
+
+`generate_narration.ps1` no longer exists; `Tools/generate_narration.py` is the whole of it, and its
+header carries the argument for paying. The short version: the set is 255 clips and about 4,900
+characters, a few percent of one month on the cheapest paid tier, against this being the most
+replayed audio in the game — the iteration line alone fires thirty-odd times in a run. **The
+reproducible-from-a-script property survives in the shape that matters**: the WAVs are committed, so
+a fresh clone builds and plays with no API key. A key is needed only to CHANGE what the PA says.
+
+Licence position, and what is still open: `docs/asset-licences.md`.
+
+**Why MeloTTS and not the better-sounding models** — the second engine's reasoning, kept because it
+is still the argument to re-read if the open-source route is ever wanted back:
 
 - **Piper** (`OHF-Voice/piper1-gpl`) — no Korean voices at all, GPL-3.0, and its own docs say
   "intended for personal use and text to speech research only".
