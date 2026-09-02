@@ -23,6 +23,96 @@ build loop is in CLAUDE.md section 5; this is the rest of it.
 - **Player Settings → Run In Background must stay ON.** Without it play mode stops ticking when the Editor loses focus, so any MCP-driven test captures a stale frame and looks like the change did nothing. `Build()` sets it, since setting it during play mode does not persist.
 - Prefer MCP for incremental visual tweaks; keep `SceneBuilder.cs` authoritative for anything structural.
 
+## Shipping a desktop build (Windows / macOS / Linux)
+
+Three menu items in the same file, one per platform: **`Iteration Room > Build Windows Player`**,
+**`Build macOS Player`**, **`Build Linux Player`** → `Build/Windows`, `Build/Mac`, `Build/Linux`.
+Deliberately three items and not one that does all three: **switching the active build target
+reimports the whole project** (89 MB of glb), so three platforms cost three reimports however they
+are triggered, and separate items at least let a failed one be redone alone.
+
+1. **Build the scenes first.** Same rule as WebGL — `PlayerBuilder` reads `EditorBuildSettings.scenes`,
+   so a stale scene ships as-is.
+2. Build each platform. The switch is also the "is the module installed" test: `SwitchActiveBuildTarget`
+   returns false for a target this install cannot build, and the builder stops there rather than
+   letting `BuildPlayer` quietly produce a **Windows** player in `Build/Mac`.
+3. Upload. **Not by hand for macOS or Linux** — see the packaging trap below.
+
+### Cross-compiling, and the one thing that needs a Mac
+
+A Windows editor builds all three. Only the Hub module is missing: **Installs > 6000.5.7f1 (gear) >
+Add modules > Mac Build Support (Mono) / Linux Build Support (Mono)**. Installed here today:
+WebGL and Windows only.
+
+**macOS with IL2CPP cannot be cross-built** — it runs Apple's toolchain. Mono is the standalone
+default and is what makes the cross-build work at all; the cost is that the `.app` is **x86_64 only**
+and Apple Silicon machines run it under Rosetta 2, which is fine for a playtest and is not what you
+would ship. `BuildStandalone` refuses rather than failing halfway if the backend has been changed
+to IL2CPP.
+
+### THE PACKAGING TRAP: a zip made on Windows drops the executable bit
+
+This is the thing that goes wrong, and it goes wrong on the tester's machine rather than in the log.
+Windows zips carry no POSIX permissions, so:
+
+- **Linux**: the binary arrives non-executable. `chmod +x Iteration.x86_64` or it does nothing.
+- **macOS**: the binary *inside* the `.app` arrives non-executable, and the app then does not open
+  at all — it reads as a corrupt download rather than as a permissions problem.
+
+**Use butler** (itch.io's CLI), which preserves permissions and tags the platform from the channel
+name — `butler push Build/Windows user/game:win`, `:osx`, `:linux`. There is no butler on this
+machine today and no stored credentials; the WebGL section above says the same about that upload.
+
+**And an unsigned Mac app is blocked by Gatekeeper** whatever the permissions are: quarantine makes
+it report as damaged. A tester either right-clicks > Open, or runs
+`xattr -dr com.apple.quarantine Iteration.app`. Signing and notarising it properly needs an Apple
+Developer account and a Mac, which is not worth it to hand a build to a few people.
+
+### Icon and splash
+
+**The app icon is a build product, like the scenes and the menu background.**
+`SceneBuilder.CaptureAppIcon` renders it from the player camera at the end of every scene build —
+the same eye as the title screen, a 26-degree lens instead of 41.3, square at 1024 — and writes
+`Assets/Textures/AppIcon.png`. `PlayerBuilder.ApplyBrand` loads that file and hands it to
+`PlayerSettings.SetIcons` for every size Unity asks for. A fresh clone has no icon until the scenes
+are built, and the builder warns rather than shipping Unity's default silently.
+
+The framing is **derived, not composed**: it is the menu camera with one number changed, chosen so
+the doorway — the only dark shape in a white room — is big enough to survive being drawn 32 pixels
+wide in a taskbar, and so no ceiling enters the frame (the top of a 26-degree frame lands at 4.27m
+against a 5.41m wall; it re-enters above about 38 degrees). **Look at the PNG at icon size after a
+build.** One number, `iconFov`, is the whole of the framing.
+
+**The splash screen is turned off in `ApplyBrand`** — `PlayerSettings.SplashScreen.show` and
+`.showUnityLogo`, both false. Unity 6 allows this on a Personal licence where earlier versions did
+not. **A licence that is not entitled to hide the logo forces both back on during the build and says
+nothing about it**, so the builder reads them back and logs them — but that log only proves the
+setting was written, not that it survived.
+
+**VERIFIED BY RUNNING THE BUILT PLAYER, 2026-09-02**: the Windows build opens straight on the
+project's own main menu, no Unity logo. So this licence is entitled to hide it and the setting
+sticks. Watched by a human, which is the only check that can answer this one. Nothing else about the
+splash is set, because there is nothing left to set once it is off.
+
+### Before a build leaves this machine
+
+- **Development Build OFF.** `CaptureRig` arms on `Application.isEditor || Debug.isDebugBuild`, so a
+  development build hands a tester K, L and J — and K wipes the HUD. `BuildStandalone` forces the
+  build non-development and clears the Build Profiles checkboxes so the two cannot disagree, but the
+  log is the proof: a player log containing `[CaptureRig] armed.` is a build that should not go out.
+- **The cycle picker is still ungated** (`TODO.md`, Next steps §6) — CYCLE SELECT lists every cycle
+  whether or not it has been reached. Useful when asking someone to look at one cycle; a spoiler when
+  asking for a blind run. Decide which before building.
+- **The name is an address, and it is now fixed.** `ApplyBrand` writes `companyName` = **`seonline`**
+  and the standalone bundle identifier **`com.seonline.iteration`** (2026-09-02, by request); it was
+  `DefaultCompany` and an empty identifier, which would have put `com.DefaultCompany.Iteration` on a
+  Mac app. These two decide where a built player keeps its data and `PlayerPrefs` — the registry key
+  `HKCU\Software\<company>\<product>` on Windows — so **changing either again abandons every setting
+  and key binding a player has saved.** It was set before anything shipped to anybody for exactly
+  that reason. `productName` is still `Iteration`, which is what a player's title bar says; renaming
+  it to *Iteration Room* is open and costs the same reset, and the title itself is unresolved with
+  the film's authors (`docs/lupini-permission-email.md`).
+
 ## Shipping a WebGL build
 
 1. Build the scenes first — `PlayerBuilder` reads `EditorBuildSettings.scenes`, so a stale scene ships as-is.
