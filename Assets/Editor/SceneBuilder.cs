@@ -19496,9 +19496,9 @@ namespace IterationRoom.EditorTools
             // rather than "whatever the filter happens to hold".
             narration.tannoy = new NarrationDirector.TannoyTrim
             {
-                echoWetMix = 0.21f,
-                reverbDecayTime = 1.8f,
-                reverbLevel = 210f,
+                echoWetMix = 0.26f,
+                reverbDecayTime = 2.3f,
+                reverbLevel = 250f,
             };
 
             // **ONE SET. THE KOREAN FOLDER IS GONE** (2026-09-02, by request) - the PA speaks English
@@ -19624,7 +19624,7 @@ namespace IterationRoom.EditorTools
             // much, less, too little, and this). The overshoot is the useful part of that record -
             // 0.15 was past the point where the horn stops being in a room at all. The slap DELAY is not touched - that is the round trip across a room this
             // size, and the room is the same room. What changes is how much of it comes back.
-            echo.wetMix = 0.21f;
+            echo.wetMix = 0.26f;
 
             // And the tail. Preset is set to User first: assigning any individual property switches
             // it there anyway, and setting it explicitly keeps the intent readable.
@@ -19640,11 +19640,11 @@ namespace IterationRoom.EditorTools
             // At 1.3 the room is still a hall rather than a cupboard, and the words stop smearing
             // into each other - which matters more here than anywhere, because the report's three
             // phrases are already separate clips and a long tail bridges the gaps into mush.
-            verb.decayTime = 1.8f;
+            verb.decayTime = 2.3f;
             verb.decayHFRatio = 0.55f;
             verb.reflectionsLevel = -650f;
             // 250 -> 140 -> 210, with the decay above. Both halves of the tail, not just length.
-            verb.reverbLevel = 210f;
+            verb.reverbLevel = 250f;
             verb.diffusion = 100f;
             verb.density = 100f;
 

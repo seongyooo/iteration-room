@@ -101,9 +101,43 @@ VOICE_SETTINGS = {
 OUTPUT_FORMAT = "pcm_22050"
 TARGET_RATE = 22050
 
-# How loud the loudest clip ends up. -1 dBFS: headroom enough that the mixer cannot clip it, close
-# enough to full scale that the PA is not straining.
-PEAK_TARGET = 0.89
+# **HOW LOUD, AND IT IS RMS NOW RATHER THAN PEAK** (2026-09-02, by request: the PA is quieter than
+# the game's own effects).
+#
+# `voiceSource` is already at volume 1.0, so there was nothing left to turn up at the Unity end - and
+# peak normalising is why: one sharp consonant sets the level for a whole clip, and everything else
+# sits well under it.
+#
+# So the set is levelled by its own loudness instead: scale until the RMS of the whole set hits
+# `RMS_TARGET`, then soft-limit whatever that pushes past `PEAK_CEILING` rather than refusing the
+# gain. Measured after the fact, that bought +3.3 dB on average across the set - not the 6 this note
+# first claimed, because the clips were re-synthesised in the same pass and each came back at its
+# own level (+0.4 to +5.5).
+#
+# **AND THE TANNOY CHAIN IS NOT WHERE THE VOICE LOSES LEVEL, which this note used to say it was.**
+# Measured through the same filters: HP 240 Hz + LP 3400 Hz costs **0.1 dB**, because speech energy
+# is already inside that band, and `AddTannoyFilters` leaves `echo.dryMix` at 1 and `verb.dryLevel`
+# at 0 - the dry path is unity gain end to end. There is no makeup gain to add because there is
+# nothing to make up. The gap against the game's effects was in the FILES (-17.2 dBFS RMS here
+# against -14.8 there), and the rest of it is settled on the Unity side by `SceneBuilder.SfxLevel`,
+# which brings the effects DOWN 4 dB. Do not "restore" a loss here that was never happening.
+RMS_TARGET = 0.140
+PEAK_CEILING = 0.97
+
+# **AND A CLIP THAT ENDS A SENTENCE GETS SILENCE AFTER IT.**
+#
+# Play's report was that "remaining" drops away instead of finishing. It is not the reading: it is
+# that Unity's filters stop when the source does, so the 1.8s reverb tail the chain would have put
+# under the last syllable is cut off at the last sample of the clip. The room the PA is in vanishes
+# the instant it stops talking.
+#
+# Padded here rather than lengthened at the far end, because `PlayInOrder` waits on `clip.length` and
+# a clip that is honest about its own length keeps that timing correct for free.
+#
+# **ONLY WHERE THE SENTENCE ENDS.** The report's phrases end in commas and are followed immediately
+# by the next one - padding those would put a second of silence in the middle of a sentence. The
+# punctuation already says which is which.
+TAIL_SILENCE = 0.75
 
 # Must match `SceneBuilder.NarrationIterationLines`. Past this the announcer uses the generic line.
 ITERATION_LINES = 30
@@ -395,6 +429,13 @@ def level_clauses(audio):
     return out
 
 
+def pad_tail(audio, text):
+    """Room for the reverb to ring out, on the clips that finish a sentence - see `TAIL_SILENCE`."""
+    if not text.rstrip().endswith((".", "!", "?")):
+        return audio
+    return np.concatenate([audio, np.zeros(int(TAIL_SILENCE * TARGET_RATE), dtype=np.float32)])
+
+
 def write_wav(path, audio):
     audio = np.clip(np.asarray(audio, dtype=np.float32), -1.0, 1.0)
     with wave.open(path, "wb") as w:
@@ -422,7 +463,8 @@ def normalise(out, names):
     Reads what is on DISK rather than what this run made, deliberately: a `--only` run must not level
     three new clips against each other and leave them at a different level from the other eighty.
     """
-    peak = 0.0
+    total = 0.0
+    samples = 0
     audio = {}
     for name in names:
         path = os.path.join(out, name + ".wav")
@@ -430,16 +472,34 @@ def normalise(out, names):
             continue
         data = read_wav(path)
         audio[path] = data
-        if data.size:
-            peak = max(peak, float(np.max(np.abs(data))))
+        # Speech only. Counting the padded tails would drag the measured loudness down and the gain
+        # up by however much silence happens to be in the set.
+        voiced = data[np.abs(data) > 0.01]
+        total += float(np.sum(voiced.astype(np.float64) ** 2))
+        samples += voiced.size
 
-    if peak <= 0.0:
+    if samples == 0:
         return 1.0
 
-    gain = PEAK_TARGET / peak
+    gain = RMS_TARGET / max(1e-9, (total / samples) ** 0.5)
+
     for path, data in audio.items():
-        write_wav(path, data * gain)
+        # Soft-limited rather than clipped, and rather than refusing the gain: a handful of
+        # consonants are what would otherwise cap the level of the whole set.
+        write_wav(path, soft_limit(data * gain))
     return gain
+
+
+def soft_limit(x):
+    """Anything over `PEAK_CEILING` is rounded off instead of squared off."""
+    over = np.abs(x) > PEAK_CEILING
+    if not over.any():
+        return x
+
+    y = x.copy()
+    excess = (np.abs(y[over]) - PEAK_CEILING) / (1.0 - PEAK_CEILING + 1e-9)
+    y[over] = np.sign(y[over]) * (PEAK_CEILING + (1.0 - PEAK_CEILING) * np.tanh(excess))
+    return y
 
 
 # **THE BREAK TAG IS HONOURED USUALLY, NOT ALWAYS - SO IT IS CHECKED.**
@@ -525,7 +585,7 @@ def main():
             continue
 
         audio, tries = synthesise_checked(api, text, name)
-        write_wav(path, level_clauses(audio))
+        write_wav(path, pad_tail(level_clauses(audio), text))
         made += 1
         characters += len(text) * tries
         retries += tries - 1
