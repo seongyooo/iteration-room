@@ -289,6 +289,12 @@ def script():
     #
     # No chime in front of them any more either - see `NarrationDirector.AnnounceRideLine`. Fourteen
     # dings in a minute is an alarm.
+    #
+    # **THIRTEEN, NOT FOURTEEN** (2026-09-03, by request). "Guidance will continue." was the last one
+    # and it was the one line here that promised something the game then does not do - the rope lets
+    # go eight seconds later and nothing guides anybody anywhere. It read as a setup for a sequel
+    # rather than as the facility filing a state change. "This concludes your assignment." is a
+    # better last word anyway: it is the sentence that stops, and the drop is what answers it.
     for i, text in enumerate([
             "Your experiment is complete.",
             "Records for cycles one, two and three have been stored.",
@@ -302,8 +308,7 @@ def script():
             "You are not the first subject to reach this elevation.",
             "Their results are also on file.",
             "Surface access will be granted shortly.",
-            "This concludes your assignment.",
-            "Guidance will continue."]):
+            "This concludes your assignment."]):
         lines.append((f"voice_ride_{i}", text))
 
     return lines

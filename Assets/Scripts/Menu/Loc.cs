@@ -156,7 +156,6 @@ namespace IterationRoom
             { "pa.ride10",          "Their results are also on file." },
             { "pa.ride11",          "Surface access will be granted shortly." },
             { "pa.ride12",          "This concludes your assignment." },
-            { "pa.ride13",          "Guidance will continue." },
 
         };
 
@@ -252,7 +251,6 @@ namespace IterationRoom
             { "pa.ride10",          "그들의 결과 또한 보관되어 있습니다." },
             { "pa.ride11",          "곧 지상 접근이 허가됩니다." },
             { "pa.ride12",          "이것으로 귀하의 임무를 마칩니다." },
-            { "pa.ride13",          "계속해서 안내하겠습니다." },
 
         };
     }

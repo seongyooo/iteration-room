@@ -362,7 +362,7 @@ namespace IterationRoom.EditorTools
         // What the PA says on the way up in the cable car, in order. Five, matching
         // `Tools/generate_narration.py` and the five points `EndingDeparture.NarrateTheRide` fires
         // them at - a mismatch is silence at the end rather than an error, so it is one number.
-        private const int NarrationRideLines = 14;
+        private const int NarrationRideLines = 13;
 
         // How many cycles the spoken report can name, and how high its counts go. Must match
         // `REPORT_CYCLES` / `REPORT_MAX` in `Tools/generate_narration.py` - the generator writes one
