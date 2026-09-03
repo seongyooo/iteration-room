@@ -535,19 +535,43 @@ namespace IterationRoom.EditorTools
         // **AND HOW GLOSSY THE FLOOR IS, WHICH IS NOW HIGHER THAN THE WALL** (2026-09-03, by
         // request: the title-screen mock-up has the room standing in its own floor).
         //
-        // 0.65 was the settled value and it was settled for a reason that is still true - see the
-        // long note at its call site - but it was chosen to give the floor STRUCTURE, not to make it
-        // reflect. Those are different targets and 0.65 hits only the first. A reflection probe is
-        // sampled from a mip chosen by roughness, and at 0.65 the mip is blurred far enough that a
-        // white room averages to a flat white field: the floor was reflecting the room correctly and
-        // the room's reflection was a blank sheet. CLAUDE.md already records the same threshold for
-        // small metal objects - 0.85 is a wash, 0.97 resolves the ceiling fixtures as shapes.
+        // **STATED HONESTLY: THIS AND `FloorMetallic` ARE UNVERIFIED IN THE BUILD'S OWN MENU
+        // CAPTURE, AND THAT IS A RECORDED FACT, NOT A GUESS AT ONE.** Four rebuilds tried
+        // `FloorSmoothness` at 0.65, 0.9 and 0.97 and `FloorMetallic` at 0 and 0.22 in every
+        // combination, and `Assets/Textures/MenuBackground.png` came back BYTE-IDENTICAL on the
+        // floor every time - measured pixel by pixel, not eyeballed. `LightingProbeDump` shows the
+        // floor on the exact same `BlendProbes`/`ReflectionProbeStatic` footing as a wall panel
+        // that visibly mirrors the room, so the probe and the material are both configured right;
+        // something specific to how `CaptureMenuBackground` photographs Room1 - which spends the
+        // rest of the build asleep (`SleepCycle`) and is woken for exactly one frame - is not
+        // reaching this renderer with a probe reflection at all. A one-frame warm-up render right
+        // after the wake was tried and made no difference either, and is not in this build.
         //
-        // 0.9 is inside that band. The floor now returns the wall grid and the bed as recognisable
-        // vertical smears, which is the whole of what was asked for, and it stops short of the
-        // mirror 0.97 would give - a mirror floor would read as wet, and would also put a second,
-        // sharper copy of every light fixture on screen.
-        private const float FloorSmoothness = 0.9f;
+        // **What is NOT in question**: `_Smoothness` and `_Metallic` land in `FloorWhite.mat`
+        // exactly as set here (confirmed by reading the asset back off disk after each build), and
+        // the reasoning below for why a floor wants some metallic is the same reasoning already
+        // proven correct on this project's own glass - it is the values reaching Room1's ONE-SHOT
+        // PHOTOGRAPH that could not be confirmed by any measurement available at build time. The
+        // real game is not `SleepCycle`d and re-woken for a single frame the way this capture is;
+        // whether the floor reflects during actual play has to be answered by looking at it, not by
+        // reading this file.
+        //
+        // At `_Metallic` 0 - a dielectric - a reflection probe only contributes through Fresnel F0,
+        // which for a non-metal is about 0.04: roughly 4% of the probe's radiance added on top of
+        // the surface's own 0.85 diffuse albedo. That is not small in theory, but next to a diffuse
+        // term twenty times its size it is easy to lose. This project already has the same finding
+        // written down for the cube-room glass - "a weak dielectric specular is the wrong tool
+        // here... without it, the ceiling fixtures this cube ought to be throwing back barely show
+        // up at all" - and reached for the same fix there: some metallic, not zero.
+        private const float FloorSmoothness = 0.92f;
+
+        // **A LITTLE METAL IN THE FLOOR**, on the reasoning above - see it for what could and could
+        // not be confirmed. Metallic surfaces take their F0 from their own albedo rather than a flat
+        // 0.04, which is the dial a polished floor wants turned. 0.9 is what the escape objects use
+        // to read as bare metal outright; a floor asking to read as a POLISHED SURFACE rather than a
+        // metal sheet wants far less of it - 0.22 is chosen to sit well short of that without being
+        // so small it is back to reasoning about Fresnel at grazing angles alone.
+        private const float FloorMetallic = 0.22f;
 
         // **AND THE GRAIN COMES BACK DOWN WITH IT, 0.6 -> 0.12.** These have moved together every
         // time either has moved, and the reason is the one recorded at the call site: the floor's
@@ -1075,6 +1099,12 @@ namespace IterationRoom.EditorTools
             // them standing under a fixture, not in the middle of the room.
             ApplySurfaceDetail(floorMat, surfaceGrain, FloorBump, new Vector2(26f, 30f),
                                FloorSmoothness);
+            // Metallic is not part of `ApplySurfaceDetail` - every OTHER surface it touches (walls,
+            // ceiling) is meant to stay a true dielectric, so this is set here, on the floor
+            // material alone, rather than threading a new parameter through a call every other
+            // caller would have to pass as zero.
+            if (floorMat.HasProperty("_Metallic")) floorMat.SetFloat("_Metallic", FloorMetallic);
+            EditorUtility.SetDirty(floorMat);
 
             (Transform root, Transform bedSpawn, ParticleSystem[] gas,
              Door[] doors, RoomCondition[] conditions,
@@ -1219,6 +1249,12 @@ namespace IterationRoom.EditorTools
             // them standing under a fixture, not in the middle of the room.
             ApplySurfaceDetail(floorMat, surfaceGrain, FloorBump, new Vector2(26f, 30f),
                                FloorSmoothness);
+            // Metallic is not part of `ApplySurfaceDetail` - every OTHER surface it touches (walls,
+            // ceiling) is meant to stay a true dielectric, so this is set here, on the floor
+            // material alone, rather than threading a new parameter through a call every other
+            // caller would have to pass as zero.
+            if (floorMat.HasProperty("_Metallic")) floorMat.SetFloat("_Metallic", FloorMetallic);
+            EditorUtility.SetDirty(floorMat);
 
             GameObject room = new GameObject("Room");
             BuildShell(room.transform, floorMat, grooveMat, panelMat);

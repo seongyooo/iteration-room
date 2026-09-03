@@ -1844,3 +1844,33 @@ added.
 **And prefer an assertion measured off what was really built** over one computed from the constants
 that were meant to govern it — `nearestStandingFace` is scanned off the cells that exist, not
 derived from `FallShaftRadius`.
+
+---
+
+## THE MENU CAPTURE CANNOT BE TRUSTED TO SHOW A REFLECTION (2026-09-03)
+
+Raising the floor's smoothness and giving it a little metallic (`FloorSmoothness`, `FloorMetallic`
+in `SceneBuilder.cs`) was meant to match a reference title screen where the floor mirrors the room.
+Both values land in `FloorWhite.mat` exactly as written — confirmed by reading the asset back off
+disk — and `LightingProbeDump` shows the floor on the same `BlendProbes`/`ReflectionProbeStatic`
+footing as a wall panel that does visibly mirror the room. And yet `MenuBackground.png` came back
+**byte-identical on the floor** across four rebuilds: smoothness 0.65, 0.9 and 0.97, metallic 0 and
+0.22, every combination. A pixel-value comparison (not a look) is what found this — see
+[[feedback_verify_built_output_not_inputs]].
+
+A one-frame warm-up render right after `room.SetActive(true)` — on the theory that a `ReflectionProbe`
+just reactivated by `SleepCycle`/wake is not yet in whatever table URP consults for
+`unity_SpecCube0` — made no difference either, and is not in the build.
+
+**Not resolved. Two live possibilities, neither confirmed**: (a) something particular to
+`CaptureMenuBackground` photographing a room that spends the rest of the build asleep and is woken
+for exactly one frame, which the real game never does — the player's camera has been rendering
+continuously since the scene loaded, so this may simply not reproduce in actual play; or (b) a
+genuine engine-level gap in how a script-built (never GI-baked through the Lighting window) scene's
+reflection probes reach a renderer at all, in which case the wall's own "reflection" — the two soft
+highlights on Room1's back wall — needs re-examining too, since it was never confirmed to be a probe
+reflection rather than a direct specular highlight from the downlights.
+
+**Whether the floor actually reflects in the running game is a play question, not a build-log
+question** — the memory rule "no unprompted playtesting" applies, so this is left for the user to
+check rather than assumed either way from the capture.
