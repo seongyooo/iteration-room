@@ -259,10 +259,16 @@ namespace IterationRoom
             yield return Line(Row(string.Empty, "ITER  TIME"));
 
             yield return Wait(beforeVerdict);
-            // No verdict line any more - there is nothing being judged. The dismissal stays, because
-            // something has to tell the player the facility is finished with them, and it is the one
-            // line in the sequence that was never a score.
-            Fill(footers, "SUBJECT MAY PROCEED.");
+            // **NOTHING IS PRINTED HERE ANY MORE** (2026-09-03, by request). The verdict line went
+            // first - there is nothing being judged - and the dismissal has now followed it. The
+            // argument for keeping `SUBJECT MAY PROCEED` was that something has to tell the player
+            // the facility is finished with them; what actually does that is the wall coming apart
+            // and a cable car arriving, which is the same sentence said by the building instead of
+            // to the player.
+            //
+            // The footer objects and their `Fill` are kept rather than deleted: they are already
+            // cleared to empty in `Reset`, and a board that has somewhere to print a closing line
+            // costs nothing until something wants one.
             if (audioSource != null && verdictClip != null) audioSource.PlayOneShot(verdictClip);
 
             Finished = true;
