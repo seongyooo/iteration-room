@@ -196,29 +196,40 @@ namespace IterationRoom
         private const int DefaultRenderingLayer = 1 << 0;
         private const int InteriorRenderingLayer = 1 << 1;
 
-        private void KeepTheSunOutOfTheOccupiedRoom()
+        private void KeepTheSunOutOfTheRooms()
         {
-            if (occupied == null || occupied.worldRoot == null) return;
+            int moved = 0, kept = 0;
+            foreach (Cycle cycle in Awake_AllCycles())
+            {
+                if (cycle == null || cycle.worldRoot == null) continue;
 
-            int moved = 0;
-            foreach (Renderer r in occupied.worldRoot.GetComponentsInChildren<Renderer>(true))
-                if (r != null) { r.renderingLayerMask = InteriorRenderingLayer; moved++; }
+                foreach (Renderer r in cycle.worldRoot.GetComponentsInChildren<Renderer>(true))
+                    if (r != null) { r.renderingLayerMask = InteriorRenderingLayer; moved++; }
 
-            // BOTH bits, not just the interior one: these are the room's own ceiling fixtures and
-            // they should go on lighting the room, and it costs nothing to let their cone fall on
-            // the outside as well - every one of them is range-limited and none of them reaches it.
-            int kept = 0;
-            foreach (Light light in occupied.worldRoot.GetComponentsInChildren<Light>(true))
-                if (light != null)
-                {
-                    light.renderingLayerMask = DefaultRenderingLayer | InteriorRenderingLayer;
-                    kept++;
-                }
+                // BOTH bits, not just the interior one: these are the rooms' own ceiling fixtures
+                // and they must go on lighting their rooms. Letting their cone fall on the outside
+                // as well costs nothing - every one is range-limited and none of them reaches it.
+                foreach (Light light in cycle.worldRoot.GetComponentsInChildren<Light>(true))
+                    if (light != null)
+                    {
+                        light.renderingLayerMask = DefaultRenderingLayer | InteriorRenderingLayer;
+                        kept++;
+                    }
+            }
 
             if (sun != null) sun.renderingLayerMask = DefaultRenderingLayer;
 
-            Debug.Log($"[FacilityExterior] The occupied room is out of the sun: {moved} renderer(s) "
-                    + $"moved to their own rendering layer, {kept} of its own light(s) follow them.");
+            Debug.Log($"[FacilityExterior] The rooms are out of the sun: {moved} renderer(s) moved "
+                    + $"to their own rendering layer, {kept} of their own light(s) follow them.");
+        }
+
+        // Every cycle plus the one being stood in, which is not in the list.
+        private System.Collections.Generic.IEnumerable<Cycle> Awake_AllCycles()
+        {
+            if (cycles != null)
+                foreach (Cycle c in cycles)
+                    yield return c;
+            if (occupied != null) yield return occupied;
         }
 
         private void LightTheOutside()
@@ -250,9 +261,21 @@ namespace IterationRoom
                 DynamicGI.UpdateEnvironment();
             }
 
-            // **THE ROOM THE PLAYER IS STANDING IN IS TAKEN OUT OF THE SUN'S REACH FIRST**
-            // (2026-09-03, by request: the walls in there went bright and wrong the moment the
-            // outside was revealed).
+            // **EVERY ROOM IS TAKEN OUT OF THE SUN'S REACH FIRST** (2026-09-03, by request).
+            //
+            // This started as the occupied room alone, on the worry that the cutaway rooms further
+            // down had had their lightmaps thrown away by the pass above and the sun was most of
+            // what was left lighting them. Play showed what that actually looked like: floors blown
+            // to pure white and walls nearly black, because the sun sits at 38 degrees - a floor
+            // takes it square on and a vertical wall catches the tail of the cone. Not too bright,
+            // BROKEN CONTRAST.
+            //
+            // And the worry was unfounded, which is the point that settles it: by the time anything
+            // flies past these rooms their walls are ERROR test cards, and `PaintScreen` writes
+            // EMISSION as well as albedo. A screen showing its own picture cannot go black for want
+            // of a light. What is left needing lighting is floors, ceilings and props, and those
+            // have the rooms' own fixtures - which stay on, deliberately - plus the ambient constant
+            // that CLAUDE.md says is doing almost all of the wall and ceiling lighting anyway.
             //
             // The sun has `shadows = None` - a deliberate trade, see `BuildExteriorSun` - and a
             // shadowless directional light reaches EVERY surface in the scene. No wall stops it and
@@ -269,7 +292,7 @@ namespace IterationRoom
             // their lightmaps thrown away by the pass above and it is most of what is left lighting
             // them. If they read too bright on the ride, `BuildExteriorSun`'s intensity is one
             // number and the place to turn it.
-            KeepTheSunOutOfTheOccupiedRoom();
+            KeepTheSunOutOfTheRooms();
 
             // The sun first, because it is the one doing the work - see the note on the field.
             if (sun != null) sun.enabled = true;
