@@ -164,13 +164,16 @@ namespace IterationRoom
             // addresses the player, and it is the last thing this voice should ever say. A second
             // announcement here would need a clip that does not exist AND would talk over the one
             // that does. The wall opens in silence except for itself.
-            cameraShaker?.SetIntensity(1f);
-            breach?.Open();
-            yield return Wait(3.2f);
-
-            // 4. THE OUTSIDE, revealed behind the opening wall. Every cycle woken, every cutaway
-            //    wall taken off, every past self stood back up. One frame's work, hidden behind a
-            //    wall panel in motion - see `FacilityExterior.Reveal`.
+            // 3a. THE OUTSIDE, BUILT BEFORE THE WALL IS OPENED ON IT (2026-09-03, by request).
+            //
+            //     This used to run 3.2 seconds AFTER `breach.Open()`, on the reasoning that one
+            //     frame of work is best hidden behind a wall panel in motion. What that actually
+            //     bought was three seconds of an opening wall with NOTHING BEHIND IT - the player
+            //     looking straight out of the map through a widening gap. The pop-in it was hiding
+            //     is one frame; the hole it left was a hundred and ninety.
+            //
+            //     Every cycle woken, every cutaway wall taken off, every past self stood back up -
+            //     all of it now finished before the first panel moves.
             if (exterior != null)
             {
                 exterior.cycles = cycles;
@@ -181,6 +184,10 @@ namespace IterationRoom
                 exterior.occupied = occupied;
                 exterior.Reveal();
             }
+
+            cameraShaker?.SetIntensity(1f);
+            breach?.Open();
+            yield return Wait(3.2f);
             cameraShaker?.SetIntensity(0.25f);
 
             // 5. THE CAR, in through the hole it made.
