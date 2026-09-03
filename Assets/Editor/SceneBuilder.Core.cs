@@ -1316,6 +1316,34 @@ namespace IterationRoom.EditorTools
             Bounds full = whole.bounds;
             float top = sheet.Value.max.y;
 
+            // **THE SURFACE IS THE TOP OF THE BEDDING, AND THE BEDDING IS NAMED.**
+            //
+            // Two rules were tried before this one and both were wrong, in opposite directions:
+            //
+            // 1. The `Sheet` alone. That is the FLAT sheet, whose top is 0.587 - under a duvet that
+            //    heaps to 0.55 and pillows that reach 0.691. An object came to rest inside the
+            //    bedding, which play reported as things disappearing into the bed.
+            // 2. The highest thing over the MIDDLE of the bed, on the reasoning that a headboard
+            //    stands at one end. It does not, as far as the BOUNDS are concerned: this model has
+            //    one renderer for the whole frame, `Bed_BedFrame_0`, whose box runs the full length
+            //    of the bed and whose top IS the headboard at 0.894. The rule put the surface back
+            //    where the unsplit collider had it - the original bug, restored.
+            //
+            // Position cannot separate them, because the frame's box CONTAINS the headboard without
+            // being it. The material can: the four soft things are `Matress`, `Sheet`, `Duvet` and
+            // `Pillow*`, and their union is exactly the thing an object is put down on.
+            //
+            // The `enabled` test is load-bearing - `UseSinglePillow` has already run and DISABLED
+            // one of the two pillows, and a hidden pillow must not vote on a surface nobody sees.
+            foreach (Renderer r in bed.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null || !r.enabled || r.sharedMaterial == null) continue;
+                string mat = r.sharedMaterial.name;
+                if (!mat.Contains("Matress") && !mat.Contains("Sheet")
+                    && !mat.Contains("Duvet") && !mat.Contains("Pillow")) continue;
+                top = Mathf.Max(top, r.bounds.max.y);
+            }
+
             // THE MATTRESS: the bed's own footprint, up to the bedding and no further.
             whole.size = new Vector3(whole.size.x, (top - full.min.y) / bed.transform.lossyScale.y,
                                      whole.size.z);
@@ -1332,20 +1360,53 @@ namespace IterationRoom.EditorTools
                 return;
             }
 
+            // **A STRIP AT THE PILLOW END, NOT A LID OVER THE WHOLE BED.** The frame's box is the
+            // full length of the bed, so re-using it here would lay a solid slab across the whole
+            // sleeping surface at head height - which is the bug this method exists to fix, moved
+            // twenty centimetres up.
+            //
+            // Which end is the head is MEASURED, off the pillow: it is the one part of this model
+            // that is unambiguously at one end of it. `HeadboardDepth` is the only authored number
+            // in here, and it is authored because the model gives no way to ask where the board
+            // stops and the frame starts - they are one renderer.
+            bool alongX = full.size.x >= full.size.z;
+            float bedMid = alongX ? full.center.x : full.center.z;
+            float headAt = bedMid;
+            foreach (Renderer r in bed.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null || !r.enabled || r.sharedMaterial == null) continue;
+                if (!r.sharedMaterial.name.Contains("Pillow")) continue;
+                headAt = alongX ? r.bounds.center.x : r.bounds.center.z;
+                break;
+            }
+            float side = headAt >= bedMid ? 1f : -1f;
+            float outer = alongX ? (side > 0f ? full.max.x : full.min.x)
+                                 : (side > 0f ? full.max.z : full.min.z);
+            float centreAlong = outer - side * HeadboardDepth / 2f;
+
             GameObject head = new GameObject("BedHeadboard");
             head.transform.SetParent(bed.transform, true);
-            head.transform.position = new Vector3(full.center.x, (top + full.max.y) / 2f, full.center.z);
+            head.transform.position = new Vector3(
+                alongX ? centreAlong : full.center.x,
+                (top + full.max.y) / 2f,
+                alongX ? full.center.z : centreAlong);
             head.transform.rotation = Quaternion.identity;
             head.transform.localScale = Vector3.one;
 
             BoxCollider board = head.AddComponent<BoxCollider>();
-            board.size = new Vector3(full.size.x, full.max.y - top, full.size.z);
+            board.size = new Vector3(alongX ? HeadboardDepth : full.size.x,
+                                     full.max.y - top,
+                                     alongX ? full.size.z : HeadboardDepth);
 
             Debug.Log($"[SceneBuilder] The bed's collider is split: bedding to y={top:0.000} "
                     + $"({top - full.min.y:0.00}m of mattress) and a headboard box "
                     + $"{full.max.y - top:0.00}m above it. A thrown object now lands on the bedding "
                     + "rather than on the top of one box round the whole bed.");
         }
+
+        // How deep the headboard's collider is. See `SplitBedCollider` - the only number in there
+        // that is authored rather than measured.
+        private const float HeadboardDepth = 0.2f;
 
         private static Bounds Encapsulated(Bounds a, Bounds b)
         {
