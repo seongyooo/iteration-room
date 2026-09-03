@@ -935,6 +935,44 @@ def cable_car_impact():
     return fade_edges(normalize(soft_clip(base, drive=1.35), peak=0.94))
 
 
+def cable_creak(seed, length=0.9):
+    """One swing of a loaded cabin against its hanger. The warning before the drop.
+
+    A creak is not a hiss, and that is the whole of getting it right: metal under load stick-slips,
+    so what you hear is a PITCHED tone that slides while the joint travels, not filtered noise. The
+    same argument `tap_turn`'s squeak makes, an octave lower and much longer - this is a two-tonne
+    cabin, not a spindle.
+
+    Two partials a little apart so it beats rather than sitting still, swept down and then back up
+    across the swing: the hanger loads on the way out and unloads on the way back, and a creak that
+    only slides one way reads as a door.
+
+    A grain of noise underneath keeps it from being a synth tone. Barely there - at the level where
+    taking it out is audible and hearing it on its own is not."""
+    rng = random.Random(seed)
+    n = int(length * SR)
+
+    out = [0.0] * n
+    ph1 = ph2 = 0.0
+    for i in range(n):
+        k = i / n
+        # Down and back up, so the pitch turns over where the swing does.
+        bend = math.sin(k * math.pi)
+        f = 340.0 - 120.0 * bend
+        ph1 += 2.0 * math.pi * f / SR
+        ph2 += 2.0 * math.pi * (f * 1.017) / SR
+        # Stick-slip: the amplitude stutters rather than swelling smoothly.
+        grip = 0.82 + 0.18 * math.sin(k * math.pi * 2.0 * 7.0)
+        out[i] = (math.sin(ph1) + 0.62 * math.sin(ph2)) * grip
+
+    out = apply_env(out, env_ar(n, attack=0.10, release=0.55))
+
+    grain = bandpass(noise(length, rng), 1900.0, q=1.1)
+    grain = apply_env(grain, env_ar(len(grain), attack=0.12, release=0.5))
+
+    return fade_edges(normalize(mix(scale(out, 0.5), scale(grain, 0.05)), peak=0.72))
+
+
 def main():
     print("Writing SFX to", os.path.normpath(OUT))
     # Three footfalls, deliberately uneven: no two real steps weigh the same, and the variation is
@@ -954,6 +992,11 @@ def main():
     write("sfx_cable_car_depart", cable_car_depart())
     # And the car hitting the bottom. Cut short on purpose - see the docstring.
     write("sfx_cable_car_impact", cable_car_impact())
+    # The hanger complaining, once per swing. Three, uneven, for the same reason the
+    # footsteps and the splashes are three - two identical creaks read as a sample.
+    write("sfx_cable_creak_1", cable_creak(6101, 0.90))
+    write("sfx_cable_creak_2", cable_creak(6102, 1.05))
+    write("sfx_cable_creak_3", cable_creak(6103, 0.78))
     write("sfx_power_down", power_down())
     # Room3-2N's alarm. Looped by FacilityFailure, so it has to wrap without a seam - see
     # `alarm_siren` on why it is a whole number of wails long.

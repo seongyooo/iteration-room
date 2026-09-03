@@ -748,6 +748,9 @@ namespace IterationRoom.EditorTools
             // And the bottom. Its own sound for the same reason the departure has one: this is
             // the loudest thing in the game and the last thing it says.
             car.impactClip = LoadClip(SfxDir, "sfx_cable_car_impact");
+            car.creakClips = new[] { LoadClip(SfxDir, "sfx_cable_creak_1"),
+                                     LoadClip(SfxDir, "sfx_cable_creak_2"),
+                                     LoadClip(SfxDir, "sfx_cable_creak_3") };
 
             // **THE TWO CONSTANTS THE PATH WAS BUILT FROM, CHECKED AGAINST THE MODEL THAT ACTUALLY
             // LOADED.** `CarHalfWidth` decides where the car docks and `CarHalfDepth` decides how
@@ -1566,7 +1569,12 @@ namespace IterationRoom.EditorTools
                 if (cycle == null) continue;
                 foreach (Transform t in cycle.GetComponentsInChildren<Transform>(true))
                 {
-                    if (t == null || !t.name.StartsWith("Room") || t.name.EndsWith("_Root")) continue;
+                    // The join's own geometry counts as something to stay clear of even though it
+                    // is not named `Room*` - it is a floor and a skirt the cable climbs past.
+                    if (t == null) continue;
+                    bool keepOut = (t.name.StartsWith("Room") && !t.name.EndsWith("_Root"))
+                                || t.name.StartsWith("CycleJoin");
+                    if (!keepOut) continue;
                     Bounds b = MeasuredBounds(t.gameObject);
                     if (b.size.sqrMagnitude > 1f) rooms.Add(b);
                 }
@@ -1660,6 +1668,18 @@ namespace IterationRoom.EditorTools
 
         // EVERYTHING THE BUILDING IS, as one box. Taken off the renderers rather than off the room
         // list, because the room list does not include the corridors, the shafts or the slide.
+        // Walks up rather than testing one name, because the lid and the skirt are children of the
+        // join rather than the join itself.
+        private static bool UnderACycleJoin(Transform t)
+        {
+            while (t != null)
+            {
+                if (t.name.StartsWith("CycleJoin")) return true;
+                t = t.parent;
+            }
+            return false;
+        }
+
         private static Bounds BuildingBounds(Transform[] cycleRoots)
         {
             var bounds = new Bounds();
@@ -1672,6 +1692,13 @@ namespace IterationRoom.EditorTools
                     foreach (Renderer renderer in cycle.GetComponentsInChildren<Renderer>(true))
                     {
                         if (renderer == null) continue;
+                        // **THE JOIN BETWEEN TWO CYCLES IS NOT PART OF EITHER'S ENVELOPE.**
+                        // `CycleJoin_3_4` was moved under cycle 3 so its lid bakes with the floor it
+                        // sits in - and it is at cycle FOUR's height, so counting it here stretched
+                        // cycle 3's bounds a storey downward, moved `building.center`, and shifted
+                        // the whole fake-cell lattice that is anchored to it. Play saw that as the
+                        // outside buildings overlapping.
+                        if (UnderACycleJoin(renderer.transform)) continue;
                         if (!any) { bounds = renderer.bounds; any = true; }
                         else bounds.Encapsulate(renderer.bounds);
                     }

@@ -188,13 +188,31 @@ namespace IterationRoom
         // of audio in a 68s climb - because a voice cut off mid-word reads as a bug, and a voice
         // that finishes its sentence and THEN lets go does not. Check both if either changes.
         public float fallAt = 0.92f;
-        public float fallSeconds = 2.8f;
+        // 2.8 -> 5.5 (2026-09-03, by request: it hit the bottom far too soon). At real gravity that
+        // is about 148m of drop against 38m, which is the right order for a building the exterior
+        // measures at 164m tall - the car lets go near the top and falls most of it.
+        public float fallSeconds = 5.5f;
         // Real gravity. The drop is the one moment in this game that is allowed to be violent, and
         // an eased one would read as the car being lowered.
         public float fallGravity = 9.81f;
         // How much harder it swings on the way down, as a multiple of `swayDegrees`.
         public float fallSwayGain = 2.5f;
         public AudioClip impactClip;
+
+        // **THE HANGER COMPLAINING, ONCE PER SWING** (2026-09-03, by request: there should be a
+        // warning before it lets go). Three clips, uneven, picked at random - the same reason the
+        // footsteps and the splashes are three, which is that two identical creaks read as a sample
+        // rather than as a joint.
+        //
+        // Fired at the ENDS of the swing, where a real one would be: the hanger is loaded hardest
+        // where the cabin stops and turns round, and a creak in the middle of the arc would be a
+        // sound effect on a timer. Loudness follows the amplitude, so the first ones are barely
+        // there and the last ones are the loudest thing before the drop.
+        public AudioClip[] creakClips;
+        public float creakFrom = 0.45f;
+
+        // Which half-swing last creaked, so each one fires once.
+        private int lastCreakHalf = int.MinValue;
 
         // True once the car has let go. `EndingDeparture` waits on the ride and then on this.
         public bool Fell { get; private set; }
@@ -351,7 +369,9 @@ namespace IterationRoom
                     Mathf.InverseLerp(bend - turnSpan * 0.5f, bend + turnSpan * 0.5f, Progress));
                 Quaternion aimed = Quaternion.Slerp(docked, docked * Quaternion.Euler(0f, travelYaw, 0f),
                                                     turn);
-                car.rotation = Sway(aimed, t, Mathf.InverseLerp(swayFrom, 1f, Progress));
+                float swayK = Mathf.InverseLerp(swayFrom, 1f, Progress);
+                car.rotation = Sway(aimed, t, swayK);
+                Creak(t, swayK);
                 if (motor != null) motor.volume = Mathf.Clamp01(raw * 8f) * (1f - Mathf.Clamp01((raw - 0.9f) * 10f));
                 CarryPlayer();
                 yield return null;
@@ -393,6 +413,25 @@ namespace IterationRoom
 
             float roll = Mathf.Sin(t * swayRate * Mathf.PI * 2f) * swayDegrees * k * k;
             return Quaternion.AngleAxis(roll, along.normalized) * aimed;
+        }
+
+        // One creak per half-swing, at the turn rather than in the middle of the arc.
+        //
+        // `sin` peaks at the quarter and three-quarter points, so the half-swing index advances at
+        // exactly those moments - which is where a loaded hanger actually protests. Tracking the
+        // index rather than testing the value is what keeps it to one creak per turn however the
+        // frame rate falls.
+        private void Creak(float t, float k)
+        {
+            if (creakClips == null || creakClips.Length == 0 || audioSource == null) return;
+            if (k < Mathf.InverseLerp(swayFrom, 1f, creakFrom)) return;
+
+            int half = Mathf.FloorToInt(t * swayRate * 2f + 0.5f);
+            if (half == lastCreakHalf) return;
+            lastCreakHalf = half;
+
+            AudioClip clip = creakClips[Random.Range(0, creakClips.Length)];
+            if (clip != null) audioSource.PlayOneShot(clip, Mathf.Clamp01(0.25f + k * 0.75f));
         }
 
         // **THE DROP.** Real gravity, no easing: this is the one moment in the game allowed to be
