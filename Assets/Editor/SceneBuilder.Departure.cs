@@ -333,6 +333,9 @@ namespace IterationRoom.EditorTools
             // The ground is the drop rather than the bottom of the rack - see `FallGroundY`.
             car.fallGravity = CarFallGravity;
             car.fallGroundY = FallGroundY(release);
+            // The line it drops down and the cylinder it may not leave - see `FallClampRadius`.
+            car.fallAxis = release;
+            car.fallShaftRadius = FallClampRadius;
             car.fallTimeout = CarFallSeconds * 4f;
 
             Debug.Log($"[SceneBuilder] The drop: released at y={release.y:0.#}, ground at "
@@ -1854,6 +1857,17 @@ namespace IterationRoom.EditorTools
         // the lit windows: the same drop every time it is watched.
         private const float FallStrikeRadius = 6f;
         private const int FallStrikeEvery = 3;
+
+        // **HOW FAR OFF THE LINE THE CABIN MAY EVER GET**, enforced at runtime by
+        // `CableCarRide.HoldInShaft`. It has to be comfortably INSIDE what was cleared, or the car
+        // reaches rack that was never handed to it as an obstacle and passes through it - which is
+        // what play found (2026-09-03).
+        //
+        // The arithmetic: a cell is cleared when its centre is within its own half-diagonal plus
+        // `FallShaftRadius` of the line, so the nearest cell still standing has its centre at about
+        // 19.4m and its near FACE at 19.4 less half its width. `CheckFallShaft` does that sum against
+        // the real cell size at build time and fails if this number is not safely under it.
+        private const float FallClampRadius = 10f;
         // Real gravity, on the build side, so the ground can be worked out from the drop. It is the
         // same number `CableCarRide.fallGravity` carries and it is authored onto it below.
         private const float CarFallGravity = 9.81f;
@@ -2071,8 +2085,22 @@ namespace IterationRoom.EditorTools
                         if (obstacle) fallCorridor.Add(new Bounds(at, cell));
                     }
 
+            // **THE CHECK THAT THE RUNTIME CLAMP IS INSIDE THE CLEARED HOLE.** If it is not, the
+            // cabin can reach a cell nobody told it about, and a cell nobody told it about is a cell
+            // it flies through. Stated as a sum rather than trusted, because both halves are
+            // constants in different places and either can move.
+            float nearestFace = cell.magnitude / 2f + FallShaftRadius - Mathf.Max(cell.x, cell.z) / 2f;
+            if (FallClampRadius + CarHalfWidth >= nearestFace)
+                Debug.LogError($"[SceneBuilder] The fall clamp ({FallClampRadius:0.#}m plus the "
+                             + $"cabin's {CarHalfWidth:0.##}m) reaches the nearest rack still "
+                             + $"standing, whose face is about {nearestFace:0.#}m off the line. The "
+                             + "car will pass through it. Lower `FallClampRadius` or raise "
+                             + "`FallShaftRadius`.");
+
             Debug.Log($"[SceneBuilder] The fall shaft: {clearedForFall} cell(s) cleared out of the "
-                    + $"car's drop, {fallCorridor.Count} left in it as things to strike.");
+                    + $"car's drop, {fallCorridor.Count} left in it as things to strike; the cabin "
+                    + $"is held within {FallClampRadius:0.#}m of the line, and the nearest cell not "
+                    + $"cleared has its face about {nearestFace:0.#}m out.");
 
             if (capped)
                 Debug.LogError($"[SceneBuilder] The cell racks hit `MaxCells` ({MaxCells}). The field "

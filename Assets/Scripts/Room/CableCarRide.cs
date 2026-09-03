@@ -238,6 +238,24 @@ namespace IterationRoom
         // A cap on the whole thing, in case the bouncing costs more height than gravity buys back.
         // Not the length of the fall - `fallGroundY` is.
         public float fallTimeout = 16f;
+        // **THE DROP IS HELD INSIDE THE SHAFT THAT WAS CUT FOR IT.**
+        //
+        // Play (2026-09-03): the car struck the first structure and then never came near another,
+        // and passed through rooms after that. Both are the same fault. `SlideOff` gives the cabin
+        // the sideways speed it needs to leave a roof and NOTHING TOOK IT AWAY AGAIN - there is no
+        // drag in a scripted fall - so after one hit the car drifted in a straight line for the rest
+        // of the drop. It left the cleared shaft, and everything outside that shaft is rack that was
+        // never handed over as an obstacle, so it went straight through it.
+        //
+        // Two numbers fix it and they are not interchangeable. The DAMPING is what makes the car
+        // fall roughly where it was falling, so the obstacles below it are still in its way. The
+        // CLAMP is the guarantee: the car physically cannot leave the radius the build cleared, so
+        // the only structures it can ever reach are the ones it was told about. Without the clamp
+        // the damping is a hope; without the damping the clamp is a wall the car slides down.
+        public float fallDrag = 0.7f;              // per second, exponential
+        public Vector3 fallAxis;                   // the line it drops down, authored by the build
+        public float fallShaftRadius = 10f;        // how far off that line it may ever get
+
         // No integration step may move the car further than this. At terminal speed a frame is over
         // a metre, and a cell is five - so without substeps a fast enough cabin steps over a rack
         // between two frames and the whole thing is decorative. Cheap: it is five seconds, once.
@@ -533,7 +551,16 @@ namespace IterationRoom
                 for (int i = 0; i < steps; i++)
                 {
                     velocity.y -= fallGravity * dt;
+
+                    // Sideways speed bleeds off; downward speed does not. A falling body does not
+                    // keep travelling horizontally for ten seconds because it clipped something
+                    // once, and a scripted fall has nothing else to take it away.
+                    float keep = Mathf.Exp(-fallDrag * dt);
+                    velocity.x *= keep;
+                    velocity.z *= keep;
+
                     car.position += velocity * dt;
+                    HoldInShaft(ref velocity);
 
                     if (car.position.y <= fallGroundY) break;
                     if (Strike(ref velocity)) { hits++; shake = 1f; Bang(hits); }
@@ -666,6 +693,33 @@ namespace IterationRoom
             float away = d[k] >= 0f ? 1f : -1f;
 
             velocity[k] = away * Mathf.Min(need / airtime, 14f);
+        }
+
+        // **THE GUARANTEE BEHIND THE WHOLE COLLISION SET.** See `fallShaftRadius`.
+        //
+        // Everything the cabin is allowed to meet was chosen at build time from inside a cylinder
+        // round the fall line. If the car can leave that cylinder, the set stops being a description
+        // of what is in its way and becomes a description of what USED to be, which is how a cabin
+        // ends up passing through a rack it was never told about.
+        //
+        // So the cylinder is enforced rather than assumed: pushed back to its wall, with the outward
+        // component of the speed removed so it slides along rather than pressing into it.
+        private void HoldInShaft(ref Vector3 velocity)
+        {
+            if (fallShaftRadius <= 0f) return;
+
+            Vector3 at = car.position;
+            Vector2 off = new Vector2(at.x - fallAxis.x, at.z - fallAxis.z);
+            if (off.sqrMagnitude <= fallShaftRadius * fallShaftRadius) return;
+
+            Vector2 out2 = off.normalized;
+            Vector2 held = out2 * fallShaftRadius;
+            car.position = new Vector3(fallAxis.x + held.x, at.y, fallAxis.z + held.y);
+
+            float outward = velocity.x * out2.x + velocity.z * out2.y;
+            if (outward <= 0f) return;
+            velocity.x -= out2.x * outward;
+            velocity.z -= out2.y * outward;
         }
 
         // A strike, as against the landing. Alternated rather than randomised: they are seconds
