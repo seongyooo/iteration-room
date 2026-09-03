@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace IterationRoom
@@ -314,6 +315,10 @@ namespace IterationRoom
 
             var block = new MaterialPropertyBlock();
             int painted = 0, unbaked = 0, doused = 0, powered = 0;
+            // WHICH cycles were reached, by name. A test jump straight to cycle 3 may never
+            // have loaded cycles 1 and 2, and then there is nothing here to put into ERROR -
+            // which looks identical, from inside the cable car, to the pass having failed.
+            var brokenIn = new System.Collections.Generic.List<string>();
 
             foreach (Cycle cycle in cycles)
             {
@@ -381,6 +386,7 @@ namespace IterationRoom
                     panels.SetPowered(1f);
                     panels.ShowAlreadyBroken(cycle.worldRoot.position);
                     powered++;
+                    brokenIn.Add(cycle.name);
                 }
 
                 // **~~AND THE CEILING FIXTURES GO OUT~~ THE LIGHTS STAY ON**, 2026-09-01. Switching
@@ -413,7 +419,8 @@ namespace IterationRoom
 
             Debug.Log($"[FacilityExterior] Outside: {painted} backing slab(s) repainted, {unbaked} "
                     + $"renderer(s) taken off their baked lightmap, {doused} fixture(s) hidden, "
-                    + $"{powered} panel wall(s) powered back up. "
+                    + $"{powered} panel wall(s) put into ERROR across "
+                    + $"[{string.Join(", ", brokenIn.Distinct())}]. "
                     + "The lights inside them stay on - see the note above.");
         }
 
