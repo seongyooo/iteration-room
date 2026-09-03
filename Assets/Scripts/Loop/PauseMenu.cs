@@ -41,6 +41,21 @@ namespace IterationRoom
         public Slider volumeSlider;
         public Text volumeValue;
 
+        // **THE TWO PICKERS THE TITLE SCREEN HAS.** Both write the same statics that page writes -
+        // `GameSettings.Language` and `GameSettings.Subtitles` - so the two pages cannot disagree,
+        // and both are re-read every time this menu opens for the reason `SyncSensitivity` records:
+        // anything that can move a value behind a panel's back makes a single seed stale, and the
+        // subtitle key (M) moves this one from inside the game.
+        public Button englishButton;
+        public Button koreanButton;
+        public Text englishInk;
+        public Text koreanInk;
+
+        public Button subtitlesOnButton;
+        public Button subtitlesOffButton;
+        public Text subtitlesOnInk;
+        public Text subtitlesOffInk;
+
         public bool IsPaused { get; private set; }
 
         // What the loop wanted control to be before the pause. Restored rather than forced true:
@@ -82,6 +97,18 @@ namespace IterationRoom
             }
             ShowVolume();
 
+            if (englishButton != null)
+                englishButton.onClick.AddListener(() => SetLanguage(GameLanguage.English));
+            if (koreanButton != null)
+                koreanButton.onClick.AddListener(() => SetLanguage(GameLanguage.Korean));
+            ShowLanguage();
+
+            if (subtitlesOnButton != null)
+                subtitlesOnButton.onClick.AddListener(() => SetSubtitles(true));
+            if (subtitlesOffButton != null)
+                subtitlesOffButton.onClick.AddListener(() => SetSubtitles(false));
+            ShowSubtitles();
+
             Apply(false);
         }
 
@@ -106,6 +133,45 @@ namespace IterationRoom
             if (volumeSlider != null)
                 volumeSlider.SetValueWithoutNotify(GameSettings.MasterVolume);
             ShowVolume();
+
+            // The two pickers, for the same reason. Subtitles especially: M moves it from inside the
+            // game, so a pause menu that seeded once would show OFF over a run that had turned it on.
+            ShowLanguage();
+            ShowSubtitles();
+        }
+
+        private void SetLanguage(GameLanguage value)
+        {
+            GameSettings.Language = value;
+            ShowLanguage();
+        }
+
+        // The live one at full strength and the other dimmed - no tick, no frame, the same shape the
+        // title screen uses so the two pages read as one design.
+        private void ShowLanguage()
+        {
+            bool korean = GameSettings.Language == GameLanguage.Korean;
+            Dim(englishInk, !korean);
+            Dim(koreanInk, korean);
+        }
+
+        private void SetSubtitles(bool on)
+        {
+            GameSettings.Subtitles = on;
+            ShowSubtitles();
+        }
+
+        private void ShowSubtitles()
+        {
+            bool on = GameSettings.Subtitles;
+            Dim(subtitlesOnInk, on);
+            Dim(subtitlesOffInk, !on);
+        }
+
+        private static void Dim(Text ink, bool live)
+        {
+            if (ink == null) return;
+            ink.color = new Color(ink.color.r, ink.color.g, ink.color.b, live ? 1f : 0.35f);
         }
 
         private void SetVolume(float value)

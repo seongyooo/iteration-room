@@ -818,12 +818,44 @@ namespace IterationRoom.EditorTools
             // Red on a near-black scrim, where the settings page is charcoal on a bright photograph.
             Color pauseInk = new Color(1f, 0.35f, 0.35f, 0.85f);
 
+            // **AND THE TWO PICKERS THE TITLE SCREEN HAS** (2026-09-03, by request: *"add settings to
+            // the window that comes up on ESC"*). The overlay had the two sliders and neither of the
+            // choices, which is the same gap VOLUME was in until 2026-08-21 and for the same reason:
+            // the moment a player wants a setting is the moment it is bothering them, and quitting to
+            // the title screen to change it is not a fix, it is a workaround.
+            //
+            // Language first for the reason the settings page gives - it rewrites every other label
+            // here, including the buttons above - and subtitles under it, because the two are the
+            // settings about words on the screen and are read together. Both write the same statics
+            // the title screen writes, so neither page can disagree with the other.
+            MakeRowLabelInk(pauseColumn, "LanguageLabel", "LANGUAGE",
+                new Vector2(SettingsLabelWidth / 2f, -190f),
+                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, pauseInk);
+            // Never translated, and each stays in its own language whichever is live - see the note
+            // on the title screen's pair, which is the same convention and the same argument.
+            Button pauseEnglish = MakeSettingsButton(pauseColumn, "LanguageEnglish", "ENGLISH",
+                new Vector2(SettingsControlX + 75f, -190f), new Vector2(150f, 30f), out Text pauseEnglishInk);
+            Button pauseKorean = MakeSettingsButton(pauseColumn, "LanguageKorean", "한국어",
+                new Vector2(SettingsControlX + 240f, -190f), new Vector2(150f, 30f), out Text pauseKoreanInk);
+            Font pauseKoreanFace = KoreanUIFont();
+            if (pauseKoreanFace != null) pauseKoreanInk.font = pauseKoreanFace;
+
+            MakeRowLabelInk(pauseColumn, "SubtitleLabel", "SUBTITLES",
+                new Vector2(SettingsLabelWidth / 2f, -240f),
+                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, pauseInk);
+            Button pauseSubsOn = Localize(MakeSettingsButton(pauseColumn, "SubtitlesOn", "ON",
+                new Vector2(SettingsControlX + 75f, -240f), new Vector2(150f, 30f),
+                out Text pauseSubsOnInk), "set.on");
+            Button pauseSubsOff = Localize(MakeSettingsButton(pauseColumn, "SubtitlesOff", "OFF",
+                new Vector2(SettingsControlX + 240f, -240f), new Vector2(150f, 30f),
+                out Text pauseSubsOffInk), "set.off");
+
             (Slider sensitivity, Text sensitivityValue) =
                 MakeSettingsSliderRow(pauseColumn, "Sensitivity", "MOUSE SENSITIVITY",
-                                      "set.sensitivity", "0.00", -250f, pauseInk);
+                                      "set.sensitivity", "0.00", -300f, pauseInk);
             (Slider volume, Text volumeValue) =
                 MakeSettingsSliderRow(pauseColumn, "Volume", "VOLUME", "set.volume", "80%",
-                                      -300f, pauseInk);
+                                      -350f, pauseInk);
 
             GameObject hintGO = new GameObject("Hint");
             hintGO.transform.SetParent(root.transform, false);
@@ -838,7 +870,8 @@ namespace IterationRoom.EditorTools
             hintRect.anchorMin = new Vector2(0.5f, 0.5f);
             hintRect.anchorMax = new Vector2(0.5f, 0.5f);
             hintRect.sizeDelta = new Vector2(600f, 36f);
-            hintRect.anchoredPosition = new Vector2(0f, -370f);
+            // Below the four settings rows, which now reach -350.
+            hintRect.anchoredPosition = new Vector2(0f, -420f);
 
             PauseMenu pause = root.AddComponent<PauseMenu>();
             pause.playerController = playerController;
@@ -851,6 +884,14 @@ namespace IterationRoom.EditorTools
             pause.sensitivityValue = sensitivityValue;
             pause.volumeSlider = volume;
             pause.volumeValue = volumeValue;
+            pause.englishButton = pauseEnglish;
+            pause.koreanButton = pauseKorean;
+            pause.englishInk = pauseEnglishInk;
+            pause.koreanInk = pauseKoreanInk;
+            pause.subtitlesOnButton = pauseSubsOn;
+            pause.subtitlesOffButton = pauseSubsOff;
+            pause.subtitlesOnInk = pauseSubsOnInk;
+            pause.subtitlesOffInk = pauseSubsOffInk;
         }
 
         // The ending: a full-screen black scrim and a card over it. Two separate CanvasGroups
@@ -1432,16 +1473,19 @@ namespace IterationRoom.EditorTools
             PageLine(faceGO.transform, "Repeat1", "The cycle repeats until", Mathf.RoundToInt(u * 0.0334f), ink, u * (-0.182f * layoutScale - clipDrop), wide, "note.repeat1");
             PageLine(faceGO.transform, "Repeat2", "the objective is met.", Mathf.RoundToInt(u * 0.0334f), ink, u * (-0.227f * layoutScale - clipDrop), wide, "note.repeat2");
 
-            // **THE LINES THE WHOLE PAGE IS FOR.** The only thing in the game that says the loop is
-            // happening TO the player rather than merely happening, and the diegetic reason this
-            // notice exists in iteration 1 and never again: they did not keep it because they cannot.
+            // **THE LINE THE WHOLE PAGE IS FOR**, and it is the only thing in the game that says the
+            // loop is happening TO the player rather than merely happening.
             //
-            // **AND THE SECOND SENTENCE IS THE HALF THAT WAS MISSING** (2026-09-03, by request). The
-            // page said what the player loses and never what they keep, which reads as a threat and
-            // is not what this facility is doing. What survives an iteration is the WORK - the ghosts
-            // are the accumulation, and every room in the building is built on it. Saying so on the
-            // one page a player reads before they have seen a past self is the game stating its own
-            // rule once, in the facility's own register, and then never mentioning it again.
+            // **IT USED TO SAY THE OPPOSITE HALF** - *"You will not remember reading this."* - and that
+            // line is gone (2026-09-03, by request). Two sentences were tried together for a day and
+            // one of them had to go: the page has room for one closing thought, and the two were not
+            // equals. What the player forgets is a rule about the fiction. What ACCUMULATES is the
+            // rule the whole game is built on - the past selves are the accumulation, every room is
+            // solved by it, and a player who has not yet seen a ghost has been told the mechanic in
+            // one sentence without being told a single control.
+            //
+            // Losing the forgetting costs nothing it was carrying alone: the notice already exists in
+            // iteration 1 and never again, which SHOWS the same thing rather than claiming it.
             //
             // Grey rather than ink: this is the form's small print, not its instruction. The
             // instruction is LEAVE THE ROOM, in black, four lines up.
