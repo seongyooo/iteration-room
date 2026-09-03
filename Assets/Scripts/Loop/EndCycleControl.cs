@@ -22,9 +22,25 @@ namespace IterationRoom
 
         public Image fill;
         public CanvasGroup group;
-        // Dimmed whenever the clock isn't running, so the control reads as unavailable during the
-        // wake-up rather than looking broken.
-        public float unavailableAlpha = 0.25f;
+
+        // **IT IS NOT ON SCREEN UNTIL THE KEY IS DOWN** (2026-09-03, by request).
+        //
+        // It used to sit in the corner for the whole run, reading "HOLD [N] - END CYCLE", dimmed
+        // while the clock was stopped and lit while it ran. That is a teaching label, and the
+        // teaching is already done twice over in the world: four wall-sized signs in room1-1 that
+        // retire themselves the moment N is used (`PanelMessage`), and the PA saying it once. What
+        // is left for the HUD is the only part of this control that cannot live on a wall - the hold
+        // GAUGE, which is information exactly while the key is down and clutter the rest of the time.
+        //
+        // Hiding it until the first USE was the other reading of the request and would not have
+        // fixed anything: the box would be permanent again from iteration 2 onwards, which is the
+        // state being complained about.
+        //
+        // Faded rather than switched, and on UNSCALED time: a tap that is shorter than the fade
+        // still reads as a flicker of feedback rather than a pop, and a release that happens as the
+        // iteration ends must still fade out with `Time.timeScale` at zero.
+        public float fadeSeconds = 0.12f;
+        private float alpha;
 
         private bool pointerHeld;
         private float held;
@@ -74,7 +90,13 @@ namespace IterationRoom
             }
 
             if (fill != null) fill.fillAmount = holdDuration > 0f ? Mathf.Clamp01(held / holdDuration) : 0f;
-            if (group != null) group.alpha = available ? 1f : unavailableAlpha;
+
+            // Shown for a press the game will actually act on. Holding N through the wake-up does
+            // nothing, so putting a gauge on screen that cannot fill would be a promise not kept.
+            float target = down && available ? 1f : 0f;
+            float step = fadeSeconds > 0f ? Time.unscaledDeltaTime / fadeSeconds : 1f;
+            alpha = Mathf.MoveTowards(alpha, target, step);
+            if (group != null) group.alpha = alpha;
         }
     }
 }

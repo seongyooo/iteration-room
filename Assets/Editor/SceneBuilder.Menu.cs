@@ -1678,9 +1678,11 @@ namespace IterationRoom.EditorTools
             // The countdown is 160 wide, inset 20 from the corner, so it ends 180 in.
             rect.anchoredPosition = new Vector2(-192f, -20f);
 
-            // Fades out while the clock isn't running, so the control reads as unavailable rather
-            // than broken during the wake-up.
+            // **STARTS INVISIBLE.** `EndCycleControl` shows it only while the key is down, and a
+            // CanvasGroup is born at alpha 1 - so without this the box is on screen for the one
+            // frame before the first Update, and is on screen in the editor's own scene view too.
             CanvasGroup group = go.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
 
             Image background = go.AddComponent<Image>();
             background.color = new Color(0f, 0f, 0f, 0.55f);
