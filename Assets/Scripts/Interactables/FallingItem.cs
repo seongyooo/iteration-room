@@ -231,6 +231,22 @@ namespace IterationRoom
             // Lifting the origin cannot be the whole fix, because a probe from two metres up will
             // happily find a surface ABOVE the object and call it the floor. So the hits are sorted
             // by what they are relative to the release: see `below` and `above` below.
+            // **FIRST: IS THE RELEASE POINT INSIDE SOMETHING?**
+            //
+            // If it is, the answer is the top of that thing and nothing else matters - and it has to
+            // be asked with an OVERLAP rather than read off the cast, because a cast cannot tell
+            // "inside the bed" from "under a shelf". Both look like a surface above and a surface
+            // below.
+            //
+            // That distinction is the whole of the bug play photographed (2026-09-03): the bed's
+            // collider runs from the FLOOR to the bedding, so a release point at knee height inside
+            // it has the bedding above it AND the room floor below it. The previous fix preferred
+            // the thing below whenever there was one, so the object settled on the floor inside the
+            // bed's own box - under the bed, where it cannot be reached. The lid was only used when
+            // there was nothing below at all, which is never true indoors.
+            float insideTop = InsideTop(at);
+            if (insideTop > at.y) return insideTop + item.floorY;
+
             Vector3 from = at + Vector3.up * ProbeLift;
             int count = Physics.RaycastNonAlloc(from, Vector3.down, floorHits,
                                                 floorProbe + ProbeLift, ~0,
@@ -291,6 +307,32 @@ namespace IterationRoom
             // back for the following one - exactly what CLAUDE.md §1.2 says happens to an axe a past
             // self carried in there.
             return best > float.NegativeInfinity ? best + item.floorY : float.NegativeInfinity;
+        }
+
+        // WHAT THE RELEASE POINT IS INSIDE, if anything, as the highest top among them. Its own
+        // object, its support and the player are excluded for the same reasons the cast excludes
+        // them - see `ProbeUnder`.
+        //
+        // A sphere rather than the object's own box: this asks about the POINT the object is being
+        // let go at, which is what every other question in this class is about, and a box would
+        // start reporting things the object merely overlaps at arm's length.
+        private readonly Collider[] insideHits = new Collider[8];
+
+        private float InsideTop(Vector3 at)
+        {
+            int count = Physics.OverlapSphereNonAlloc(at, 0.03f, insideHits, ~0,
+                                                      QueryTriggerInteraction.Ignore);
+            float top = float.NegativeInfinity;
+            for (int i = 0; i < count; i++)
+            {
+                Collider c = insideHits[i];
+                if (c == null || c.transform == null) continue;
+                if (c.transform.IsChildOf(transform)) continue;
+                if (support != null && c.transform.IsChildOf(support.transform)) continue;
+                if (c.transform.root.CompareTag("Player")) continue;
+                top = Mathf.Max(top, c.bounds.max.y);
+            }
+            return top;
         }
 
         // How far ABOVE the release the probe starts. Enough to clear anything the release point
