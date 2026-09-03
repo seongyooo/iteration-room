@@ -429,6 +429,18 @@ namespace IterationRoom.EditorTools
             SetIfPresent(so, "m_ReflectionProbeBoxProjection", true);
             SetIfPresent(so, "m_ReflectionProbeBlending", true);
 
+            // **RENDERING LAYERS, ON FOR EXACTLY ONE THING: keeping the ending's sun out of the room
+            // the player is standing in** (2026-09-03). `FacilityExterior.LightTheOutside` enables a
+            // directional light with `shadows = None`, and a shadowless directional lights every
+            // surface in the scene - walls and ceilings do not stop it. The `occupied` guard that
+            // protects that room from the repaint and the un-bake cannot help, because those are per
+            // renderer and this is global.
+            //
+            // Defaults are unchanged by switching this on: a renderer's mask and a light's mask are
+            // both bit 0 out of the box, so everything keeps lighting everything until something
+            // deliberately moves off that bit. `FacilityExterior` is the only thing that does.
+            SetIfPresent(so, "m_SupportsLightLayers", true);
+
             so.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(urp);
             AssetDatabase.SaveAssets();

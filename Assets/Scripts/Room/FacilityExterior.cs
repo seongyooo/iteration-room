@@ -191,6 +191,36 @@ namespace IterationRoom
         }
 
         // The ambient, the sky, and every fixture out there. One call, no pacing - see `shaftLights`.
+        // Bit 0 is what every renderer and every light is born on, so the outside keeps it and
+        // nothing else has to be touched. Bit 1 is the inside of the room being stood in.
+        private const int DefaultRenderingLayer = 1 << 0;
+        private const int InteriorRenderingLayer = 1 << 1;
+
+        private void KeepTheSunOutOfTheOccupiedRoom()
+        {
+            if (occupied == null || occupied.worldRoot == null) return;
+
+            int moved = 0;
+            foreach (Renderer r in occupied.worldRoot.GetComponentsInChildren<Renderer>(true))
+                if (r != null) { r.renderingLayerMask = InteriorRenderingLayer; moved++; }
+
+            // BOTH bits, not just the interior one: these are the room's own ceiling fixtures and
+            // they should go on lighting the room, and it costs nothing to let their cone fall on
+            // the outside as well - every one of them is range-limited and none of them reaches it.
+            int kept = 0;
+            foreach (Light light in occupied.worldRoot.GetComponentsInChildren<Light>(true))
+                if (light != null)
+                {
+                    light.renderingLayerMask = DefaultRenderingLayer | InteriorRenderingLayer;
+                    kept++;
+                }
+
+            if (sun != null) sun.renderingLayerMask = DefaultRenderingLayer;
+
+            Debug.Log($"[FacilityExterior] The occupied room is out of the sun: {moved} renderer(s) "
+                    + $"moved to their own rendering layer, {kept} of its own light(s) follow them.");
+        }
+
         private void LightTheOutside()
         {
             // **~~FLAT, AT `endingAmbient`~~ THE AMBIENT IS LEFT EXACTLY WHERE IT IS**, 2026-09-01,
@@ -219,6 +249,27 @@ namespace IterationRoom
                 // put the old sky into every metal surface on the ride.
                 DynamicGI.UpdateEnvironment();
             }
+
+            // **THE ROOM THE PLAYER IS STANDING IN IS TAKEN OUT OF THE SUN'S REACH FIRST**
+            // (2026-09-03, by request: the walls in there went bright and wrong the moment the
+            // outside was revealed).
+            //
+            // The sun has `shadows = None` - a deliberate trade, see `BuildExteriorSun` - and a
+            // shadowless directional light reaches EVERY surface in the scene. No wall stops it and
+            // no ceiling stops it. So the `occupied` guard that keeps this room's albedo and its
+            // baked lightmap intact could not help: those are per renderer and this is global.
+            //
+            // Rendering layers are the only thing that separates them. The room's renderers move to
+            // a bit of their own and the sun is left on the default bit, so `mask & mask` comes out
+            // zero for that pair and non-zero for everything else. The room's OWN fixtures are given
+            // both bits, or the room they light would go black - which is the failure this is
+            // preventing, in the other direction.
+            //
+            // Only the occupied cycle. The cutaway rooms further down want the sun: they have had
+            // their lightmaps thrown away by the pass above and it is most of what is left lighting
+            // them. If they read too bright on the ride, `BuildExteriorSun`'s intensity is one
+            // number and the place to turn it.
+            KeepTheSunOutOfTheOccupiedRoom();
 
             // The sun first, because it is the one doing the work - see the note on the field.
             if (sun != null) sun.enabled = true;
