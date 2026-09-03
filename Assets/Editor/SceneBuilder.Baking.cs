@@ -691,7 +691,11 @@ namespace IterationRoom.EditorTools
                 // The cover over a cycle's way out. Authored closed and slid aside at the boundary,
                 // so baked in it would leave a shut floor in every reflection of a room the player is
                 // standing in with it open.
-                if (t.GetComponent<CycleExit>() != null) return true;
+                //
+                // **UNLESS IT NEVER OPENS** - see `CycleExit.neverOpens`. Room3-2N's floor cover is
+                // cut and stays shut, and holding it out of the bake left it unlit in a lit room.
+                CycleExit exit = t.GetComponent<CycleExit>();
+                if (exit != null) return !exit.neverOpens;
                 // ROOM2-5'S POOL, both halves of it. The balls drift, so a baked one is a ball frozen
                 // where it was authored rather than where it floats; and the water itself is a
                 // transparent surface that is reflecting the probe - baking it in would put the room's

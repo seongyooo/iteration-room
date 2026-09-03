@@ -541,6 +541,9 @@ namespace IterationRoom.EditorTools
                 new Vector3(halfW, WallThickness, RoomDepth), floorMat);
 
             CycleExit exit = go.AddComponent<CycleExit>();
+            // Cut, and shut for good - `opensWayOutOnBreak` is false for this room, so the lids
+            // never move and must be baked with the floor they sit in. See `CycleExit.neverOpens`.
+            exit.neverOpens = true;
             exit.covers = new[] { west.transform, east.transform };
             // Its own half-width each way, so each leaf ends exactly under the floor beside the hole.
             // No drop with it: these retract INTO the slab they are flush with, which is solid, so

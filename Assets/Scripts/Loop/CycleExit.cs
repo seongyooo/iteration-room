@@ -21,6 +21,19 @@ namespace IterationRoom
     // owns.
     public class CycleExit : MonoBehaviour
     {
+        // **THE ONE IN ROOM3-2N'S FLOOR NEVER OPENS, AND THE LIGHTMAP HAS TO KNOW.**
+        //
+        // `SceneBuilder.MovesDuringPlay` returns true for every `CycleExit`, which holds a lid that
+        // slides aside out of the GI bake - right for a hatch, wrong for the room-sized cover over
+        // room4-1's ceiling, which is cut and stays shut for good (`opensWayOutOnBreak` is false,
+        // and CLAUDE.md says not to "fix" that). Held out of the bake it had no baked light while
+        // the floor around it did, so it sat in the middle of the room as a hard-edged white
+        // rectangle - which is what play reported, twice.
+        //
+        // Set by the build and read by the build. Nothing at runtime looks at it; `Open` is
+        // idempotent and this does not gate it.
+        public bool neverOpens;
+
         // The slabs filling the opening, authored CLOSED. They slide aside by `openLocalOffset`, the
         // same way every door in the game moves - a wall panel sliding into the wall beside it.
         //
