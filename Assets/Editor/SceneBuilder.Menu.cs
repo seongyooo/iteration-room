@@ -155,14 +155,20 @@ namespace IterationRoom.EditorTools
         // `rise` stacks a second entry above the first. There are two things in this corner now -
         // RECORD and CREDITS - and 78 is the button's own 66 plus a gap, which is deliberately TIGHTER
         // than the column's 88: these are a pair off to one side, not a continuation of the menu.
+        // **~~BOTTOM RIGHT~~ BOTTOM LEFT, since the column moved** (2026-09-03). RECORD and CREDITS
+        // were cornered on the right because that was the empty half of the screen; the five main
+        // rows now hang there and QUIT's bottom edge is 158px off the floor, so a pair of rows in the
+        // right-hand corner is a pair of rows crowding the column they were put outside to escape.
+        //
+        // The name is kept, because what it means has not changed: *the corner away from the menu*.
         private static void CornerBottomRight(RectTransform rect, float rise = 0f)
         {
             if (rect == null) return;
-            rect.anchorMin = new Vector2(1f, 0f);
-            rect.anchorMax = new Vector2(1f, 0f);
-            rect.pivot = new Vector2(1f, 0f);
-            // The same margin off both edges as the column has off the left.
-            rect.anchoredPosition = new Vector2(-MenuLeftMargin, MenuLeftMargin + rise);
+            rect.anchorMin = new Vector2(0f, 0f);
+            rect.anchorMax = new Vector2(0f, 0f);
+            rect.pivot = new Vector2(0f, 0f);
+            // The same margin off both edges the column has off its own.
+            rect.anchoredPosition = new Vector2(MenuLeftMargin, MenuLeftMargin + rise);
         }
 
         private static Button MakeMenuButtonInk(Transform parent, string name, string label,
@@ -431,7 +437,12 @@ namespace IterationRoom.EditorTools
             // right half empty and the words stop being a title at all. Centred over an off-centre
             // menu is the arrangement that reads - the name of the game belongs to the picture, the
             // buttons belong to the edge.
-            title.alignment = TextAnchor.MiddleCenter;
+            // **RIGHT, AND AT THE TOP** (2026-09-03). It was centred over a left-hung column, which
+            // was the arrangement that read while the menu was on the left. With the menu on the
+            // right the two belong to the same edge: the name at the top of that edge and the
+            // choices below it make one narrow strip of type, which is what the reference does and
+            // why its middle can be empty without looking unfinished.
+            title.alignment = TextAnchor.MiddleRight;
             // CHARCOAL, not red. See MenuInk: red is the alarm this game rings, and a title screen
             // that rings it before anything has happened has nothing left to ring it with.
             title.color = MenuInk;
@@ -455,11 +466,14 @@ namespace IterationRoom.EditorTools
             // Anchored to the LEFT EDGE rather than to the centre with a negative offset, so a wider
             // window widens the picture instead of dragging the words toward the middle.
             RectTransform titleRect = title.GetComponent<RectTransform>();
-            titleRect.anchorMin = new Vector2(0.5f, 0.5f);
-            titleRect.anchorMax = new Vector2(0.5f, 0.5f);
-            titleRect.pivot = new Vector2(0.5f, 0.5f);
+            // Anchored to the TOP RIGHT rather than to the centre with an offset, so a wider or
+            // taller window moves the picture and leaves the words where they are against their own
+            // corner - the same argument the old note made for the left edge.
+            titleRect.anchorMin = new Vector2(1f, 1f);
+            titleRect.anchorMax = new Vector2(1f, 1f);
+            titleRect.pivot = new Vector2(1f, 1f);
             titleRect.sizeDelta = new Vector2(1400f, 140f);
-            titleRect.anchoredPosition = new Vector2(0f, 268f);
+            titleRect.anchoredPosition = new Vector2(-MenuRightMargin, -70f);
 
             // **~~Three fading echoes behind the word~~ ONE TITLE, 2026-08-28, by request.**
             // The idea was the ghost afterimage as a logotype, and it was about the right thing;
@@ -482,7 +496,7 @@ namespace IterationRoom.EditorTools
             // it. Letter-spaced in the string for the reason IterationLabel is: uGUI's Text has no
             // tracking control, and in a monospace face a space is exactly one cell.
             subtitle.fontSize = 52;
-            subtitle.alignment = TextAnchor.MiddleCenter;
+            subtitle.alignment = TextAnchor.MiddleRight;
             // **THE ONE RED THING ON THE SCREEN AT REST**, and it is one word of the game's own name.
             // Everything else - title, five labels - is charcoal, so this is the only place the eye is
             // sent, and the colour still means what it means everywhere else in the building.
@@ -499,7 +513,11 @@ namespace IterationRoom.EditorTools
             subtitleRect.anchorMax = new Vector2(0.5f, 0.5f);
             subtitleRect.pivot = new Vector2(0.5f, 0.5f);
             subtitleRect.sizeDelta = new Vector2(1400f, 90f);
-            subtitleRect.anchoredPosition = new Vector2(0f, 190f);
+            subtitleRect.anchorMin = new Vector2(1f, 1f);
+            subtitleRect.anchorMax = new Vector2(1f, 1f);
+            subtitleRect.pivot = new Vector2(1f, 1f);
+            // Directly under ITERATION and on the same right edge, so the two read as one block.
+            subtitleRect.anchoredPosition = new Vector2(-MenuRightMargin, -168f);
 
             // CONTINUE FIRST, since 2026-08-20. It is the entry a returning player wants and the one
             // that needs no decision; PLAY under it opens the cycle picker, which is a decision. The
@@ -516,14 +534,18 @@ namespace IterationRoom.EditorTools
             // the room is. Words printed on a wall with nothing around them have only their own
             // weight to hold the screen with, which is exactly why Medium was not enough here and
             // would have been fine inside a box.
+            // **THE COLUMN IS ON THE RIGHT NOW** (2026-09-03, by request, from a reference in
+            // `docs/`). Same five rows, same order, same pitch - hung off the other margin and set
+            // flush to it, so the room and its drawing get the whole frame and the interface is a
+            // strip of type at the edge of the picture rather than a block standing on it.
             Button continueButton = MakeMenuButton(menuGO.transform, "ContinueButton",
-                                                   "CONTINUE", new Vector2(0f, -30f), MenuInk, "Bold");
+                                                   "CONTINUE", new Vector2(0f, -30f), MenuInk, "Bold", rightAligned: true);
             Localize(continueButton, "menu.continue", "  ");
             Button playButton = MakeMenuButton(menuGO.transform, "PlayButton", "PLAY",
-                                               new Vector2(0f, -118f), MenuInk, "Bold");
+                                               new Vector2(0f, -118f), MenuInk, "Bold", rightAligned: true);
             Localize(playButton, "menu.play", "  ");
             Button cycleSelectButton = MakeMenuButton(menuGO.transform, "CycleSelectButton",
-                                                      "CYCLE SELECT", new Vector2(0f, -206f), MenuInk, "Bold");
+                                                      "CYCLE SELECT", new Vector2(0f, -206f), MenuInk, "Bold", rightAligned: true);
             Localize(cycleSelectButton, "menu.cycleSelect", "  ");
             // THE LAST RUN'S BILL, IN THE BOTTOM-RIGHT CORNER rather than in the column.
             //
@@ -547,13 +569,13 @@ namespace IterationRoom.EditorTools
             //
             // QUIT moves up into the gap rather than leaving a hole in the column.
             Button settingsButton = MakeMenuButton(menuGO.transform, "SettingsButton",
-                                                   "SETTINGS", new Vector2(0f, -294f), MenuInk, "Bold");
+                                                   "SETTINGS", new Vector2(0f, -294f), MenuInk, "Bold", rightAligned: true);
             Localize(settingsButton, "menu.settings", "  ");
             // -382 AGAIN, now that CREDITS has left the column for the bottom-right corner. It was
             // slid to -470 to make room for it; the column's pitch is 88 throughout and this closes
             // the gap rather than leaving a hole where a button used to be.
             Button quitButton = MakeMenuButton(menuGO.transform, "QuitButton", "QUIT",
-                                               new Vector2(0f, -382f), MenuInk, "Bold");
+                                               new Vector2(0f, -382f), MenuInk, "Bold", rightAligned: true);
 
             // THE CYCLE PICKER, on a page of its own over the same background. A title screen that
             // grows a row every time the game grows a cycle stops being a title screen.
@@ -1475,6 +1497,11 @@ namespace IterationRoom.EditorTools
         // A zero-sized rect pinned to the left edge fixes it for good: its own centre IS that point,
         // so children written at `x = 0` sit exactly on the button column's edge at every aspect,
         // and every x below reads as "how far in from the edge" rather than as a screen coordinate.
+        // How far in from the right edge the title screen's column and its title both sit. One
+        // number, so the two cannot drift apart - which is the whole reason `MenuLeftMargin` exists
+        // for the other pages.
+        private const float MenuRightMargin = 130f;
+
         private static Transform MakeLeftColumn(Transform parent, string name)
         {
             GameObject go = new GameObject(name);
@@ -1528,9 +1555,18 @@ namespace IterationRoom.EditorTools
             return button;
         }
 
+        // **`rightAligned` REBUILDS THE ROW AGAINST THE OTHER EDGE** (2026-09-03, by request, from a
+        // reference screenshot in `docs/`). The title screen's column now hangs off the RIGHT margin
+        // with the words set flush to it, which is the arrangement the reference uses and the reason
+        // it works: the picture - the room, the drawing, the empty middle - gets the whole frame, and
+        // the interface is a narrow strip of type at the edge of it rather than a block sitting on
+        // top of the image.
+        //
+        // It is a flag rather than a second builder because everything else about a row is unchanged,
+        // and two builders is how the pause menu's rows and the title screen's stop looking alike.
         private static Button MakeMenuButton(Transform parent, string name, string label,
                                              Vector2 anchoredPosition, Color? ink = null,
-                                             string weight = null)
+                                             string weight = null, bool rightAligned = false)
         {
             GameObject go = new GameObject(name);
             go.transform.SetParent(parent, false);
@@ -1539,12 +1575,14 @@ namespace IterationRoom.EditorTools
             // every call site and is ADDED to the margin, so the column lines up with the title
             // without every call having to know where the edge is.
             RectTransform rect = go.AddComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0f, 0.5f);
-            rect.anchorMax = new Vector2(0f, 0.5f);
-            rect.pivot = new Vector2(0f, 0.5f);
-            rect.sizeDelta = new Vector2(340f, 60f);
-            rect.anchoredPosition = new Vector2(MenuLeftMargin + anchoredPosition.x + 6f,
-                                                anchoredPosition.y);
+            float edge = rightAligned ? 1f : 0f;
+            rect.anchorMin = new Vector2(edge, 0.5f);
+            rect.anchorMax = new Vector2(edge, 0.5f);
+            rect.pivot = new Vector2(edge, 0.5f);
+            rect.sizeDelta = new Vector2(rightAligned ? 460f : 340f, 60f);
+            rect.anchoredPosition = rightAligned
+                ? new Vector2(-MenuRightMargin + anchoredPosition.x, anchoredPosition.y)
+                : new Vector2(MenuLeftMargin + anchoredPosition.x + 6f, anchoredPosition.y);
 
             // White, with the dark look coming entirely from the ColorBlock below: a Button tints
             // its target graphic by multiplying, so a background that is already near-black has
@@ -1555,15 +1593,78 @@ namespace IterationRoom.EditorTools
             GameObject textGO = new GameObject("Label");
             textGO.transform.SetParent(go.transform, false);
             Text text = textGO.AddComponent<Text>();
-            text.font = weight != null ? UIFont(weight) : UIFont();
-            text.fontSize = 28;
+            // The resting face is LIGHT on a right-aligned row: `MenuRowHover` swaps it for the
+            // weight asked for here when the pointer arrives, so `weight` is the LIVE face rather
+            // than the only one. On a left-aligned row nothing swaps and it is simply the face.
+            Font liveFace = weight != null ? UIFont(weight) : UIFont();
+            Font restFace = rightAligned ? UIFont("Light") : liveFace;
+            text.font = restFace;
+            // Bigger on the right-hand column: it is the only thing on that half of the screen and
+            // has nothing to share the eye with, where a left-hung row sits under a title.
+            text.fontSize = rightAligned ? 34 : 28;
             // Left inside the plate too, so the words form one column down the edge rather than a
             // ragged one centred inside boxes of a single width.
-            text.alignment = TextAnchor.MiddleLeft;
+            text.alignment = rightAligned ? TextAnchor.MiddleRight : TextAnchor.MiddleLeft;
             text.color = ink ?? Color.red;
             text.text = "  " + label;
             text.raycastTarget = false;
             Stretch(text.GetComponent<RectTransform>());
+
+            // **THE ROW'S OWN HOVER**, on top of the plate the `ColorBlock` below still fades in.
+            // See `MenuRowHover` for what it does and why the step is as small as it is; everything
+            // here is the pieces it moves.
+            //
+            // The caret sits in the two spaces the label is already indented by, so it arrives in
+            // space that was always reserved for it rather than pushing the column about. The rule
+            // is drawn under the words at the position they step TO, because a rule that started
+            // under the resting text and then had the text slide off it would read as a mistake.
+            // **~~A CARET IN THE MARGIN~~ GONE, 2026-09-03.** It was built that morning, from a
+            // sketch that drew one, and the reference that arrived the same afternoon does not have
+            // one: the selected row there is carried entirely by ink, weight and a rule. A caret is
+            // a second marker doing the job those three already do, and on a right-aligned column it
+            // has to sit on the far side of the words from the edge they are hung on, which is the
+            // one place nothing else in this design is.
+            //
+            // The movement the caret was drawn to explain is kept - see `MenuRowHover.shift`.
+            GameObject ruleGO = new GameObject("HoverRule");
+            ruleGO.transform.SetParent(go.transform, false);
+            Image rule = ruleGO.AddComponent<Image>();
+            rule.color = new Color(text.color.r, text.color.g, text.color.b, 0f);
+            rule.raycastTarget = false;
+            RectTransform ruleRect = rule.GetComponent<RectTransform>();
+            ruleRect.anchorMin = new Vector2(edge, 0.5f);
+            ruleRect.anchorMax = new Vector2(edge, 0.5f);
+            // Grows from the edge the words are hung on, so it opens under them rather than toward
+            // them - a rule that grew the other way would arrive from the empty half of the screen.
+            ruleRect.pivot = new Vector2(edge, 0.5f);
+            ruleRect.sizeDelta = new Vector2(0f, 2f);
+            ruleRect.anchoredPosition = rightAligned
+                ? new Vector2(0f, -26f)
+                : new Vector2(26f, -20f);
+
+            MenuRowHover hover = go.AddComponent<MenuRowHover>();
+            hover.label = text.GetComponent<RectTransform>();
+            hover.underline = rule;
+            hover.underlineRect = ruleRect;
+            hover.ink = text;
+            hover.restFont = restFace;
+            hover.liveFont = liveFace;
+            if (ink.HasValue)
+            {
+                Color c = ink.Value;
+                // Pale at rest and full strength live. On a left-aligned row the two are the same,
+                // because those pages carry their state with the plate behind the words.
+                hover.restColor = rightAligned ? new Color(c.r, c.g, c.b, c.a * 0.42f) : c;
+                hover.liveColor = c;
+            }
+            // Right-aligned rows step OUTWARD, toward the edge they hang on. Same distance, and the
+            // same argument: small enough that the column still reads as a column.
+            hover.shift = rightAligned ? 10f : 10f;
+            // Sized off the label, so CYCLE SELECT gets a longer rule than PLAY and the mark reads
+            // as belonging to the word rather than as a fixed tick beside it. 0.6 x fontSize x
+            // length is the width estimate CLAUDE.md 3 already asks every fixed label to be checked
+            // against - the same sum, used here to fit something to the text instead of to fail it.
+            hover.underlineWidth = 0.6f * text.fontSize * label.Length;
 
             Button button = go.AddComponent<Button>();
             button.targetGraphic = background;
