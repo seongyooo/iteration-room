@@ -138,7 +138,20 @@ namespace IterationRoom.EditorTools
                 Debug.LogWarning("[SceneBuilder] No PaSubtitle in the scene - the PA will speak with "
                                + "no captions, so a player who does not read English gets nothing.");
             narration.subtitle = subtitle;
-            if (subtitle != null) subtitle.narration = narration;
+            if (subtitle != null)
+            {
+                subtitle.narration = narration;
+                // **AND THE LOOP, FOR ONE QUESTION ONLY: IS A MENU UP.** The subtitle key (M) is
+                // polled by the component itself, and a press captured by a rebinding row must not
+                // also toggle the thing that key currently does. Found the same way the subtitle
+                // itself is, and in the same scene, so it is not a reference the cycle split can
+                // null - `cross-scene-report.txt` is the check.
+                subtitle.loop = Object.FindFirstObjectByType<LoopManager>();
+                if (subtitle.loop == null)
+                    Debug.LogWarning("[SceneBuilder] The PA subtitle has no LoopManager, so its "
+                                   + "toggle key will fire while the pause menu is capturing a "
+                                   + "rebind. Harmless, but it means M cannot be rebound cleanly.");
+            }
 
             // Say so rather than shipping a silent PA. There is one folder now, so this is no longer
             // a translation warning - it is "the generator has never been run in this checkout", which

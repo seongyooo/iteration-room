@@ -154,6 +154,42 @@ namespace IterationRoom
             }
         }
 
+        // **WHETHER THE PA IS SUBTITLED**, and it is on by default in both languages.
+        //
+        // It used to be a fact about the LANGUAGE - drawn for a Korean player and withheld from an
+        // English one, on the reasoning that a subtitle exists because the audio is in a language
+        // the player did not pick. Play answered that (2026-09-03): the captions are worth having
+        // whichever language you read, because the PA is a tannoy in a large room and half of what
+        // it says arrives over an alarm. So it is a SETTING, and the language no longer decides it.
+        //
+        // Written through immediately, like `SavedCycle` and the key bindings and unlike the two
+        // sliders. A drag writes on every frame and each write is a storage flush on WebGL; this is
+        // one deliberate act, and the whole value of it is surviving a player who closes the tab.
+        private const string SubtitlesKey = "iteration.subtitles";
+        private static int subtitles = -1;          // -1 = not read from disk yet
+
+        public static bool Subtitles
+        {
+            get
+            {
+                if (subtitles < 0) subtitles = PlayerPrefs.GetInt(SubtitlesKey, 1);
+                return subtitles != 0;
+            }
+            set
+            {
+                int flag = value ? 1 : 0;
+                if (flag == subtitles) return;
+                subtitles = flag;
+                PlayerPrefs.SetInt(SubtitlesKey, flag);
+                PlayerPrefs.Save();
+                SubtitlesChanged?.Invoke();
+            }
+        }
+
+        // The settings page has a row and the game has a key, so either can move it while the other
+        // is on screen. Same shape as `Loc.Changed`, and for the same reason.
+        public static event System.Action SubtitlesChanged;
+
         private const string SavedCycleKey = "iteration.savedCycle";
         private static int savedCycle = -1;
 

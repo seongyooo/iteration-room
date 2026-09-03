@@ -444,17 +444,29 @@ namespace IterationRoom.EditorTools
             rect.sizeDelta = new Vector2(1180f, 110f);
             rect.anchoredPosition = new Vector2(0f, 90f);
 
-            // The plate, sized by the rect rather than by the text: a backing that grew and shrank with
-            // every line would draw the eye to the box instead of the words.
-            GameObject plateGO = new GameObject("Plate");
-            plateGO.transform.SetParent(root.transform, false);
-            Image plate = plateGO.AddComponent<Image>();
-            plate.color = new Color(0f, 0f, 0f, 0.62f);
-            RectTransform plateRect = plate.GetComponent<RectTransform>();
-            plateRect.anchorMin = Vector2.zero;
-            plateRect.anchorMax = Vector2.one;
-            plateRect.offsetMin = Vector2.zero;
-            plateRect.offsetMax = Vector2.zero;
+            // **~~THE PLATE~~ THERE IS NO PLATE ANY MORE** (2026-09-03, by request: *"can the
+            // subtitles be prettier, without hurting the game?"*).
+            //
+            // It was a 1180x110 rectangle at 62% black, fixed size, and it was the least integrated
+            // thing on the screen: this game is a WHITE building, and a hard black bar across the
+            // bottom of it is a piece of media-player furniture sitting in the shot. Worse, being
+            // fixed size it drew the same full-width bar for "Iteration nine." as for the longest
+            // line in the game.
+            //
+            // **THE QUESTION IT ANSWERED WAS REAL, THOUGH: WHITE TEXT ON A WHITE WALL IS INVISIBLE.**
+            // What a plate actually buys is contrast, and a plate is only one way to buy it - the
+            // wrong way here, because it is contrast for a RECTANGLE when what needs it is the
+            // GLYPHS. So the contrast moved onto the letters themselves, which is what film
+            // subtitling does and for exactly this reason: the same treatment has to survive a white
+            // room, a dark shaft and an open sky, and only a per-glyph one does.
+            //
+            // `Outline` emits four offset copies of the mesh (+-x, +-y) and `Shadow` one; together
+            // they wrap each letter in a dark rim and drop it a little off the wall behind it. Both
+            // honour `useGraphicAlpha`, so they fade with the `CanvasGroup` rather than hanging
+            // around after the text has gone.
+            //
+            // Cost: it quadruples this one label's vertex count. It is one line of text on a HUD
+            // that draws nothing else - see `ShadowBudget` for where this project actually spends.
 
             GameObject textGO = new GameObject("Line");
             textGO.transform.SetParent(root.transform, false);
@@ -464,9 +476,15 @@ namespace IterationRoom.EditorTools
             // to the ordinary face when it is not there, so an English build is unchanged.
             Font korean = KoreanUIFont();
             text.font = korean != null ? korean : UIFont();
-            text.fontSize = 28;
+            // 28 -> 30. It grew when the plate went: without a box around it the line has to hold
+            // the eye on its own, and it is no longer competing with a rectangle for attention.
+            text.fontSize = 30;
             text.alignment = TextAnchor.MiddleCenter;
-            text.color = Color.white;
+            // **NOT PURE WHITE.** A 255 line against a room whose walls measure about 235 is a
+            // brightness the eye reads as a light source rather than as type; slightly off white
+            // sits ON the picture instead of in front of it, and the rim below is what makes it
+            // legible rather than the raw value.
+            text.color = new Color(0.96f, 0.96f, 0.97f, 1f);
             // WRAPS, unlike every other label in this HUD. The longest line - "all cycles have been
             // destroyed, you will pay the price for destroying them" - is genuinely two lines wide at
             // this size, and a caption is the one place where a second line is correct rather than a
@@ -478,6 +496,23 @@ namespace IterationRoom.EditorTools
             textRect.anchorMax = Vector2.one;
             textRect.offsetMin = new Vector2(24f, 8f);
             textRect.offsetMax = new Vector2(-24f, -8f);
+
+            // THE RIM, AND THE DROP. Order matters only in that both are applied to the same mesh;
+            // the rim is tight and nearly opaque so it reads as an edge rather than as a glow, and
+            // the drop is soft and offset downward so the line sits ON the room rather than in it.
+            //
+            // 1.6 rather than a round 2: at 30pt a two-pixel rim starts to close the counters of
+            // 'e' and 'a' and the Hangul syllables suffer worse, because their strokes are packed
+            // into the same em. Checked against the longest line the PA has.
+            Outline rim = textGO.AddComponent<Outline>();
+            rim.effectColor = new Color(0.04f, 0.04f, 0.06f, 0.92f);
+            rim.effectDistance = new Vector2(1.6f, 1.6f);
+            rim.useGraphicAlpha = true;
+
+            Shadow drop = textGO.AddComponent<Shadow>();
+            drop.effectColor = new Color(0f, 0f, 0f, 0.45f);
+            drop.effectDistance = new Vector2(0f, -3f);
+            drop.useGraphicAlpha = true;
 
             PaSubtitle subtitle = root.AddComponent<PaSubtitle>();
             subtitle.group = group;
@@ -1398,12 +1433,23 @@ namespace IterationRoom.EditorTools
             PageLine(faceGO.transform, "Repeat1", "The cycle repeats until", Mathf.RoundToInt(u * 0.0334f), ink, u * (-0.182f * layoutScale - clipDrop), wide, "note.repeat1");
             PageLine(faceGO.transform, "Repeat2", "the objective is met.", Mathf.RoundToInt(u * 0.0334f), ink, u * (-0.227f * layoutScale - clipDrop), wide, "note.repeat2");
 
-            // **THE LINE THE WHOLE PAGE IS FOR.** It is the only thing in the game that says the loop
-            // is happening TO the player rather than merely happening, and it is the diegetic reason
-            // this notice exists in iteration 1 and never again: they did not keep it because they
-            // cannot.
+            // **THE LINES THE WHOLE PAGE IS FOR.** The only thing in the game that says the loop is
+            // happening TO the player rather than merely happening, and the diegetic reason this
+            // notice exists in iteration 1 and never again: they did not keep it because they cannot.
+            //
+            // **AND THE SECOND SENTENCE IS THE HALF THAT WAS MISSING** (2026-09-03, by request). The
+            // page said what the player loses and never what they keep, which reads as a threat and
+            // is not what this facility is doing. What survives an iteration is the WORK - the ghosts
+            // are the accumulation, and every room in the building is built on it. Saying so on the
+            // one page a player reads before they have seen a past self is the game stating its own
+            // rule once, in the facility's own register, and then never mentioning it again.
+            //
+            // Grey rather than ink, like the sentence it continues: this is the form's small print,
+            // not its instruction. The instruction is LEAVE THE ROOM, in black, four lines up.
             PageLine(faceGO.transform, "Forget1", "You will not remember", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.344f * layoutScale - clipDrop), wide, "note.forget1");
             PageLine(faceGO.transform, "Forget2", "reading this.", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.389f * layoutScale - clipDrop), wide, "note.forget2");
+            PageLine(faceGO.transform, "Accumulate1", "Your actions, however,", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.434f * layoutScale - clipDrop), wide, "note.accumulate1");
+            PageLine(faceGO.transform, "Accumulate2", "will accumulate.", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.479f * layoutScale - clipDrop), wide, "note.accumulate2");
 
             // --- the carryable ------------------------------------------------------------------
             // **BUILT IN THE ROOT'S OWN FRAME, NOT FROM A TRANSFORMED WORLD BOX.** `box` is a world
@@ -1448,8 +1494,6 @@ namespace IterationRoom.EditorTools
             item.icon = PageIcon();
             item.hintAnchor = anchor.transform;
             // It lies where it was put down rather than snapping back to the pose it was built in -
-            PageLine(faceGO.transform, "Accumulate1", "Your actions, however,", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.434f * layoutScale - clipDrop), wide, "note.accumulate1");
-            PageLine(faceGO.transform, "Accumulate2", "will accumulate.", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.479f * layoutScale - clipDrop), wide, "note.accumulate2");
             // the same flag the ladder needed. See `CarryableItem.keepsDropYaw`.
             item.keepsDropYaw = true;
             item.floorY = box.size.y / 2f;

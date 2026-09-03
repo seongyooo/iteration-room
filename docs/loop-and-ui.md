@@ -554,3 +554,54 @@ Every value in `EvaluationStandard` — the per-cycle baselines, the target seco
 comes from a population of one. They are set lenient because the evaluation gates nothing, so being
 generous costs nothing and being harsh costs a first-time player being told they were bad at a game
 they just spent an hour finishing. Retune when there are testers.
+
+---
+
+## The PA subtitle is a setting, and it lost its plate (2026-09-03)
+
+Two changes on one component, both by request after play.
+
+**It is no longer decided by the language.** For a day the caption was drawn for a Korean player and
+withheld from an English one, on the reasoning that a subtitle exists because the audio is in a
+language the player did not pick. That is the right argument about *translation* and the wrong one
+about *this* game: the PA is a tannoy in a large concrete room, it talks over an alarm for the last
+minute of every cycle, and the ending stacks fourteen lines over a moving cable car. Reading it is
+worth having whichever language you speak — which is what play reported.
+
+So the question moved from `Loc.Current` to `GameSettings.Subtitles`, on by default, reachable two
+ways: a row on the settings page and **M** in the game. Both write straight to disk, like the key
+bindings and unlike the two sliders, because it is one deliberate act rather than a drag.
+
+**The key is not gated on `AcceptsInput`, and that is the second verb that is not.** Half of what the
+PA says happens after the loop has stopped — the evaluation report, the transport line, the ride —
+all past `RunOver`. A caption key held to the loop's gate would be dead for the whole ending, which
+is the stretch with the most speech in the game and the likeliest place to want it off. It is gated
+on the pause menu instead, so a press captured by a rebinding row does not also toggle the thing that
+key currently does. CLAUDE.md §1.8 carries the rule and the two exceptions to it.
+
+**And there is no plate.** It was a 1180×110 rectangle at 62% black, fixed size — the least
+integrated thing on the screen, because this game is a *white* building and a hard black bar across
+the bottom of it is media-player furniture sitting in the shot. Being fixed size it also drew the
+same full-width bar for "Iteration nine." as for the longest line in the game.
+
+The question it answered was real: **white text on a white wall is invisible.** What a plate actually
+buys is contrast, and a plate is only one way to buy it — the wrong way here, because it is contrast
+for a *rectangle* when what needs it is the *glyphs*. The contrast moved onto the letters: an
+`Outline` (four offset copies, a tight dark rim) and a `Shadow` (one copy, dropped and soft). That is
+what film subtitling does, and for exactly this reason — one treatment has to survive a white room, a
+dark shaft and open sky, and only a per-glyph one does.
+
+Details that are not arbitrary:
+
+- **The rim is 1.6px, not 2.** At 30pt a two-pixel rim starts closing the counters of `e` and `a`,
+  and Hangul suffers worse because its strokes are packed into the same em.
+- **The text is 0.96 white, not 1.0.** The walls measure about 0.92; a pure-white line against them
+  reads as a light source rather than as type.
+- **Both effects set `useGraphicAlpha`**, so they fade with the `CanvasGroup` instead of hanging
+  around after the text has gone.
+- Cost is four extra quads per glyph on one label, on a HUD that draws almost nothing else.
+
+**A toast on the toggle, drawn past the setting's own gate.** Turning subtitles off is self-evident —
+the line on screen goes — but turning them *on* while the PA happens to be silent is a key press with
+no visible result, which reads as a key that does not work. `SUBTITLES ON` / `SUBTITLES OFF` is the
+answer to a press rather than a caption, which is why it ignores the setting it is reporting.

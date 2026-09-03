@@ -20,14 +20,23 @@ namespace IterationRoom
     // line as it fires the clip, so the two are one call and cannot drift apart. A line with no
     // subtitle key simply shows nothing rather than showing the key.
     //
-    // **AND IT IS OFF IN ENGLISH** (2026-09-02, by request). This is a SUBTITLE - it exists because
-    // the audio is in a language the player may not have picked, which is true for exactly one of
-    // the two. An English player was being handed a written copy of a sentence they had just heard
-    // in their own language, twice a minute, for the length of a run.
+    // **~~AND IT IS OFF IN ENGLISH~~ IT IS A SETTING, IN EVERY LANGUAGE** (2026-09-03, by request:
+    // *"the subtitles are much better to have; add English too"*).
+    //
+    // It was withheld from an English player for a day, on the reasoning that a subtitle exists
+    // because the audio is in a language the player did not pick. That is the right argument about
+    // TRANSLATION and the wrong one about this game: the PA is a tannoy in a large concrete room, it
+    // talks over an alarm for the last minute of every cycle, and the ending stacks fourteen lines
+    // over a moving cable car. Reading it is worth having whichever language you speak.
+    //
+    // So the question moved from `Loc.Current` to `GameSettings.Subtitles`, which is on by default
+    // and reachable two ways - a row on the settings page and a key in the game (`GameAction.
+    // Subtitles`, M). The key is here rather than in some HUD controller because this component is
+    // the one that owns whether a subtitle is drawn (CLAUDE.md 2: do not merge roles).
     //
     // The rule for a new line does not change: still `Caption("pa.<key>")` beside the clip, because
-    // the Korean player still needs it and a missing key is silent in both. What changed is only
-    // whether the finished text is drawn.
+    // a missing key is silent in every language. What changed is only whether the finished text is
+    // drawn.
     public class PaSubtitle : MonoBehaviour
     {
         public CanvasGroup group;
@@ -38,6 +47,15 @@ namespace IterationRoom
         // iterations, four minutes" is six clips and a gap - and a subtitle that vanished halfway
         // through the sentence it is subtitling would be worse than none.
         public NarrationDirector narration;
+
+        // **ONLY SO THE KEY CAN BE IGNORED WHILE A MENU IS UP.** Nothing else is asked of it. The
+        // pause menu is where a rebind is captured, and a player pressing M to put M on some other
+        // verb should not also toggle the thing M currently does.
+        //
+        // It is deliberately NOT `AcceptsInput`: half of what the PA says happens after the loop has
+        // stopped - the report, the transport line, the ride - and a subtitle key gated on the loop
+        // would be dead for the whole of the ending. See `GameInput.SubtitlesPressed`.
+        public LoopManager loop;
 
         public float fadeIn = 0.12f;
         public float fadeOut = 0.45f;
@@ -54,6 +72,9 @@ namespace IterationRoom
         // run. Long enough that only a fault reaches it.
         public float maximum = 20f;
 
+        // How long the confirmation stays up when the key is pressed - see `Toast`.
+        public float toastSeconds = 1.4f;
+
         private Coroutine showing;
 
         private void Awake()
@@ -61,19 +82,45 @@ namespace IterationRoom
             if (group != null) group.alpha = 0f;
         }
 
-        // The picker is on the title screen and in the pause menu, so a language CAN move while a
-        // line is on screen. Switching to English mid-sentence should take the sentence with it.
-        private void OnEnable() => Loc.Changed += OnLanguageChanged;
-        private void OnDisable() => Loc.Changed -= OnLanguageChanged;
+        // **THE KEY, POLLED HERE.** One press, one toggle, and the value goes to disk immediately
+        // (`GameSettings.Subtitles`) so it survives the tab being closed.
+        private void Update()
+        {
+            if (loop != null && loop.IsPaused) return;
+            if (!GameInput.SubtitlesPressed) return;
 
-        private void OnLanguageChanged()
+            bool now = !GameSettings.Subtitles;
+            GameSettings.Subtitles = now;
+            // **AND IT SAYS SO, WHICHEVER WAY IT WENT.** Turning them OFF is self-evident - the line
+            // on screen goes - but turning them ON while the PA happens to be silent is a key press
+            // with no visible result at all, which reads as a key that does not work. The
+            // confirmation is drawn past the `Wanted` gate for the same reason: it is the answer to
+            // a press, not a caption.
+            Toast(Loc.Get(now ? "hud.subtitlesOn" : "hud.subtitlesOff"));
+        }
+
+        // Both can move while a line is on screen: the language picker rewrites it, and the
+        // settings page can switch it off from under itself.
+        private void OnEnable()
+        {
+            Loc.Changed += OnSettingChanged;
+            GameSettings.SubtitlesChanged += OnSettingChanged;
+        }
+
+        private void OnDisable()
+        {
+            Loc.Changed -= OnSettingChanged;
+            GameSettings.SubtitlesChanged -= OnSettingChanged;
+        }
+
+        private void OnSettingChanged()
         {
             if (!Wanted) Clear();
         }
 
         // **WHETHER A SUBTITLE IS WANTED AT ALL** - see the note on the class. Asked per line rather
-        // than cached, because the answer changes with a setting and this is one comparison.
-        private static bool Wanted => Loc.Current != GameLanguage.English;
+        // than cached, because the answer changes with a setting and this is one field read.
+        private static bool Wanted => GameSettings.Subtitles;
 
         // **ON THE ENDING'S CLOCK, NOT `Time.deltaTime`.** Half of what the PA says happens after the
         // loop has stopped - the report, the transport line, the five on the way up in the cable car -
@@ -89,6 +136,28 @@ namespace IterationRoom
 
             if (showing != null) StopCoroutine(showing);
             showing = StartCoroutine(Run(text));
+        }
+
+        // **A LINE THAT IS NOT A CAPTION**, and the one thing on this component that ignores the
+        // setting: it is the confirmation that the setting just changed. Held for a fixed time
+        // instead of waiting on the announcer, because nobody is speaking.
+        private void Toast(string text)
+        {
+            if (label == null || group == null || string.IsNullOrEmpty(text)) return;
+            if (showing != null) StopCoroutine(showing);
+            showing = StartCoroutine(RunToast(text));
+        }
+
+        private IEnumerator RunToast(string text)
+        {
+            label.text = text;
+            yield return Fade(0f, 1f, fadeIn);
+
+            float t = 0f;
+            while (t < toastSeconds) { t += EndingClock.Delta; yield return null; }
+
+            yield return Fade(1f, 0f, fadeOut);
+            showing = null;
         }
 
         // Clears immediately, without a fade. For the loop boundary: the iteration line that was on

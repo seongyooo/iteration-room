@@ -127,6 +127,13 @@ namespace IterationRoom
         // costs the same space and tells you only what you would get NEXT, where two buttons show
         // both choices and which one is live. `SceneBuilder` leaves their labels untranslated on
         // purpose - see the note where it builds them.
+        // The subtitle row, in the same shape as the language row below it: two buttons, the live
+        // one lit and the other dimmed. See `ShowSubtitles`.
+        public Button subtitlesOnButton;
+        public Button subtitlesOffButton;
+        public Text subtitlesOnInk;
+        public Text subtitlesOffInk;
+
         public Button englishButton;
         public Button koreanButton;
         public Text englishInk;
@@ -215,6 +222,12 @@ namespace IterationRoom
                 sensitivitySlider.onValueChanged.AddListener(SetSensitivity);
             }
             ShowSensitivityValue();
+
+            if (subtitlesOnButton != null)
+                subtitlesOnButton.onClick.AddListener(() => SetSubtitles(true));
+            if (subtitlesOffButton != null)
+                subtitlesOffButton.onClick.AddListener(() => SetSubtitles(false));
+            ShowSubtitles();
 
             if (englishButton != null)
                 englishButton.onClick.AddListener(() => SetLanguage(GameLanguage.English));
@@ -402,6 +415,26 @@ namespace IterationRoom
             // in hundredths. Sensitivity keeps its decimals because a mouse multiplier is a ratio.
             if (volumeValue != null)
                 volumeValue.text = Mathf.RoundToInt(GameSettings.MasterVolume * 100f) + "%";
+        }
+
+        // Written straight through, like the bindings and unlike the sliders - see
+        // `GameSettings.Subtitles`. The key in the game can move it too, which is why the row is
+        // redrawn from the setting rather than from what was last clicked.
+        private void SetSubtitles(bool on)
+        {
+            GameSettings.Subtitles = on;
+            ShowSubtitles();
+        }
+
+        private void ShowSubtitles()
+        {
+            bool on = GameSettings.Subtitles;
+            if (subtitlesOnInk != null)
+                subtitlesOnInk.color = new Color(subtitlesOnInk.color.r, subtitlesOnInk.color.g,
+                                                 subtitlesOnInk.color.b, on ? 1f : 0.35f);
+            if (subtitlesOffInk != null)
+                subtitlesOffInk.color = new Color(subtitlesOffInk.color.r, subtitlesOffInk.color.g,
+                                                  subtitlesOffInk.color.b, on ? 0.35f : 1f);
         }
 
         private void SetLanguage(GameLanguage value)

@@ -711,12 +711,18 @@ namespace IterationRoom.EditorTools
                 new Vector2(300f, 330f), new Vector2(600f, 70f), TextAnchor.MiddleLeft, MenuInk,
                 "ExtraLight", 52), "menu.settings");
 
-            // THE THREE ROWS, evenly spaced, label on the edge and control at one indent. Language
+            // THE FOUR ROWS, evenly spaced, label on the edge and control at one indent. Language
             // first because it is the setting that rewrites every other label on the page, including
             // BACK - a player who has landed here by accident should reach it before reading anything.
+            // Subtitles second, directly under it: it is the other setting about words on screen, and
+            // the two are read together.
+            //
+            // The step went 55 -> 50 to fit the fourth without pushing CONTROLS into BACK; the
+            // bindings panel drops by `SettingsControlsDrop` to take up the rest.
             const float languageRowY = 240f;
-            const float volumeRowY = 185f;
-            const float sensitivityRowY = 130f;
+            const float subtitleRowY = 190f;
+            const float volumeRowY = 140f;
+            const float sensitivityRowY = 90f;
 
             MakeRowLabelInk(col, "LanguageLabel", "LANGUAGE",
                 new Vector2(SettingsLabelWidth / 2f, languageRowY),
@@ -735,6 +741,21 @@ namespace IterationRoom.EditorTools
             // it is the one label in the project that takes the Hangul face at build time.
             Font koreanFace = KoreanUIFont();
             if (koreanFace != null) koreanInk.font = koreanFace;
+
+            // **TWO BUTTONS, NOT A SLIDER OR A CHECKBOX.** It is the same shape as the language
+            // row directly above it - a pair of states, the live one lit and the other dimmed - and
+            // repeating that shape is what makes the top of this page read as one block of two
+            // choices rather than as four unrelated widgets. The key that also does this (M) is
+            // listed in CONTROLS below, where every other key is.
+            MakeRowLabelInk(col, "SubtitleLabel", "SUBTITLES",
+                new Vector2(SettingsLabelWidth / 2f, subtitleRowY),
+                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, MenuInk);
+            Button subtitlesOnButton = Localize(MakeSettingsButton(col, "SubtitlesOn", "ON",
+                new Vector2(SettingsControlX + 75f, subtitleRowY), new Vector2(150f, 30f),
+                out Text subtitlesOnInk), "set.on");
+            Button subtitlesOffButton = Localize(MakeSettingsButton(col, "SubtitlesOff", "OFF",
+                new Vector2(SettingsControlX + 240f, subtitleRowY), new Vector2(150f, 30f),
+                out Text subtitlesOffInk), "set.off");
 
             (Slider volumeSlider, Text volumeValue) =
                 MakeSettingsSliderRow(col, "Volume", "VOLUME", "set.volume", "80%", volumeRowY, MenuInk);
@@ -861,6 +882,10 @@ namespace IterationRoom.EditorTools
             mainMenu.settingsBackButton = settingsBack;
             mainMenu.settingsGroup = settingsGroup;
             mainMenu.sensitivitySlider = sensitivitySlider;
+            mainMenu.subtitlesOnButton = subtitlesOnButton;
+            mainMenu.subtitlesOffButton = subtitlesOffButton;
+            mainMenu.subtitlesOnInk = subtitlesOnInk;
+            mainMenu.subtitlesOffInk = subtitlesOffInk;
             mainMenu.englishButton = englishButton;
             mainMenu.koreanButton = koreanButton;
             mainMenu.englishInk = englishInk;
@@ -1309,7 +1334,10 @@ namespace IterationRoom.EditorTools
             rootRect.anchorMin = rootRect.anchorMax = new Vector2(0.5f, 0.5f);
             rootRect.pivot = new Vector2(0.5f, 0.5f);
             rootRect.sizeDelta = Vector2.zero;
-            rootRect.anchoredPosition = Vector2.zero;
+            // **DROPPED, TO PAY FOR THE FOURTH SETTINGS ROW.** Everything below is written relative
+            // to this origin, so moving the panel moves the heading, the hint and all twelve rows
+            // together and none of the numbers below had to change.
+            rootRect.anchoredPosition = new Vector2(0f, -SettingsControlsDrop);
 
             // A section heading one step below the page's own: Medium 26 against ExtraLight 52. The
             // title screen sets its hierarchy with size and weight and draws no rules or boxes
@@ -1376,6 +1404,11 @@ namespace IterationRoom.EditorTools
         // is over them, on the argument that the mark should be earned rather than five of them sitting
         // on screen. A key binding is a VALUE being displayed as well as a control, so it has to have a
         // plate around it whether or not anything is hovering it.
+        // How far the CONTROLS block drops to make room for the SUBTITLES row above it. The four
+        // settings rows end at y=90 and the bindings heading was at y=55; 40 puts it back to the
+        // same gap it had when there were three.
+        private const float SettingsControlsDrop = 40f;
+
         private static Button MakeSettingsButton(Transform parent, string name, string label,
                                                  Vector2 anchoredPosition, Vector2 size, out Text text)
         {

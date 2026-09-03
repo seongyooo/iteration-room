@@ -28,6 +28,7 @@ namespace IterationRoom
         Use,
         EndIteration,
         Pause,
+        Subtitles,
     }
 
     public static class InputBindings
@@ -41,7 +42,7 @@ namespace IterationRoom
             GameAction.Jump,        GameAction.Sprint,
             GameAction.Crouch,      GameAction.Interact,
             GameAction.Use,         GameAction.EndIteration,
-            GameAction.Pause,
+            GameAction.Pause,       GameAction.Subtitles,
         };
 
         // **MOUSE BUTTONS ARE KeyCodes TOO** (`Mouse0`..`Mouse6`), which is why the whole table is one
@@ -63,6 +64,7 @@ namespace IterationRoom
                 case GameAction.Use:          return KeyCode.Mouse0;
                 case GameAction.EndIteration: return KeyCode.N;
                 case GameAction.Pause:        return KeyCode.Escape;
+                case GameAction.Subtitles:    return KeyCode.M;
                 default:                      return KeyCode.None;
             }
         }
@@ -85,6 +87,7 @@ namespace IterationRoom
                 case GameAction.Use:          return "USE HELD ITEM";
                 case GameAction.EndIteration: return "END ITERATION";
                 case GameAction.Pause:        return "PAUSE";
+                case GameAction.Subtitles:    return "SUBTITLES";
                 default:                      return action.ToString().ToUpperInvariant();
             }
         }

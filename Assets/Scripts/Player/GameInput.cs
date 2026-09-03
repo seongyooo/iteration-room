@@ -212,6 +212,24 @@ namespace IterationRoom
             }
         }
 
+        // **NOT GATED ON `AcceptsInput`, AND IT IS THE SECOND VERB THAT IS NOT.** Pause is the
+        // other, for a different reason - see above.
+        //
+        // Half of what the PA says happens when the loop is not running: the evaluation report, the
+        // transport line, the fourteen lines on the way up in the cable car. All of that is past
+        // `RunOver`, so a subtitle key held to the loop's gate would be dead for the whole of the
+        // ending - which is the stretch with the most speech in the game and the likeliest place to
+        // want it off. A caller that wants it quiet while a menu is up asks about the menu; this
+        // answers only whether the key went down. `Suspended` still silences it, like every verb.
+        public static bool SubtitlesPressed
+        {
+            get
+            {
+                Pump();
+                return Pressed(GameAction.Subtitles);
+            }
+        }
+
         // THE LOOP'S OWN CONTROL, held rather than pressed - `EndCycleControl` charges while it is
         // down. It is here for the reason everything else is: it was the last verb still naming its
         // own key, on a serialised field that the bindings page had no way to reach.

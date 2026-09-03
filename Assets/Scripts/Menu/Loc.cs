@@ -65,6 +65,9 @@ namespace IterationRoom
             { "set.sensitivity",    "MOUSE SENSITIVITY" },
             { "set.language",       "LANGUAGE" },
             { "set.controls",       "CONTROLS" },
+            { "set.subtitles",      "SUBTITLES" },
+            { "set.on",             "ON" },
+            { "set.off",            "OFF" },
             { "set.bindHintIdle",   "CLICK A KEY TO CHANGE IT" },
             { "set.bindHintArmed",  "PRESS A KEY   ·   ESC TO CANCEL" },
             { "set.resetBindings",  "RESET TO DEFAULTS" },
@@ -81,6 +84,7 @@ namespace IterationRoom
             { "act.Use",            "USE HELD ITEM" },
             { "act.EndIteration",   "END ITERATION" },
             { "act.Pause",          "PAUSE" },
+            { "act.Subtitles",      "SUBTITLES" },
 
             // Pause overlay
             { "pause.title",        "P A U S E D" },
@@ -101,14 +105,16 @@ namespace IterationRoom
             { "note.repeat2",        "the objective is met." },
             { "note.forget1",        "You will not remember" },
             { "note.forget2",        "reading this." },
+            { "note.accumulate1",    "Your actions, however," },
+            { "note.accumulate2",    "will accumulate." },
             { "pause.restart",      "RESTART CYCLE" },
             { "pause.mainMenu",     "MAIN MENU" },
 
             // HUD. The bracketed key is deliberately NOT a substitution - the on-screen key names are
-            { "note.accumulate1",    "Your actions, however," },
-            { "note.accumulate2",    "will accumulate." },
             // still hard-coded (TODO.md), so only the words around them are translated here.
             { "hud.putDown",        "[E] — PUT DOWN" },
+            { "hud.subtitlesOn",    "SUBTITLES ON" },
+            { "hud.subtitlesOff",   "SUBTITLES OFF" },
             { "hud.endCycle",       "HOLD [N] — END CYCLE" },
 
             // Ending card
@@ -173,6 +179,9 @@ namespace IterationRoom
             { "set.sensitivity",    "마우스 감도" },
             { "set.language",       "언어" },
             { "set.controls",       "조작" },
+            { "set.subtitles",      "자막" },
+            { "set.on",             "켜기" },
+            { "set.off",            "끄기" },
             { "set.bindHintIdle",   "키를 눌러 바꾸려면 클릭하세요" },
             { "set.bindHintArmed",  "바꿀 키를 누르세요   ·   ESC 취소" },
             { "set.resetBindings",  "기본값으로 되돌리기" },
@@ -188,6 +197,7 @@ namespace IterationRoom
             { "act.Use",            "든 물건 사용" },
             { "act.EndIteration",   "반복 끝내기" },
             { "act.Pause",          "일시정지" },
+            { "act.Subtitles",      "자막" },
 
             { "pause.title",        "일 시 정 지" },
             { "pause.resume",       "계속하기" },
@@ -201,18 +211,20 @@ namespace IterationRoom
             { "note.repeat2",        "주기는 반복됩니다." },
             { "note.forget1",        "당신은 이 글을 읽은 것을" },
             { "note.forget2",        "기억하지 못합니다." },
+            { "note.accumulate1",    "대신에 당신의 행동은" },
+            { "note.accumulate2",    "누적될 것입니다." },
             { "pause.restart",      "사이클 다시 시작" },
             { "pause.mainMenu",     "메인 메뉴" },
 
             { "hud.putDown",        "[E] — 내려놓기" },
+            { "hud.subtitlesOn",    "자막 켜짐" },
+            { "hud.subtitlesOff",   "자막 꺼짐" },
             { "hud.endCycle",       "[N] 길게 — 사이클 종료" },
 
             { "end.title",          "사 이 클  파 괴" },
             { "end.clickContinue",  "클릭하면 계속" },
 
 
-            { "note.accumulate1",    "대신에 당신의 행동은" },
-            { "note.accumulate2",    "누적될 것입니다." },
             // THE PA, SUBTITLED - see the note in the English table. The audio stays English; this is
             // what the player reads under it.
             //
