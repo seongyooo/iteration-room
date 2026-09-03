@@ -119,15 +119,23 @@ to everything it plays, and what makes the siren feel like it is coming out of t
 `WallPanelDisplay.BeginAlarm` pulses on the same period, because a light that swells out of time with
 the sound reads as two unrelated things.
 
-## The voice stays Gwen, and seven alternatives were heard (2026-09-02)
+## The voice stays Gwen, and eight alternatives were heard (2026-09-02)
 
-Asked for something lower and calmer. Seven candidates were auditioned on two real lines
+Asked for something lower and calmer. Eight candidates were auditioned on two real lines
 ("Cycle terminated." and "Iteration one, sixty seconds remaining."), run through an offline copy of
 the tannoy chain, and **the current voice was kept** — Gwen, Warm/Alto/Professional, median F0
-184.5 Hz. The rejected set, by measured F0: Mona 175.0, Ivanna 173.6, Benjamin 121.2, Jamie 104.5,
-Stillwater 103.5, Steven 89.6, Adrian 84.5. The audition renders are written to
-`Build/VoiceAudition/` (git-ignored) by the script in this project's history; 448 characters of API
+184.5 Hz. The rejected set, by measured F0: Hope 188.5, Mona 175.0, Ivanna 173.6, Benjamin 121.2,
+Jamie 104.5, Stillwater 103.5, Steven 89.6, Adrian 84.5. The audition renders are written to
+`Build/VoiceAudition/` (git-ignored) by the script in this project's history; 504 characters of API
 credit, if it is ever worth redoing.
+
+**AND THE CHOICE WAS NOT MADE ON PITCH, WHICH IS THE MOST USEFUL THING HERE.** The request was for
+something lower; the candidates spanned 84.5 to 188.5 Hz, four of them a full octave below Gwen,
+and every one was turned down — including the two picked out by hand afterwards, which happened to
+sit within 5 Hz of Gwen either side. Whatever is being judged, F0 is not it, and a re-run that
+starts by sorting the library by depth will arrive back here. Try sorting by what the voice is FOR
+instead: Gwen's own record says warm/professional/calming, and the rejected `informative_educational`
+and IVR voices were the ones that sounded most like a machine reading a form.
 
 **What the exercise settled that a re-run should not have to rediscover:**
 
