@@ -532,6 +532,31 @@ namespace IterationRoom.EditorTools
         // that roughness there is no specular response at all and the room stops reflecting itself.
         private const float WallSmoothness = 0.85f;
 
+        // **AND HOW GLOSSY THE FLOOR IS, WHICH IS NOW HIGHER THAN THE WALL** (2026-09-03, by
+        // request: the title-screen mock-up has the room standing in its own floor).
+        //
+        // 0.65 was the settled value and it was settled for a reason that is still true - see the
+        // long note at its call site - but it was chosen to give the floor STRUCTURE, not to make it
+        // reflect. Those are different targets and 0.65 hits only the first. A reflection probe is
+        // sampled from a mip chosen by roughness, and at 0.65 the mip is blurred far enough that a
+        // white room averages to a flat white field: the floor was reflecting the room correctly and
+        // the room's reflection was a blank sheet. CLAUDE.md already records the same threshold for
+        // small metal objects - 0.85 is a wash, 0.97 resolves the ceiling fixtures as shapes.
+        //
+        // 0.9 is inside that band. The floor now returns the wall grid and the bed as recognisable
+        // vertical smears, which is the whole of what was asked for, and it stops short of the
+        // mirror 0.97 would give - a mirror floor would read as wet, and would also put a second,
+        // sharper copy of every light fixture on screen.
+        private const float FloorSmoothness = 0.9f;
+
+        // **AND THE GRAIN COMES BACK DOWN WITH IT, 0.6 -> 0.12.** These have moved together every
+        // time either has moved, and the reason is the one recorded at the call site: the floor's
+        // relief modulates its SPECULAR, so the sharper the reflection the more the grain shreds it.
+        // At 0.6 the room's reflection arrived as noise rather than as the room. 0.12 keeps the
+        // floor from being a perfectly uniform field - the fault 0 was raised off in the first
+        // place - while leaving the reflection legible.
+        private const float FloorBump = 0.12f;
+
         // Natural door proportions, deliberately NOT snapped to the grid - the panelling is cut
         // around it instead, so it reads as a doorway rather than a missing panel.
         private const float DoorWidth = 1.3f;
@@ -1019,6 +1044,11 @@ namespace IterationRoom.EditorTools
             Material panelMat = MakeColorMaterial("PanelWhite", PanelLitColor);
             Texture2D surfaceGrain = MakeNoiseNormalMap("SurfaceGrain", 512, 2.5f);
             ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), WallSmoothness);
+            // **BOTH NUMBERS NOW LIVE IN `FloorSmoothness` / `FloorBump`, AND BOTH HAVE MOVED
+            // AGAIN** (2026-09-03: 0.65 -> 0.9 and 0.6 -> 0.12, so the floor reflects the room).
+            // What follows is why they were 0.65 and 0.6, which is kept because every word of it is
+            // still the argument that has to be answered before either moves a third time.
+            //
             // SMOOTHNESS 0.65, UP FROM 0.3, and BUMP 0.6, DOWN FROM 1.8. Settled 2026-08-20. They are
             // one decision, not two, and the order they happened in is the whole lesson.
             //
@@ -1043,7 +1073,8 @@ namespace IterationRoom.EditorTools
             // WHAT TO WATCH IF EITHER MOVES AGAIN: specular is added on top of diffuse, so both of
             // these push the floor back toward the clipping that 0.85 albedo was chosen to stop. Judge
             // them standing under a fixture, not in the middle of the room.
-            ApplySurfaceDetail(floorMat, surfaceGrain, 0.6f, new Vector2(26f, 30f), 0.65f);
+            ApplySurfaceDetail(floorMat, surfaceGrain, FloorBump, new Vector2(26f, 30f),
+                               FloorSmoothness);
 
             (Transform root, Transform bedSpawn, ParticleSystem[] gas,
              Door[] doors, RoomCondition[] conditions,
@@ -1098,9 +1129,10 @@ namespace IterationRoom.EditorTools
             Camera defaultCam = Camera.main;
             if (defaultCam != null) Object.DestroyImmediate(defaultCam.gameObject);
 
-            // One material for both slabs. Floor and ceiling were split apart for a marble floor;
-            // that was dropped in favour of a plain white one, and with the two surfaces identical
-            // again the split was only duplication.
+            // **THE FLOOR ONLY.** The ceiling has had its own material since 2026-08-20
+            // (`CeilingMaterial`, smoothness 0.3) and the two are further apart than ever now that
+            // the floor is at `FloorSmoothness` - a glossy ceiling would hang a second copy of the
+            // room over the player's head, which is not what anybody asked for.
             // **0.85, NOT WHITE** - settled 2026-08-20, and the
             // reason it is not 1.0 is measurable rather than a matter of taste. Albedo 1.0 is a
             // surface that returns every photon that hits it; nothing does, fresh white paint is
@@ -1156,6 +1188,11 @@ namespace IterationRoom.EditorTools
             // Floor and ceiling: plain white, matte, with the same plaster grain the walls get -
             // just at a far higher repeat count, since a slab face is 9 x 10.9m against a wall
             // panel's 1.7 x 0.9m.
+            // **BOTH NUMBERS NOW LIVE IN `FloorSmoothness` / `FloorBump`, AND BOTH HAVE MOVED
+            // AGAIN** (2026-09-03: 0.65 -> 0.9 and 0.6 -> 0.12, so the floor reflects the room).
+            // What follows is why they were 0.65 and 0.6, which is kept because every word of it is
+            // still the argument that has to be answered before either moves a third time.
+            //
             // SMOOTHNESS 0.65, UP FROM 0.3, and BUMP 0.6, DOWN FROM 1.8. Settled 2026-08-20. They are
             // one decision, not two, and the order they happened in is the whole lesson.
             //
@@ -1180,7 +1217,8 @@ namespace IterationRoom.EditorTools
             // WHAT TO WATCH IF EITHER MOVES AGAIN: specular is added on top of diffuse, so both of
             // these push the floor back toward the clipping that 0.85 albedo was chosen to stop. Judge
             // them standing under a fixture, not in the middle of the room.
-            ApplySurfaceDetail(floorMat, surfaceGrain, 0.6f, new Vector2(26f, 30f), 0.65f);
+            ApplySurfaceDetail(floorMat, surfaceGrain, FloorBump, new Vector2(26f, 30f),
+                               FloorSmoothness);
 
             GameObject room = new GameObject("Room");
             BuildShell(room.transform, floorMat, grooveMat, panelMat);
