@@ -267,6 +267,24 @@ namespace IterationRoom
                     continue;
                 }
 
+                // **CLEARED, AND WITHOUT THIS THE ROOM NEVER COMES OUT OF ERROR.**
+                //
+                // `Block` is one `MaterialPropertyBlock` reused for every panel of every frame, and
+                // nothing emptied it. `PaintScreen` writes `_BaseMap` into it - the test card, the
+                // static - and this branch only ever wrote COLOURS over the top, so the texture from
+                // the last panel that failed stayed in the block and was applied to every panel that
+                // had not. The breaking branch above is immune because it calls `GetPropertyBlock`
+                // first, which overwrites the whole block from the renderer; this one did not.
+                //
+                // Play found it as room1-1 still wearing ERROR after the fall (2026-09-03) - twice,
+                // because the first fix was aimed at whether `ClearBreak` was CALLED. It was called
+                // every time. It cleared `convertAt`, repainted the colours, and handed every panel
+                // back the same test card, because the block it painted with still had one in it.
+                //
+                // An override that is not set here has to be ABSENT rather than stale, so the panel
+                // falls back to its material - which is the only way "not broken" can be expressed.
+                b.Clear();
+
                 float f = panelFade > 0f
                     ? Mathf.Clamp01((powered - onsets[i]) / panelFade)
                     : (powered >= onsets[i] ? 1f : 0f);
