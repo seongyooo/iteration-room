@@ -251,11 +251,15 @@ namespace IterationRoom
 
             yield return Blank();
             narration?.AnnounceTotalResult(iterations, seconds);
+            // **THE SAME ORDER THE CYCLE ROWS USE** (2026-09-03). This waited for the whole
+            // announcement and printed afterwards, so the wall sat blank for the four seconds the PA
+            // spent reading the total out - the one figure the player most wants in front of them
+            // while it is being said. Printed with the voice now, like every row above it.
+            yield return Line(Row("TOTAL", $"{iterations,3}   {RunReport.FormatClock(seconds)}"));
             yield return WaitForVoice();
             // The column heading arrives AFTER the rows it describes, which is the wrong way round
             // on paper and the right way round here: the rows are printed one at a time and the
             // reader has already worked out what the two numbers are by the time this confirms it.
-            yield return Line(Row("TOTAL", $"{iterations,3}   {RunReport.FormatClock(seconds)}"));
             yield return Line(Row(string.Empty, "ITER  TIME"));
 
             yield return Wait(beforeVerdict);
