@@ -167,6 +167,37 @@ namespace IterationRoom
         public AudioClip arriveClip;
         public AudioClip doorClip;
         public AudioClip departClip;
+
+        // **THE CAR DOES NOT REACH THE TOP** (2026-09-03, by request). It sways further and further
+        // as it climbs, and then it drops, with the player in it. See `Sway` and `Fall`.
+        //
+        // The sway is a ROLL ABOUT THE DIRECTION OF TRAVEL, which is what a gondola on a rope does -
+        // it is hung from one point above its centre of mass, so the only thing it can do freely is
+        // swing side to side. Growing amplitude rather than constant: a car that wobbles the same
+        // amount for a minute reads as an idle animation, and one that wobbles more every ten
+        // seconds reads as something coming loose.
+        public float swayDegrees = 16f;
+        // Swings per second. Slow - a loaded cabin on 200m of rope has a long period, and a fast
+        // wobble reads as a physics glitch rather than as mass.
+        public float swayRate = 0.28f;
+        // Where it starts being visible. Nothing for the first third: the ride has to feel like it
+        // is working before it stops working.
+        public float swayFrom = 0.30f;
+
+        // Where the climb ends. Sized so the PA finishes first - the fourteen ride lines are 54.0s
+        // of audio in a 68s climb - because a voice cut off mid-word reads as a bug, and a voice
+        // that finishes its sentence and THEN lets go does not. Check both if either changes.
+        public float fallAt = 0.92f;
+        public float fallSeconds = 2.8f;
+        // Real gravity. The drop is the one moment in this game that is allowed to be violent, and
+        // an eased one would read as the car being lowered.
+        public float fallGravity = 9.81f;
+        // How much harder it swings on the way down, as a multiple of `swayDegrees`.
+        public float fallSwayGain = 2.5f;
+        public AudioClip impactClip;
+
+        // True once the car has let go. `EndingDeparture` waits on the ride and then on this.
+        public bool Fell { get; private set; }
         // The hum, looped under the whole ride and faded up as the car takes the load.
         public AudioSource motor;
 
@@ -318,16 +349,85 @@ namespace IterationRoom
                 // flank.
                 float turn = Mathf.SmoothStep(0f, 1f,
                     Mathf.InverseLerp(bend - turnSpan * 0.5f, bend + turnSpan * 0.5f, Progress));
-                car.rotation = Quaternion.Slerp(docked, docked * Quaternion.Euler(0f, travelYaw, 0f),
-                                                turn);
+                Quaternion aimed = Quaternion.Slerp(docked, docked * Quaternion.Euler(0f, travelYaw, 0f),
+                                                    turn);
+                car.rotation = Sway(aimed, t, Mathf.InverseLerp(swayFrom, 1f, Progress));
                 if (motor != null) motor.volume = Mathf.Clamp01(raw * 8f) * (1f - Mathf.Clamp01((raw - 0.9f) * 10f));
                 CarryPlayer();
                 yield return null;
+
+                // **AND IT LETS GO BEFORE THE TOP.** Everything above this is the ride working; the
+                // loop simply stops running it. `Progress` is left where it stopped rather than
+                // being driven to 1, because it is what `EndingDeparture` paces the narration off
+                // and the last thing that should happen is a line firing at a car that is falling.
+                if (Progress >= fallAt)
+                {
+                    yield return Fall(car.rotation, t);
+                    yield break;
+                }
             }
 
             Progress = 1f;
             car.position = PathPoint(1f);
             CarryPlayer();
+        }
+
+        // A ROLL ABOUT THE DIRECTION OF TRAVEL, which is the only thing a cabin hung from one point
+        // above its centre of mass can do freely.
+        //
+        // The axis is MEASURED off the path rather than taken from the model - the doors already
+        // cost a day to the assumption that a local axis means what its name says, and the car is
+        // rotated inside its own root. Two points on the path an instant apart is the travel
+        // direction whatever the model thinks.
+        //
+        // Amplitude grows with `k` squared: linear growth reads as a fader being pushed, the same
+        // trap `pull_in`'s riser and `LoopManager`'s collapse ramp both document.
+        private Quaternion Sway(Quaternion aimed, float t, float k)
+        {
+            k = Mathf.Clamp01(k);
+            if (k <= 0f) return aimed;
+
+            Vector3 ahead = PathPoint(Mathf.Min(1f, Progress + 0.01f));
+            Vector3 along = ahead - car.position;
+            if (along.sqrMagnitude < 0.0001f) along = car.forward;
+
+            float roll = Mathf.Sin(t * swayRate * Mathf.PI * 2f) * swayDegrees * k * k;
+            return Quaternion.AngleAxis(roll, along.normalized) * aimed;
+        }
+
+        // **THE DROP.** Real gravity, no easing: this is the one moment in the game allowed to be
+        // violent, and an eased fall reads as the car being lowered rather than released.
+        //
+        // The sway keeps running and gets worse, off the same clock, so the swing that was building
+        // through the climb is visibly what came loose rather than a separate animation starting.
+        // `CarryPlayer` is called exactly as it is during the ride, so the player goes down inside
+        // the cabin without anything special being done to them - the cage is already around them.
+        private IEnumerator Fall(Quaternion held, float t)
+        {
+            Fell = true;
+            if (motor != null) motor.volume = 0f;
+
+            Vector3 along = car.up;                 // the rope's direction at the moment it let go
+            float vy = 0f;
+            float elapsed = 0f;
+            while (elapsed < fallSeconds)
+            {
+                float dt = EndingClock.Delta;
+                elapsed += dt;
+                t += dt;
+
+                vy -= fallGravity * dt;
+                car.position += Vector3.up * (vy * dt);
+
+                float roll = Mathf.Sin(t * swayRate * Mathf.PI * 2f)
+                           * swayDegrees * fallSwayGain * Mathf.Clamp01(elapsed / fallSeconds);
+                car.rotation = Quaternion.AngleAxis(roll, along) * held;
+
+                CarryPlayer();
+                yield return null;
+            }
+
+            if (audioSource != null && impactClip != null) audioSource.PlayOneShot(impactClip);
         }
 
         // **THE CABIN TAKES THE PLAYER WITH IT, AND THEY KEEP THEIR FEET.**

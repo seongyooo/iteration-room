@@ -890,6 +890,51 @@ def cable_car_depart():
     return fade_edges(normalize(soft_clip(base, drive=1.1), peak=0.86))
 
 
+def cable_car_impact():
+    """The car hitting the bottom, with the player in it.
+
+    The loudest thing in the game and the last thing it says, so it is built as three separate
+    events rather than one bang - a single burst reads as a door slam however loud it is:
+
+    1. **THE HIT.** Sub that drops fast, and a broadband crack on top of it. The crack is what
+       carries the distance: an impact you hear from inside the object is bright.
+    2. **THE STRUCTURE FAILING**, for about a second after. Metal does not stop when it lands - it
+       keeps tearing, and that is a band of noise that decays much more slowly than the hit.
+    3. **THE DEBRIS**, three loose taps at uneven spacing. Even spacing reads as a machine.
+
+    It does NOT ring out into silence. The clip is cut short deliberately: the player blacks out,
+    and a tail that outlived the screen going dark would be the sound of a room they are no longer
+    in."""
+    rng = random.Random(5501)
+    base = silence(2.2)
+
+    # 1. The hit.
+    n = int(0.55 * SR)
+    sub = [0.0] * n
+    ph = 0.0
+    for i in range(n):
+        f = 92.0 - 62.0 * (i / n) ** 0.5
+        ph += 2.0 * math.pi * f / SR
+        sub[i] = math.sin(ph)
+    sub = apply_env(sub, env_decay(n, tau=0.13, attack=0.001))
+    crack = highpass(noise(0.22, rng), 900.0)
+    crack = apply_env(crack, env_decay(len(crack), tau=0.020, attack=0.0004))
+    base = at(base, mix(scale(sub, 0.95), scale(crack, 0.55)), 0.0)
+
+    # 2. The structure giving way. Slow decay, and band-limited so it is metal rather than surf.
+    tear = bandpass(noise(1.3, rng), 700.0, q=0.8)
+    tear = apply_env(tear, env_decay(len(tear), tau=0.42, attack=0.02))
+    base = at(base, scale(tear, 0.30), 0.05)
+
+    # 3. Debris, unevenly spaced.
+    for when, level in ((0.62, 0.5), (0.83, 0.34), (1.19, 0.22)):
+        tap = bandpass(noise(0.09, rng), 1500.0, q=1.3)
+        tap = apply_env(tap, env_decay(len(tap), tau=0.016, attack=0.0005))
+        base = at(base, scale(tap, level), when)
+
+    return fade_edges(normalize(soft_clip(base, drive=1.35), peak=0.94))
+
+
 def main():
     print("Writing SFX to", os.path.normpath(OUT))
     # Three footfalls, deliberately uneven: no two real steps weigh the same, and the variation is
@@ -907,6 +952,8 @@ def main():
     # The cable car leaving. Not `sfx_pull_in`, which is the loop TAKING you - see the
     # docstring for why the difference is the whole point.
     write("sfx_cable_car_depart", cable_car_depart())
+    # And the car hitting the bottom. Cut short on purpose - see the docstring.
+    write("sfx_cable_car_impact", cable_car_impact())
     write("sfx_power_down", power_down())
     # Room3-2N's alarm. Looped by FacilityFailure, so it has to wrap without a seam - see
     # `alarm_siren` on why it is a whole number of wails long.

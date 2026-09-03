@@ -745,6 +745,9 @@ namespace IterationRoom.EditorTools
             // mechanical noise in the set. This is the one moment in the game where something
             // carries the player OUT, and it should not sound like the thing it is escaping.
             car.departClip = LoadClip(SfxDir, "sfx_cable_car_depart");
+            // And the bottom. Its own sound for the same reason the departure has one: this is
+            // the loudest thing in the game and the last thing it says.
+            car.impactClip = LoadClip(SfxDir, "sfx_cable_car_impact");
 
             // **THE TWO CONSTANTS THE PATH WAS BUILT FROM, CHECKED AGAINST THE MODEL THAT ACTUALLY
             // LOADED.** `CarHalfWidth` decides where the car docks and `CarHalfDepth` decides how
