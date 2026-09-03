@@ -120,15 +120,22 @@ namespace IterationRoom.EditorTools
         // Clear of the panelling by more than the chamfer is deep, so the type never z-fights the
         // wall it is printed on.
         private const float WallStandoff = 0.12f;
-        // 12m of a 17.5m wall, and 12 of the 21m ones. Big enough to read on landing, with margin
-        // either side so it reads as printed ON the wall rather than as filling it.
-        private const float BoardWorldWidth = 12f;
+        // **IT FILLS THE WALL** (2026-09-03, by request). 12m of a 17.5m wall read as a notice
+        // pinned to the middle of it; 16.5m leaves a quarter-metre of panelling either side and
+        // reads as the wall BEING the readout, which is what a facility that prints on its own
+        // surfaces would do.
+        //
+        // Everything inside scales with it - `MakeWallFace` sets `localScale` from this over its
+        // 1600px authored width - so the type grows by the same 1.375x and none of the layout below
+        // has to move. The narrower pair of walls is the constraint: the other two are 21m and keep
+        // more margin, which is fine and is not worth a second constant.
+        private const float BoardWorldWidth = 16.5f;
         private const float BoardAuthoredWidth = 1500f;
-        // 1400px at the 12m/1500px this is authored to is 11.2m of wall.
+        // 1400px at the 16.5m/1600px this is authored to is 14.4m of a 16m wall.
         private const float BoardAuthoredHeight = 1400f;
-        // 38pt over 21 lines is ~840px of body text - see where the rect is sized. It is 0.30m of
-        // glyph on the wall, which is large type read from across a room rather than small type
-        // read from in front of it.
+        // 38pt over 21 lines is ~840px of body text - see where the rect is sized. At the 16.5m
+        // face that is 0.41m of glyph on the wall, up from 0.30m, which is type read from the far
+        // side of the room rather than from in front of it.
         private const int BoardBodyPt = 38;
         // Near-black on a white wall - the building's own palette, and the same contrast every other
         // piece of signage in it uses.
@@ -566,6 +573,7 @@ namespace IterationRoom.EditorTools
 
             car.doorLeft = SplitDoor(model.transform, "Left", "SC8_Door-L-");
             car.doorRight = SplitDoor(model.transform, "Right", "SC8_Door-R-");
+            CloseTheDoorsAtRest(model.transform, car);
 
             // AND TURNED SO THE DOORWAY FACES THE ROOM. See `CabinDoorYaw`, which is authored
             // rather than derived and says at length why.
@@ -972,6 +980,70 @@ namespace IterationRoom.EditorTools
         // under one pivot and the pivot is what slides. Returns null if the model does not carry the
         // names - a car whose doors do not move is a car with a permanently open doorway, which is
         // survivable, and a null reference at runtime is not.
+        // **THE MODEL IS AUTHORED WITH ITS DOORS OPEN, AND THEY SLIDE ALONG Z** (2026-09-03).
+        //
+        // Both facts were wrong in this project until the leaves could be measured, and they could
+        // not be measured until the prefab unpack above let `SplitDoor` actually collect them - the
+        // pivots were empty, so `MeasuredBounds` was reporting the bounds of nothing. The note that
+        // used to sit on `doorwayWalls` reasoned from those numbers: "an identical offset of
+        // (0.08, -2.05, 0.00) ... the horizontal signal is 0.08 in a hull 1.74 wide, which is
+        // noise." It was not noise, it was an empty transform.
+        //
+        // Measured properly the leaves sit at z = +0.78 and z = -0.70 either side of the cabin's
+        // centre line and both hang off its -X face. So: the doorway faces -X, the leaves part
+        // along Z, and the pose the model ships in is OPEN.
+        //
+        // `doorOpenOffset` was `(0, 0.62, 0)` - straight up. One leaf sank and the other rose, which
+        // is what play saw as the car's doors detaching and floating beside it.
+        //
+        // What this does is put them SHUT at rest and derive the travel from the model rather than
+        // from a number typed here: each leaf moves until its inner edge meets the centre plane, so
+        // "shut" is the two of them touching whatever the leaves measure. The car then arrives shut,
+        // opens to the pose the artist authored, and shuts again before it leaves.
+        private static void CloseTheDoorsAtRest(Transform model, CableCarRide car)
+        {
+            if (car.doorLeft == null || car.doorRight == null) return;
+
+            Bounds lb = MeasuredBounds(car.doorLeft.gameObject);
+            Bounds rb = MeasuredBounds(car.doorRight.gameObject);
+
+            // **THE AXIS IS MEASURED, NOT NAMED.** The first attempt asked for the leaves' local Z
+            // and got 1.10 for both, because the model is rotated to stand upright inside its root
+            // (`2.39 x 2.11 x 4.2` as imported, `2.39 x 4.2 x 2.11` stood up) - so the direction
+            // they part along is a world axis that is none of the model's own. Taking the line
+            // between the two centres and pulling it back into local space needs no assumption
+            // about which way anything faces.
+            Vector3 apart = lb.center - rb.center;
+            float span = apart.magnitude;
+            float scale = Mathf.Abs(model.lossyScale.x);
+            if (span < 0.001f || scale < 0.0001f) return;
+
+            Vector3 axis = apart / span;
+            // Half-extent of an axis-aligned box along an arbitrary direction.
+            float lHalf = Mathf.Abs(lb.extents.x * axis.x) + Mathf.Abs(lb.extents.y * axis.y)
+                        + Mathf.Abs(lb.extents.z * axis.z);
+            float rHalf = Mathf.Abs(rb.extents.x * axis.x) + Mathf.Abs(rb.extents.y * axis.y)
+                        + Mathf.Abs(rb.extents.z * axis.z);
+
+            // The gap between the two inner edges, shared between them. Never negative: leaves that
+            // already overlap are already shut, and asking them to travel would open them backwards.
+            float gap = span - lHalf - rHalf;
+            float travel = Mathf.Max(0f, gap * 0.5f) / scale;
+
+            // Toward each other, in the frame `localPosition` is actually written in.
+            Vector3 toCentre = model.InverseTransformDirection(axis) * travel;
+            car.doorLeft.localPosition = -toCentre;
+            car.doorRight.localPosition = toCentre;
+            // `Doors` opens with `shut - offset` on the left and `shut + offset` on the right, and
+            // the open pose is the model's own, which is local zero.
+            car.doorOpenOffset = -toCentre;
+
+            Debug.Log($"[SceneBuilder] Cable car doors: leaves {span:0.00}m apart along "
+                    + $"{axis.ToString("0.00")}, half-widths {lHalf:0.00}/{rHalf:0.00}, gap "
+                    + $"{gap:0.00}m -> each travels {travel:0.00}m in local units. Built SHUT; the "
+                    + "model's own pose is OPEN.");
+        }
+
         private static Transform SplitDoor(Transform model, string side, string prefix)
         {
             var parts = new List<Transform>();
