@@ -219,6 +219,25 @@ namespace IterationRoom
         // collision skirt reaching back toward the room that has nothing to do with what the cabin
         // would strike.
         public Vector3 fallHalfExtents = new Vector3(1.2f, 2.1f, 1.06f);
+
+        // **AND WHERE THAT BOX SITS, WHICH IS NOT ON THE PIVOT. THIS WAS THE PASS-THROUGH.**
+        //
+        // `BuildCableCar` recentres the model so the cabin's FLOOR is at the car's pivot - a vehicle
+        // the player stands in wants its floor where the seat is. The cabin therefore occupies
+        // `pivot` to `pivot + height`, and nothing of it is below the pivot at all.
+        //
+        // `Strike` was testing a box CENTRED on the pivot, which put it from `pivot - 2.1` to
+        // `pivot + 2.1`: half of it in empty air under the car, and the top half of the cabin - the
+        // half you are looking out of - outside the test entirely. On screen the cabin went through
+        // a structure while the box that was supposed to stop it had already passed underneath.
+        //
+        // Play reported it three times as the car falling through rooms, and three fixes were aimed
+        // at WHICH structures the car was told about (the corridor, the shaft, the clamp) while the
+        // set was right the whole time and the box was in the wrong place. Every one of those fixes
+        // measured something and every measurement agreed, because none of them was measuring this.
+        //
+        // Half the cabin's height, up. Authored by the build off the model that actually loaded.
+        public float fallCentreOffset = 2.1f;
         // How much of the speed survives a bounce. Low: this is a steel box hitting concrete, not a
         // ball, and a lively one reads as comedy at the exact moment the game stops being funny.
         public float fallRestitution = 0.32f;
@@ -252,7 +271,11 @@ namespace IterationRoom
         // CLAMP is the guarantee: the car physically cannot leave the radius the build cleared, so
         // the only structures it can ever reach are the ones it was told about. Without the clamp
         // the damping is a hope; without the damping the clamp is a wall the car slides down.
-        public float fallDrag = 1.6f;              // per second, exponential
+        // **BACK TO 0.7** (2026-09-03, by request: the falling motion and the impacts were better
+        // before). It went to 1.6 chasing a pass-through that turned out to be the collision box
+        // sitting 2.1m below the cabin - see `fallCentreOffset` - so the drag was never the fault
+        // and killing the drift only made the drop stiffer.
+        public float fallDrag = 0.7f;              // per second, exponential
         public Vector3 fallAxis;                   // the line it drops down, authored by the build
         public float fallShaftRadius = 10f;        // how far off that line it may ever get
 
@@ -623,7 +646,8 @@ namespace IterationRoom
         {
             if (fallObstacles == null || fallObstacles.Length == 0) return false;
 
-            Vector3 at = car.position;
+            // THE CABIN'S MIDDLE, not the car's pivot - see `fallCentreOffset`.
+            Vector3 at = car.position + Vector3.up * fallCentreOffset;
             for (int i = 0; i < fallObstacles.Length; i++)
             {
                 Bounds b = fallObstacles[i];
@@ -647,7 +671,7 @@ namespace IterationRoom
                 float sign = d[axis] >= 0f ? 1f : -1f;
 
                 at[axis] = b.center[axis] + sign * (b.extents[axis] + fallHalfExtents[axis]);
-                car.position = at;
+                car.position = at - Vector3.up * fallCentreOffset;
 
                 // Only if it was actually moving INTO that face. A box already resting against one
                 // must not be handed its own speed back every step.

@@ -336,6 +336,12 @@ namespace IterationRoom.EditorTools
             // The line it drops down and the cylinder it may not leave - see `FallClampRadius`.
             car.fallAxis = release;
             car.fallShaftRadius = FallClampRadius;
+            // **WHERE THE CABIN IS RELATIVE TO THE PIVOT.** The model was recentred so its floor is
+            // at the pivot (see `BuildCableCar`), so the box that decides what it strikes has to be
+            // lifted by half its height or it tests the air under the car. Read off the model that
+            // loaded rather than typed - `CableCarHeight` is what was ASKED for, and this is what
+            // arrived.
+            car.fallCentreOffset = car.cabinHeight / 2f;
             car.fallTimeout = CarFallSeconds * 4f;
 
             Debug.Log($"[SceneBuilder] The drop: released at y={release.y:0.#}, ground at "
@@ -1867,17 +1873,16 @@ namespace IterationRoom.EditorTools
         // `FallShaftRadius` of the line, so the nearest cell still standing has its centre at about
         // 19.4m and its near FACE at 19.4 less half its width. `CheckFallShaft` does that sum against
         // the real cell size at build time and fails if this number is not safely under it.
-        // **6, DOWN FROM 10** (2026-09-03). Play still had the cabin passing through structures
-        // after its first strike, and the build assertion below was passing - which means the car
-        // was reaching something the RACK SCAN does not measure. The building itself is 11.5m off
-        // this line and a 10m clamp plus a 1.2m cabin came within 30cm of its east face; the
-        // exterior shell and the cycle joins are in the same margin, and none of them is an
-        // obstacle the cabin was handed.
+        // **10. It went to 6 for one build and came back** (2026-09-03). The pass-through it was
+        // chasing was `CableCarRide.fallCentreOffset` - a collision box sitting 2.1m under the
+        // cabin - and squeezing the shaft neither fixed that nor could have. What it did do was make
+        // the drop stiff, which is what play said: *the falling motion and the impacts were better
+        // before*.
         //
-        // 6m is inside `FallStrikeRadius`, which is the radius the obstacles were chosen from - so
-        // the cabin now falls in the column those cells straddle rather than beside it. It meets
-        // more of them, not fewer, which is the other half of what was reported.
-        private const float FallClampRadius = 6f;
+        // The measured check below is what says 10 is safe: the nearest rack cell left standing and
+        // NOT handed over as an obstacle has its face 14.5m off the line, against 10 plus a 1.2m
+        // cabin.
+        private const float FallClampRadius = 10f;
         // Real gravity, on the build side, so the ground can be worked out from the drop. It is the
         // same number `CableCarRide.fallGravity` carries and it is authored onto it below.
         private const float CarFallGravity = 9.81f;
