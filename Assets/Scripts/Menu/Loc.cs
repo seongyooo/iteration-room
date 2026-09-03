@@ -105,6 +105,8 @@ namespace IterationRoom
             { "pause.mainMenu",     "MAIN MENU" },
 
             // HUD. The bracketed key is deliberately NOT a substitution - the on-screen key names are
+            { "note.accumulate1",    "Your actions, however," },
+            { "note.accumulate2",    "will accumulate." },
             // still hard-coded (TODO.md), so only the words around them are translated here.
             { "hud.putDown",        "[E] — PUT DOWN" },
             { "hud.endCycle",       "HOLD [N] — END CYCLE" },
@@ -209,6 +211,8 @@ namespace IterationRoom
             { "end.clickContinue",  "클릭하면 계속" },
 
 
+            { "note.accumulate1",    "대신에 당신의 행동은" },
+            { "note.accumulate2",    "누적될 것입니다." },
             // THE PA, SUBTITLED - see the note in the English table. The audio stays English; this is
             // what the player reads under it.
             //

@@ -1368,7 +1368,11 @@ namespace IterationRoom.EditorTools
             // and the authored block spans +0.437 to -0.414 counting each line's own height. 0.92
             // and 0.055 put it inside with room at both ends - checked by `PageLine`, which now
             // fails the build if a line leaves the paper.
-            const float layoutScale = 0.92f;
+            // **0.92 -> 0.85** (2026-09-03). The closing grey block went from two lines to four, and
+            // the block has to be scaled into the band rather than pushed at it: at 0.92 the last
+            // line sat at -0.496 of a page whose edge is -0.5, inside its own half-height. `PageLine`
+            // fails the build on exactly that, which is what it is for.
+            const float layoutScale = 0.85f;
             const float clipDrop = 0.055f;
 
             PageLine(faceGO.transform, "Header", "ITERATION PROGRAM", Mathf.RoundToInt(u * 0.0542f), ink, u * (0.396f * layoutScale - clipDrop), wide, "note.header");
@@ -1444,6 +1448,8 @@ namespace IterationRoom.EditorTools
             item.icon = PageIcon();
             item.hintAnchor = anchor.transform;
             // It lies where it was put down rather than snapping back to the pose it was built in -
+            PageLine(faceGO.transform, "Accumulate1", "Your actions, however,", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.434f * layoutScale - clipDrop), wide, "note.accumulate1");
+            PageLine(faceGO.transform, "Accumulate2", "will accumulate.", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.479f * layoutScale - clipDrop), wide, "note.accumulate2");
             // the same flag the ladder needed. See `CarryableItem.keepsDropYaw`.
             item.keepsDropYaw = true;
             item.floorY = box.size.y / 2f;
