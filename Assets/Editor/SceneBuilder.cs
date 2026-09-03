@@ -1682,6 +1682,31 @@ namespace IterationRoom.EditorTools
             join34.transform.position =
                 new Vector3(CycleFourX, CycleFourFloorY + StoreyDrop, CycleFourZ - CycleExitZ);
 
+            // **UNDER CYCLE 3, SO IT IS IN CYCLE 3'S SCENE** (2026-09-03).
+            //
+            // This sat at the top of the core scene, and play kept reporting a hard-edged white
+            // rectangle in the middle of room3-2N's floor. That is this lid, and the reason is that
+            // **A SURFACE HAS TO BE BAKED IN THE SAME SCENE AS THE GEOMETRY THAT LIGHTS IT.**
+            // Lightmapping is per scene: `BakeLighting` bakes `Cycle3` with room3-2N's walls, floor
+            // and ceiling in it, and the lid was not there to receive any of that. It was also not
+            // baked at all - `IterationRoom` has no ProbeVolume, so the bake refuses it outright -
+            // but giving the core scene one would not have helped, because a bake of the core scene
+            // contains no room: the lid would come out lit as a slab floating in an empty world,
+            // wrong in a different way.
+            //
+            // **THE COST, WHICH IS REAL AND IS NOT PAID TODAY.** It now sleeps with cycle 3. This lid
+            // is room3-2N's FLOOR and also room4-1's CEILING, so if cycle 4 is ever made playable
+            // (`Cycle.playable`) the room below loses its ceiling the moment cycle 3 is put to
+            // sleep. Cycle 4 is built and not played, and the lid's job as CLAUDE.md states it is
+            // the floor - keeping the walk to the cable car off an open pit - so cycle 3 is the
+            // right owner now. Whoever turns cycle 4 on has to look here.
+            //
+            // `SetParent` keeps the world position, and the two cross-scene references this creates
+            // are already rebound at runtime: `CycleBinding` sets `exit.player` and
+            // `finalRoom.wayOut`. `finalRoom` is in this scene too, so that one stops crossing a
+            // boundary at all.
+            join34.transform.SetParent(cycleThreeRoot, true);
+
             CycleExit cycleThreeExit = BuildRoomSizedExit(join34.transform, floorMat, fpc.transform);
             if (cycleThree != null && cycleThree.finalRoom != null)
                 cycleThree.finalRoom.wayOut = cycleThreeExit;
