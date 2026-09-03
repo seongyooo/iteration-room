@@ -219,11 +219,30 @@ namespace IterationRoom
 
         private float ProbeUnder(Vector3 at)
         {
-            Vector3 from = at + Vector3.up * 0.05f;
-            int count = Physics.RaycastNonAlloc(from, Vector3.down, floorHits, floorProbe, ~0,
+            // **STARTED WELL ABOVE THE RELEASE, NOT 5cm OVER IT** (2026-09-03).
+            //
+            // A `Physics.Raycast` that begins INSIDE a collider does not hit it - it leaves through
+            // the far side and reports nothing - so a probe started at the release point is blind to
+            // anything the release point is already within. Standing ON the bed and letting go put
+            // the drop point inside the mattress box, the bed was therefore invisible to this cast,
+            // and the object fell past it to the room floor and came to rest UNDER the bed, where it
+            // could not be picked up again. Play reported exactly that.
+            //
+            // Lifting the origin cannot be the whole fix, because a probe from two metres up will
+            // happily find a surface ABOVE the object and call it the floor. So the hits are sorted
+            // by what they are relative to the release: see `below` and `above` below.
+            Vector3 from = at + Vector3.up * ProbeLift;
+            int count = Physics.RaycastNonAlloc(from, Vector3.down, floorHits,
+                                                floorProbe + ProbeLift, ~0,
                                                 QueryTriggerInteraction.Ignore);
 
+            // The highest surface AT OR BELOW the release - the ordinary answer, and the one the
+            // 5cm probe used to give.
             float best = float.NegativeInfinity;
+            // And the lowest surface ABOVE it, which is the top of whatever the release point is
+            // inside. Only used when there is nothing below, because "inside the bed" has exactly
+            // one right answer and it is "on the bed".
+            float lid = float.PositiveInfinity;
             for (int i = 0; i < count; i++)
             {
                 RaycastHit hit = floorHits[i];
@@ -244,8 +263,20 @@ namespace IterationRoom
                 // Play reported it as blocks dropped from the third storey catching the deck on some
                 // iterations and not others, and as jumping while throwing "not registering".
                 if (hit.transform.root.CompareTag("Player")) continue;
-                if (hit.point.y > best) best = hit.point.y;
+
+                // A hair of tolerance, so a release exactly on a surface counts as being on it
+                // rather than inside it.
+                if (hit.point.y <= at.y + 0.02f)
+                {
+                    if (hit.point.y > best) best = hit.point.y;
+                }
+                else if (hit.point.y < lid) lid = hit.point.y;
             }
+
+            // Inside something, with nothing under it: put it on the lid. This is the bed, and it is
+            // also every future case of letting go while standing on top of a thing.
+            if (best <= float.NegativeInfinity && lid < float.PositiveInfinity)
+                return lid + item.floorY;
 
             // NOTHING UNDERNEATH MEANS KEEP FALLING, not settle where you are.
             //
@@ -261,6 +292,11 @@ namespace IterationRoom
             // self carried in there.
             return best > float.NegativeInfinity ? best + item.floorY : float.NegativeInfinity;
         }
+
+        // How far ABOVE the release the probe starts. Enough to clear anything the release point
+        // could be inside - the bed is the deepest at 0.69m - and no more, because everything above
+        // this height is a surface the object is deliberately allowed to fall past.
+        private const float ProbeLift = 1.5f;
 
         // How far down to look. Deep enough to find the bottom of the tree hall's pit, which is 26m
         // of shaft with a real floor at the end of it - at the 9m this started as, a drop into the pit
