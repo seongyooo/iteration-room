@@ -379,20 +379,23 @@ namespace IterationRoom
                 // `SetPowered(1)` rather than `PowerUp()`: the second runs a 1.4-second sweep on
                 // `Time.deltaTime`, and these rooms are revealed all at once behind a wall panel
                 // sliding aside. There is nobody in them to watch a boot sequence.
-                foreach (WallPanelDisplay panels in
-                         cycle.worldRoot.GetComponentsInChildren<WallPanelDisplay>(true))
+                // **THROUGH `Cycle.wallPanels`, NOT BY SEARCHING FOR IT.**
+                //
+                // This asked `worldRoot.GetComponentsInChildren<WallPanelDisplay>` and got nothing,
+                // every time, in every cycle - while the same loop found 93 backing slabs and 48
+                // fixtures under that very root. The component does not live there. CLAUDE.md 2 says
+                // so in as many words: anything per-cycle a system outside needs is NAMED on `Cycle`,
+                // never gathered by type at runtime. There was a `wallPanels` field waiting.
+                //
+                // It is also why this only ever failed on the test jump. A real playthrough breaks
+                // cycles 1 and 2 for real, and `FinalRoomSequence` reaches their panels through that
+                // same named reference - so the walls were already in ERROR and this pass had
+                // nothing to add. Jump straight to cycle 3 and nothing has broken them, which is
+                // exactly when the pass that cannot find them is the only thing that would have.
+                WallPanelDisplay panels = cycle.wallPanels;
+                if (panels != null)
                 {
-                    if (panels == null) continue;
-                    // **SHOWING ERROR, NOT SHOWING WHITE** (2026-09-03). This used to
-                    // `StopAllCoroutines` and `SetPowered(1)`, which lit the panels - and killed the
-                    // glitch routine that draws the test card, so every room the cable car climbs
-                    // past had its ERROR wiped on the way out. In a real run that threw away
-                    // something the player had earned; on the `Cycle 3 ending` test jump, cycles 1
-                    // and 2 were never broken in the first place and had nothing to throw away.
-                    // Both cases are the same fix, and it is the same fiction either way: by the
-                    // time anybody rides past these, they are broken.
-                    //
-                    // The flare stays at zero. That is the blow-out at the instant of breaking, and
+                    // The flare stays at zero: that is the blow-out at the instant of breaking, and
                     // these did not break just now.
                     panels.SetFlare(0f);
                     panels.SetPowered(1f);
