@@ -274,9 +274,11 @@ namespace IterationRoom.EditorTools
             // outside a wall nobody can see through until then.
             BuildCable(root.transform, path, car.cabinHeight * 0.98f);
             // The opening is wider than the car - see `BuildBreachBlockers`.
-            BuildBreachBlockers(roomNorth, BreachCutout());
+            GameObject departureGate;
+            departureGate = BuildBreachBlockers(roomNorth, BreachCutout());
 
             EndingDeparture departure = root.AddComponent<EndingDeparture>();
+            departure.breachGate = departureGate;
             // WHEN THE PLAYER COUNTS AS HAVING COME DOWN. Room3-2N's floor plus a body's height: the
             // room below is a storey and a half down from room3-0, so this line is unambiguous, and
             // it is taken off the room rather than typed as a world Y that a moved room would break.
@@ -898,7 +900,7 @@ namespace IterationRoom.EditorTools
         // is a metre and a half of open wall either side of the vehicle with a drop behind it. They
         // are colliders and nothing else: the player sees the shaft through the gaps, which is worth
         // having, and cannot step into it.
-        private static void BuildBreachBlockers(Transform roomNorth, Rect hole)
+        private static GameObject BuildBreachBlockers(Transform roomNorth, Rect hole)
         {
             const float bigWidth = 2f * RoomWidth;
 
@@ -921,6 +923,21 @@ namespace IterationRoom.EditorTools
             apron.AddComponent<BoxCollider>().size =
                 new Vector3(ApronReach, ApronThickness, hole.width);
 
+            // **AND NOTHING GOES OUT UNTIL THE CAR IS THERE** (2026-09-03, by request).
+            //
+            // The apron above is built with the scene and never moves, so from the moment the wall
+            // came apart there was an invisible floor leading out of it - and play walked out ahead
+            // of the car and ended up standing on the roof of it when it docked.
+            //
+            // A gate across the opening rather than removing the apron: taking the floor away would
+            // leave a doorway onto a sixteen-metre drop, which is worse than the thing being fixed.
+            // `EndingDeparture` switches this off once the car has finished arriving.
+            GameObject gate = new GameObject("BreachGate");
+            gate.transform.SetParent(roomNorth, false);
+            gate.transform.localPosition = new Vector3(bigWidth / 2f, hole.center.y, hole.center.x);
+            BoxCollider gateBox = gate.AddComponent<BoxCollider>();
+            gateBox.size = new Vector3(WallDepth, hole.height, hole.width);
+
             GameObject go = new GameObject("BreachBlockers");
             go.transform.SetParent(roomNorth, false);
             go.transform.localPosition = new Vector3(bigWidth / 2f, 0f, 0f);
@@ -932,7 +949,9 @@ namespace IterationRoom.EditorTools
             // leaving 1.8m of it against a cabin the player walks through 1.2m of.
             float inner = CarHalfDepth - 0.15f;
             float gap = hole.xMax - inner;
-            if (gap <= 0.05f) return;
+            // The gate is already built and is what the caller wants; the side blockers are the
+            // optional part.
+            if (gap <= 0.05f) return gate;
 
             foreach (int side in new[] { -1, 1 })
             {
@@ -946,6 +965,8 @@ namespace IterationRoom.EditorTools
                 // the wall used to be rather than a stride short of it.
                 box.size = new Vector3(WallDepth, hole.height, gap);
             }
+
+            return gate;
         }
 
         // **THE ROPE THE CAR HANGS ON**, drawn along the whole path.
@@ -1526,6 +1547,12 @@ namespace IterationRoom.EditorTools
         // through a gap rather than shaving a corner.
         private const float RideKeepOut = 5f;
 
+        // How far below the building the racks carry on, and how wide that column is. The fall is
+        // about 148m at real gravity; the radius is what fills the frame from inside a cabin going
+        // straight down, not the whole footprint - see where these are used.
+        private const float FallRackReach = 165f;
+        private const float FallRackRadius = 45f;
+
         // Shortest distance from a point to the ride's polyline. Segment by segment, because the
         // path bends and the nearest point is very often not a waypoint.
         private static float DistanceToPath(Vector3 p, Vector3[] path)
@@ -1625,9 +1652,23 @@ namespace IterationRoom.EditorTools
             int nz = Mathf.CeilToInt((shaft.size.z * 0.5f) / pitch.z);
             int ny = Mathf.CeilToInt((shaft.size.y * 0.5f) / pitch.y);
 
+            // **AND DOWN PAST THE BOTTOM, BECAUSE THE CAR FALLS PAST IT** (2026-09-03). The racks
+            // used to stop where the shaft did, and the shaft is sized to the building - so once the
+            // ride let go, everything below the building was open sky and the drop ended outside the
+            // map. `FallRackReach` is a little more than the 148m `CableCarRide.fallSeconds` buys at
+            // real gravity; check it if that number moves.
+            //
+            // **ONLY ROUND THE COLUMN THE CAR FALLS DOWN.** Extending the whole footprint that far
+            // is about 4,400 more cells and runs straight through `MaxCells` - and there is nothing
+            // to see out there anyway, because the player is inside a cabin dropping in a straight
+            // line. `FallRackRadius` is what is in frame on the way down.
+            int nyDown = ny + Mathf.CeilToInt(FallRackReach / pitch.y);
+            Vector3 fallColumn = path != null && path.Length > 0
+                ? path[path.Length - 1] : building.center;
+
             for (int ix = -nx; ix <= nx; ix++)
                 for (int iz = -nz; iz <= nz; iz++)
-                    for (int iy = -ny; iy <= ny; iy++)
+                    for (int iy = -nyDown; iy <= ny; iy++)
                     {
                         index++;
                         var at = origin + new Vector3(ix * pitch.x, iy * pitch.y, iz * pitch.z);
@@ -1651,6 +1692,13 @@ namespace IterationRoom.EditorTools
                         // cell's own half-diagonal plus `RideKeepOut`, so a cell is dropped when it
                         // could touch the car rather than when its centre is close - a few more
                         // gaps in a rack nobody counts, against a cabin passing through a wall.
+                        // Below the building, only the column the car drops through is filled.
+                        if (at.y < building.min.y)
+                        {
+                            Vector2 flat = new Vector2(at.x - fallColumn.x, at.z - fallColumn.z);
+                            if (flat.magnitude > FallRackRadius) continue;
+                        }
+
                         if (DistanceToPath(at, path) < box.extents.magnitude + RideKeepOut)
                         {
                             clearedForRide++;

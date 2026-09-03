@@ -936,41 +936,57 @@ def cable_car_impact():
 
 
 def cable_creak(seed, length=0.9):
-    """One swing of a loaded cabin against its hanger. The warning before the drop.
+    """Metal dragging on metal under load. The warning before the drop.
 
-    A creak is not a hiss, and that is the whole of getting it right: metal under load stick-slips,
-    so what you hear is a PITCHED tone that slides while the joint travels, not filtered noise. The
-    same argument `tap_turn`'s squeak makes, an octave lower and much longer - this is a two-tonne
-    cabin, not a spindle.
+    **THE FIRST VERSION WAS A SWEPT SINE AND IT SOUNDED LIKE A SYNTHESIZER**, which is what it was.
+    A creak is not a tone that slides. It is STICK-SLIP: the joint grips, the load builds, it lets go
+    a few hundred times a second, and each release is an impulse. What the ear calls "creak" is that
+    impulse TRAIN, and its pitch is the RATE of slipping rather than any oscillator - which is why a
+    real one is rough and a synthesised tone is not, however you sweep it.
 
-    Two partials a little apart so it beats rather than sitting still, swept down and then back up
-    across the swing: the hanger loads on the way out and unloads on the way back, and a creak that
-    only slides one way reads as a door.
+    So it is built the way it happens:
 
-    A grain of noise underneath keeps it from being a synth tone. Barely there - at the level where
-    taking it out is audible and hearing it on its own is not."""
+    1. **An impulse train**, spaced by the slip rate. The rate wanders - stick-slip is not a clock -
+       and drifts down and back up across the swing as the hanger loads and unloads.
+    2. **Through a resonant band**, which is the metal ringing after each release. That is what
+       gives it a note without any oscillator being involved.
+    3. **Uneven impulse strengths**, because a joint does not release the same amount twice. Even
+       ones read as a buzzer.
+
+    The rasp comes out of 1 and 3 together; 2 alone is the tone that was wrong the first time."""
     rng = random.Random(seed)
     n = int(length * SR)
 
-    out = [0.0] * n
-    ph1 = ph2 = 0.0
-    for i in range(n):
+    train = [0.0] * n
+    i = 0
+    t = 0.0
+    while i < n:
         k = i / n
-        # Down and back up, so the pitch turns over where the swing does.
-        bend = math.sin(k * math.pi)
-        f = 340.0 - 120.0 * bend
-        ph1 += 2.0 * math.pi * f / SR
-        ph2 += 2.0 * math.pi * (f * 1.017) / SR
-        # Stick-slip: the amplitude stutters rather than swelling smoothly.
-        grip = 0.82 + 0.18 * math.sin(k * math.pi * 2.0 * 7.0)
-        out[i] = (math.sin(ph1) + 0.62 * math.sin(ph2)) * grip
+        # Slips per second. Down and back up across the swing, and jittered every release so it
+        # never lands on a period the ear can lock onto.
+        rate = 190.0 - 70.0 * math.sin(k * math.pi)
+        rate *= 0.82 + 0.36 * rng.random()
+        step = max(1, int(SR / rate))
+        # A release is not a click - it is a short scrape. Two samples of opposite sign read as a
+        # tick; a handful of decaying ones read as something letting go.
+        amp = 0.45 + 0.55 * rng.random()
+        for j in range(min(6, n - i)):
+            train[i + j] += amp * math.exp(-j * 0.9) * (1.0 if j % 2 == 0 else -0.6)
+        i += step
+        t += step / SR
 
-    out = apply_env(out, env_ar(n, attack=0.10, release=0.55))
+    # The metal ringing after each release. Narrow, so it has a note; not so narrow that it becomes
+    # the oscillator this is trying not to be.
+    body = bandpass(train, 430.0, q=6.0)
+    edge = bandpass(train, 1750.0, q=4.0)
+    voiced = mix(scale(body, 1.0), scale(edge, 0.42))
+    voiced = apply_env(voiced, env_ar(n, attack=0.09, release=0.45))
 
-    grain = bandpass(noise(length, rng), 1900.0, q=1.1)
-    grain = apply_env(grain, env_ar(len(grain), attack=0.12, release=0.5))
+    # And the surface it is dragging on, well under everything.
+    grit = bandpass(noise(length, rng), 2600.0, q=0.9)
+    grit = apply_env(grit, env_ar(len(grit), attack=0.12, release=0.4))
 
-    return fade_edges(normalize(mix(scale(out, 0.5), scale(grain, 0.05)), peak=0.72))
+    return fade_edges(normalize(soft_clip(mix(voiced, scale(grit, 0.06)), drive=1.2), peak=0.74))
 
 
 def main():

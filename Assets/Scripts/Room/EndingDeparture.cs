@@ -42,6 +42,12 @@ namespace IterationRoom
         // See `CycleExit`'s header, which makes that argument for the hatch and it holds here.
         public CycleExit breach;
 
+        // The invisible wall across the breach, up from the moment the wall opens until the car has
+        // finished docking - see `SceneBuilder.BuildBreachBlockers`. Without it the apron under the
+        // opening is a floor leading out of a hole with no vehicle at the end of it, and play walked
+        // out and was standing on the car's roof when it arrived.
+        public GameObject breachGate;
+
         // **THE HOLE THE PLAYER CAME DOWN THROUGH, SHUT BEHIND THEM** (2026-09-01, by request).
         //
         // Room3-0 sits on top of room3-2N and the only way between them is the ladder shaft. The
@@ -202,6 +208,9 @@ namespace IterationRoom
 
             // 5. THE CAR, in through the hole it made.
             if (car != null) yield return car.Arrive();
+
+            // Docked. The way out is a way out now.
+            if (breachGate != null) breachGate.SetActive(false);
 
             // 6. BOARDING AND THE CLIMB, as one step - the car leaves the moment somebody is
             //    aboard. See `CableCarRide.BoardAndDepart`. The PA talks the whole way up. The building is already lit - see `FacilityExterior.LightTheOutside`,
