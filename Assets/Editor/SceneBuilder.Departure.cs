@@ -314,6 +314,9 @@ namespace IterationRoom.EditorTools
         // wheeled in. The wave is held out of this room for exactly that reason; see
         // `AssembleCycleThree`.
         private static EvaluationBoard BuildEvaluationBoard(Transform roomNorth, Transform player)
+            // AUTHORED, not left on the component's default (CLAUDE.md 2: values live here). The
+            // default was the parked depth, which is the overshoot `ShaftLidRise` exists to correct.
+            departure.shaftLidRise = ShaftLidRise;
         {
             const float bigWidth = 2f * RoomWidth;
             const float bigDepth = 2f * RoomDepth;
@@ -880,11 +883,20 @@ namespace IterationRoom.EditorTools
 
             Rect hole = LadderShaftHole(LadderShaftXZ.x - RoomZeroX, LadderShaftXZ.y - RoomZeroZ);
 
-            // Exactly the hole, less a hair at each edge so its sides never share a plane with the
-            // shaft's - CLAUDE.md 3: nothing may be exactly the size of the hole it sits in.
+            // **THE HOLE LESS 5mm A SIDE, AND DEEPER THAN THE FLOOR IT FILLS.** Both numbers are
+            // what stops the gap play reported (2026-09-03) - see `ShaftLidRise` for the arithmetic
+            // of the one that was actually wrong.
+            //
+            // The clearance was 2cm a side. It cannot be zero (CLAUDE.md 3: nothing may be exactly
+            // the size of the hole it sits in, and this one shares all four sides with the shaft),
+            // but a plug inside a hole leaves a slot that is a straight line into the room above,
+            // and how much of that slot is VISIBLE from below is set by its width against its depth.
+            // 5mm is nowhere near coplanar and is a quarter of the width; the thickness is what
+            // provides the depth.
             GameObject lid = Prim(PrimitiveType.Cube, "ShaftLid", roomZero,
                 new Vector3(hole.center.x, -ShaftLidPark, hole.center.y),
-                new Vector3(hole.width - 0.04f, WallThickness, hole.height - 0.04f),
+                new Vector3(hole.width - ShaftLidClearance, ShaftLidThickness,
+                            hole.height - ShaftLidClearance),
                 CeilingMaterial(), removeCollider: true);
 
             // **NOT DRAWN UNTIL IT MOVES** (2026-09-01, by request: it is visible where it waits).
@@ -895,8 +907,10 @@ namespace IterationRoom.EditorTools
             if (lidRenderer != null) lidRenderer.enabled = false;
 
             Debug.Log($"[SceneBuilder] Room3-0's shaft lid: {hole.width:0.##} x {hole.height:0.##}m "
-                    + $"parked {ShaftLidPark:0.##}m under its floor, rising into the hole once the "
-                    + "player is down in room3-2N.");
+                    + $"hole, {ShaftLidThickness:0.###}m thick, parked {ShaftLidPark:0.##}m under "
+                    + $"its floor and rising {ShaftLidRise:0.###}m to seal {ShaftLidRecess:0.###}m "
+                    + $"below it. Perimeter slot {slot * 1000f:0.#}mm wide by {depth * 1000f:0}mm "
+                    + $"deep = {Mathf.Atan2(slot, depth) * Mathf.Rad2Deg:0.0} deg of sightline.");
             return lid.transform;
         }
 
@@ -1009,6 +1023,12 @@ namespace IterationRoom.EditorTools
                 // A Unity cylinder is two units tall on its own Y, so half the length is the scale
                 // and the rotation is whatever takes +Y onto the leg.
                 leg.transform.rotation = Quaternion.FromToRotation(Vector3.up, (b - a).normalized);
+            // The residual, stated rather than claimed away: a 5mm slot 22cm deep is a 1.3 degree
+            // cone, against the 21.8 degrees it was, and from room3-2N's floor 16.2m below it
+            // subtends 0.018 degrees - a third of a pixel at 1080p. It is not zero and cannot be
+            // while the lid has to pass up through the shaft to get here.
+            float slot = ShaftLidClearance / 2f;
+            float depth = ShaftLidRecess + ShaftLidThickness;
                 leg.transform.localScale = new Vector3(CableThickness, length * 0.5f, CableThickness);
             }
         }
@@ -1021,6 +1041,29 @@ namespace IterationRoom.EditorTools
         //
         // Both facts were wrong in this project until the leaves could be measured, and they could
         // not be measured until the prefab unpack above let `SplitDoor` actually collect them - the
+        // **THE THREE NUMBERS THAT SHUT IT, AND THE RISE WAS THE BROKEN ONE.**
+        //
+        // The lid used to be `WallThickness` thick and rise the full `ShaftLidPark`, which put its
+        // CENTRE on room3-0's floor plane. Room3-0's floor slab runs from -WallThickness to 0
+        // (`BuildSlab` centres it at -WallThickness/2), so a lid centred at 0 stood 5cm proud of
+        // that floor with its underside 5cm ABOVE the slab's - a lid that had overshot the hole by
+        // half its own thickness and was plugging nothing but air.
+        //
+        // What play saw from room3-2N (2026-09-03) was the consequence: a 5cm-deep recess with a 2cm
+        // slot round all four sides, open on a 21.8 degree cone straight into a lit room. It read as
+        // a bright outline round the closed hatch, which is precisely what it was.
+        //
+        // It is stated as a RECESS off room3-0's floor now rather than as a distance travelled, so
+        // the stop is tied to the surface it has to be flush with and the travel is derived from it.
+        private const float ShaftLidThickness = 2f * WallThickness;
+        private const float ShaftLidClearance = 0.01f;   // total, i.e. 5mm each side
+        private const float ShaftLidRecess = 0.02f;      // top face, below room3-0's floor top
+
+        // Parked centre to sealed centre. Sealed centre is `ShaftLidRecess` plus half the lid's own
+        // thickness below room3-0's floor top, which is its local y zero.
+        private const float ShaftLidRise =
+            ShaftLidPark - (ShaftLidRecess + ShaftLidThickness / 2f);
+
         // pivots were empty, so `MeasuredBounds` was reporting the bounds of nothing. The note that
         // used to sit on `doorwayWalls` reasoned from those numbers: "an identical offset of
         // (0.08, -2.05, 0.00) ... the horizontal signal is 0.08 in a hull 1.74 wide, which is

@@ -1730,3 +1730,34 @@ authored number, `CabinDoorYaw`, with the offsets logged beside it so it can be 
 **And the better fix was to stop needing the answer.** The cabin's collision cage now opens on BOTH
 sides to be boarded and seals both the instant somebody is aboard, so which way the visible doorway
 points is a cosmetic question rather than one that decides whether the vehicle can be entered.
+
+---
+
+## A LID THAT TRAVELS ITS PARK DEPTH ARRIVES HALF ITS OWN THICKNESS TOO HIGH (2026-09-03)
+
+Room3-0's shaft lid was parked `ShaftLidPark` under that room's floor and raised by
+`ShaftLidPark`. Symmetrical, obvious, and wrong: a park depth is measured to the lid's **centre**,
+and the surface it has to end up flush with is a **face**.
+
+`BuildSlab` centres a floor at `-WallThickness / 2`, so room3-0's floor runs from `-0.1` to `0`. A
+lid `WallThickness` thick arriving with its centre at `0` therefore stood 5cm proud of that floor
+with its underside 5cm **above** the slab's — plugging nothing but air.
+
+What play saw from room3-2N, sixteen metres below, was the consequence rather than the cause: the
+2cm side clearance became a slot only 5cm deep, open on a **21.8° cone** straight into a lit room, so
+the sealed hatch wore a bright outline. It was reported as "the ceiling door's gap is still visible",
+which is a description of a gap and says nothing about a rise being half a thickness long.
+
+Stated as a **recess off the surface** now, with the travel derived from it — the stop is tied to the
+face it must be flush with, and `ShaftLidRise` is a `const` expression rather than a number typed
+twice. The lid is also `2 × WallThickness` thick and clears the hole by 5mm a side instead of 20,
+which takes the residual sightline to **1.3°** — 0.018° subtended from the floor below, a third of a
+pixel at 1080p.
+
+**It is not zero, and it cannot be**, because the lid has to pass up through the shaft to get there
+and so can never be wider than the hole it fills. A plug in a hole always leaves a slot; all that can
+be chosen is how narrow and how deep. Anything wanting a true seal has to arrive from a side the
+shaft does not constrain.
+
+**Check both halves of a "move it into place" number: what the distance is measured to, and what the
+destination is measured to.** They were a centre and a face here, and the two are not the same point.
