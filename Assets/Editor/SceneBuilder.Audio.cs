@@ -718,6 +718,14 @@ namespace IterationRoom.EditorTools
                 set.minuteLines[i] = LoadClip(dir, $"voice_report_minutes_{i:00}");
             }
 
+            // Sixty of them, indexed FROM ZERO - "0 seconds." is a real clip, said on an exact
+            // minute. See `NarrationDirector.PickFromZero`.
+            set.secondLines = new AudioClip[60];
+            for (int i = 0; i < 60; i++)
+            {
+                set.secondLines[i] = LoadClip(dir, $"voice_report_seconds_{i:00}");
+            }
+
             set.totalLine = LoadClip(dir, "voice_report_total");
 
             set.transportCalledLine = LoadClip(dir, "voice_transport_called");

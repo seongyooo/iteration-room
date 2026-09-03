@@ -256,9 +256,21 @@ def script():
     for n in range(1, REPORT_MAX + 1):
         lines.append((f"voice_report_iterations_{n:02d}",
                       f"{n} iteration," if n == 1 else f"{n} iterations,"))
+    # **MINUTES END IN A COMMA, BECAUSE SECONDS ALWAYS FOLLOW THEM** (2026-09-03, by request: the
+    # report counted whole minutes and the wall beside it did not). These used to end in a full stop
+    # and close the sentence; they are now the middle of one.
+    #
+    # There is no "zero minutes" clip and there is not going to be: under a minute the report says
+    # the seconds alone, which is the same rule a person reading a stopwatch uses. See
+    # `NarrationDirector.AnnounceCycleResult`.
     for n in range(1, REPORT_MAX + 1):
         lines.append((f"voice_report_minutes_{n:02d}",
-                      f"{n} minute." if n == 1 else f"{n} minutes."))
+                      f"{n} minute," if n == 1 else f"{n} minutes,"))
+    # And the seconds that close it. 0 to 59, and 0 is a real one: "four minutes, zero seconds" is
+    # what a readout says, and it only ever comes up on an exact minute.
+    for n in range(0, 60):
+        lines.append((f"voice_report_seconds_{n:02d}",
+                      f"{n} second." if n == 1 else f"{n} seconds."))
 
     # **THE ONE SPOKEN SENTENCE THE ENDING ADDS.** Said once the report has been read out, so a player
     # standing in a wrecked room with nothing to do knows something is coming and that waiting is the

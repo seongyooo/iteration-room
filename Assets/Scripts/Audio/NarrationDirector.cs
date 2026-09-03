@@ -57,6 +57,8 @@ namespace IterationRoom
             public AudioClip[] cycleLines;
             public AudioClip[] iterationCountLines;
             public AudioClip[] minuteLines;
+            // 0-59, indexed BY VALUE like the rest, and element 0 is real - see `ClockClips`.
+            public AudioClip[] secondLines;
 
             // "Total," - the same shape as a `cycleLines` entry, for the row that is not a cycle.
             public AudioClip totalLine;
@@ -367,8 +369,16 @@ namespace IterationRoom
         // figure it could not have known before the player produced it is the only kind of
         // announcement worth making here.
         //
-        // MINUTES ONLY, rounded. The wall carries the seconds; a PA that reads "four minutes and
-        // twenty seconds point six" is a PA nobody listens to the end of.
+        // **MINUTES AND SECONDS** (2026-09-03, by request). It used to round to whole minutes, on the
+        // argument that the wall carries the seconds and a PA reading "four minutes and twenty
+        // seconds point six" is one nobody listens to the end of. The first half of that was true
+        // and the second half was about the DECIMAL, which nothing here was ever going to say. A
+        // report that says "four minutes" when the board beside it says 4:23 reads as one of the two
+        // being wrong.
+        //
+        // **UNDER A MINUTE IT SAYS THE SECONDS ALONE** - no "zero minutes" - which is the rule a
+        // person reading a stopwatch uses. That is why there is no zero-minute clip and why the
+        // minute clips end in a comma: they are only ever the middle of the sentence.
         //
         // **~~PHRASED, AND THE CLIPS TRIMMED~~ BOTH REVERTED 2026-09-01, by request: it came out
         // WORSE.** Every clip carries about 0.12s of lead and 0.83s of tail from the synthesizer, so
@@ -384,33 +394,64 @@ namespace IterationRoom
         // would be the same sentence spoken at a gallop. `git log` has the code if it is ever wanted.
         public void AnnounceCycleResult(int cycle, int iterations, float seconds)
         {
-            int minutes = Mathf.Max(1, Mathf.RoundToInt(seconds / 60f));
+            Split(seconds, out int minutes, out int secs);
 
-            SpeakSequence(new List<AudioClip>
+            var clips = new List<AudioClip>
             {
                 Pick(Lines.cycleLines, cycle),
                 Pick(Lines.iterationCountLines, iterations),
-                Pick(Lines.minuteLines, minutes),
-            });
+            };
+            clips.AddRange(ClockClips(minutes, secs));
+            SpeakSequence(clips);
 
-            // The same figures the wall is printing, in the player's language. Rounded to minutes
-            // like the speech, not like the board - the board has room for the seconds and this does
-            // not, and a caption that disagreed with the voice over it would read as a mistake.
-            Caption("pa.cycleResult", cycle, iterations, minutes);
+            // The same figures the wall is printing, in the player's language, and now the same
+            // PRECISION as well - a caption that disagreed with the voice over it read as a mistake,
+            // and so did one that disagreed with the board beside it.
+            if (minutes > 0) Caption("pa.cycleResult", cycle, iterations, minutes, secs);
+            else Caption("pa.cycleResultSeconds", cycle, iterations, secs);
         }
 
         public void AnnounceTotalResult(int iterations, float seconds)
         {
-            int minutes = Mathf.Max(1, Mathf.RoundToInt(seconds / 60f));
+            Split(seconds, out int minutes, out int secs);
 
-            SpeakSequence(new List<AudioClip>
-            {
-                Lines.totalLine,
-                Pick(Lines.iterationCountLines, iterations),
-                Pick(Lines.minuteLines, minutes),
-            });
+            var clips = new List<AudioClip> { Lines.totalLine, Pick(Lines.iterationCountLines, iterations) };
+            clips.AddRange(ClockClips(minutes, secs));
+            SpeakSequence(clips);
 
-            Caption("pa.totalResult", iterations, minutes);
+            if (minutes > 0) Caption("pa.totalResult", iterations, minutes, secs);
+            else Caption("pa.totalResultSeconds", iterations, secs);
+        }
+
+        // **FLOOR, NOT ROUND, AND THE SAME ARITHMETIC THE BOARD USES.** `RunReport.FormatClock`
+        // floors, so rounding here would put "4 minutes 24 seconds" under a wall reading 4:23 for
+        // half of every second. The two are one readout and they must not disagree by a digit.
+        private static void Split(float seconds, out int minutes, out int secs)
+        {
+            int total = Mathf.Max(0, Mathf.FloorToInt(seconds));
+            minutes = total / 60;
+            secs = total % 60;
+        }
+
+        // The tail of the sentence: "four minutes, twenty-three seconds." - or just the seconds when
+        // there is no minute to say. Clamped by `Pick`, so an hour-long cycle says the highest
+        // minute it has a recording for rather than nothing at all.
+        private List<AudioClip> ClockClips(int minutes, int secs)
+        {
+            var clips = new List<AudioClip>();
+            if (minutes > 0) clips.Add(Pick(Lines.minuteLines, minutes));
+            clips.Add(PickFromZero(Lines.secondLines, secs));
+            return clips;
+        }
+
+        // The seconds are indexed FROM ZERO, unlike everything else here - `secondLines[0]` is
+        // "0 seconds." and is a real clip, said on an exact minute. `Pick` cannot serve them: it
+        // treats element 0 as unused padding, which is right for a count that starts at one and
+        // wrong for a remainder that starts at nought.
+        private static AudioClip PickFromZero(AudioClip[] clips, int value)
+        {
+            if (clips == null || clips.Length == 0) return null;
+            return clips[Mathf.Clamp(value, 0, clips.Length - 1)];
         }
 
         // One phrase by the number it names. **CLAMPED, NOT DROPPED**: a run past the highest
