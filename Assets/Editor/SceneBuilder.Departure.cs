@@ -1414,12 +1414,13 @@ namespace IterationRoom.EditorTools
             Debug.Log($"[SceneBuilder] Shaft roof at y={roofY:0.#}, with a {ShaftWellSpan}m well at "
                     + $"({exit.x:0.#}, {exit.z:0.#}) where the ride leaves. Everything else is closed.");
 
-            int cells = BuildCellGrid(root.transform, cycleRoots, building, shaft, cableX, cellMat);
+            int cells = BuildCellGrid(root.transform, cycleRoots, building, shaft, path, cellMat,
+                                      out int cleared);
             BuildGantries(root.transform, shaft, building, shellMat);
 
             Debug.Log($"[SceneBuilder] Exterior: shaft {shaft.size.x:0.#} x {shaft.size.y:0.#} x "
                     + $"{shaft.size.z:0.#}m round a building of {building.size.x:0.#} x "
-                    + $"{building.size.y:0.#} x {building.size.z:0.#}m, {cells} cells in the racks. "
+                    + $"{building.size.y:0.#} x {building.size.z:0.#}m, {cells} cells in the racks ({cleared} dropped to keep the ride's path clear). "
                     + "Roofed, bar the well the ride climbs out through.");
 
             return new[] { root };
@@ -1520,8 +1521,33 @@ namespace IterationRoom.EditorTools
         // **HELD OUT OF THE BUILDING BY TEST, not by a chosen offset.** Every candidate is checked
         // against the real bounds before it is built, so a room that moves cannot end up with a cell
         // block inside it - which is the failure this replaces.
+        // How much room the car is given either side of its own path, on top of the cell's reach.
+        // The cabin is 2.4 x 4.2 x 2.1m, so this is roughly two of it - enough that the ride passes
+        // through a gap rather than shaving a corner.
+        private const float RideKeepOut = 5f;
+
+        // Shortest distance from a point to the ride's polyline. Segment by segment, because the
+        // path bends and the nearest point is very often not a waypoint.
+        private static float DistanceToPath(Vector3 p, Vector3[] path)
+        {
+            if (path == null || path.Length == 0) return float.MaxValue;
+            if (path.Length == 1) return Vector3.Distance(p, path[0]);
+
+            float best = float.MaxValue;
+            for (int i = 0; i < path.Length - 1; i++)
+            {
+                Vector3 a = path[i], b = path[i + 1];
+                Vector3 ab = b - a;
+                float len = ab.sqrMagnitude;
+                float t = len > 0.0001f ? Mathf.Clamp01(Vector3.Dot(p - a, ab) / len) : 0f;
+                best = Mathf.Min(best, Vector3.Distance(p, a + ab * t));
+            }
+            return best;
+        }
+
         private static int BuildCellGrid(Transform parent, Transform[] cycleRoots, Bounds building,
-                                         Bounds shaft, float cableX, Material cellMat)
+                                         Bounds shaft, Vector3[] path, Material cellMat,
+                                         out int clearedForRide)
         {
             GameObject racks = new GameObject("CellRacks");
             racks.transform.SetParent(parent, false);
@@ -1593,6 +1619,7 @@ namespace IterationRoom.EditorTools
             // it and the two lattices were simply offset from each other. Started from the building's
             // centre and stepped outward, a cell sits where the NEXT ROOM ALONG would be, which is
             // the whole of what makes it read as one lattice rather than two.
+            clearedForRide = 0;
             Vector3 origin = building.center;
             int nx = Mathf.CeilToInt((shaft.size.x * 0.5f) / pitch.x);
             int nz = Mathf.CeilToInt((shaft.size.z * 0.5f) / pitch.z);
@@ -1611,9 +1638,24 @@ namespace IterationRoom.EditorTools
                         foreach (Bounds room in rooms)
                             if (room.Intersects(box)) { clash = true; break; }
                         if (clash) continue;
-                        // And not through the cable either: a cell in the way of the ride is a cell
-                        // the car flies into.
-                        if (Mathf.Abs(at.x - cableX) < cell.x * 1.5f) continue;
+                        // **AND NOT THROUGH THE RIDE.** A cell in the way is a cell the car flies
+                        // into, and play saw exactly that near the top of the climb.
+                        //
+                        // This used to be `Mathf.Abs(at.x - cableX) < cell.x * 1.5f` - one axis,
+                        // against one fixed X. The path has six waypoints and bends, so the higher
+                        // the car got the further it was from that X, and the test waved through
+                        // every cell it then flew into. The intent in the old comment was right; the
+                        // approximation was only ever true at the bottom.
+                        //
+                        // Measured against the polyline itself now. Conservative on purpose: the
+                        // cell's own half-diagonal plus `RideKeepOut`, so a cell is dropped when it
+                        // could touch the car rather than when its centre is close - a few more
+                        // gaps in a rack nobody counts, against a cabin passing through a wall.
+                        if (DistanceToPath(at, path) < box.extents.magnitude + RideKeepOut)
+                        {
+                            clearedForRide++;
+                            continue;
+                        }
                         if (built >= MaxCells)
                         {
                             capped = true;
