@@ -53,9 +53,15 @@ namespace IterationRoom
         // for the scenes to arrive.
         [System.NonSerialized] public Cycle[] cycles;
 
-        // How long the player has in room1-1 after the fall, before the card. Enough to stand up,
-        // turn round and understand where they are; not enough to go and try the door.
-        public float afterTheFall = 5f;
+        // How long the player has in room1-1 after the fall, before the card.
+        //
+        // **5 -> 10** (2026-09-03, by request). Five was enough to look around and not enough to
+        // ACT, and the whole point of this beat is that the room answers: the fixtures work, the
+        // clipboard can be picked up, the door is where it was. A player who has just been dropped
+        // two hundred metres needs a moment to stop being startled before any of that occurs to
+        // them, and the joke underneath - that the sixty seconds the PA just promised never start
+        // counting - takes a while to be noticed by someone who has watched that clock all game.
+        public float afterTheFall = 10f;
 
         // **THE BEAT BETWEEN THE IMPACT AND THE LIDS.** The landing needs somewhere to land: cut to
         // a blink on the same frame and the bang has nothing after it to be heard against. Held on
