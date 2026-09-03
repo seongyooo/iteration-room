@@ -440,35 +440,32 @@ def pad_tail(audio, text):
     return np.concatenate([audio, np.zeros(int(TAIL_SILENCE * TARGET_RATE), dtype=np.float32)])
 
 
-# **AND ONE CLIP CAME BACK IN THE WRONG REGISTER, WHICH IS A SYNTHESIS FAULT, NOT A PLAYBACK ONE.**
+# **A CLIP THAT COMES BACK IN THE WRONG REGISTER IS RE-TAKEN, NOT REPAIRED.**
 #
 # Play reported `voice_cycle_terminated` as read too fast AND pitched higher than everything else.
-# Measured: its median F0 is 250.6 Hz against 180 for the announcer's ordinary register - rank 2 of
-# 255, +4.6 semitones, and nearly SIX above the lines it is actually heard beside (`cycle_broken`
-# 165.8, `new_cycle` 162.1, `all_cycles_broken` 160.9). Every file is 22.05 kHz mono 16-bit and all
-# 255 `.meta` files are identical, so nothing about playback explains it.
+# Measured, its median F0 was 250.6 Hz against 180 for the announcer's ordinary register - rank 2 of
+# 255, and nearly SIX semitones above the lines it is heard beside. Every file is 22.05 kHz mono and
+# all 255 `.meta` files are identical, so nothing about playback explained it: the clip was
+# synthesised that way. It is systematic rather than a one-off - every clip is synthesised alone, so
+# a two-word line gives the model no context to settle into, and the eight next-highest clips in the
+# set are all `report_*` number fragments, which are the other short ones.
 #
-# **THE CAUSE IS THE CALL, AND IT IS SYSTEMATIC.** Every clip is synthesised alone, so a two-word
-# line gives the model no context to settle into - and the eight next-highest clips in the set are
-# all `report_*` number fragments, which are the other short ones. Short text reads high and quick.
+# **RESAMPLING IT WAS TRIED AND IS WRONG. IT MADE THE ANNOUNCER SOUND MALE.** Slowing a clip lowers
+# its pitch, which looked like one number fixing both complaints at once - but it lowers the
+# FORMANTS by the same ratio, and formants are what the ear reads as who is speaking, not F0. A
+# x1.39 correction moved them 39% down and turned an alto woman into a man. Play heard it
+# immediately. Correcting formants back would need PSOLA or a phase vocoder, which is a large amount
+# of signal processing to make a bad take usable.
 #
-# **SO THE CORRECTION IS A RESAMPLE, WHICH FIXES BOTH COMPLAINTS WITH ONE NUMBER.** Slowing the clip
-# lowers its pitch by the same ratio - a tape played slower - so "too fast" and "too high" are one
-# fault with one remedy. Pitch-shifting alone would fix the second and leave the first, and would
-# need formant correction to avoid sounding like a different person.
-#
-# **THE TARGET EXCLUDES THE `report_*` FRAGMENTS ON PURPOSE.** The whole set's median is 191.7 Hz,
-# but 203 of the 255 clips are short number fragments carrying the same defect, so they bias it
-# upward. The remaining 52 sit at 180.4, and the 31 iteration lines - the voice the player hears
-# most - independently agree at 180.7. That agreement is why 180 is the register and not a taste.
-#
-# **THE FACTOR IS MEASURED AT GENERATION TIME, NEVER WRITTEN DOWN.** A re-synthesis comes back at a
-# different pitch every time (`stability` is 0.75, not 1.0), so a hardcoded number would be wrong
-# the moment this clip is regenerated. Naming the clip is the decision; the arithmetic is not.
+# So the take is simply rejected and asked for again, the same way a missing beat already is - see
+# `synthesise_checked`. It costs seventeen characters an attempt.
 REGISTER_MATCHED = {"voice_cycle_terminated"}
 
-# Anything past this is a measurement gone wrong rather than a clip in the wrong register.
-REGISTER_MAX_STRETCH = 1.6
+# How far above the announcer's register a take may sit before it is asked for again. Two semitones
+# is about 12% in Hz, which is inside the spread the set already has; the take that prompted this
+# was nearly six.
+REGISTER_CEILING_SEMITONES = 2.0
+REGISTER_TRIES = 4
 
 
 def median_f0(audio, lo=70.0, hi=320.0):
@@ -495,102 +492,28 @@ def median_f0(audio, lo=70.0, hi=320.0):
     return float(np.median(found)) if found else float("nan")
 
 
-def stretch(audio, factor):
-    """Longer by `factor`, and lower by the same ratio - a tape played slower.
 
-    **BAND-LIMITED, NOT LINEARLY INTERPOLATED, AND THE DIFFERENCE IS AUDIBLE.** The first version of
-    this used `np.interp` on the theory that stretching only ever moves energy DOWN the spectrum, so
-    there is nothing to alias, and that the tannoy chain lowpasses at 3.4 kHz anyway. Both halves of
-    that were wrong. Aliasing is not the failure mode - RECONSTRUCTION ERROR is: linear interpolation
-    between two samples is a crude lowpass whose error grows with frequency, and it lands hardest on
-    the consonants. Measured on this clip, the 3-6 kHz band went from 0.43% of the total energy to
-    0.23% - half the band gone - and the error against a correct resample sat only 18.9 dB below the
-    signal. Play heard it immediately, as the last consonant of "terminated" smearing. And the
-    3.4 kHz lowpass is applied by Unity at RUNTIME; these WAVs are clean masters, and the error was
-    under the cutoff in any case.
+def announcer_register(out, names):
+    """The register the announcer actually reads in, measured off what is on disk.
 
-    Zero-padding the spectrum is exact band-limited interpolation (what `scipy.signal.resample`
-    does, without the dependency). It assumes the clip wraps around, which is free here: every clip
-    starts and ends in silence."""
-    n = int(round(len(audio) * factor))
-    if n <= 1 or n == len(audio):
-        return np.asarray(audio, dtype=np.float32)
-
-    spectrum = np.fft.rfft(np.asarray(audio, dtype=np.float64))
-    out = np.zeros(n // 2 + 1, dtype=complex)
-    keep = min(len(spectrum), len(out))
-    out[:keep] = spectrum[:keep]
-    # The source's Nyquist bin becomes an ordinary bin once there is room above it; left at full
-    # value it is counted twice on the way back and rings by half a sample.
-    if keep == len(spectrum) < len(out):
-        out[keep - 1] *= 0.5
-    return (np.fft.irfft(out, n) * (n / len(audio))).astype(np.float32)
-
-
-def match_register(out, names):
-    """Pull the clips in `REGISTER_MATCHED` back to the announcer's own register - see the note
-    above. Reads what is on DISK, like `normalise`, so an `--only` run cannot set a target from
-    three clips."""
-    pitches = {}
+    **THE `report_*` FRAGMENTS ARE EXCLUDED ON PURPOSE.** 203 of the 255 clips are short number
+    fragments carrying the same short-text defect, and including them pulls the median from 180.4 up
+    to 191.7 - i.e. the population being used to judge a bad take would be half made of bad takes.
+    The 52 that are left sit at 180.4, and the 31 iteration lines, the voice the player hears most,
+    independently agree at 180.7. That agreement is why 180 is a measurement and not a preference.
+    """
+    found = []
     for name in names:
+        if name.startswith("voice_report_"):
+            continue
         path = os.path.join(out, name + ".wav")
         if not os.path.exists(path):
             continue
         f0 = median_f0(read_wav(path))
         if not np.isnan(f0):
-            pitches[name] = f0
+            found.append(f0)
+    return float(np.median(found)) if found else float("nan")
 
-    ordinary = [f for n, f in pitches.items() if not n.startswith("voice_report_")]
-    if not ordinary:
-        return []
-
-    target = float(np.median(ordinary))
-    corrected = []
-    for name in sorted(REGISTER_MATCHED):
-        if name not in pitches:
-            continue
-        factor = pitches[name] / target
-        if factor <= 1.02:                      # already in register, or below it
-            continue
-        if factor > REGISTER_MAX_STRETCH:
-            print(f"  ! {name} measured {pitches[name]:.0f} Hz against {target:.0f} - "
-                  f"x{factor:.2f} is past the cap, left alone")
-            continue
-        path = os.path.join(out, name + ".wav")
-        body, padded = split_pad(read_wav(path))
-        stretched = stretch(body, factor)
-        if padded:
-            stretched = np.concatenate(
-                [stretched, np.zeros(int(TAIL_SILENCE * TARGET_RATE), dtype=np.float32)])
-        write_wav(path, stretched)
-        corrected.append((name, pitches[name], target, factor))
-    return corrected
-
-
-def split_pad(audio):
-    """Separate the tail silence `pad_tail` appended from the recording in front of it.
-
-    **THE PADDING IS A WALL-CLOCK AMOUNT AND MUST NOT BE STRETCHED.** It is a fixed 0.75s for the
-    reverb to ring out; scaling it with a x1.39 register correction took a 2.33s clip to 3.24s and
-    pushed the announcement that FOLLOWS it past the wake-up (`NarrationDirector.AnnounceNewCycle` -
-    the two clips plus the blink have to fit inside 5.2s). The reverb needs the same three quarters
-    of a second whatever register the line is read in.
-
-    Split HERE, before the resample, because only here are the padded samples EXACTLY zero. Trimming
-    afterwards was tried and is what a band-limited resample quietly breaks: it leaves ringing across
-    the silence rather than zeros, so an exact-zero test finds nothing and the clip keeps its
-    stretched padding. Any threshold picked to paper over that is a guess about how loud a recorded
-    reverb tail gets, which is a different question."""
-    end = len(audio)
-    while end > 0 and audio[end - 1] == 0.0:
-        end -= 1
-    return audio[:end], len(audio) - end
-
-
-def report_register(corrected):
-    for name, was, target, factor in corrected:
-        print(f"  {name:28} {was:5.1f} Hz -> {was / factor:5.1f} Hz  "
-              f"(x{factor:0.3f} slower and lower, register {target:.0f} Hz)")
 
 
 def write_wav(path, audio):
@@ -688,10 +611,28 @@ def break_seconds(text):
     return float(match.group(1)) if match else 0.0
 
 
-def synthesise_checked(api, text, name):
-    """One line, with the beat verified if it asked for one."""
+def synthesise_checked(api, text, name, register=float("nan")):
+    """One line, with the beat verified if it asked for one and the register verified if this clip
+    is one of the ones that has to sit in it."""
     wanted = break_seconds(text)
     audio = synthesise(api, text)
+
+    # **THE REGISTER CHECK COMES FIRST, because it can only be judged on a whole take.** A clip that
+    # is rejected here is re-synthesised, which re-rolls the beat too, so checking the beat on a take
+    # that is about to be thrown away would be wasted.
+    if name in REGISTER_MATCHED and not math.isnan(register):
+        ceiling = register * (2.0 ** (REGISTER_CEILING_SEMITONES / 12.0))
+        for attempt in range(1, REGISTER_TRIES + 1):
+            f0 = median_f0(audio)
+            if math.isnan(f0) or f0 <= ceiling:
+                break
+            if attempt == REGISTER_TRIES:
+                print(f"    ! {name}: {f0:.0f} Hz against a {register:.0f} Hz register in "
+                      f"{REGISTER_TRIES} takes. Kept anyway - see REGISTER_MATCHED.")
+                break
+            print(f"    - {name}: {f0:.0f} Hz is above the {ceiling:.0f} Hz ceiling, taking again")
+            audio = synthesise(api, text)
+
     if wanted <= 0:
         return audio, 1
 
@@ -722,20 +663,7 @@ def main():
                         help="regenerate clips that already exist (spends credits)")
     parser.add_argument("--only", default=None,
                         help="only clips whose filename starts with this")
-    # Offline, and costs nothing: re-registers and re-levels what is already on disk. The register
-    # pass needs no API, so after a hand edit or a partial run it is the cheapest way to put the
-    # whole set back in agreement with itself.
-    parser.add_argument("--register-only", action="store_true",
-                        help="skip synthesis; just match register and re-level the clips on disk")
     args = parser.parse_args()
-
-    if args.register_only:
-        out = audio_dir()
-        names = [n for n, _ in script()]
-        report_register(match_register(out, names))
-        gain = normalise(out, names)
-        print(f"Levelled the whole set by x{gain:0.2f}.  ->  {out}")
-        return
 
     api = client()
     if args.list_voices:
@@ -755,6 +683,9 @@ def main():
         if not lines:
             sys.exit(f"--only {args.only} matched none of the {len(script())} clips.")
 
+    # Measured once, off the set as it stands, and handed to every take. See `announcer_register`.
+    register = announcer_register(out, [n for n, _ in script()])
+
     made = skipped = characters = retries = 0
     for name, text in lines:
         path = os.path.join(out, name + ".wav")
@@ -762,16 +693,13 @@ def main():
             skipped += 1
             continue
 
-        audio, tries = synthesise_checked(api, text, name)
+        audio, tries = synthesise_checked(api, text, name, register)
         write_wav(path, pad_tail(level_clauses(audio), text))
         made += 1
         characters += len(text) * tries
         retries += tries - 1
         print(f"  {name:28} {len(text):4} chars  {text}"
               + (f"   (x{tries})" if tries > 1 else ""))
-
-    # BEFORE the levelling, so the gain is measured on the audio that actually ships.
-    report_register(match_register(out, [n for n, _ in script()]))
 
     gain = normalise(out, [n for n, _ in script()])
     print(f"\n{made} clip(s) written, {skipped} already present, {characters} characters spent"
