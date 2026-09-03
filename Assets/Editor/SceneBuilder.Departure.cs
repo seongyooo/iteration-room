@@ -253,7 +253,7 @@ namespace IterationRoom.EditorTools
 
             Vector3[] path = BuildCableCarPath(shaftX, roomNorth, cycleRoots);
 
-            CableCarRide car = BuildCableCar(root.transform, path, player, controller);
+            CableCarRide car = BuildCableCar(root.transform, path, player, controller, roomNorth);
 
             FacilityExterior exterior = root.AddComponent<FacilityExterior>();
             exterior.ghostPrefab = ghostPrefab;
@@ -520,7 +520,8 @@ namespace IterationRoom.EditorTools
         // THE CAR. Imported, doors split onto pivots of their own, and a seat put where a person
         // stands in it.
         private static CableCarRide BuildCableCar(Transform parent, Vector3[] path,
-                                                  Transform player, FirstPersonController controller)
+                                                  Transform player, FirstPersonController controller,
+                                                  Transform roomNorth)
         {
             GameObject carRoot = new GameObject("CableCar");
             carRoot.transform.SetParent(parent, false);
@@ -771,11 +772,20 @@ namespace IterationRoom.EditorTools
             // **AND THE TWO FLOORS ARE CHECKED AGAINST EACH OTHER AT BUILD TIME.** The threshold
             // above makes a small mismatch harmless; this is what would catch a large one, which
             // would otherwise present as "the car cannot be boarded" with nothing to point at.
-            float roomFloorY = path.Length > 0 ? path[0].y : carRoot.transform.position.y;
-            if (Mathf.Abs(carRoot.transform.position.y - roomFloorY) > 0.05f)
-                Debug.LogError($"[SceneBuilder] The cable car rests at y={carRoot.transform.position.y:0.00} "
-                             + $"against a room floor at {roomFloorY:0.00}. Its floor and the room's "
-                             + "have to be level or the doorway is a step.");
+            // **THIS COMPARED A NUMBER TO ITSELF** (2026-09-03). `carRoot.position` is assigned
+            // `path[0]` a few lines up, and `roomFloorY` was read back out of `path[0]` - so the two
+            // sides were the same value and the check could never fire, which is how a step at the
+            // doorway survived being explicitly guarded against. The room the car docks at is what
+            // it has to be level with, and that is what it is measured against now.
+            float roomFloorY = roomNorth != null ? roomNorth.position.y : carRoot.transform.position.y;
+            float step = carRoot.transform.position.y - CabinThresholdDrop - roomFloorY;
+            Debug.Log($"[SceneBuilder] Cable car threshold: cabin floor at "
+                    + $"{carRoot.transform.position.y - CabinThresholdDrop:0.00}, room floor at "
+                    + $"{roomFloorY:0.00} -> a step of {step:0.00}m "
+                    + $"(the controller walks {PlayerStepOffset:0.00}m).");
+            if (Mathf.Abs(step) > PlayerStepOffset * 0.5f)
+                Debug.LogError($"[SceneBuilder] The cable car's floor is {step:0.00}m off the room's. "
+                             + "Boarding it needs a jump - see the threshold log above.");
 
             car.cabinHeight = box.size.y;
             // IT RISES INTO THE PLATFORM along the rope, from below the room it is arriving at. See
