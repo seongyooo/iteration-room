@@ -1344,19 +1344,40 @@ namespace IterationRoom.EditorTools
                 top = Mathf.Max(top, r.bounds.max.y);
             }
 
-            // THE MATTRESS: the bed's own footprint, up to the bedding and no further.
-            whole.size = new Vector3(whole.size.x, (top - full.min.y) / bed.transform.lossyScale.y,
-                                     whole.size.z);
-            whole.center = bed.transform.InverseTransformPoint(
-                new Vector3(full.center.x, (full.min.y + top) / 2f, full.center.z));
+            // **NEITHER BOX IS THE IMPORTED ONE ANY MORE, AND THAT IS THE FIX.**
+            //
+            // The mattress box was made by RESIZING the collider `PlaceModel` fitted - writing a new
+            // `size.y` on it - and `size` is in the collider's OWN local space. This model is
+            // imported at 0.00941 and rotated `Euler(-90, 180 + yaw, 0)`, so its local Y is not the
+            // room's up at all; the -90 about X maps it onto a horizontal axis. Writing a height
+            // into it therefore shortened the box along the bed's LENGTH, and left the ends of the
+            // bed with no collider over them.
+            //
+            // Play found it exactly there: everything worked except throwing something at the PILLOW
+            // end, where the object met no bed at all and fell to the floor under it. CLAUDE.md
+            // records this trap twice already - the chess set and the ladder - and the rule it gives
+            // is the one used below: measure in world space and build fresh, never write a local
+            // number onto an imported transform.
+            //
+            // So the imported box goes, and two plain boxes replace it on unrotated, unscaled
+            // children of the ROOM - not of the bed, whose scale would shrink them to a hundredth of
+            // the size asked for. The bed never moves, so nothing is lost by hanging them next to it
+            // rather than under it.
+            Transform host = bed.transform.parent != null ? bed.transform.parent : bed.transform;
+            Object.DestroyImmediate(whole);
+
+            BoxCollider mattress = WorldBox(host, "BedSurface",
+                new Vector3(full.center.x, (full.min.y + top) / 2f, full.center.z),
+                new Vector3(full.size.x, top - full.min.y, full.size.z));
 
             // THE HEADBOARD, if anything stands above the bedding. Built in world space and then
             // put back into the bed's frame, because this model is imported at 0.0094 and rotated
             // and its local axes are not the room's - the same trap `BuildIntakeNotice` records.
             if (full.max.y <= top + 0.02f)
             {
-                Debug.Log($"[SceneBuilder] The bed's collider now stops at the bedding, y={top:0.000}. "
-                        + "Nothing stands above it, so there is no headboard box.");
+                Debug.Log($"[SceneBuilder] The bed's collider stops at the bedding, y={top:0.000}: "
+                        + $"surface box {Say(mattress.bounds)}. Nothing stands above it, so there "
+                        + "is no headboard box.");
                 return;
             }
 
@@ -1384,25 +1405,48 @@ namespace IterationRoom.EditorTools
                                  : (side > 0f ? full.max.z : full.min.z);
             float centreAlong = outer - side * HeadboardDepth / 2f;
 
-            GameObject head = new GameObject("BedHeadboard");
-            head.transform.SetParent(bed.transform, true);
-            head.transform.position = new Vector3(
-                alongX ? centreAlong : full.center.x,
-                (top + full.max.y) / 2f,
-                alongX ? full.center.z : centreAlong);
-            head.transform.rotation = Quaternion.identity;
-            head.transform.localScale = Vector3.one;
+            BoxCollider board = WorldBox(host, "BedHeadboard",
+                new Vector3(alongX ? centreAlong : full.center.x,
+                            (top + full.max.y) / 2f,
+                            alongX ? full.center.z : centreAlong),
+                new Vector3(alongX ? HeadboardDepth : full.size.x,
+                            full.max.y - top,
+                            alongX ? full.size.z : HeadboardDepth));
 
-            BoxCollider board = head.AddComponent<BoxCollider>();
-            board.size = new Vector3(alongX ? HeadboardDepth : full.size.x,
-                                     full.max.y - top,
-                                     alongX ? full.size.z : HeadboardDepth);
-
-            Debug.Log($"[SceneBuilder] The bed's collider is split: bedding to y={top:0.000} "
-                    + $"({top - full.min.y:0.00}m of mattress) and a headboard box "
-                    + $"{full.max.y - top:0.00}m above it. A thrown object now lands on the bedding "
-                    + "rather than on the top of one box round the whole bed.");
+            // **THE RESULT, IN WORLD METRES.** Both boxes were wrong in ways the numbers ABOVE could
+            // not show - they were right, and what was built from them was not - so what is printed
+            // is what the colliders actually came out as.
+            Debug.Log($"[SceneBuilder] The bed's collider is split. Bedding at y={top:0.000}; "
+                    + $"surface box {Say(mattress.bounds)}; headboard box {Say(board.bounds)}. "
+                    + $"The bed's own bounds are {Say(full)}.");
         }
+
+        // A BOX IN WORLD AXES, on a child that has none of the model's rotation or scale. Every
+        // collider in `SplitBedCollider` goes through this, because a `BoxCollider`'s `size` and
+        // `center` are read in its own local space and the bed's local space is neither upright nor
+        // metric.
+        private static BoxCollider WorldBox(Transform host, string name, Vector3 centre, Vector3 size)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(host, false);
+            go.transform.position = centre;
+            go.transform.rotation = Quaternion.identity;
+            // AFTER the parenting, and against the parent's own scale, so the box is the size asked
+            // for however the host is scaled.
+            Vector3 hostScale = host.lossyScale;
+            go.transform.localScale = new Vector3(
+                Mathf.Approximately(hostScale.x, 0f) ? 1f : 1f / hostScale.x,
+                Mathf.Approximately(hostScale.y, 0f) ? 1f : 1f / hostScale.y,
+                Mathf.Approximately(hostScale.z, 0f) ? 1f : 1f / hostScale.z);
+
+            BoxCollider box = go.AddComponent<BoxCollider>();
+            box.size = size;
+            return box;
+        }
+
+        private static string Say(Bounds b) =>
+            $"y {b.min.y:0.000}..{b.max.y:0.000} x {b.min.x:0.00}..{b.max.x:0.00} "
+          + $"z {b.min.z:0.00}..{b.max.z:0.00}";
 
         // How deep the headboard's collider is. See `SplitBedCollider` - the only number in there
         // that is authored rather than measured.
