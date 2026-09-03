@@ -243,3 +243,40 @@ part of the reading, but the two packs came out nearly three times apart from ea
 **The echo is not in the clips and never was.** `SceneBuilder.AddTannoyFilters` is what makes this a
 tannoy: high-pass 340, low-pass 3600, distortion 0.17, a 105 ms slap at 0.33 wet, and a 2.1 s tail. A
 raw clip auditioned outside the game sounds dry because it *is* dry. Judge a voice with the chain on.
+
+---
+
+## The fall is three new clips and the only sources that ignore `SfxLevel` (2026-09-03)
+
+The drop at the end of the ride was silent apart from one impact at the bottom, and that impact
+arrived at the same level as a door opening. Asked for (2026-09-03): a loud landing, and a sound for
+the falling itself.
+
+**Three clips, generated rather than synthesised** — `Tools/generate_sfx_fall.py`, ElevenLabs, the
+same exception `generate_sfx_ai.py` already argues for the creaks and for the same reason: this
+project's toolkit builds everything it can from oscillators and filters, and a two-hundred-metre fall
+is not one of the things it can build.
+
+- `sfx_cable_car_fall` — 8.75s of wind rush and straining metal, **looped**, faded up over the first
+  half second of the drop. It is asked for as a flat bed with no shape of its own, because the shape
+  comes from the car: the script rides it, and a clip that swelled on its own schedule would fight
+  that. It is the one clip in the project that has to **join itself**, so a quarter-second
+  equal-power crossfade of its tail onto its head is baked in and the tail discarded — a loop point
+  that clicks is, over a silent fall, the only thing anyone would hear.
+- `sfx_cable_car_hit_1` / `_2` — the structures the cabin clips on the way down, alternating with the
+  strike count rather than picked at random. They are seconds apart, and at that spacing a repeat is
+  heard as a repeat rather than as a second impact.
+
+**And two sources that are exempt from `SfxLevel`.** That constant (`MakeSource`'s `pa` flag is what
+turns it off) exists to hold the effects under the announcer, and it is right everywhere else. It is
+the wrong instrument here: the landing is the last thing this game says, the player is inside a steel
+box being dropped, and nothing is competing with it. `FallAudio` and `ImpactAudio` are declared with
+`pa: true` and are the only effect sources in the project that are.
+
+They are also **2D** (`spatialBlend` 0). The listener is inside the object making the noise, so a
+spatialised source would be one at zero distance — 2D with a rolloff curve doing nothing. Saying so
+directly is honest and is one fewer thing to be wrong.
+
+**Loudness is set in one place.** The alternative was to normalise the clips hotter, which would have
+been silent, unfindable, and impossible to undo without regenerating them. The level lives in
+`SceneBuilder`, where every other tuned number does.

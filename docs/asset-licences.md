@@ -131,7 +131,8 @@ attribution is now generated, so it is met.
 | What | Source | Licence | Notes |
 |---|---|---|---|
 | `Audio/SFX/*.wav` | `Tools/generate_sfx.py` | **Own work** | Synthesised from the Python standard library, seeded. No sample is sourced. |
-| `Audio/SFX/sfx_cable_creak_*.wav` | `Tools/generate_sfx_ai.py` → **ElevenLabs** sound effects | **Same paid plan as the voice; terms to confirm** | Three clips, and the only ones in this folder that are not own work. See below. |
+| `Audio/SFX/sfx_cable_creak_*.wav` | `Tools/generate_sfx_ai.py` → **ElevenLabs** sound effects | **Same paid plan as the voice; terms to confirm** | Three clips. See below. |
+| `Audio/SFX/sfx_cable_car_fall.wav`, `sfx_cable_car_hit_*.wav` | `Tools/generate_sfx_fall.py` → **ElevenLabs** sound effects | **Same paid plan as the voice; terms to confirm** | Three more, added 2026-09-03 for the fall. Same answer as the creaks and the same open question. |
 | `Audio/Voice/*.wav` | `Tools/generate_narration.py` → **ElevenLabs**, `eleven_multilingual_v2`, voice "Gwen" | **Paid plan; terms to confirm before selling** | See below. |
 
 ### Three sound effects are model output, and the rest of the folder is not
