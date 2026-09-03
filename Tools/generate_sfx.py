@@ -814,6 +814,82 @@ def switch_click(seed, closing=True):
     return fade_edges(normalize(out, 0.5))
 
 
+def cable_car_depart():
+    """The car taking the rope and pulling away.
+
+    It was `sfx_pull_in` - the sound of the LOOP taking you, borrowed because it was the only big
+    mechanical noise in the set. Wrong on the meaning as much as on the sound: that clip is a room
+    being swallowed, and this is the one moment in the game where something carries the player OUT.
+
+    Four things happen when a gondola leaves, in this order, and all four have to be here or it
+    reads as a door:
+
+    1. **THE GRIP CLOSES ON THE HAUL ROPE.** Two jaws, not one - a clack and its echo sixty
+       milliseconds later. This is the loudest event and the only sharp one.
+    2. **THE HANGER TAKES THE WEIGHT.** A creak, pitched rather than hissed, because that is steel
+       bending against steel. It falls slightly as the arm settles.
+    3. **THE CABIN SWINGS.** A low thump that drops in pitch - the mass arriving on the rope, and
+       the reason a real one lurches before it moves.
+    4. **THE ROPE PICKS UP.** A rumble that climbs for the rest of the clip.
+
+    **AND IT HANDS OVER RATHER THAN FINISHING.** `CableCarRide` fades a separate looping `motor`
+    source up under the ride, so this must not become a hum of its own - two hums at once beat
+    against each other. It climbs and stops, leaving the loop holding the note.
+    """
+    rng = random.Random(4401)
+    total = 2.4
+    base = silence(total)
+
+    # 1. The grip. Body around 190Hz for the mass of it, a bright tick on top for the metal.
+    for when, level in ((0.0, 1.0), (0.062, 0.66)):
+        body = bandpass(noise(0.16, rng), 190.0, q=1.1)
+        body = apply_env(body, env_decay(len(body), tau=0.030, attack=0.0006))
+        tick = bandpass(noise(0.05, rng), 2600.0, q=1.6)
+        tick = apply_env(tick, env_decay(len(tick), tau=0.007, attack=0.0004))
+        base = at(base, scale(mix(body, scale(tick, 0.45)), level), when)
+
+    # 2. The hanger creak: two detuned partials falling a little as the arm settles, so it beats
+    # instead of sitting still - the same trick the tap squeak uses, and for the same reason.
+    n = int(1.1 * SR)
+    creak = [0.0] * n
+    ph1 = ph2 = 0.0
+    for i in range(n):
+        k = i / n
+        f = 330.0 - 70.0 * k
+        ph1 += 2.0 * math.pi * f / SR
+        ph2 += 2.0 * math.pi * (f * 1.013) / SR
+        creak[i] = math.sin(ph1) + 0.7 * math.sin(ph2)
+    creak = apply_env(creak, env_ar(n, attack=0.12, release=0.7))
+    base = at(base, scale(creak, 0.16), 0.09)
+
+    # 3. The cabin arriving on the rope. Sub, dropping - a fixed tone reads as a note.
+    n = int(0.7 * SR)
+    swing = [0.0] * n
+    ph = 0.0
+    for i in range(n):
+        f = 58.0 - 18.0 * (i / n)
+        ph += 2.0 * math.pi * f / SR
+        swing[i] = math.sin(ph)
+    swing = apply_env(swing, env_decay(n, tau=0.20, attack=0.010))
+    base = at(base, scale(swing, 0.5), 0.11)
+
+    # 4. The rope picking up, under everything and still climbing when the clip ends. Squared ramp,
+    # because a linear one reads as a fader being pushed.
+    run = sweep_bandpass(noise(1.9, rng), 70.0, 260.0, q=1.2)
+    rn = len(run)
+    run = apply_env(run, [(i / rn) ** 1.7 for i in range(rn)])
+    base = at(base, scale(run, 0.40), 0.30)
+
+    # And the cable itself through the sheave - thin, high, barely there. It is what says the noise
+    # is coming off a WIRE rather than out of a gearbox.
+    wire = bandpass(noise(1.9, rng), 3400.0, q=2.2)
+    wn = len(wire)
+    wire = apply_env(wire, [(i / wn) ** 2.0 for i in range(wn)])
+    base = at(base, scale(wire, 0.05), 0.30)
+
+    return fade_edges(normalize(soft_clip(base, drive=1.1), peak=0.86))
+
+
 def main():
     print("Writing SFX to", os.path.normpath(OUT))
     # Three footfalls, deliberately uneven: no two real steps weigh the same, and the variation is
@@ -828,6 +904,9 @@ def main():
     write("sfx_sheet_rustle", sheet_rustle())
     write("sfx_ominous_loop", ominous_loop())
     write("sfx_pull_in", pull_in())
+    # The cable car leaving. Not `sfx_pull_in`, which is the loop TAKING you - see the
+    # docstring for why the difference is the whole point.
+    write("sfx_cable_car_depart", cable_car_depart())
     write("sfx_power_down", power_down())
     # Room3-2N's alarm. Looped by FacilityFailure, so it has to wrap without a seam - see
     # `alarm_siren` on why it is a whole number of wails long.

@@ -732,7 +732,11 @@ namespace IterationRoom.EditorTools
             // which is what they are, and the departure gets `sfx_pull_in`, the one sound in the
             // library that means "you are being moved". See `TODO.md` for the two that are missing.
             car.doorClip = LoadClip(SfxDir, "sfx_door_open");
-            car.departClip = LoadClip(SfxDir, "sfx_pull_in");
+            // **NOT `sfx_pull_in`** (2026-09-03, by request). That is the loop TAKING the player -
+            // a room being swallowed - and it was borrowed here because it was the only big
+            // mechanical noise in the set. This is the one moment in the game where something
+            // carries the player OUT, and it should not sound like the thing it is escaping.
+            car.departClip = LoadClip(SfxDir, "sfx_cable_car_depart");
 
             // **THE TWO CONSTANTS THE PATH WAS BUILT FROM, CHECKED AGAINST THE MODEL THAT ACTUALLY
             // LOADED.** `CarHalfWidth` decides where the car docks and `CarHalfDepth` decides how
