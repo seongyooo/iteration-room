@@ -1809,3 +1809,38 @@ shaft does not constrain.
 
 **Check both halves of a "move it into place" number: what the distance is measured to, and what the
 destination is measured to.** They were a centre and a face here, and the two are not the same point.
+
+---
+
+## A LOG OF THE INPUTS IS NOT A MEASUREMENT (2026-09-03)
+
+Three bugs in one session had the same shape, and each one survived a diagnostic that was working
+correctly.
+
+- **The bed collider** printed `bedding to y=0.691 (0.69m of mattress)` while the box it had just
+  built covered a horizontal axis. `BoxCollider.size` is read in the collider's OWN space and
+  `messy_bed.glb` is imported at 0.00941 with `Euler(-90, 180 + yaw, 0)`, so writing a height into
+  `size.y` shortened the box along the bed's LENGTH. Play found it as "throwing something at the
+  pillow end drops it under the bed" — three rounds after the first fix.
+- **The fall's keep-out check** computed the nearest standing rack face from the constants that were
+  supposed to govern the racks. It passed every build while play kept reporting the cabin flying
+  through structures. A sum agreeing with itself proves the arithmetic was copied correctly and
+  nothing else.
+- **The cable car's strike box** was tested at the car's pivot, which `BuildCableCar` had already
+  moved to the cabin's FLOOR — so the box sat 2.1m below the cabin. Three fixes were aimed at *which
+  structures the car was told about*, all of them measured, all of them agreeing, none of them
+  measuring this.
+
+**The inputs were right in all three.** What was wrong was the object built from them, because the
+space it was built in was not the space assumed — a rotated import, a scaled parent, a recentred
+pivot. A log of the values going in cannot see any of that, and worse, it reads as confirmation:
+three separate investigations were sent elsewhere by a number that was correct.
+
+**So print the finished thing.** World bounds of the collider that now exists, the world centre of
+the box a test actually uses, the position of the object as placed. `SplitBedCollider` and
+`ReportBoardingRoute` both do this now, and both settled their bug on the first run after they were
+added.
+
+**And prefer an assertion measured off what was really built** over one computed from the constants
+that were meant to govern it — `nearestStandingFace` is scanned off the cells that exist, not
+derived from `FallShaftRadius`.
