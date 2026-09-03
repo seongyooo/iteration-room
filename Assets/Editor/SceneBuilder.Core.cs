@@ -1283,6 +1283,76 @@ namespace IterationRoom.EditorTools
         // is. X was hard-coded to zero until 2026-08-20 and got away with it for two cycles, both of
         // which put their bed room on x=0; cycle 3's is twenty-one metres out, under room2-0, and the
         // bed would have been built in the middle of the tree hall's pit.
+        // See the call in `BuildBed`. Kept separate because it is entirely about colliders and
+        // reads nothing else the bed knows.
+        private static void SplitBedCollider(GameObject bed)
+        {
+            BoxCollider whole = bed.GetComponent<BoxCollider>();
+            if (whole == null)
+            {
+                Debug.LogWarning("[SceneBuilder] The bed has no box collider to split, so anything "
+                               + "thrown onto it will fall through to the floor.");
+                return;
+            }
+
+            // The bedding, by name. `UseSinglePillow` has already run, so what is measured here is
+            // the bed as it will be played.
+            Bounds? sheet = null;
+            foreach (Renderer r in bed.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null || !r.enabled) continue;
+                if (r.sharedMaterial == null || !r.sharedMaterial.name.Contains("Sheet")) continue;
+                sheet = sheet.HasValue ? Encapsulated(sheet.Value, r.bounds) : r.bounds;
+            }
+
+            if (!sheet.HasValue)
+            {
+                Debug.LogWarning("[SceneBuilder] No `Sheet` renderer on the bed, so its collider is "
+                               + "left as one box - objects thrown onto it will rest above the "
+                               + "bedding. Check the model's material names.");
+                return;
+            }
+
+            Bounds full = whole.bounds;
+            float top = sheet.Value.max.y;
+
+            // THE MATTRESS: the bed's own footprint, up to the bedding and no further.
+            whole.size = new Vector3(whole.size.x, (top - full.min.y) / bed.transform.lossyScale.y,
+                                     whole.size.z);
+            whole.center = bed.transform.InverseTransformPoint(
+                new Vector3(full.center.x, (full.min.y + top) / 2f, full.center.z));
+
+            // THE HEADBOARD, if anything stands above the bedding. Built in world space and then
+            // put back into the bed's frame, because this model is imported at 0.0094 and rotated
+            // and its local axes are not the room's - the same trap `BuildIntakeNotice` records.
+            if (full.max.y <= top + 0.02f)
+            {
+                Debug.Log($"[SceneBuilder] The bed's collider now stops at the bedding, y={top:0.000}. "
+                        + "Nothing stands above it, so there is no headboard box.");
+                return;
+            }
+
+            GameObject head = new GameObject("BedHeadboard");
+            head.transform.SetParent(bed.transform, true);
+            head.transform.position = new Vector3(full.center.x, (top + full.max.y) / 2f, full.center.z);
+            head.transform.rotation = Quaternion.identity;
+            head.transform.localScale = Vector3.one;
+
+            BoxCollider board = head.AddComponent<BoxCollider>();
+            board.size = new Vector3(full.size.x, full.max.y - top, full.size.z);
+
+            Debug.Log($"[SceneBuilder] The bed's collider is split: bedding to y={top:0.000} "
+                    + $"({top - full.min.y:0.00}m of mattress) and a headboard box "
+                    + $"{full.max.y - top:0.00}m above it. A thrown object now lands on the bedding "
+                    + "rather than on the top of one box round the whole bed.");
+        }
+
+        private static Bounds Encapsulated(Bounds a, Bounds b)
+        {
+            a.Encapsulate(b);
+            return a;
+        }
+
         private static (Transform bed, Transform spawn) BuildBed(Transform parent, Material mat,
                                                                  float floorY = 0f, float zCentre = 0f,
                                                                  float yaw = 0f, float xCentre = 0f)
@@ -1313,6 +1383,23 @@ namespace IterationRoom.EditorTools
             // cycles' bed rooms both sat on x = 0, so a world X hard-coded to zero was accidentally
             // right twice.
             UseSinglePillow(bed, keepName: "Pillow_2", hideName: "Pillow_1", centreX: xCentre);
+
+            // **AND THE ONE BOX IS SPLIT IN TWO, OR THINGS LAND ON THIN AIR OVER IT.**
+            //
+            // `PlaceModel(addBoxCollider: true)` fits ONE box to the whole model, which for a bed
+            // means a slab from the floor to the top of the HEADBOARD. `FallingItem.ProbeUnder`
+            // casts down and takes whatever it hits, so an object thrown onto the bed came to rest
+            // on the top of that box - about a third of a metre above the bedding, over the middle
+            // of the mattress, held up by nothing. Play reported it as exactly that (2026-09-03).
+            //
+            // It is not a bug in the fall: the fall found the surface it was given. The surface was
+            // wrong, and it was wrong because a bed is not a box - it is a low thing you put things
+            // ON with a tall thing at one end.
+            //
+            // Measured off the model rather than typed. `Sheet` is the bedding, and its top IS the
+            // surface a thrown object should find; anything standing above it is the headboard, and
+            // that gets a box of its own so the player still cannot walk through it.
+            SplitBedCollider(bed);
 
             // This model bakes contact shadows into its occlusion maps, which only looks right in
             // the exact pose it was authored in. Moving the pillow and removing its neighbour left
