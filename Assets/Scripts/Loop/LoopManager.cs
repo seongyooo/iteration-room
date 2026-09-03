@@ -53,6 +53,10 @@ namespace IterationRoom
         // for the scenes to arrive.
         [System.NonSerialized] public Cycle[] cycles;
 
+        // How long the player has in room1-1 after the fall, before the card. Enough to stand up,
+        // turn round and understand where they are; not enough to go and try the door.
+        public float afterTheFall = 5f;
+
         // Brings the cycle scenes in, and re-establishes everything the split would otherwise have
         // broken. Both run once, before the first iteration - see the top of `RunLoop`.
         public CycleSceneLoader sceneLoader;
@@ -908,11 +912,86 @@ namespace IterationRoom
             endCycleControl?.ResetUseCount();
         }
 
+        // **CYCLE 1, ITERATION 1, FOR FIVE SECONDS - AND IT IS THE REAL THING.**
+        //
+        // The first attempt at this lived in `EndingDeparture` and stood the player on the bed with
+        // the wake-up played over them. It looked right and was hollow: `AcceptsInput` was false so
+        // nothing could be picked up, no announcement fired, and `WakeUpSequence.wallPanels` still
+        // pointed at cycle 3, so room1-1 woke to a wall of ERROR that nothing was going to clear.
+        //
+        // Every one of those is a thing the ordinary iteration opening does, which is why this is
+        // here and not there: `LoopManager` owns the iteration, the clock and the reset ordering
+        // (CLAUDE.md 2). What follows is that opening, in its order, with the two differences that
+        // make it an ending - the ghosts are destroyed rather than replayed, and the clock is never
+        // started, because the player is not being given another minute.
+        private IEnumerator ReturnToTheFirstRoom()
+        {
+            Cycle first = cycles != null && cycles.Length > 0 ? cycles[0] : null;
+            if (first == null) yield break;
+
+            // The world first: walls back, ERROR cleared, every other cycle asleep, the outside off.
+            FacilityExterior outside = Current != null && Current.departure != null
+                ? Current.departure.exterior : null;
+            outside?.ReturnToTheFirstRoom(first);
+
+            // **THE GHOSTS ARE DESTROYED, NOT RESET.** Every other iteration keeps them; this one
+            // cannot. They are recordings of a run that is over, and a room1-1 with thirty past
+            // selves walking through it would answer the question the ending is asking.
+            foreach (GhostReplayer ghost in ghosts)
+                if (ghost != null) { ghost.ReleaseCarried(); Destroy(ghost.gameObject); }
+            ghosts.Clear();
+
+            // `Current` is derived from `cycleIndex`, so this is how you become cycle 1 again.
+            cycleIndex = 0;
+            CycleNumber = 1;
+            IterationNumber = 1;
+
+            // The same two handovers the cycle loop does, and for the same reasons - see there.
+            if (playerRecorder != null) playerRecorder.interactables = first.ghostInteractables;
+            if (wakeUpSequence != null) wakeUpSequence.wallPanels = first.wallPanels;
+
+            first.ResetRooms();
+            ItemRegistry.ReturnAllToOrigin();
+
+            Transform bed = first.bedSpawnPoint;
+            if (playerController != null && bed != null)
+                playerController.Teleport(bed.position, bed.rotation);
+            first.CloseDoors();
+
+            // Set before the lids open, so the first thing seen is the room with the number already
+            // on it rather than a number arriving to explain the room.
+            iterationLabel?.Show(1, 1);
+
+            if (wakeUpSequence != null) yield return wakeUpSequence.WakeUp(playerController);
+            if (playerController != null) playerController.ControlEnabled = true;
+
+            // "Iteration one, sixty seconds remaining." The line the run opened with.
+            narration?.AnnounceIteration(1);
+
+            // **AND THIS IS WHAT MAKES IT REAL.** `AcceptsInput` is an AND over this, the pause and
+            // `RunOver`; with it true every fixture and every carryable in room1-1 answers E again.
+            // The clock is deliberately not started - `ElapsedTime` stays where it is and no
+            // iteration coroutine is running, so the sixty seconds the PA just promised never count
+            // down. That is the joke and it is meant to be noticed.
+            IterationRunning = true;
+            yield return new WaitForSeconds(afterTheFall);
+            IterationRunning = false;
+        }
+
         // The last cycle. Note what this does NOT do, which is most of its design - see
         // EndingSequence for the reasoning behind each omission.
         private IEnumerator RunEnding()
         {
-            RunOver = true;
+            // **`RunOver` IS SET AT THE END OF THIS NOW, NOT THE TOP** (2026-09-03). The ending has a
+            // playable beat in it - five seconds in room1-1 after the fall - and `AcceptsInput` reads
+            // this, so setting it here made that beat a diorama: the player stood in the right room
+            // and could not pick anything up.
+            //
+            // Moving it is safe rather than clever. `IterationRunning` is false from the moment the
+            // inner loop breaks on `CycleComplete`, and `AcceptsInput` is an AND - so nothing is
+            // interactive during the break, the walk to the car or the ride whether this is set or
+            // not. The only thing it was doing in those minutes was hiding the fact that the last
+            // beat needed it false.
 
             // CONTROL IS NOT TAKEN HERE. The player has just put the last object in and the room is
             // about to come apart around them; standing in it and watching that happen is the whole
@@ -973,6 +1052,13 @@ namespace IterationRoom
             // the `RunReport.Record` call in the cycle loop), so by the time the ending card is up
             // the stored record is already complete - and writing the run again here would overwrite
             // per-cycle bests with whatever this particular run happened to do.
+
+            // **AND THE LOOP CLOSES.** The fall put the player back in the first room, and this is
+            // that room being a real iteration rather than a picture of one - see the method.
+            yield return ReturnToTheFirstRoom();
+
+            RunOver = true;
+            if (playerController != null) playerController.ControlEnabled = false;
 
             if (endingSequence != null)
                 yield return endingSequence.Play(cycleRecords);

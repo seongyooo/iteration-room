@@ -1791,9 +1791,6 @@ namespace IterationRoom.EditorTools
             binding.cameraShaker = shaker;
             binding.narration = narration;
             binding.player = fpc.transform;
-            // For the ending's last beat - see `EndingDeparture.ReturnToTheStart`.
-            binding.wakeUp = loop.wakeUpSequence;
-            binding.iterationLabel = loop.iterationLabel;
             binding.sleepingGas = loop.sleepingGas;
             binding.hints = hints;
             binding.endCycleControl = loop.endCycleControl;
