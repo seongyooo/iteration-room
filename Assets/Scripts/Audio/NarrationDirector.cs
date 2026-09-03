@@ -227,14 +227,18 @@ namespace IterationRoom
             Caption("pa.cycleBroken");
         }
 
-        // "All cycles have been destroyed. You will pay the price for destroying them." Chimed, like
-        // the line above and for the same reason - it is heard once in a run, if ever.
+        // "All cycles have been destroyed." Chimed, like the line above and for the same reason - it
+        // is heard once in a run, if ever.
         //
-        // **THE ONLY LINE IN THE GAME THAT THREATENS THE PLAYER.** Everything this voice has said up
-        // to here is procedure: cycles initialized, terminated, ten seconds remaining. It reads the
-        // machine out loud and never addresses anybody. Breaking that is the whole point of this one,
-        // so it must not be softened into more procedure - the second sentence is second person and
-        // stays that way.
+        // **THE THREAT IS GONE** (2026-09-03, by request). It used to carry a second sentence -
+        // "You will pay the price for destroying them." - and was the only line in the game that
+        // spoke TO the player rather than about the machine. The note here argued that breaking the
+        // procedural register was the whole point of it and that it must never be softened.
+        //
+        // It was softened, deliberately. What the register is doing in this game is refusing to
+        // acknowledge the player as anything but a subject, and a facility that watches you wreck it
+        // and answers with a threat has acknowledged you. One that files the wreckage as a state
+        // change has not. Reading them side by side, the flat one is colder.
         public void AnnounceAllCyclesBroken()
         {
             Chime();
@@ -325,11 +329,19 @@ namespace IterationRoom
 
         // One of the ride lines, by index. Out of range is silence rather than an error - the ride is
         // paced by where the car IS, so asking for a line that does not exist means the path grew.
+        // How many there are, asked of the clips themselves rather than written down a second time.
+        // `EndingDeparture` walks them in order and needs to know where to stop.
+        public int RideLineCount => Lines.rideLines != null ? Lines.rideLines.Length : 0;
+
+        // **NO CHIME** (2026-09-03, by request). It had one for the same reason the other
+        // announcements do - it is what makes the player look up - but there are fourteen of these
+        // in a minute now and fourteen dings in a minute is an alarm, not punctuation. The ride is
+        // one continuous address rather than fourteen separate announcements, and a chime in front
+        // of each would be the thing that stops it reading that way.
         public void AnnounceRideLine(int index)
         {
             if (Lines.rideLines == null || index < 0 || index >= Lines.rideLines.Length) return;
 
-            Chime();
             SpeakSequence(new List<AudioClip> { Lines.rideLines[index] });
             Caption("pa.ride" + index);
         }

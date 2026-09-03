@@ -516,6 +516,13 @@ Script-by-script detail: `docs/architecture.md`.
   a component is a second answer the player cannot reach; three of them existed and are gone.
   **Escape always pauses whatever PAUSE is bound to** — it is the only verb whose loss cannot be
   recovered from inside the game.
+- **THE PA NEVER SPEAKS TO THE PLAYER, AND NOW THERE ARE NO EXCEPTIONS** (2026-09-03, by request).
+  The announcer reads the machine out loud: cycles initialized, terminated, ten seconds remaining.
+  One line used to break that on purpose - `voice_all_cycles_broken` ended "You will pay the price
+  for destroying them." - and it is now "All cycles have been destroyed." A facility that answers
+  being wrecked with a threat has acknowledged the subject; one that files it as a state change has
+  not. **The cable car's fourteen ride lines are the shape to copy**: second person, procedural,
+  never a consequence. `docs/audio.md`.
 - **THE PA SPEAKS ENGLISH IN EVERY LANGUAGE, AND IS SUBTITLED** (2026-09-02, by request). There is
   ONE voice set, `Assets/Audio/Voice`; the Korean one is gone, along with `NarrationDirector.korean`
   and its tannoy trim. Every `Announce*` fires its clip and its caption in one call - add a

@@ -213,10 +213,12 @@ def script():
     lines.append(("voice_cycle_broken", "Containment failure. Cycle broken."))
     lines.append(("voice_manual_termination",
                   "Manual termination available. Hold N to end the cycle."))
-    # Room3-2N's cube. The one line in the game that speaks TO the player rather than about the
-    # machine - see `NarrationDirector.AnnounceAllCyclesBroken` for why that is the point of it.
-    lines.append(("voice_all_cycles_broken",
-                  "All cycles have been destroyed. You will pay the price for destroying them."))
+    # Room3-2N's cube. **THE THREAT IS GONE** (2026-09-03, by request). It read "All cycles have
+    # been destroyed. You will pay the price for destroying them." and was the one line in the game
+    # that spoke TO the player rather than about the machine. What is left is the machine reporting
+    # its own state, which is what every other line here does - and a facility that records the
+    # subject wrecking it and does not react is colder than one that promises consequences.
+    lines.append(("voice_all_cycles_broken", "All cycles have been destroyed."))
     lines.append(("voice_ten_seconds", "Ten seconds remaining."))
 
     # The countdown. Each digit has to finish inside its one-second slot before the next replaces it,
@@ -263,15 +265,32 @@ def script():
     # right thing to be doing. Everything else this voice says at the end is a number.
     lines.append(("voice_transport_called", "Transport has been called. Please stand by."))
 
-    # And what it says on the way out - five lines across the cable car's climb, fired where the car
-    # IS rather than off a clock (`EndingDeparture.NarrateTheRide`). The arc is the facility signing
-    # off: the experiment is over, its data has been taken, thanks, you are being removed, and someone
-    # is still talking to you. It never once says you passed.
+    # And what it says on the way out. **FOURTEEN LINES NOW, NOT FIVE** (2026-09-03, by request:
+    # the PA should not stop talking for the whole climb). Five lines across a minute left most of
+    # the ride silent - about twenty seconds of speech in sixty - and the gaps read as the facility
+    # having run out of things to say rather than as pacing. The original five are all still here.
+    #
+    # The arc is unchanged at the ends and widened in the middle: the experiment is over, its data
+    # has been taken, thanks, you are being removed - and then the part that is new, which is that
+    # NONE OF THIS IS BEING SHUT DOWN. The cells are being refilled, other subjects got this far, and
+    # their results are on file too. It never once says you passed, and it never threatens.
+    #
+    # No chime in front of them any more either - see `NarrationDirector.AnnounceRideLine`. Fourteen
+    # dings in a minute is an alarm.
     for i, text in enumerate([
             "Your experiment is complete.",
+            "Records for cycles one, two and three have been stored.",
             "Your data has been assimilated. Improved results have been obtained.",
+            "This data will contribute to the cycles we build next.",
             "Thank you for your participation.",
             "You are being removed from the test environment.",
+            "Please remain inside the cable car. Do not lean out.",
+            "The structures below you are not decommissioned.",
+            "Occupancy is being restored on all levels.",
+            "You are not the first subject to reach this elevation.",
+            "Their results are also on file.",
+            "Surface access will be granted shortly.",
+            "This concludes your assignment.",
             "Guidance will continue."]):
         lines.append((f"voice_ride_{i}", text))
 

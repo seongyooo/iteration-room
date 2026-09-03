@@ -26,6 +26,16 @@ namespace IterationRoom
         public CableCarRide car;
         public FacilityExterior exterior;
 
+        // The pause between one ride line finishing and the next starting, on top of the 0.75s of
+        // tail silence every clip already carries (`generate_narration.TAIL_SILENCE`).
+        //
+        // Derived, not picked: the fourteen clips are 54.0s of audio and the ride is 216.8m at
+        // 3.2m/s = 68s, of which the narration starts 3% in. 54.0 + 13 x 0.45 = 59.9s, so it lands
+        // about six seconds before the car stops - enough that the last line is never cut, and not
+        // so much that the climb ends in silence. **Re-do that arithmetic if either the line count
+        // or the car's speed changes**; the build logs the ride length and speed every time.
+        public float betweenRideLines = 0.45f;
+
         // The wall of room3-2N that comes apart to let the car in. A `CycleExit` - the same
         // component the floor hatches are, for the same reason: it opens once, is used once, and it
         // lands on the panel grid so it reads as the wall itself coming apart rather than as a door.
@@ -230,14 +240,32 @@ namespace IterationRoom
         {
             if (narration == null || car == null) yield break;
 
-            // Spread across the middle of the run. Nothing at the very start (the doors are still
-            // closing) and nothing at the very end (the card is about to come up).
-            float[] at = { 0.06f, 0.24f, 0.44f, 0.64f, 0.84f };
+            // **BACK TO BACK, NOT AT MARKS** (2026-09-03, by request: the PA should not stop
+            // talking for the whole climb).
+            //
+            // It used to fire five lines at five points along the path. Keying off position rather
+            // than a clock was right when there were five - they stayed where they were put if the
+            // speed ever changed - but it left about twenty seconds of speech in a sixty second
+            // ride, and the silences read as the facility having run out of things to say.
+            //
+            // Fourteen lines is roughly forty-five seconds, so they are simply queued: the first
+            // waits for the doors to be shut and the car moving, and every one after it waits for
+            // the line before it to FINISH. That is what makes it one address instead of fourteen
+            // announcements - and it is why `Speaking` had to become a fact this could ask
+            // (see `NarrationDirector.Speaking`), because a fixed gap would either cut a long line
+            // off or leave a hole after a short one.
+            //
+            // Nothing waits forever: the ride ending stops this coroutine wherever it has got to.
+            while (car.Progress < 0.03f) yield return null;
 
-            for (int i = 0; i < at.Length; i++)
+            for (int i = 0; i < narration.RideLineCount; i++)
             {
-                while (car.Progress < at[i]) yield return null;
                 narration.AnnounceRideLine(i);
+                // A beat to let the source actually start - `Speaking` is false for a frame or two
+                // after `Play()`, the same reason `PaSubtitle` carries a minimum.
+                yield return Wait(0.35f);
+                while (narration.Speaking) yield return null;
+                yield return Wait(betweenRideLines);
             }
         }
 
