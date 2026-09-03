@@ -165,11 +165,23 @@ namespace IterationRoom
         //
         // Called by `EndingDeparture` after boarding. It is the same two passes, with nothing held
         // out this time.
+        // **ROOM3-2N KEEPS ITS CEILING** (2026-09-03, by request). This used to clear `occupied` and
+        // run the cutaway again the moment the player boarded, so the room they had just left opened
+        // up like all the others as the car pulled away.
+        //
+        // Three reasons it is better not to. It ran the whole outside pass a SECOND time, over a
+        // building already dressed - visible in the player log as two `Cutaway`/`Outside` pairs
+        // fourteen seconds apart with different counts. It took the lid off the one room whose floor
+        // carries the room-sized cover over room4-1, which is where the white rectangle play kept
+        // reporting lives. And it is not needed: the shot is the building going away underneath, and
+        // a sealed box at the bottom of it reads as the room you were just in rather than as a
+        // mistake.
+        //
+        // Nothing else wanted it. Cycle 3's panels are already in ERROR from its own break
+        // (`FacilityFailure` runs `BeginAlarmGlitch`), and `KeepTheSunOutOfTheRooms` covers the
+        // occupied cycle through `Awake_AllCycles`, not through this.
         public void CutAwayTheLastCycle()
         {
-            occupied = null;
-            Cutaway();
-            PaintTheOutside();
         }
 
         // Everything at once, called the moment the wall opens. The car has not moved yet, so the
@@ -417,10 +429,13 @@ namespace IterationRoom
 
             }
 
+            // Its own line, and short. The combined one ran off the right of Unity's Console and
+            // the part that answers the question was the part that got cut.
+            Debug.Log($"[FacilityExterior] ERROR walls in: [{string.Join(", ", brokenIn.Distinct())}]");
+
             Debug.Log($"[FacilityExterior] Outside: {painted} backing slab(s) repainted, {unbaked} "
                     + $"renderer(s) taken off their baked lightmap, {doused} fixture(s) hidden, "
-                    + $"{powered} panel wall(s) put into ERROR across "
-                    + $"[{string.Join(", ", brokenIn.Distinct())}]. "
+                    + $"{powered} panel wall(s) put into ERROR. "
                     + "The lights inside them stay on - see the note above.");
         }
 
