@@ -1733,6 +1733,54 @@ points is a cosmetic question rather than one that decides whether the vehicle c
 
 ---
 
+## THREE FIXES AIMED AT THE CAR, AND THE LIP WAS IN THE ROOM'S OWN FLOOR (2026-09-03)
+
+Play reported four times, over three days, that the cable car could only be **jumped** into. Each
+report was answered by changing something on the car: the cabin's collision slab was reached back
+`CabinThresholdReach` toward the room, then dropped `CabinThresholdDrop` below the room floor, then a
+threshold check was added — which turned out to be comparing `carRoot.position.y` with `path[0].y`,
+i.e. a number with itself. Made real, it measured the step at **−0.03m** against a `stepOffset` of
+0.72, which proved only that the snag was somewhere else. It was never re-aimed, because each round
+had a plausible story and none of them was measured.
+
+So the build was made to print the route instead (`SceneBuilder.ReportBoardingRoute`): every collider
+between the room and the seat, in room3-2N's own local metres, with the breach plane and the floor
+plane stated beside them. The first run answered it in one line.
+
+```
+room/BreachApron   x  8.75..13.25   y  -0.40.. 0.00
+```
+
+**The apron's top face was at y = 0.00 — the room floor's own plane — overlapping the room's floor
+slab by `WallDepth`.** Two box colliders sharing a plane. A `CharacterController` resolves by
+sweeping, and where two colliders meet on one plane both report contact at once; the depenetration
+lifts the capsule a hair and the step stalls. It reads exactly as reported: a lip you cannot walk
+over and can jump.
+
+**The project already knew this.** `SceneBuilder.Departure.cs` says it twice in its own comments —
+*"two colliders that merely touch leave a seam exactly where a sweep will find it"* — and it is the
+stated reason the cabin's slab was given `CabinThresholdDrop` in the first place. The apron was added
+later, to fix an earlier round of the same complaint, and never got the same treatment. **A fix that
+introduces the very thing the fix was about is the easiest one to not look at again.**
+
+The three surfaces now step down and no two share a plane: room floor `0.000`, apron `−0.015`
+(`ApronDrop`), cabin floor `−0.030` (`CabinThresholdDrop`). The apron also starts `ApronUnderlap`
+INSIDE the room rather than at the wall plane, so it is unambiguously under the player before the
+room's floor ends — an overlap cannot have a seam in it.
+
+**The lesson is about the loop, not the geometry.** Three guesses cost three builds and three
+playtests; the report cost one build and read the answer off a line. When a symptom survives two
+fixes, stop fixing and make the build print the thing being reasoned about — and leave the print in,
+so the next reader gets the number rather than the story.
+
+**And a diagnostic must know what is switched off at runtime.** The first run of the report flagged
+five obstacles; three of them — both doorway walls and the breach gate — are disabled before the
+player is asked to walk the route. Flagging those would have sent the next reader after the wrong
+ones, which is the exact failure the report exists to end, so it now marks them `(opened to board)`
+and excludes them from the verdict.
+
+---
+
 ## A LID THAT TRAVELS ITS PARK DEPTH ARRIVES HALF ITS OWN THICKNESS TOO HIGH (2026-09-03)
 
 Room3-0's shaft lid was parked `ShaftLidPark` under that room's floor and raised by

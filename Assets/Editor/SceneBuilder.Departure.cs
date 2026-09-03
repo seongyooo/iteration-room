@@ -166,6 +166,36 @@ namespace IterationRoom.EditorTools
         private const float ApronReach = 4.5f;
         private const float ApronThickness = 0.4f;
 
+        // **AND IT IS NOT LEVEL WITH THE ROOM FLOOR, AND THAT IS THE WHOLE OF THE BOARDING SNAG.**
+        //
+        // Measured 2026-09-03, after three fixes aimed at the car itself had changed nothing. The
+        // build now prints every collider on the route (`ReportBoardingRoute`), and what it printed
+        // was an apron whose top face was at y=0.00 - the room floor's own plane - overlapping the
+        // room's floor slab by `WallDepth`. Two box colliders sharing a plane is precisely what this
+        // file warns about twice in its own comments ("two colliders that merely touch leave a seam
+        // exactly where a sweep will find it"), and it is why the cabin's slab was given
+        // `CabinThresholdDrop` in the first place. The apron was added later and never got it.
+        //
+        // A `CharacterController` resolves by sweeping, and on a shared plane both colliders report
+        // contact at once; the depenetration lifts the capsule a hair and the step stalls. It reads
+        // exactly as play described it - a lip you cannot walk over but can jump.
+        //
+        // So the three surfaces now STEP DOWN, each clear of the last, and none of them shares a
+        // plane with another:
+        //
+        //     room floor    0.000      the room's own slab
+        //     apron        -0.015      here
+        //     cabin floor  -0.030      CabinThresholdDrop
+        //
+        // 15mm is invisible to look at and nothing to a controller that steps 0.72m, and walking
+        // back OUT is two 15mm rises, which is likewise nothing.
+        private const float ApronDrop = CabinThresholdDrop / 2f;
+
+        // And it starts INSIDE the room rather than at the wall plane, so it is unambiguously under
+        // the player before the room's own floor ends. Same argument as `CabinThresholdReach`, one
+        // surface further back: an overlap cannot have a seam in it.
+        private const float ApronUnderlap = 0.6f;
+
         private const float CabinThresholdReach = 1.2f;
         // And how far below the room's floor that slab's top sits, so it can never be a step UP.
         private const float CabinThresholdDrop = 0.03f;
@@ -284,11 +314,16 @@ namespace IterationRoom.EditorTools
             // it is taken off the room rather than typed as a world Y that a moved room would break.
             departure.descentY = roomNorth.position.y + 2.2f;
             departure.shaftLid = BuildShaftLid(cycleThreeRoot);
+            // AUTHORED, not left on the component's default (CLAUDE.md 2: values live here). The
+            // default was the parked depth, which is the overshoot `ShaftLidRise` exists to correct.
+            departure.shaftLidRise = ShaftLidRise;
             departure.board = board;
             departure.car = car;
             departure.exterior = exterior;
             departure.breach = breach;
             departure.cameraShaker = shaker;
+
+            ReportBoardingRoute(roomNorth, car, departureGate);
 
             Debug.Log($"[SceneBuilder] Ending departure: shaft nominally x={shaftX:0.##}, "
                     + $"{path.Length} waypoints, {PathLength(path):0.#}m of ride at "
@@ -314,9 +349,6 @@ namespace IterationRoom.EditorTools
         // wheeled in. The wave is held out of this room for exactly that reason; see
         // `AssembleCycleThree`.
         private static EvaluationBoard BuildEvaluationBoard(Transform roomNorth, Transform player)
-            // AUTHORED, not left on the component's default (CLAUDE.md 2: values live here). The
-            // default was the parked depth, which is the overshoot `ShaftLidRise` exists to correct.
-            departure.shaftLidRise = ShaftLidRise;
         {
             const float bigWidth = 2f * RoomWidth;
             const float bigDepth = 2f * RoomDepth;
@@ -518,6 +550,89 @@ namespace IterationRoom.EditorTools
             exit.openClip = LoadClip(SfxDir, "sfx_door_open");
             exit.sealClip = LoadClip(SfxDir, "sfx_power_down");
             return exit;
+        }
+
+        // **EVERY SOLID THING BETWEEN THE ROOM AND THE SEAT, IN THE ROOM'S OWN FRAME.**
+        //
+        // Play has reported three times that the car can only be jumped into, and three fixes aimed
+        // at three different guesses have not settled it - the threshold reach, the apron, and a
+        // check that turned out to be comparing a number with itself. The arithmetic says the walk
+        // is clear, so the arithmetic is being done on something other than what is in the scene.
+        //
+        // This prints what is actually there rather than what the constants imply: name, world
+        // bounds expressed in room3-2N local X/Y/Z, and whether each one stands in the doorway. The
+        // room's east wall face is local x = RoomWidth and its floor is local y = 0, so a boarding
+        // obstacle is anything solid whose span crosses that plane between the floor and knee
+        // height. Read it, then fix the thing it names.
+        private static void ReportBoardingRoute(Transform roomNorth, CableCarRide car,
+                                                GameObject gate)
+        {
+            if (roomNorth == null || car == null) return;
+
+            const float wallFace = RoomWidth;          // bigWidth / 2, the breach plane
+            const float knee = 0.95f;                  // a shade over the jump, so nothing is missed
+            const float corridor = 0.5f;               // half the width a player actually walks down
+
+            // **WHAT IS SOLID AT BOARDING TIME IS NOT WHAT IS SOLID HERE.** Three things on this
+            // route are switched off before the player is asked to walk it - the two doorway walls
+            // (`CableCarRide.SetDoorways`) and the gate that holds them in until the car has docked
+            // (`EndingDeparture`) - so flagging them as obstacles would send the next reader after
+            // the wrong ones, which is the exact failure this whole report exists to end.
+            var gated = new HashSet<Collider>();
+            if (car.doorwayWalls != null)
+                foreach (Collider wall in car.doorwayWalls)
+                    if (wall != null) gated.Add(wall);
+            if (gate != null)
+                foreach (Collider c in gate.GetComponentsInChildren<Collider>(true))
+                    gated.Add(c);
+
+            var rows = new List<string>();
+
+            void Walk(Transform from, string tag)
+            {
+                if (from == null) return;
+                foreach (Collider c in from.GetComponentsInChildren<Collider>(true))
+                {
+                    if (c == null) continue;
+                    Bounds b = c.bounds;
+                    Vector3 lo = roomNorth.InverseTransformPoint(b.min);
+                    Vector3 hi = roomNorth.InverseTransformPoint(b.max);
+                    // The transform may flip an axis; state the span, not the corners.
+                    Vector3 a = Vector3.Min(lo, hi), z = Vector3.Max(lo, hi);
+
+                    bool blocks = a.x <= wallFace && z.x >= wallFace      // straddles the plane
+                               && a.y < knee && z.y > 0.02f               // at foot height
+                               && a.z < corridor && z.z > -corridor       // in the walked width
+                               && !gated.Contains(c);                     // and still there by then
+                    rows.Add($"    {(blocks ? "!!" : "  ")} {tag}/{c.name,-18} "
+                           + $"x {a.x,7:0.00}..{z.x,6:0.00}  y {a.y,7:0.00}..{z.y,6:0.00}  "
+                           + $"z {a.z,7:0.00}..{z.z,6:0.00}"
+                           + (gated.Contains(c) ? "  (opened to board)" : ""));
+                }
+            }
+
+            Walk(car.transform, "car");
+            foreach (string name in new[] { "BreachApron", "BreachGate", "BreachBlockers" })
+                Walk(roomNorth.Find(name), "room");
+
+            // The cabin's drawn floor against the collision one. If the model's bounds bottom is not
+            // its interior floor, the two disagree and the car looks like a step it is not.
+            Transform cabin = car.transform.Find("Cabin");
+            string drawn = "no Cabin child";
+            if (cabin != null)
+            {
+                Bounds mb = MeasuredBounds(cabin.gameObject);
+                drawn = $"model bottom at local y {roomNorth.InverseTransformPoint(mb.min).y:0.000}, "
+                      + $"top {roomNorth.InverseTransformPoint(mb.max).y:0.000}";
+            }
+
+            Debug.Log("[SceneBuilder] The walk into the cable car, in room3-2N local metres. The "
+                    + $"breach plane is x={wallFace:0.00}, the room floor is y=0.00, and the walked "
+                    + $"corridor is |z|<{corridor:0.0}. A row marked !! is solid across that "
+                    + "corridor at foot height when the player is asked to walk it, and is what "
+                    + $"they catch on. Nothing should be marked.{System.Environment.NewLine}"
+                    + $"{string.Join(System.Environment.NewLine, rows)}"
+                    + $"{System.Environment.NewLine}    -- {drawn}");
         }
 
         // THE CAR. Imported, doors split onto pivots of their own, and a seat put where a person
@@ -906,6 +1021,12 @@ namespace IterationRoom.EditorTools
             Renderer lidRenderer = lid.GetComponent<Renderer>();
             if (lidRenderer != null) lidRenderer.enabled = false;
 
+            // The residual, stated rather than claimed away: a 5mm slot 22cm deep is a 1.3 degree
+            // cone, against the 21.8 degrees it was, and from room3-2N's floor 16.2m below it
+            // subtends 0.018 degrees - a third of a pixel at 1080p. It is not zero and cannot be
+            // while the lid has to pass up through the shaft to get here.
+            float slot = ShaftLidClearance / 2f;
+            float depth = ShaftLidRecess + ShaftLidThickness;
             Debug.Log($"[SceneBuilder] Room3-0's shaft lid: {hole.width:0.##} x {hole.height:0.##}m "
                     + $"hole, {ShaftLidThickness:0.###}m thick, parked {ShaftLidPark:0.##}m under "
                     + $"its floor and rising {ShaftLidRise:0.###}m to seal {ShaftLidRecess:0.###}m "
@@ -914,9 +1035,34 @@ namespace IterationRoom.EditorTools
             return lid.transform;
         }
 
-        // How far below room3-0's floor the lid waits. Deep enough to be inside the service void and
-        // out of sight from either room; the rise in `EndingDeparture` covers it.
+        // How far below room3-0's floor the lid waits. **It is NOT in the service void** - that is
+        // only `LadderVoid` deep - it hangs in room3-2N's own airspace, a metre and a third under
+        // that room's ceiling, and rises up through the ceiling hole and the shaft to get here. Its
+        // renderer is off until it moves for exactly that reason.
         private const float ShaftLidPark = 1.9f;
+
+        // **THE THREE NUMBERS THAT SHUT IT, AND THE RISE WAS THE BROKEN ONE.**
+        //
+        // The lid used to be `WallThickness` thick and rise the full `ShaftLidPark`, which put its
+        // CENTRE on room3-0's floor plane. Room3-0's floor slab runs from -WallThickness to 0
+        // (`BuildSlab` centres it at -WallThickness/2), so a lid centred at 0 stood 5cm proud of
+        // that floor with its underside 5cm ABOVE the slab's - a lid that had overshot the hole by
+        // half its own thickness and was plugging nothing but air.
+        //
+        // What play saw from room3-2N (2026-09-03) was the consequence: a 5cm-deep recess with a 2cm
+        // slot round all four sides, open on a 21.8 degree cone straight into a lit room. It read as
+        // a bright outline round the closed hatch, which is precisely what it was.
+        //
+        // It is stated as a RECESS off room3-0's floor now rather than as a distance travelled, so
+        // the stop is tied to the surface it has to be flush with and the travel is derived from it.
+        private const float ShaftLidThickness = 2f * WallThickness;
+        private const float ShaftLidClearance = 0.01f;   // total, i.e. 5mm each side
+        private const float ShaftLidRecess = 0.02f;      // top face, below room3-0's floor top
+
+        // Parked centre to sealed centre. Sealed centre is `ShaftLidRecess` plus half the lid's own
+        // thickness below room3-0's floor top, which is its local y zero.
+        private const float ShaftLidRise =
+            ShaftLidPark - (ShaftLidRecess + ShaftLidThickness / 2f);
 
         // **THE ONLY WAY THROUGH THE BREACH IS INTO THE CAR.**
         //
@@ -940,12 +1086,17 @@ namespace IterationRoom.EditorTools
             // hanging outside a hole in a wall, which is a place to stand and therefore a place to
             // fall off; this cannot be seen and cannot be reached except through the doorway, because
             // the blockers below close everything either side of the car.
+            //
+            // **UNDER THE ROOM FLOOR AND A HAIR BELOW IT**, not level with it and not starting at
+            // its edge - see `ApronDrop`, which carries the measurement that found this.
             GameObject apron = new GameObject("BreachApron");
             apron.transform.SetParent(roomNorth, false);
+            float apronSpan = ApronReach + ApronUnderlap;
             apron.transform.localPosition = new Vector3(
-                bigWidth / 2f + ApronReach / 2f, -ApronThickness / 2f, 0f);
+                bigWidth / 2f - ApronUnderlap + apronSpan / 2f,
+                -ApronDrop - ApronThickness / 2f, 0f);
             apron.AddComponent<BoxCollider>().size =
-                new Vector3(ApronReach, ApronThickness, hole.width);
+                new Vector3(apronSpan, ApronThickness, hole.width);
 
             // **AND NOTHING GOES OUT UNTIL THE CAR IS THERE** (2026-09-03, by request).
             //
@@ -1023,12 +1174,6 @@ namespace IterationRoom.EditorTools
                 // A Unity cylinder is two units tall on its own Y, so half the length is the scale
                 // and the rotation is whatever takes +Y onto the leg.
                 leg.transform.rotation = Quaternion.FromToRotation(Vector3.up, (b - a).normalized);
-            // The residual, stated rather than claimed away: a 5mm slot 22cm deep is a 1.3 degree
-            // cone, against the 21.8 degrees it was, and from room3-2N's floor 16.2m below it
-            // subtends 0.018 degrees - a third of a pixel at 1080p. It is not zero and cannot be
-            // while the lid has to pass up through the shaft to get here.
-            float slot = ShaftLidClearance / 2f;
-            float depth = ShaftLidRecess + ShaftLidThickness;
                 leg.transform.localScale = new Vector3(CableThickness, length * 0.5f, CableThickness);
             }
         }
@@ -1041,29 +1186,6 @@ namespace IterationRoom.EditorTools
         //
         // Both facts were wrong in this project until the leaves could be measured, and they could
         // not be measured until the prefab unpack above let `SplitDoor` actually collect them - the
-        // **THE THREE NUMBERS THAT SHUT IT, AND THE RISE WAS THE BROKEN ONE.**
-        //
-        // The lid used to be `WallThickness` thick and rise the full `ShaftLidPark`, which put its
-        // CENTRE on room3-0's floor plane. Room3-0's floor slab runs from -WallThickness to 0
-        // (`BuildSlab` centres it at -WallThickness/2), so a lid centred at 0 stood 5cm proud of
-        // that floor with its underside 5cm ABOVE the slab's - a lid that had overshot the hole by
-        // half its own thickness and was plugging nothing but air.
-        //
-        // What play saw from room3-2N (2026-09-03) was the consequence: a 5cm-deep recess with a 2cm
-        // slot round all four sides, open on a 21.8 degree cone straight into a lit room. It read as
-        // a bright outline round the closed hatch, which is precisely what it was.
-        //
-        // It is stated as a RECESS off room3-0's floor now rather than as a distance travelled, so
-        // the stop is tied to the surface it has to be flush with and the travel is derived from it.
-        private const float ShaftLidThickness = 2f * WallThickness;
-        private const float ShaftLidClearance = 0.01f;   // total, i.e. 5mm each side
-        private const float ShaftLidRecess = 0.02f;      // top face, below room3-0's floor top
-
-        // Parked centre to sealed centre. Sealed centre is `ShaftLidRecess` plus half the lid's own
-        // thickness below room3-0's floor top, which is its local y zero.
-        private const float ShaftLidRise =
-            ShaftLidPark - (ShaftLidRecess + ShaftLidThickness / 2f);
-
         // pivots were empty, so `MeasuredBounds` was reporting the bounds of nothing. The note that
         // used to sit on `doorwayWalls` reasoned from those numbers: "an identical offset of
         // (0.08, -2.05, 0.00) ... the horizontal signal is 0.08 in a hull 1.74 wide, which is
