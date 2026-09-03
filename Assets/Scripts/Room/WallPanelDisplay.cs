@@ -438,6 +438,25 @@ namespace IterationRoom
             StartCoroutine(GlitchRoutine());
         }
 
+        // **A ROOM THAT BROKE A WHILE AGO**, rather than one breaking now.
+        //
+        // `BeginGlitch` starts the wave at zero and spreads it over `glitchOnset`; this starts it
+        // already finished. Every panel is past its `convertAt`, so all of them show the test card
+        // from the first frame, and the burst flicker goes on running at its settled rate - the
+        // room is still failing, it is just not failing FOR you.
+        //
+        // Used by `FacilityExterior.Reveal`: by the time the cable car climbs past them, cycles 1
+        // and 2 broke long ago and their walls should say so. Time is set past the wave rather than
+        // clamped, because `PaintScreen` reads `glitchTime - convertAt[i]` only to decide whether a
+        // panel is in its first fifth of a second, and `glitchOnset` saturates the burst duty at 1.
+        public void ShowAlreadyBroken(Vector3 origin)
+        {
+            StopAllCoroutines();
+            BuildConvertOrder(origin);
+            glitchTime = Mathf.Max(1f, glitchOnset) * 4f;
+            StartCoroutine(GlitchRoutine());
+        }
+
         private void BuildConvertOrder(Vector3 origin)
         {
             int count = panels != null ? panels.Length : 0;

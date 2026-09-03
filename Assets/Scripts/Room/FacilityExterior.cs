@@ -343,9 +343,20 @@ namespace IterationRoom
                          cycle.worldRoot.GetComponentsInChildren<WallPanelDisplay>(true))
                 {
                     if (panels == null) continue;
-                    panels.StopAllCoroutines();
+                    // **SHOWING ERROR, NOT SHOWING WHITE** (2026-09-03). This used to
+                    // `StopAllCoroutines` and `SetPowered(1)`, which lit the panels - and killed the
+                    // glitch routine that draws the test card, so every room the cable car climbs
+                    // past had its ERROR wiped on the way out. In a real run that threw away
+                    // something the player had earned; on the `Cycle 3 ending` test jump, cycles 1
+                    // and 2 were never broken in the first place and had nothing to throw away.
+                    // Both cases are the same fix, and it is the same fiction either way: by the
+                    // time anybody rides past these, they are broken.
+                    //
+                    // The flare stays at zero. That is the blow-out at the instant of breaking, and
+                    // these did not break just now.
                     panels.SetFlare(0f);
                     panels.SetPowered(1f);
+                    panels.ShowAlreadyBroken(cycle.worldRoot.position);
                     powered++;
                 }
 
