@@ -953,6 +953,26 @@ namespace IterationRoom
             first.ResetRooms();
             ItemRegistry.ReturnAllToOrigin();
 
+            // **THE WALLS COME OUT OF ERROR HERE, NOT OUT THERE** (2026-09-03).
+            //
+            // `FacilityExterior.ReturnToTheFirstRoom` clears them too, and play still woke to a wall
+            // of test cards while the PA spoke and every fixture answered - which is the signature of
+            // a step that was skipped rather than one that failed. Everything else in this method
+            // runs off `first`, which is a field; that one call runs off `Current.departure.exterior`
+            // and is reached through `?.`, so a null anywhere in that chain skips it in silence and
+            // leaves the rest working.
+            //
+            // The panels are this room's state, and resetting this room's state is what this method
+            // is. It is done here, off the same `first` as everything else, and the exterior's copy
+            // is left alone: `ClearBreak` is idempotent, and the outside has its own reason to want
+            // the walls back before it puts the sun out.
+            //
+            // AFTER `ResetRooms`, so nothing that reset can put the break back.
+            if (first.wallPanels != null) first.wallPanels.ClearBreak();
+            else Debug.LogWarning("[LoopManager] Cycle 1 has no wallPanels, so the ERROR the ride "
+                                + "painted on them stays up for the last five seconds of the game. "
+                                + "It is a NAMED reference on `Cycle` - see CLAUDE.md 2.");
+
             Transform bed = first.bedSpawnPoint;
             if (playerController != null && bed != null)
                 playerController.Teleport(bed.position, bed.rotation);
