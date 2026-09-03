@@ -323,6 +323,25 @@ namespace IterationRoom.EditorTools
             departure.breach = breach;
             departure.cameraShaker = shaker;
 
+            // **THE DROP, ONCE THE RACKS EXIST.** It has to be here rather than in
+            // `BuildCableCar` because the boxes it falls past are collected while those are built,
+            // and they are built after the car is.
+            Vector3 release = PathPointAt(path, CarFallAt);
+            car.fallAt = CarFallAt;
+            car.fallSeconds = CarFallSeconds;
+            car.fallObstacles = fallCorridor.ToArray();
+            // The ground is the drop rather than the bottom of the rack - see `FallGroundY`.
+            car.fallGravity = CarFallGravity;
+            car.fallGroundY = FallGroundY(release);
+            car.fallTimeout = CarFallSeconds * 4f;
+
+            Debug.Log($"[SceneBuilder] The drop: released at y={release.y:0.#}, ground at "
+                    + $"y={car.fallGroundY:0.#} - {release.y - car.fallGroundY:0.#}m, which is "
+                    + $"{CarFallSeconds:0.0}s of free fall before anything is struck. "
+                    + $"{car.fallObstacles.Length} rack cell(s) left standing in the "
+                    + $"{FallShaftRadius:0}m shaft for it to hit - one storey in {FallStrikeEvery} within {FallStrikeRadius:0}m of the line; the "
+                    + "rest were cleared, or the drop would end on the first roof under it.");
+
             ReportBoardingRoute(roomNorth, car, departureGate);
 
             Debug.Log($"[SceneBuilder] Ending departure: shaft nominally x={shaftX:0.##}, "
@@ -873,6 +892,33 @@ namespace IterationRoom.EditorTools
                                      LoadClip(SfxDir, "sfx_cable_creak_2"),
                                      LoadClip(SfxDir, "sfx_cable_creak_3") };
 
+            // **THE DROP GETS TWO SOURCES OF ITS OWN, AND BOTH BREAK TWO HOUSE RULES ON PURPOSE.**
+            //
+            // 2D (`spatialBlend` 0) rather than spatialised: the listener is INSIDE the thing making
+            // the noise. A spatialised source at the player's own position is a source at zero
+            // distance, which is 2D with a rolloff curve doing nothing - so this says what it means.
+            //
+            // And `pa: true`, which is the flag that exempts a source from `SfxLevel`. That constant
+            // exists to hold the effects under the announcer, and it is right everywhere else in the
+            // game; here it is the wrong instrument. This is the last thirty seconds, the player is
+            // being dropped two hundred metres inside a steel box, and nothing is competing with it.
+            // Asked for as loud (2026-09-03, by request) and made loud in ONE place rather than by
+            // raising a clip's normalisation, which would have been silent and unfindable.
+            car.fallSource = MakeSource(carRoot.transform, "FallAudio", spatialBlend: 0f,
+                                        volume: 0.85f, loop: true, pa: true);
+            car.fallSource.clip = LoadClip(SfxDir, "sfx_cable_car_fall");
+            car.fallSource.playOnAwake = false;
+
+            car.impactSource = MakeSource(carRoot.transform, "ImpactAudio", spatialBlend: 0f,
+                                          volume: 1f, pa: true);
+            // The structures it clips on the way down, as against the landing. Two, alternating.
+            car.hitClips = new[] { LoadClip(SfxDir, "sfx_cable_car_hit_1"),
+                                   LoadClip(SfxDir, "sfx_cable_car_hit_2") };
+            // The cabin's own box, for what it strikes. Measured off the model that loaded rather
+            // than taken from the collision cage, which carries a metre of boarding skirt that has
+            // nothing to do with the shape of the thing falling.
+            car.fallHalfExtents = new Vector3(CarHalfWidth, box.size.y / 2f, CarHalfDepth);
+
             // **THE TWO CONSTANTS THE PATH WAS BUILT FROM, CHECKED AGAINST THE MODEL THAT ACTUALLY
             // LOADED.** `CarHalfWidth` decides where the car docks and `CarHalfDepth` decides how
             // much of the breach has to be blocked off beside it, and both are needed before this
@@ -1287,6 +1333,53 @@ namespace IterationRoom.EditorTools
         // diagonal. The car is on a haul rope in a shaft rather than strung between two pylons, and a
         // haul rope can turn - which is a cheap piece of fiction to buy the difference between
         // watching a building go by and being able to see who is in it.
+        // `CableCarRide.PathPoint`, on the build side. It is a duplicate and it is a small one,
+        // and the alternative was to build the racks, then the car, then go back and re-walk the
+        // racks - which is a second pass over eight thousand objects to avoid nine lines. What must
+        // not drift is the PARAMETER, and that is why `CarFallAt` is authored onto the component
+        // rather than read off it.
+        // **WHERE THE DROP ENDS.** Stated as the height the old timed fall covered -
+        // `CarFallSeconds` of real gravity - so the tuning that number bought (2.8 -> 5.5, *"it hit
+        // the bottom far too soon"*) survives the change from a timer to a floor. Everything the car
+        // strikes on the way now makes the fall LONGER than that, which is the point: the drop is a
+        // distance, and the bounces are what it costs.
+        //
+        // One function because two things need it and they must agree: the rack build cuts the shaft
+        // down to here, and the car is told to stop here.
+        private static float FallGroundY(Vector3 release) =>
+            release.y - 0.5f * CarFallGravity * CarFallSeconds * CarFallSeconds;
+
+        // Distance from a point to a segment. `DistanceToPath` is the polyline form of this and is
+        // what the ride's keep-out uses; the drop is one straight line and does not need the walk.
+        private static float DistanceToSegment(Vector3 at, Vector3 a, Vector3 b)
+        {
+            Vector3 ab = b - a;
+            float len = ab.sqrMagnitude;
+            if (len < 1e-6f) return Vector3.Distance(at, a);
+            float t = Mathf.Clamp01(Vector3.Dot(at - a, ab) / len);
+            return Vector3.Distance(at, a + ab * t);
+        }
+
+        private static Vector3 PathPointAt(Vector3[] path, float amount)
+        {
+            if (path == null || path.Length == 0) return Vector3.zero;
+            if (path.Length == 1) return path[0];
+
+            float target = PathLength(path) * Mathf.Clamp01(amount);
+            float travelled = 0f;
+            for (int i = 1; i < path.Length; i++)
+            {
+                float segment = Vector3.Distance(path[i - 1], path[i]);
+                if (travelled + segment >= target)
+                {
+                    float into = segment > 0f ? (target - travelled) / segment : 0f;
+                    return Vector3.Lerp(path[i - 1], path[i], into);
+                }
+                travelled += segment;
+            }
+            return path[path.Length - 1];
+        }
+
         private static Vector3[] BuildCableCarPath(float shaftX, Transform roomNorth,
                                                    Transform[] cycleRoots)
         {
@@ -1725,6 +1818,51 @@ namespace IterationRoom.EditorTools
         // How far below the building the racks carry on, and how wide that column is. The fall is
         // about 148m at real gravity; the radius is what fills the frame from inside a cabin going
         // straight down, not the whole footprint - see where these are used.
+        // **WHERE THE ROPE LETS GO AND HOW LONG THE DROP IS, AUTHORED RATHER THAN DEFAULTED.**
+        // Both were `CableCarRide` field defaults, and the build now needs them itself: the fall
+        // corridor is worked out from the release point and the ground is worked out from the drop.
+        // Two readings of one number is how they drift apart (CLAUDE.md 2).
+        private const float CarFallAt = 0.92f;
+        private const float CarFallSeconds = 5.5f;
+
+        // **THE DROP NEEDS A SHAFT CUT FOR IT, AND THAT IS NOT A CONTRADICTION OF THE REQUEST.**
+        //
+        // The racks are a lattice with `2 * WallThickness` between cells - two rooms in this building
+        // are that far apart and so are two cells - which means that below the ride's own keep-out
+        // the space the car falls into is very nearly SOLID. Handed that as things to collide with,
+        // the cabin strikes the first roof under it, loses two thirds of its speed, and sits there:
+        // a six-metre fall, not a two-hundred-metre one.
+        //
+        // So the fall line is cleared the same way the ride's path is - and then some of it is put
+        // back. What was asked for (2026-09-03) is a car that hits a room if one is in the way and
+        // never passes through one; a shaft with structures jutting into it is exactly that, and a
+        // solid block is not a fall at all.
+        private const float FallShaftRadius = 12f;
+
+        // **AND WHAT IS PUT BACK IS CHOSEN TO BE HIT, NOT SCATTERED THROUGH THE SHAFT.**
+        //
+        // The first attempt kept one cell in eight of everything cleared, which sounds like the same
+        // thing and is not: the shaft is nearly twenty metres wide once a cell's own half-diagonal
+        // is counted, so most of what that kept stood ten to fifteen metres off the fall line - out
+        // where a two-metre cabin can never reach it. Twenty-nine obstacles, and the car would have
+        // fallen past almost all of them.
+        //
+        // Chosen by POSITION and spaced by STOREY instead. Anything within `FallStrikeRadius` of the
+        // line straddles it - the cells are 8.75m across - so a cell kept here is one the cabin
+        // meets, and keeping one storey in `FallStrikeEvery` puts them far enough apart that the car
+        // is falling freely between them rather than clattering down a ladder. Deterministic, like
+        // the lit windows: the same drop every time it is watched.
+        private const float FallStrikeRadius = 6f;
+        private const int FallStrikeEvery = 3;
+        // Real gravity, on the build side, so the ground can be worked out from the drop. It is the
+        // same number `CableCarRide.fallGravity` carries and it is authored onto it below.
+        private const float CarFallGravity = 9.81f;
+
+        // The cells in that column, collected as the racks are built - there is no second pass over
+        // them, and no `GetComponentsInChildren` looking for a component nothing has. Cleared at the
+        // top of `BuildExterior`, read once by `BuildEndingDeparture`.
+        private static readonly List<Bounds> fallCorridor = new List<Bounds>();
+
         private const float FallRackReach = 165f;
         private const float FallRackRadius = 45f;
 
@@ -1814,6 +1952,7 @@ namespace IterationRoom.EditorTools
 
             int built = 0;
             int index = 0;
+            int clearedForFall = 0;
             bool capped = false;
 
             // **THE GRID IS ANCHORED TO THE BUILDING, NOT TO THE SHAFT.** It ran from the shaft's
@@ -1822,6 +1961,12 @@ namespace IterationRoom.EditorTools
             // centre and stepped outward, a cell sits where the NEXT ROOM ALONG would be, which is
             // the whole of what makes it read as one lattice rather than two.
             clearedForRide = 0;
+            fallCorridor.Clear();
+            // The drop, as a segment: where the rope lets go, and the floor the car is going to
+            // reach. Everything about the fall is measured off these two points - what gets cleared
+            // out of the way, what is left in it to hit, and where the car stops.
+            Vector3 release = PathPointAt(path, CarFallAt);
+            Vector3 fallFoot = new Vector3(release.x, FallGroundY(release), release.z);
             Vector3 origin = building.center;
             int nx = Mathf.CeilToInt((shaft.size.x * 0.5f) / pitch.x);
             int nz = Mathf.CeilToInt((shaft.size.z * 0.5f) / pitch.z);
@@ -1879,6 +2024,19 @@ namespace IterationRoom.EditorTools
                             clearedForRide++;
                             continue;
                         }
+
+                        // **AND THE DROP GETS A SHAFT OF ITS OWN.** See `FallShaftRadius`. A cell in
+                        // here is normally cleared; one in `FallObstacleEvery` is kept, and those
+                        // kept are the ones the car is told about.
+                        // The drop is a vertical segment, so this is the cell's horizontal
+                        // distance from the line the car falls down.
+                        float toDrop = DistanceToSegment(at, release, fallFoot);
+                        bool obstacle = false;
+                        if (toDrop < box.extents.magnitude + FallShaftRadius)
+                        {
+                            obstacle = toDrop < FallStrikeRadius && iy % FallStrikeEvery == 0;
+                            if (!obstacle) { clearedForFall++; continue; }
+                        }
                         if (built >= MaxCells)
                         {
                             capped = true;
@@ -1901,7 +2059,20 @@ namespace IterationRoom.EditorTools
                                  CellGlowMaterial(), removeCollider: true);
 
                         built++;
+
+                        // **THE ONES LEFT STANDING IN THE SHAFT ARE THE ONES THE CAR IS TOLD ABOUT.**
+                        // The rack is drawn either way; this hands the same cell over a second time
+                        // as a box to hit. Collected here rather than searched for afterwards,
+                        // because this loop is the only place that knows which cells were actually
+                        // built - most of the lattice is skipped for a room, the ride or the shaft.
+                        //
+                        // Nothing outside the shaft is included. A cell the cabin cannot reach is a
+                        // box tested against it on every substep of the fall for no reason.
+                        if (obstacle) fallCorridor.Add(new Bounds(at, cell));
                     }
+
+            Debug.Log($"[SceneBuilder] The fall shaft: {clearedForFall} cell(s) cleared out of the "
+                    + $"car's drop, {fallCorridor.Count} left in it as things to strike.");
 
             if (capped)
                 Debug.LogError($"[SceneBuilder] The cell racks hit `MaxCells` ({MaxCells}). The field "

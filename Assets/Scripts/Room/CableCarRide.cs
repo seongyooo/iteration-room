@@ -197,7 +197,62 @@ namespace IterationRoom
         public float fallGravity = 9.81f;
         // How much harder it swings on the way down, as a multiple of `swayDegrees`.
         public float fallSwayGain = 2.5f;
+
+        // **AND IT NO LONGER FALLS THROUGH THE BUILDING** (2026-09-03, by request).
+        //
+        // The drop used to be a timer and a `Vector3.up * vy` - nothing else - so the cabin passed
+        // clean through every cell rack under it. What is below the release point is a lattice of
+        // rooms the exterior builds (`SceneBuilder.BuildExterior`), and a cabin dropping 148m
+        // through the middle of it should be hitting them.
+        //
+        // **THE OBSTACLES ARE DATA, NOT COLLIDERS**, and that is deliberate. Making the racks solid
+        // would mean a layer of their own and a mask on every cast, because the player's own
+        // controller sits inside the cabin and a sweep starting at the car begins overlapping them;
+        // that is a lot of machinery, all of it able to go wrong quietly, for a fall that lasts five
+        // seconds and happens once. `SceneBuilder` hands over the boxes in the fall corridor and the
+        // resolution below is a page of arithmetic that cannot miss what it was given.
+        //
+        // It is also the same answer `FallingItem` reaches, for the same reason CLAUDE.md 4 gives:
+        // a fall in this project is DERIVED, never simulated.
+        public Bounds[] fallObstacles;
+        // The cabin's own half extents for that test. Not the cage's - the cage has a metre of
+        // collision skirt reaching back toward the room that has nothing to do with what the cabin
+        // would strike.
+        public Vector3 fallHalfExtents = new Vector3(1.2f, 2.1f, 1.06f);
+        // How much of the speed survives a bounce. Low: this is a steel box hitting concrete, not a
+        // ball, and a lively one reads as comedy at the exact moment the game stops being funny.
+        public float fallRestitution = 0.32f;
+        // What a glancing blow throws sideways, as a share of the speed it arrived with. It is what
+        // makes the second impact possible - a cabin that only ever bounced straight up would come
+        // back down the hole it made.
+        public float fallSideways = 0.45f;
+        // **AND NO BOUNCE MAY EXCEED THIS, WHATEVER IT WAS DOING WHEN IT LANDED.** A share of the
+        // arrival speed is the right shape and the wrong magnitude at the bottom of a two-hundred
+        // metre drop: a third of 55m/s is 18m/s, which is a fifteen-metre hop and reads as a ball.
+        // Capped, the cabin clips a structure and carries on down, which is what it is meant to look
+        // like - and it is what bounds how much time the bouncing can add to the fall.
+        public float fallBounceCap = 6f;
+        // Where the drop ends. Authored from the bottom of the rack column, so the car lands on the
+        // lowest thing in the world rather than at a time.
+        public float fallGroundY = -200f;
+        // A cap on the whole thing, in case the bouncing costs more height than gravity buys back.
+        // Not the length of the fall - `fallGroundY` is.
+        public float fallTimeout = 16f;
+        // No integration step may move the car further than this. At terminal speed a frame is over
+        // a metre, and a cell is five - so without substeps a fast enough cabin steps over a rack
+        // between two frames and the whole thing is decorative. Cheap: it is five seconds, once.
+        public float fallMaxStep = 0.4f;
+
         public AudioClip impactClip;
+        // What a bounce off a rack sounds like, as against the landing. Two, alternating with the
+        // hit count rather than at random: they are seconds apart and a repeat would be heard.
+        public AudioClip[] hitClips;
+        // The rush under the whole drop, looped and faded up as it starts.
+        public AudioSource fallSource;
+        // **ITS OWN SOURCE, AND A LOUD ONE.** The landing is the last thing this game says and it
+        // was arriving at the same level as a door. Kept off `audioSource` so raising it cannot
+        // raise the doors and the departure with it.
+        public AudioSource impactSource;
 
         // **THE HANGER COMPLAINING, ONCE PER SWING** (2026-09-03, by request: there should be a
         // warning before it lets go). Three clips, uneven, picked at random - the same reason the
@@ -446,27 +501,181 @@ namespace IterationRoom
             Fell = true;
             if (motor != null) motor.volume = 0f;
 
-            Vector3 along = car.up;                 // the rope's direction at the moment it let go
-            float vy = 0f;
-            float elapsed = 0f;
-            while (elapsed < fallSeconds)
+            // The rush, up from nothing over the first half second. Started here rather than looped
+            // from the beginning of the ride because it is the sound of falling, and until this
+            // moment the car was not.
+            if (fallSource != null && fallSource.clip != null)
             {
-                float dt = EndingClock.Delta;
-                elapsed += dt;
-                t += dt;
+                fallSource.volume = 0f;
+                fallSource.loop = true;
+                fallSource.Play();
+            }
 
-                vy -= fallGravity * dt;
-                car.position += Vector3.up * (vy * dt);
+            Vector3 along = car.up;                 // the rope's direction at the moment it let go
+            Vector3 velocity = Vector3.zero;        // three axes now: a bounce throws it sideways
+            float elapsed = 0f;
+            int hits = 0;
+            // The swing keeps building on the clock it built on during the climb, and a strike adds
+            // to it - so a cabin that has hit something is visibly more out of control than one that
+            // has not, without a second animation saying so.
+            float shake = 0f;
+
+            while (elapsed < fallTimeout && car.position.y > fallGroundY)
+            {
+                float frame = EndingClock.Delta;
+
+                // **SUBSTEPPED, AND THAT IS WHAT MAKES THE OBSTACLES REAL.** See `fallMaxStep`.
+                int steps = Mathf.Clamp(
+                    Mathf.CeilToInt(velocity.magnitude * frame / Mathf.Max(0.01f, fallMaxStep)),
+                    1, 40);
+                float dt = frame / steps;
+
+                for (int i = 0; i < steps; i++)
+                {
+                    velocity.y -= fallGravity * dt;
+                    car.position += velocity * dt;
+
+                    if (car.position.y <= fallGroundY) break;
+                    if (Strike(ref velocity)) { hits++; shake = 1f; Bang(hits); }
+                }
+
+                elapsed += frame;
+                t += frame;
+                shake = Mathf.Max(0f, shake - frame * 0.55f);
+
+                if (fallSource != null)
+                    fallSource.volume = Mathf.MoveTowards(fallSource.volume, 1f, frame / 0.5f);
 
                 float roll = Mathf.Sin(t * swayRate * Mathf.PI * 2f)
-                           * swayDegrees * fallSwayGain * Mathf.Clamp01(elapsed / fallSeconds);
+                           * swayDegrees * fallSwayGain
+                           * Mathf.Clamp01(elapsed / fallSeconds) * (1f + shake);
                 car.rotation = Quaternion.AngleAxis(roll, along) * held;
 
                 CarryPlayer();
                 yield return null;
             }
 
-            if (audioSource != null && impactClip != null) audioSource.PlayOneShot(impactClip);
+            // **ONLY IF IT GOT THERE.** `fallTimeout` is a guard against a bounce pattern that
+            // costs more height than gravity buys back, and snapping the car down on that path
+            // would teleport it - a jump cut at the one moment the ending needs to be continuous.
+            // It lands where it is instead, and the bang plays either way: the fall ends with an
+            // impact whichever of the two conditions stopped it.
+            if (car.position.y <= fallGroundY)
+                car.position = new Vector3(car.position.x, fallGroundY, car.position.z);
+            CarryPlayer();
+
+            if (fallSource != null) fallSource.Stop();
+            // The landing, on its own source at its own level - see `impactSource`.
+            AudioSource landing = impactSource != null ? impactSource : audioSource;
+            if (landing != null && impactClip != null) landing.PlayOneShot(impactClip);
+
+            int corridor = fallObstacles != null ? fallObstacles.Length : 0;
+            Debug.Log($"[CableCarRide] The car fell {elapsed:0.0}s to y={fallGroundY:0.#} and struck "
+                    + $"{hits} structure(s) on the way, out of {corridor} in the corridor.");
+        }
+
+        // **ONE BOX, RESOLVED ON ITS SHALLOWEST AXIS.**
+        //
+        // The cabin is an axis-aligned box for this and so is every rack cell, so an overlap is
+        // three penetration depths and the answer is the smallest of them: push out that way and
+        // reflect that component. It is the standard resolution, and it is the right one here
+        // because it cannot produce a wrong ANSWER, only an ugly one - whatever it does, the car
+        // ends the step outside the box, which is the whole of what was asked for.
+        //
+        // The sideways kick is taken from the axes that were NOT resolved, so a square landing on a
+        // roof throws the car very little and a clip off a corner throws it a long way. Derived
+        // rather than random: this fall is watched once and has to be the same fall every time,
+        // which is the argument `FallingItem` already makes for every other drop in the game.
+        private bool Strike(ref Vector3 velocity)
+        {
+            if (fallObstacles == null || fallObstacles.Length == 0) return false;
+
+            Vector3 at = car.position;
+            for (int i = 0; i < fallObstacles.Length; i++)
+            {
+                Bounds b = fallObstacles[i];
+                Vector3 d = at - b.center;
+
+                // Y FIRST, and it is not a style choice. The corridor is a column hundreds of metres
+                // tall and the cabin is inside one storey of it at a time, so this one compare
+                // rejects all but a handful - and it runs on every substep of every frame of the
+                // fall. The full test is three abs and three subtracts; this is one.
+                float oy = b.extents.y + fallHalfExtents.y - Mathf.Abs(d.y);
+                if (oy <= 0f) continue;
+
+                Vector3 overlap = new Vector3(
+                    b.extents.x + fallHalfExtents.x - Mathf.Abs(d.x), oy,
+                    b.extents.z + fallHalfExtents.z - Mathf.Abs(d.z));
+                if (overlap.x <= 0f || overlap.z <= 0f) continue;
+
+                // The shallowest axis is the face it came in through.
+                int axis = overlap.x < overlap.y ? (overlap.x < overlap.z ? 0 : 2)
+                                                 : (overlap.y < overlap.z ? 1 : 2);
+                float sign = d[axis] >= 0f ? 1f : -1f;
+
+                at[axis] = b.center[axis] + sign * (b.extents[axis] + fallHalfExtents[axis]);
+                car.position = at;
+
+                // Only if it was actually moving INTO that face. A box already resting against one
+                // must not be handed its own speed back every step.
+                if (velocity[axis] * sign < 0f)
+                {
+                    float speed = Mathf.Abs(velocity[axis]);
+                    velocity[axis] = Mathf.Min(speed * fallRestitution, fallBounceCap) * sign;
+
+                    if (axis == 1 && sign > 0f) SlideOff(b, d, ref velocity);
+                    else
+                        // A side or underside strike deflects on the axes it did not resolve, away
+                        // from the box's centre. Nothing has to be guaranteed here: a car that hit a
+                        // wall is already travelling past it.
+                        for (int k = 0; k < 3; k++)
+                        {
+                            if (k == axis) continue;
+                            float off = b.extents[k] > 0.01f
+                                ? Mathf.Clamp(d[k] / b.extents[k], -1f, 1f) : 0f;
+                            if (Mathf.Abs(off) < 0.1f) off = k == 0 ? 0.1f : -0.1f;
+                            velocity[k] += off * speed * fallSideways;
+                        }
+                }
+                return true;
+            }
+            return false;
+        }
+
+        // **A ROOF IS THE ONE HIT THAT CAN END THE FALL, SO IT IS THE ONE THAT IS GUARANTEED.**
+        //
+        // Every other face deflects a car that is already going past. Land square on top of a cell
+        // and nothing does: the bounce is capped, the sideways kick off a centred hit is almost
+        // nothing, and the cabin settles onto the roof and stays there until `fallTimeout`. That is a
+        // six-metre drop with eighteen seconds of nothing after it.
+        //
+        // So a roof strike is given exactly the sideways speed that clears the roof within the hop it
+        // just made - distance to the nearer edge over the airtime the bounce buys. The car leaves
+        // every roof it touches, by arithmetic rather than by hoping the offset was big enough, and
+        // it leaves by the SHORTER way off, so a clip near an edge barely changes its line while a
+        // square landing is visibly shouldered aside.
+        private void SlideOff(Bounds b, Vector3 d, ref Vector3 velocity)
+        {
+            float airtime = Mathf.Max(0.3f, 2f * velocity.y / Mathf.Max(0.01f, fallGravity));
+
+            // The horizontal axis it is nearest to being off already.
+            int k = (b.extents.x + fallHalfExtents.x - Mathf.Abs(d.x))
+                  < (b.extents.z + fallHalfExtents.z - Mathf.Abs(d.z)) ? 0 : 2;
+            // Half a metre past the edge, so it is clear rather than balanced on it.
+            float need = b.extents[k] + fallHalfExtents[k] - Mathf.Abs(d[k]) + 0.5f;
+            float away = d[k] >= 0f ? 1f : -1f;
+
+            velocity[k] = away * Mathf.Min(need / airtime, 14f);
+        }
+
+        // A strike, as against the landing. Alternated rather than randomised: they are seconds
+        // apart, so a repeat would be heard as a repeat.
+        private void Bang(int hits)
+        {
+            if (hitClips == null || hitClips.Length == 0) return;
+            AudioClip clip = hitClips[(hits - 1) % hitClips.Length];
+            AudioSource on = impactSource != null ? impactSource : audioSource;
+            if (on != null && clip != null) on.PlayOneShot(clip, 0.8f);
         }
 
         // **THE CABIN TAKES THE PLAYER WITH IT, AND THEY KEEP THEIR FEET.**
