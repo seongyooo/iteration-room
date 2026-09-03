@@ -1403,11 +1403,10 @@ namespace IterationRoom.EditorTools
             // and the authored block spans +0.437 to -0.414 counting each line's own height. 0.92
             // and 0.055 put it inside with room at both ends - checked by `PageLine`, which now
             // fails the build if a line leaves the paper.
-            // **0.92 -> 0.85** (2026-09-03). The closing grey block went from two lines to four, and
-            // the block has to be scaled into the band rather than pushed at it: at 0.92 the last
-            // line sat at -0.496 of a page whose edge is -0.5, inside its own half-height. `PageLine`
-            // fails the build on exactly that, which is what it is for.
-            const float layoutScale = 0.85f;
+            // 0.92, and it went to 0.85 for a day while the closing block was four lines. It is two
+            // again - see below - so the block fits the band it was tuned for. `PageLine` fails the
+            // build if that is ever wrong, which is what it is for.
+            const float layoutScale = 0.92f;
             const float clipDrop = 0.055f;
 
             PageLine(faceGO.transform, "Header", "ITERATION PROGRAM", Mathf.RoundToInt(u * 0.0542f), ink, u * (0.396f * layoutScale - clipDrop), wide, "note.header");
@@ -1444,12 +1443,10 @@ namespace IterationRoom.EditorTools
             // one page a player reads before they have seen a past self is the game stating its own
             // rule once, in the facility's own register, and then never mentioning it again.
             //
-            // Grey rather than ink, like the sentence it continues: this is the form's small print,
-            // not its instruction. The instruction is LEAVE THE ROOM, in black, four lines up.
-            PageLine(faceGO.transform, "Forget1", "You will not remember", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.344f * layoutScale - clipDrop), wide, "note.forget1");
-            PageLine(faceGO.transform, "Forget2", "reading this.", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.389f * layoutScale - clipDrop), wide, "note.forget2");
-            PageLine(faceGO.transform, "Accumulate1", "Your actions, however,", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.434f * layoutScale - clipDrop), wide, "note.accumulate1");
-            PageLine(faceGO.transform, "Accumulate2", "will accumulate.", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.479f * layoutScale - clipDrop), wide, "note.accumulate2");
+            // Grey rather than ink: this is the form's small print, not its instruction. The
+            // instruction is LEAVE THE ROOM, in black, four lines up.
+            PageLine(faceGO.transform, "Accumulate1", "Everything you do", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.344f * layoutScale - clipDrop), wide, "note.accumulate1");
+            PageLine(faceGO.transform, "Accumulate2", "will accumulate.", Mathf.RoundToInt(u * 0.0334f), faint, u * (-0.389f * layoutScale - clipDrop), wide, "note.accumulate2");
 
             // --- the carryable ------------------------------------------------------------------
             // **BUILT IN THE ROOT'S OWN FRAME, NOT FROM A TRANSFORMED WORLD BOX.** `box` is a world
