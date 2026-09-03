@@ -93,22 +93,29 @@ namespace IterationRoom
         {
             bool inside = PlayerInside();
 
+            // THE ACTION RETIRES IT FIRST. A sign that has been seen has taught nothing; one whose
+            // action has been performed has nothing left to say. Same rule as the left-click prompt
+            // and the Tab hint.
+            //
+            // **TESTED BEFORE THE ANNOUNCEMENT, NOT AFTER IT** (2026-09-03, by request). This sat
+            // below the block that speaks, so the rule governed the WALLS and not the voice. A
+            // player who held N during iteration 1 without ever entering this room got the PA
+            // telling them to hold N the first time they walked in on iteration 2 - the signs stayed
+            // dark, correctly, while the announcer explained a control they had already used. The
+            // sign and the announcement are one message and they retire together.
+            if ((retireOnPop != null && retireOnPop.HasPopped)
+                || (retireOnEndCycle != null && retireOnEndCycle.UseCount > 0))
+                retired = true;
+
             if (inside)
             {
                 insideTime += Time.deltaTime;
-                if (!announced && insideTime >= announceDelay)
+                if (!announced && !retired && insideTime >= announceDelay)
                 {
                     announced = true;
                     narration?.AnnounceManualTermination();
                 }
             }
-
-            // THE ACTION RETIRES IT FIRST. A sign that has been seen has taught nothing; one whose
-            // action has been performed has nothing left to say. Same rule as the left-click prompt
-            // and the Tab hint.
-            if ((retireOnPop != null && retireOnPop.HasPopped)
-                || (retireOnEndCycle != null && retireOnEndCycle.UseCount > 0))
-                retired = true;
 
             // AND, FOR EVERYTHING EXCEPT THE PICTOGRAM, on the way out once it has actually been up.
             // The two halves of that are both necessary and they answer opposite failures:
