@@ -252,7 +252,7 @@ namespace IterationRoom
         // CLAMP is the guarantee: the car physically cannot leave the radius the build cleared, so
         // the only structures it can ever reach are the ones it was told about. Without the clamp
         // the damping is a hope; without the damping the clamp is a wall the car slides down.
-        public float fallDrag = 0.7f;              // per second, exponential
+        public float fallDrag = 1.6f;              // per second, exponential
         public Vector3 fallAxis;                   // the line it drops down, authored by the build
         public float fallShaftRadius = 10f;        // how far off that line it may ever get
 
@@ -533,6 +533,7 @@ namespace IterationRoom
             Vector3 velocity = Vector3.zero;        // three axes now: a bounce throws it sideways
             float elapsed = 0f;
             int hits = 0;
+            float drift = 0f;                       // the most it ever got off the line
             // The swing keeps building on the clock it built on during the climb, and a strike adds
             // to it - so a cabin that has hit something is visibly more out of control than one that
             // has not, without a second animation saying so.
@@ -561,6 +562,8 @@ namespace IterationRoom
 
                     car.position += velocity * dt;
                     HoldInShaft(ref velocity);
+                    drift = Mathf.Max(drift, new Vector2(car.position.x - fallAxis.x,
+                                                         car.position.z - fallAxis.z).magnitude);
 
                     if (car.position.y <= fallGroundY) break;
                     if (Strike(ref velocity)) { hits++; shake = 1f; Bang(hits); }
@@ -596,9 +599,12 @@ namespace IterationRoom
             AudioSource landing = impactSource != null ? impactSource : audioSource;
             if (landing != null && impactClip != null) landing.PlayOneShot(impactClip);
 
+            Vector2 endOff = new Vector2(car.position.x - fallAxis.x, car.position.z - fallAxis.z);
             int corridor = fallObstacles != null ? fallObstacles.Length : 0;
             Debug.Log($"[CableCarRide] The car fell {elapsed:0.0}s to y={fallGroundY:0.#} and struck "
-                    + $"{hits} structure(s) on the way, out of {corridor} in the corridor.");
+                    + $"{hits} structure(s) on the way, out of {corridor} in the corridor. It "
+                    + $"drifted {drift:0.0}m off the line at most ({fallShaftRadius:0.#}m allowed) "
+                    + $"and finished {endOff.magnitude:0.0}m off it.");
         }
 
         // **ONE BOX, RESOLVED ON ITS SHALLOWEST AXIS.**
