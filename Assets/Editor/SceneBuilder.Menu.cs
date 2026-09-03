@@ -1649,14 +1649,24 @@ namespace IterationRoom.EditorTools
             hover.ink = text;
             hover.restFont = restFace;
             hover.liveFont = liveFace;
-            if (ink.HasValue)
-            {
-                Color c = ink.Value;
-                // Pale at rest and full strength live. On a left-aligned row the two are the same,
-                // because those pages carry their state with the plate behind the words.
-                hover.restColor = rightAligned ? new Color(c.r, c.g, c.b, c.a * 0.42f) : c;
-                hover.liveColor = c;
-            }
+            // **TAKEN OFF THE LABEL, NOT OFF THE `ink` ARGUMENT, AND THAT WAS A REAL BUG.**
+            //
+            // It read `ink.Value` and left the component's own defaults standing when the argument
+            // was null - and the pause overlay's rows pass null, because their words are RED on a
+            // near-black scrim rather than charcoal on a photograph. The defaults are charcoal, so
+            // `MenuRowHover` painted every pause button dark grey on black the moment it woke up.
+            // Play found it as "the buttons have no text" (2026-09-03), which is exactly what a
+            // 0.11 grey at 45% on a 0.55 black scrim looks like.
+            //
+            // The label already carries the right colour whichever branch set it, so asking IT
+            // cannot have this failure: there is no case where the row is drawn in a colour this
+            // does not know about.
+            Color rowInk = text.color;
+            // Pale at rest and full strength live. On a left-aligned row the two are the same,
+            // because those pages carry their state with the plate behind the words.
+            hover.restColor = rightAligned
+                ? new Color(rowInk.r, rowInk.g, rowInk.b, rowInk.a * 0.42f) : rowInk;
+            hover.liveColor = rowInk;
             // Right-aligned rows step OUTWARD, toward the edge they hang on. Same distance, and the
             // same argument: small enough that the column still reads as a column.
             hover.shift = rightAligned ? 10f : 10f;

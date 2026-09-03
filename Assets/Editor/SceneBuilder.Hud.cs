@@ -839,6 +839,8 @@ namespace IterationRoom.EditorTools
                 new Vector2(SettingsControlX + 240f, -190f), new Vector2(150f, 30f), out Text pauseKoreanInk);
             Font pauseKoreanFace = KoreanUIFont();
             if (pauseKoreanFace != null) pauseKoreanInk.font = pauseKoreanFace;
+            OnTheScrim(pauseEnglish, pauseEnglishInk, pauseInk);
+            OnTheScrim(pauseKorean, pauseKoreanInk, pauseInk);
 
             MakeRowLabelInk(pauseColumn, "SubtitleLabel", "SUBTITLES",
                 new Vector2(SettingsLabelWidth / 2f, -240f),
@@ -849,6 +851,8 @@ namespace IterationRoom.EditorTools
             Button pauseSubsOff = Localize(MakeSettingsButton(pauseColumn, "SubtitlesOff", "OFF",
                 new Vector2(SettingsControlX + 240f, -240f), new Vector2(150f, 30f),
                 out Text pauseSubsOffInk), "set.off");
+            OnTheScrim(pauseSubsOn, pauseSubsOnInk, pauseInk);
+            OnTheScrim(pauseSubsOff, pauseSubsOffInk, pauseInk);
 
             (Slider sensitivity, Text sensitivityValue) =
                 MakeSettingsSliderRow(pauseColumn, "Sensitivity", "MOUSE SENSITIVITY",
@@ -892,6 +896,36 @@ namespace IterationRoom.EditorTools
             pause.subtitlesOffButton = pauseSubsOff;
             pause.subtitlesOnInk = pauseSubsOnInk;
             pause.subtitlesOffInk = pauseSubsOffInk;
+        }
+
+        // **A SETTINGS BUTTON BORROWED ONTO THE PAUSE OVERLAY, REPAINTED FOR IT.**
+        //
+        // `MakeSettingsButton` is built for the settings PAGE, which is charcoal type on a bright
+        // photograph of the room: a white plate under near-black words. The pause overlay is the
+        // opposite surface - red type on a near-black scrim - so the same button arrives as a white
+        // slab with charcoal on it, which is both unreadable against everything around it and the
+        // brightest thing on a screen that is meant to be dark. Play reported it as the language and
+        // subtitle rows not matching the buttons (2026-09-03).
+        //
+        // Repainted rather than parameterised: the shape, the size and the layout are all correct
+        // and it is only the palette that belongs to the other page. A second builder would be two
+        // places for one button to be wrong in.
+        private static void OnTheScrim(Button button, Text ink, Color scrimInk)
+        {
+            if (button == null) return;
+            if (ink != null) ink.color = scrimInk;
+
+            if (button.targetGraphic is Image plate) plate.color = Color.white;
+
+            ColorBlock colors = button.colors;
+            // Nothing at rest, so the row reads as words on the scrim like everything else on this
+            // overlay; a faint red wash on hover and a stronger one on the press.
+            colors.normalColor = new Color(0f, 0f, 0f, 0.35f);
+            colors.highlightedColor = new Color(0.55f, 0.10f, 0.10f, 0.55f);
+            colors.pressedColor = new Color(0.75f, 0.12f, 0.12f, 0.75f);
+            colors.selectedColor = colors.highlightedColor;
+            colors.disabledColor = new Color(0f, 0f, 0f, 0.2f);
+            button.colors = colors;
         }
 
         // The ending: a full-screen black scrim and a card over it. Two separate CanvasGroups
