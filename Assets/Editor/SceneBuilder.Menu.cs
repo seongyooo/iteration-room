@@ -1502,6 +1502,30 @@ namespace IterationRoom.EditorTools
         // for the other pages.
         private const float MenuRightMargin = 130f;
 
+        // **A ROW BLOCK CENTRED ON THE SCREEN**, for the pause overlay's settings. Every settings
+        // row is authored as "label at the column edge, control at a fixed indent" - offsets from an
+        // origin on the LEFT of the block - so centring the block is a matter of putting that origin
+        // half a block's width left of the middle, and nothing about a row has to change.
+        //
+        // `width` is the block's own width, which the caller knows and this cannot: it is the last
+        // control's x plus half its own width, and that is a fact about the rows being built.
+        private static Transform MakeCentreColumn(Transform parent, string name, float width)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            RectTransform rect = go.AddComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = Vector2.zero;
+            rect.anchoredPosition = new Vector2(-width / 2f, 0f);
+            return go.transform;
+        }
+
+        // The width of that block on the pause overlay: the far button sits at
+        // `SettingsControlX + 240` and is 150 wide, so its outer edge is 75 past its centre.
+        private const float PauseSettingsWidth = SettingsControlX + 240f + 75f;
+
         private static Transform MakeLeftColumn(Transform parent, string name)
         {
             GameObject go = new GameObject(name);

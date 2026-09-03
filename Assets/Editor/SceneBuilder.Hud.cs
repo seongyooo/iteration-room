@@ -814,7 +814,16 @@ namespace IterationRoom.EditorTools
             // ON THE SAME LEFT COLUMN AS THE BUTTONS. They were centre-anchored while the buttons hang
             // off the screen's left margin, so the two only lined up at 16:9 and read as two designs
             // at any other aspect - see MakeLeftColumn.
-            Transform pauseColumn = MakeLeftColumn(root.transform, "Column");
+            // **CENTRED, AND BELOW THE BUTTONS** (2026-09-03, by request). It was on the same left
+            // column the buttons hang on, which put the language row directly under QUIT and
+            // overlapping it - QUIT is 60 tall centred at -160, so its bottom edge is -190, and that
+            // is exactly where the first settings row was.
+            //
+            // Moving it down alone would have fixed the collision and left the page as two things
+            // sharing one edge with a gap in it. Centred, the overlay reads as it is built: a column
+            // of ACTIONS on the left margin, and a block of SETTINGS under them in the middle of the
+            // screen, which is also where the eye already is.
+            Transform pauseColumn = MakeCentreColumn(root.transform, "Column", PauseSettingsWidth);
             // Red on a near-black scrim, where the settings page is charcoal on a bright photograph.
             Color pauseInk = new Color(1f, 0.35f, 0.35f, 0.85f);
 
@@ -829,37 +838,37 @@ namespace IterationRoom.EditorTools
             // settings about words on the screen and are read together. Both write the same statics
             // the title screen writes, so neither page can disagree with the other.
             MakeRowLabelInk(pauseColumn, "LanguageLabel", "LANGUAGE",
-                new Vector2(SettingsLabelWidth / 2f, -190f),
+                new Vector2(SettingsLabelWidth / 2f, -250f),
                 new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, pauseInk);
             // Never translated, and each stays in its own language whichever is live - see the note
             // on the title screen's pair, which is the same convention and the same argument.
             Button pauseEnglish = MakeSettingsButton(pauseColumn, "LanguageEnglish", "ENGLISH",
-                new Vector2(SettingsControlX + 75f, -190f), new Vector2(150f, 30f), out Text pauseEnglishInk);
+                new Vector2(SettingsControlX + 75f, -250f), new Vector2(150f, 30f), out Text pauseEnglishInk);
             Button pauseKorean = MakeSettingsButton(pauseColumn, "LanguageKorean", "한국어",
-                new Vector2(SettingsControlX + 240f, -190f), new Vector2(150f, 30f), out Text pauseKoreanInk);
+                new Vector2(SettingsControlX + 240f, -250f), new Vector2(150f, 30f), out Text pauseKoreanInk);
             Font pauseKoreanFace = KoreanUIFont();
             if (pauseKoreanFace != null) pauseKoreanInk.font = pauseKoreanFace;
             OnTheScrim(pauseEnglish, pauseEnglishInk, pauseInk);
             OnTheScrim(pauseKorean, pauseKoreanInk, pauseInk);
 
             MakeRowLabelInk(pauseColumn, "SubtitleLabel", "SUBTITLES",
-                new Vector2(SettingsLabelWidth / 2f, -240f),
+                new Vector2(SettingsLabelWidth / 2f, -300f),
                 new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, pauseInk);
             Button pauseSubsOn = Localize(MakeSettingsButton(pauseColumn, "SubtitlesOn", "ON",
-                new Vector2(SettingsControlX + 75f, -240f), new Vector2(150f, 30f),
+                new Vector2(SettingsControlX + 75f, -300f), new Vector2(150f, 30f),
                 out Text pauseSubsOnInk), "set.on");
             Button pauseSubsOff = Localize(MakeSettingsButton(pauseColumn, "SubtitlesOff", "OFF",
-                new Vector2(SettingsControlX + 240f, -240f), new Vector2(150f, 30f),
+                new Vector2(SettingsControlX + 240f, -300f), new Vector2(150f, 30f),
                 out Text pauseSubsOffInk), "set.off");
             OnTheScrim(pauseSubsOn, pauseSubsOnInk, pauseInk);
             OnTheScrim(pauseSubsOff, pauseSubsOffInk, pauseInk);
 
             (Slider sensitivity, Text sensitivityValue) =
                 MakeSettingsSliderRow(pauseColumn, "Sensitivity", "MOUSE SENSITIVITY",
-                                      "set.sensitivity", "0.00", -300f, pauseInk);
+                                      "set.sensitivity", "0.00", -350f, pauseInk);
             (Slider volume, Text volumeValue) =
                 MakeSettingsSliderRow(pauseColumn, "Volume", "VOLUME", "set.volume", "80%",
-                                      -350f, pauseInk);
+                                      -400f, pauseInk);
 
             GameObject hintGO = new GameObject("Hint");
             hintGO.transform.SetParent(root.transform, false);
@@ -874,8 +883,8 @@ namespace IterationRoom.EditorTools
             hintRect.anchorMin = new Vector2(0.5f, 0.5f);
             hintRect.anchorMax = new Vector2(0.5f, 0.5f);
             hintRect.sizeDelta = new Vector2(600f, 36f);
-            // Below the four settings rows, which now reach -350.
-            hintRect.anchoredPosition = new Vector2(0f, -420f);
+            // Below the four settings rows, which now reach -400.
+            hintRect.anchoredPosition = new Vector2(0f, -460f);
 
             PauseMenu pause = root.AddComponent<PauseMenu>();
             pause.playerController = playerController;
