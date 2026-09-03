@@ -65,6 +65,11 @@ namespace IterationRoom
         // past afterwards is cycles 2 and 1.
         [System.NonSerialized] public Cycle occupied;
 
+        // Everything `Cutaway` switched off, so one cycle can be put back. Only the ending's last
+        // beat wants that - see `ReturnToTheFirstRoom`.
+        private readonly System.Collections.Generic.List<Renderer> hidden =
+            new System.Collections.Generic.List<Renderer>();
+
         // What the outside of the building is repainted to at the reveal.
         //
         // **THE FACILITY WAS NOT BLACK FOR WANT OF LIGHT.** It is black by MATERIAL: a wall in this
@@ -243,6 +248,52 @@ namespace IterationRoom
                 foreach (Cycle c in cycles)
                     yield return c;
             if (occupied != null) yield return occupied;
+        }
+
+        // **PUTTING ONE ROOM BACK, WHICH NOTHING ELSE HERE EVER DOES.**
+        //
+        // The ending's last beat wakes the player in room1-1, and it has to be the room they woke in
+        // a hundred times: walls on, ceiling on, panels dark and ready to sweep. Everything this
+        // class did to that cycle is undone - the renderers `Cutaway` switched off, the ERROR the
+        // reveal pass wrote, the sun that was never meant to reach an interior - and every other
+        // cycle is put back to sleep so the building is not standing open around it.
+        //
+        // The outside is switched off rather than torn down: the run is seconds from its card, and a
+        // hidden cell block costs nothing where destroying four cycles' worth of geometry could
+        // stall the one frame this has to land on.
+        public void ReturnToTheFirstRoom(Cycle first)
+        {
+            foreach (Renderer r in hidden)
+                if (r != null) r.enabled = true;
+            hidden.Clear();
+
+            if (cycles != null)
+                foreach (Cycle cycle in cycles)
+                    if (cycle != null && cycle != first) cycle.SetAwake(false);
+
+            if (cellBlocks != null)
+                foreach (GameObject block in cellBlocks)
+                    if (block != null) block.SetActive(false);
+
+            if (sun != null) sun.enabled = false;
+            if (shaftLights != null)
+                foreach (Light light in shaftLights)
+                    if (light != null) light.enabled = false;
+
+            if (first != null)
+            {
+                first.SetAwake(true);
+                if (first.wallPanels != null) first.wallPanels.ClearBreak();
+                // Back on the layer everything else lights, so the room's own fixtures reach it
+                // without the interior/exterior split this class set up for the ride.
+                foreach (Renderer r in first.worldRoot != null
+                         ? first.worldRoot.GetComponentsInChildren<Renderer>(true)
+                         : new Renderer[0])
+                    if (r != null) r.renderingLayerMask = DefaultRenderingLayer;
+            }
+
+            Debug.Log("[FacilityExterior] Back in the first room: the outside is off and "
+                    + (first != null ? first.name : "nothing") + " is awake alone.");
         }
 
         private void LightTheOutside()
@@ -426,7 +477,7 @@ namespace IterationRoom
                 {
                     if (t == null || !t.name.EndsWith("_CeilingLights")) continue;
                     foreach (Renderer r in t.GetComponentsInChildren<Renderer>(true))
-                        if (r != null && r.enabled) { r.enabled = false; doused++; }
+                        if (r != null && r.enabled) { r.enabled = false; hidden.Add(r); doused++; }
                 }
 
 
@@ -495,7 +546,7 @@ namespace IterationRoom
                     if (t.name.StartsWith("Ceiling"))
                     {
                         foreach (Renderer r in t.GetComponentsInChildren<Renderer>(true))
-                            if (r != null) { r.enabled = false; ceilings++; }
+                            if (r != null) { r.enabled = false; hidden.Add(r); ceilings++; }
                         continue;
                     }
 
@@ -534,7 +585,7 @@ namespace IterationRoom
             foreach (KeyValuePair<Transform, (string wall, float gap)> room in best)
                 if (groups.TryGetValue((room.Key, room.Value.wall), out List<Renderer> chosen))
                     foreach (Renderer r in chosen)
-                        if (r != null) { r.enabled = false; walls++; }
+                        if (r != null) { r.enabled = false; hidden.Add(r); walls++; }
 
             if (walls == 0 || best.Count == 0)
                 Debug.LogError("[FacilityExterior] The cutaway found nothing to remove. The rooms are "

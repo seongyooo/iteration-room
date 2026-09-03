@@ -438,6 +438,20 @@ namespace IterationRoom
             StartCoroutine(GlitchRoutine());
         }
 
+        // **AND THE WAY BACK OUT OF IT.** `BeginGlitch` says there is nothing after it and for the
+        // whole game there was not - the scrim came up over a room still failing. The ending's last
+        // beat needs one exception: the player wakes in room1-1 and it has to be the room they woke
+        // in a hundred times, not a wall of test cards. `convertAt` null is what `Apply` reads as
+        // "not breaking", so clearing it is the whole of it.
+        public void ClearBreak()
+        {
+            StopAllCoroutines();
+            convertAt = null;
+            glitchTime = 0f;
+            SetFlare(0f);
+            SetPowered(0f);
+        }
+
         // **A ROOM THAT BROKE A WHILE AGO**, rather than one breaking now.
         //
         // `BeginGlitch` starts the wave at zero and spreads it over `glitchOnset`; this starts it

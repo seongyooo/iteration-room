@@ -63,6 +63,18 @@ namespace IterationRoom
 
         public CameraShaker cameraShaker;
 
+        // **THE LAST BEAT NEEDS THE WAKE-UP, NOT A NEW ONE.** The player has seen `WakeUpSequence`
+        // a hundred times; using anything else here would say "a cutscene" where the whole point is
+        // that this is the same thing happening again.
+        public WakeUpSequence wakeUp;
+        public FirstPersonController controller;
+        public IterationLabel iterationLabel;
+
+        // How long the player has in room1-1 before the card. Long enough to stand up, turn round
+        // and understand where they are; short enough that they cannot go looking for the door and
+        // find out whether it opens.
+        public float afterTheFall = 5f;
+
         // The break, held at the point where it would start emptying room3-2N - see
         // `FacilityFailure.held`. Released the moment the player is standing in that room.
         public FacilityFailure failure;
@@ -231,8 +243,45 @@ namespace IterationRoom
                 StopCoroutine(talking);
             }
 
+            // 7. **AND IT DOES NOT REACH THE SURFACE.** `Ride` returns having dropped the car; what
+            //    follows is the loop closing at the largest scale it has - the sixty seconds return
+            //    you to the bed, the cycle returns you to a new one, and this returns you to the
+            //    first. The game is called Iteration.
+            yield return ReturnToTheStart(cycles);
+
             // And it stops. `LoopManager` brings the scrim up from here, over a player sitting in a
             // cable car above the facility - which is the shot the whole ending is built to reach.
+        }
+
+        // **THE PLAYER WAKES UP IN ROOM1-1, AND EVERYTHING ABOUT IT IS THE ORDINARY WAKE-UP.**
+        //
+        // The eyes close on the impact rather than after it: the blink is what the fall ends in, and
+        // holding on the wreck for a beat first would make it a cutscene about a crash instead of
+        // the thing the loop always does to you.
+        //
+        // The counter goes back to 1. That one number says the whole ending on its own, which is why
+        // it is set before the lids open rather than after - the first thing seen is the room, and
+        // the number is already what it is.
+        //
+        // Control comes back and stays for `afterTheFall`. `LoopManager` takes it again the instant
+        // this returns and puts the card up, so the five seconds are the whole of what the player
+        // gets - enough to stand, turn round and understand, not enough to go and try the door.
+        private IEnumerator ReturnToTheStart(Cycle[] cycles)
+        {
+            if (wakeUp != null) yield return wakeUp.CloseEyes();
+
+            Cycle first = cycles != null && cycles.Length > 0 ? cycles[0] : null;
+            exterior?.ReturnToTheFirstRoom(first);
+
+            if (controller != null && first != null && first.bedSpawnPoint != null)
+                controller.Teleport(first.bedSpawnPoint.position, first.bedSpawnPoint.rotation);
+
+            iterationLabel?.Show(1, 1);
+
+            if (wakeUp != null) yield return wakeUp.WakeUp(controller);
+            if (controller != null) controller.ControlEnabled = true;
+
+            yield return Wait(afterTheFall);
         }
 
         // **THE RIDE IS A MINUTE LONG AND IT WAS SILENT.**

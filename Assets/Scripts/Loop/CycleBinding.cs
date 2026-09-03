@@ -28,6 +28,12 @@ namespace IterationRoom
         public CameraShaker cameraShaker;
         public NarrationDirector narration;
         public Transform player;
+
+        // Handed to `EndingDeparture` for the last beat, where the player wakes in room1-1. Both
+        // live in the core scene and the departure lives in cycle 3's, so they cross a scene
+        // boundary and have to be bound here like everything else in this file.
+        public WakeUpSequence wakeUp;
+        public IterationLabel iterationLabel;
         public SleepingGas sleepingGas;
         public ControlHintDisplay hints;
 
@@ -199,6 +205,12 @@ namespace IterationRoom
             {
                 cycle.departure = departure;
                 departure.cameraShaker = cameraShaker;
+                // The last beat of the ending wakes the player in room1-1 - see
+                // `EndingDeparture.ReturnToTheStart`. All three live in the core scene, so like
+                // every other reference here they are handed over rather than found.
+                departure.wakeUp = wakeUp;
+                departure.controller = player != null ? player.GetComponent<FirstPersonController>() : null;
+                departure.iterationLabel = iterationLabel;
                 // Which cycle this is, so the exterior can leave the player's own rooms alone, and
                 // the player, whose height is what says they have finished the climb down.
                 departure.occupied = cycle;
