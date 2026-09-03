@@ -950,73 +950,12 @@ def cable_car_impact():
     return fade_edges(normalize(soft_clip(base, drive=1.35), peak=0.94))
 
 
-def cable_creak(seed, length=0.9):
-    """Metal dragging on metal under load. The warning before the drop.
-
-    **THE FIRST VERSION WAS A SWEPT SINE AND IT SOUNDED LIKE A SYNTHESIZER**, which is what it was.
-    A creak is not a tone that slides. It is STICK-SLIP: the joint grips, the load builds, it lets go
-    a few hundred times a second, and each release is an impulse. What the ear calls "creak" is that
-    impulse TRAIN, and its pitch is the RATE of slipping rather than any oscillator - which is why a
-    real one is rough and a synthesised tone is not, however you sweep it.
-
-    So it is built the way it happens:
-
-    1. **An impulse train**, spaced by the slip rate. The rate wanders - stick-slip is not a clock -
-       and drifts down and back up across the swing as the hanger loads and unloads.
-    2. **Through a resonant band**, which is the metal ringing after each release. That is what
-       gives it a note without any oscillator being involved.
-    3. **Uneven impulse strengths**, because a joint does not release the same amount twice. Even
-       ones read as a buzzer.
-
-    The rasp comes out of 1 and 3 together; 2 alone is the tone that was wrong the first time."""
-    rng = random.Random(seed)
-    n = int(length * SR)
-
-    train = [0.0] * n
-    i = 0
-    t = 0.0
-    while i < n:
-        k = i / n
-        # Slips per second. Down and back up across the swing, and jittered every release so it
-        # never lands on a period the ear can lock onto.
-        # 190-120 read as a HISS, because a slip rate that high puts its buzz up where noise lives.
-        # 95-55 is the rate a two-tonne cabin's hanger actually chatters at, and it is low enough
-        # that the ear hears the individual releases rather than a continuous band.
-        rate = 95.0 - 40.0 * math.sin(k * math.pi)
-        rate *= 0.82 + 0.36 * rng.random()
-        step = max(1, int(SR / rate))
-        # A release is not a click - it is a short scrape. Two samples of opposite sign read as a
-        # tick; a handful of decaying ones read as something letting go.
-        amp = 0.45 + 0.55 * rng.random()
-        # **A SHORT SCRAPE, NOT AN ALTERNATING SPIKE.** This used to flip sign every SAMPLE, which is
-        # a component at half the sample rate - so the train arrived at the resonators already made
-        # of hiss, and no amount of narrowing them could take it out. Measured, it pinned 56% of the
-        # energy in 1-4kHz whatever the filters did, and play heard that as a hiss rather than a
-        # creak. A smooth ~1ms decay has almost nothing up there, which lets the resonators below
-        # decide what the note is - which is the whole idea.
-        grab = max(4, int(0.0012 * SR))
-        for j in range(min(grab, n - i)):
-            train[i + j] += amp * math.exp(-j / (grab * 0.35))
-        i += step
-        t += step / SR
-
-    # The metal ringing after each release. Narrow, so it has a note; not so narrow that it becomes
-    # the oscillator this is trying not to be.
-    # **RINGING, NOT RASPING.** The first pass had these wide and the top one loud, and the result
-    # was 59% of the energy in 1-4kHz - which is where a hiss lives, and play heard exactly that.
-    # Metal struck under load rings: a narrow low mode with a couple of partials above it, and the
-    # brightness well down. Q 6 -> 16 is the difference between a band of noise and a note.
-    body = bandpass(train, 520.0, q=16.0)
-    second = bandpass(train, 1180.0, q=12.0)
-    edge = bandpass(train, 2400.0, q=8.0)
-    voiced = mix(scale(body, 1.0), scale(second, 0.34), scale(edge, 0.10))
-    voiced = apply_env(voiced, env_ar(n, attack=0.09, release=0.45))
-
-    # And the surface it is dragging on, well under everything.
-    grit = bandpass(noise(length, rng), 2600.0, q=0.9)
-    grit = apply_env(grit, env_ar(len(grit), attack=0.12, release=0.4))
-
-    return fade_edges(normalize(soft_clip(mix(voiced, scale(grit, 0.015)), drive=1.2), peak=0.74))
+# **THE CREAK IS NOT MADE HERE ANY MORE** (2026-09-03). Three synthesis attempts are in `git log`
+# and the last of them measured correctly - 87% of its energy in 200-1kHz, a clean 516Hz peak - and
+# still did not sound like a steel hanger taking load. What a real creak has is a texture that is
+# neither tone nor noise, and nothing in this file can make it. `Tools/generate_sfx_ai.py` asks
+# ElevenLabs for those three clips instead; the licence answer for them is different and is in
+# `docs/asset-licences.md`.
 
 
 def main():
@@ -1038,11 +977,6 @@ def main():
     write("sfx_cable_car_depart", cable_car_depart())
     # And the car hitting the bottom. Cut short on purpose - see the docstring.
     write("sfx_cable_car_impact", cable_car_impact())
-    # The hanger complaining, once per swing. Three, uneven, for the same reason the
-    # footsteps and the splashes are three - two identical creaks read as a sample.
-    write("sfx_cable_creak_1", cable_creak(6101, 0.90))
-    write("sfx_cable_creak_2", cable_creak(6102, 1.05))
-    write("sfx_cable_creak_3", cable_creak(6103, 0.78))
     write("sfx_power_down", power_down())
     # Room3-2N's alarm. Looped by FacilityFailure, so it has to wrap without a seam - see
     # `alarm_siren` on why it is a whole number of wails long.

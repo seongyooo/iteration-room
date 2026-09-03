@@ -131,7 +131,25 @@ attribution is now generated, so it is met.
 | What | Source | Licence | Notes |
 |---|---|---|---|
 | `Audio/SFX/*.wav` | `Tools/generate_sfx.py` | **Own work** | Synthesised from the Python standard library, seeded. No sample is sourced. |
+| `Audio/SFX/sfx_cable_creak_*.wav` | `Tools/generate_sfx_ai.py` → **ElevenLabs** sound effects | **Same paid plan as the voice; terms to confirm** | Three clips, and the only ones in this folder that are not own work. See below. |
 | `Audio/Voice/*.wav` | `Tools/generate_narration.py` → **ElevenLabs**, `eleven_multilingual_v2`, voice "Gwen" | **Paid plan; terms to confirm before selling** | See below. |
+
+### Three sound effects are model output, and the rest of the folder is not
+
+`Tools/generate_sfx.py` builds every other clip in `Audio/SFX` from the Python standard library, and
+that is still the rule. The three cable-car creaks are the exception, recorded here because the row
+above claims "no sample is sourced" for the folder and that is now true of all but three files.
+
+**Why they are not synthesised**, since the honest version of this is that it was tried: three
+passes are in `git log`, and the last measured correctly - 87% of its energy in 200-1kHz with a clean
+516Hz peak, which is a metal ring by every number available - and still did not sound like a steel
+hanger taking load. A real creak has a texture that is neither tone nor noise, and nothing in that
+toolkit can make one.
+
+**The licence position is the announcer's**, below, and not a second question: same account, same
+paid plan, same two things nobody here has checked. If the voice has to be re-sourced before the
+store page then so do these, and the same escape applies - drop replacement files in under the same
+names, because no C# refers to how any of them were made.
 
 ### The announcer, and what changed about its risk
 
