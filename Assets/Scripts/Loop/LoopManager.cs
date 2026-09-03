@@ -57,6 +57,15 @@ namespace IterationRoom
         // turn round and understand where they are; not enough to go and try the door.
         public float afterTheFall = 5f;
 
+        // **THE BEAT BETWEEN THE IMPACT AND THE LIDS.** The landing needs somewhere to land: cut to
+        // a blink on the same frame and the bang has nothing after it to be heard against. Held on
+        // the wrecked cabin, in silence, for long enough to register that nothing more is coming.
+        public float afterTheImpact = 1.6f;
+
+        // And how long the one lid takes. Slow: this is not a blink - see
+        // `WakeUpSequence.CloseEyesSlowly`.
+        public float eyesCloseSeconds = 3.2f;
+
         // Brings the cycle scenes in, and re-establishes everything the split would otherwise have
         // broken. Both run once, before the first iteration - see the top of `RunLoop`.
         public CycleSceneLoader sceneLoader;
@@ -1072,6 +1081,24 @@ namespace IterationRoom
             // the `RunReport.Record` call in the cycle loop), so by the time the ending card is up
             // the stored record is already complete - and writing the run again here would overwrite
             // per-cycle bests with whatever this particular run happened to do.
+
+            // **THE LIGHTS GO OUT BEFORE THE ROOM CHANGES** (2026-09-03, by request: *"after the
+            // impact there is a big shock, then the eyes slowly close and cycle 1 starts"*).
+            //
+            // It used to cut: the car landed and room1-1 was simply there, which read as a scene
+            // change rather than as the subject losing consciousness. A held beat and one slow lid
+            // is the difference - the beat is the impact landing, and the lid is what the player
+            // does about it, which is nothing.
+            //
+            // AND IT DOUBLES AS THE COVER FOR THE HANDOVER. `ReturnToTheFirstRoom` teleports the
+            // player, wakes a cycle, resets every room and clears the wall panels; all of that used
+            // to happen in plain view for a frame or two. Behind a shut lid it is the same thing the
+            // loop boundary already does at the end of every cycle.
+            if (wakeUpSequence != null)
+            {
+                yield return new WaitForSecondsRealtime(afterTheImpact);
+                yield return wakeUpSequence.CloseEyesSlowly(eyesCloseSeconds);
+            }
 
             // **AND THE LOOP CLOSES.** The fall put the player back in the first room, and this is
             // that room being a real iteration rather than a picture of one - see the method.

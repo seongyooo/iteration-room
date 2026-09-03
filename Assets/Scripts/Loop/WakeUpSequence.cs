@@ -102,6 +102,19 @@ namespace IterationRoom
             yield return new WaitForSeconds(heldShutDuration);
         }
 
+        // **ONE SLOW SHUT, AND IT IS THE ONLY ONE IN THE GAME.**
+        //
+        // Every other close here is a BLINK - two or three keyed sweeps, because a blink has a shape
+        // and the loop's boundary is a blink. This is not one: the cable car has just hit the bottom
+        // and the subject is losing consciousness, which is a single lid falling and not stopping.
+        // Keying it would put a hitch in the middle of the one moment that should have none.
+        //
+        // Unscaled, like everything else on the ending's clock.
+        public IEnumerator CloseEyesSlowly(float seconds)
+        {
+            yield return Sweep(lidPosition, 1f, seconds);
+        }
+
         // FALL FIRST, THEN THE EYES. Called at a cycle boundary once the gas is in the air.
         //
         // Control is taken HERE rather than when the gas starts, so the player has the first seconds
