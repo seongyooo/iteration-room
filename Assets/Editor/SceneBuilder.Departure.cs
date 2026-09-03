@@ -545,6 +545,25 @@ namespace IterationRoom.EditorTools
                     + $"{raw.size.z:0.##}m; stood upright {box.size.x:0.##} x {box.size.y:0.##} x "
                     + $"{box.size.z:0.##}m (expects the tallest number in the middle).");
 
+            // **UNPACKED FIRST, OR THE DOORS NEVER MOVE.** `PlaceModelLocal` uses
+            // `PrefabUtility.InstantiatePrefab`, and Unity refuses to reparent a transform that
+            // lives inside a prefab instance - so `SplitDoor`'s `SetParent` calls were all being
+            // rejected, fourteen of them, one warning each, in a build log nobody reads to the end.
+            //
+            // The failure was silent where it mattered: the pivot is still created and still
+            // returned, so `doorLeft`/`doorRight` were NOT null, no warning fired from `SplitDoor`
+            // itself, and the close animation dutifully slid an EMPTY object while the visible
+            // leaves stayed put. `Doors` plays its clip before it moves anything, so what reached
+            // the player was the sound of doors closing and doors that never closed.
+            //
+            // Every other model this project restructures already does this - the chess set, the
+            // ladder, the dresser. The car was the one that did not.
+            GameObject packed = PrefabUtility.IsPartOfPrefabInstance(model)
+                ? PrefabUtility.GetOutermostPrefabInstanceRoot(model) : null;
+            if (packed != null)
+                PrefabUtility.UnpackPrefabInstance(packed, PrefabUnpackMode.Completely,
+                                                  InteractionMode.AutomatedAction);
+
             car.doorLeft = SplitDoor(model.transform, "Left", "SC8_Door-L-");
             car.doorRight = SplitDoor(model.transform, "Right", "SC8_Door-R-");
 
