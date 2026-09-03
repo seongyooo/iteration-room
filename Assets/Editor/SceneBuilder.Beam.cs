@@ -1514,11 +1514,19 @@ namespace IterationRoom.EditorTools
             // through it: stand against a wall or the door, look sideways, and you saw the far side
             // of the room. At 0.05 the corner reaches 0.077m, comfortably inside the standoff.
             cam.nearClipPlane = 0.05f;
-            // Pulled in from the default 1000 to keep depth precision concentrated where the scene
-            // actually is (~22m across both rooms). The panels stand `GrooveDepth` proud of
-            // their backing and SSAO resolves those grooves off the depth buffer - so that number
-            // and this one are related: a shallower groove gives SSAO less to find.
-            cam.farClipPlane = 100f;
+            // **500, NOT 100** (2026-09-03). It was pulled in from Unity's default 1000 to keep depth
+            // precision where the scene actually was - "~22m across both rooms" - and that sentence
+            // is the whole problem: the game is not two rooms any more. The ending's ride is 216.8m
+            // of path up the outside of a building four cycles tall, so everything past 100m was
+            // clipped and the player saw SKY through the far half of it. Play reported it as the
+            // distant rooms not rendering.
+            //
+            // The SSAO reasoning it was set for still holds - the panels stand `GrooveDepth` proud
+            // of their backing and SSAO resolves those grooves off the depth buffer - but it costs
+            // far less than the comment implies on a reversed-Z float depth buffer, which is what
+            // every platform this ships to uses: precision there is dominated by the NEAR plane,
+            // and that is untouched at 0.05.
+            cam.farClipPlane = 500f;
 
             // Opt the camera into the volume stack - URP cameras ignore post-processing otherwise.
             UniversalAdditionalCameraData camData = camGO.AddComponent<UniversalAdditionalCameraData>();
