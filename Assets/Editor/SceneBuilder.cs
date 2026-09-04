@@ -243,7 +243,19 @@ namespace IterationRoom.EditorTools
         // **This must match `WallPanelDisplay.onColor`, which is why it is one constant.** The bake
         // reads the material and the runtime paints the property block, so if they disagree the room
         // is lit for one wall and rendered as another.
-        private static readonly Color PanelLitColor = new Color(0.85f, 0.85f, 0.86f);
+        //
+        // **WAS (0.85, 0.85, 0.86) UNTIL 2026-09-04 - B a hair over R/G, on every white surface in
+        // the building, floor included (the floor duplicated this exact triple rather than
+        // referencing it, which is fixed below too).** Invisible on a wall, which is lit mostly by
+        // its own albedo plus one bounce of direct light; not invisible on a bake that sums eight
+        // GI bounces (`docs/rendering-notes.md`), where the same ~1% tilt compounds bounce over
+        // bounce and came out on every face of Room1's baked reflection cubemap as a measured 2-5%
+        // blue bias (checked directly - see `docs/gotchas.md`). Now that the floor sits properly
+        // inside its own reflection probe (`ProbeBoxMargin`) and shows that bake at high smoothness
+        // and some metallic, the compounded tilt reads as a visibly blue floor. Flattened to true
+        // grey; nothing else about this constant (its level, its use for the panel/ceiling lit
+        // state) changes.
+        private static readonly Color PanelLitColor = new Color(0.85f, 0.85f, 0.85f);
 
         // **HOW BRIGHT A CEILING FIXTURE IS - and since the ambient went to zero, this is the ONLY
         // thing that sets how bright the building is** (2026-08-25).
@@ -530,56 +542,104 @@ namespace IterationRoom.EditorTools
         // is the only way this particular fault announces itself, a matte wall being a perfectly
         // valid material. 0.03 is the matte default `MakeColorMaterial` stamps on everything; at
         // that roughness there is no specular response at all and the room stops reflecting itself.
+        //
+        // **0.65 WAS TRIED HERE FOR ONE DAY AND REVERTED, 2026-09-04, by request: the sharper wall
+        // is the better-looking one.** Worth keeping the finding that sent it to 0.65, because the
+        // observation behind it was correct and someone will notice it again:
+        //
+        // A ceiling fixture is TWO objects - a square emissive panel, and a separate Spot `Light`
+        // standing in for its glow (`BuildCeilingLights`; URP has no realtime area light). What a
+        // glossy wall shows is the LIGHT's specular lobe, and a point source's lobe is ROUND however
+        // square the panel throwing it is, so the highlight and the fixture disagree on screen.
+        // Two ways out were examined:
+        //   - Narrow the cone so it never reaches a wall. Ruled out by geometry, not by taste: at
+        //     this ceiling height it would have to come down to about 52 degrees to clear the
+        //     nearest wall, and four fixtures that tight leave dark gaps across an 8.75 x 10.5m
+        //     floor. There is no angle that both misses the walls and lights the floor.
+        //   - Soften the SURFACE (this constant). It works - the discs really do spread out and the
+        //     wall reads as an even gradient - and it costs nothing in brightness, since no light or
+        //     ambient value moves. What it also does, which is why it came back out, is blur the
+        //     wall's own mirroring of the room along with the highlight: same knock-on
+        //     `FloorSmoothness`' own history records at this value, "a reflection probe samples a
+        //     blurred mip... a white room averaged to a flat sheet".
+        //
+        // So the round highlight is the price of a wall that reflects at all, and it has now been
+        // looked at both ways round and the price judged worth paying. A third option nobody has
+        // built: give the fixtures a light COOKIE shaped like the panel, which is the only thing
+        // that would make the highlight square without touching either the cone or the surface.
         private const float WallSmoothness = 0.85f;
 
-        // **AND HOW GLOSSY THE FLOOR IS, WHICH IS NOW HIGHER THAN THE WALL** (2026-09-03, by
-        // request: the title-screen mock-up has the room standing in its own floor).
+        // **HOW GLOSSY THE FLOOR IS - AND IT IS BACK TO 0.65, THE VALUE IT HELD BEFORE
+        // 2026-09-03. A REFLECTIVE FLOOR WAS BUILT, MADE TO WORK, PLAYED, AND REJECTED
+        // (2026-09-04, by request: "I thought reflection would be good, it is really not").**
         //
-        // **STATED HONESTLY: THIS AND `FloorMetallic` ARE UNVERIFIED IN THE BUILD'S OWN MENU
-        // CAPTURE, AND THAT IS A RECORDED FACT, NOT A GUESS AT ONE.** Four rebuilds tried
-        // `FloorSmoothness` at 0.65, 0.9 and 0.97 and `FloorMetallic` at 0 and 0.22 in every
-        // combination, and `Assets/Textures/MenuBackground.png` came back BYTE-IDENTICAL on the
-        // floor every time - measured pixel by pixel, not eyeballed. `LightingProbeDump` shows the
-        // floor on the exact same `BlendProbes`/`ReflectionProbeStatic` footing as a wall panel
-        // that visibly mirrors the room, so the probe and the material are both configured right;
-        // something specific to how `CaptureMenuBackground` photographs Room1 - which spends the
-        // rest of the build asleep (`SleepCycle`) and is woken for exactly one frame - is not
-        // reaching this renderer with a probe reflection at all. A one-frame warm-up render right
-        // after the wake was tried and made no difference either, and is not in this build.
+        // This is a rejection of the LOOK, not of a broken feature, and the difference matters to
+        // anyone tempted to try it again. It genuinely worked by the end: the floor really was
+        // mirroring the room in play. The three things that had to be fixed to get there are all
+        // still in the build, because each is a correctness fix that stands on its own and two of
+        // them are what the WALLS reflect through:
         //
-        // **What is NOT in question**: `_Smoothness` and `_Metallic` land in `FloorWhite.mat`
-        // exactly as set here (confirmed by reading the asset back off disk after each build), and
-        // the reasoning below for why a floor wants some metallic is the same reasoning already
-        // proven correct on this project's own glass - it is the values reaching Room1's ONE-SHOT
-        // PHOTOGRAPH that could not be confirmed by any measurement available at build time. The
-        // real game is not `SleepCycle`d and re-woken for a single frame the way this capture is;
-        // whether the floor reflects during actual play has to be answered by looking at it, not by
-        // reading this file.
+        //   - `ProbeBoxMargin` - the probe box was sized to exactly RoomWidth/RoomHeight/RoomDepth,
+        //     so its faces landed exactly on the floor slab's top and each wall's inner face, and
+        //     both renderers straddled the boundary instead of sitting inside it. The floor and the
+        //     side walls were never inside their own room's reflection probe at all, and fell back
+        //     to the default skybox - which is the whole reason four rebuilds of THIS constant and
+        //     `FloorMetallic` came back byte-identical: nothing was reaching the surface to tune.
+        //   - `WithFlatReflection` on `CaptureMenuBackground` - the title-screen capture races its
+        //     own probe data, the way `CaptureCyclePreview` already documented.
+        //   - `PanelLitColor` flattened to true grey - a ~1% blue tilt on every white surface,
+        //     invisible on a wall, not invisible once a bake of eight GI bounces is being mirrored.
         //
-        // At `_Metallic` 0 - a dielectric - a reflection probe only contributes through Fresnel F0,
-        // which for a non-metal is about 0.04: roughly 4% of the probe's radiance added on top of
-        // the surface's own 0.85 diffuse albedo. That is not small in theory, but next to a diffuse
-        // term twenty times its size it is easy to lose. This project already has the same finding
-        // written down for the cube-room glass - "a weak dielectric specular is the wrong tool
-        // here... without it, the ceiling fixtures this cube ought to be throwing back barely show
-        // up at all" - and reached for the same fix there: some metallic, not zero.
-        private const float FloorSmoothness = 0.92f;
+        // **What was rejected is the mirror itself.** A polished floor in a white cell reads as wet
+        // or as glass rather than as a floor, and it fought the calm even look the room is for
+        // (`mainmenu_example.png`). 0.65 is not "reflection off" - it is the roughness that was
+        // tuned for STRUCTURE: the grain reads, the room does not stand in it. If a reflective
+        // floor is ever wanted again the material dials are here and the plumbing above already
+        // works; what to re-read first is this paragraph, not the plumbing.
+        private const float FloorSmoothness = 0.65f;
 
-        // **A LITTLE METAL IN THE FLOOR**, on the reasoning above - see it for what could and could
-        // not be confirmed. Metallic surfaces take their F0 from their own albedo rather than a flat
-        // 0.04, which is the dial a polished floor wants turned. 0.9 is what the escape objects use
-        // to read as bare metal outright; a floor asking to read as a POLISHED SURFACE rather than a
-        // metal sheet wants far less of it - 0.22 is chosen to sit well short of that without being
-        // so small it is back to reasoning about Fresnel at grazing angles alone.
-        private const float FloorMetallic = 0.22f;
+        // **NO METAL IN THE FLOOR, AND THE CONSTANT IS KEPT AT 0 RATHER THAN DELETED.** 0.22 was
+        // reasoned from this project's own cube-room glass finding - at `_Metallic` 0 a dielectric
+        // only reflects through Fresnel F0, about 4%, which next to a diffuse term twenty times its
+        // size is easy to lose - and that reasoning is still correct. It is the effect it buys that
+        // was not wanted (see `FloorSmoothness`). Left as a named zero so the next attempt starts
+        // from the finding rather than rediscovering it.
+        private const float FloorMetallic = 0f;
 
-        // **AND THE GRAIN COMES BACK DOWN WITH IT, 0.6 -> 0.12.** These have moved together every
+        // **AND THE GRAIN GOES BACK UP WITH IT, 0.12 -> 0.6.** These two have moved together every
         // time either has moved, and the reason is the one recorded at the call site: the floor's
-        // relief modulates its SPECULAR, so the sharper the reflection the more the grain shreds it.
-        // At 0.6 the room's reflection arrived as noise rather than as the room. 0.12 keeps the
-        // floor from being a perfectly uniform field - the fault 0 was raised off in the first
-        // place - while leaving the reflection legible.
-        private const float FloorBump = 0.12f;
+        // relief modulates its SPECULAR, so the sharper the reflection the more the grain shreds
+        // it. 0.12 existed only to keep a mirror legible; with the mirror gone
+        // (`FloorSmoothness`), the grain is free to do its own job again, which is keeping the
+        // floor from reading as a perfectly uniform field.
+        private const float FloorBump = 0.6f;
+
+        // **HOW FAR A ROOM'S REFLECTION-PROBE BOX REACHES PAST THE WALLS IT ENCLOSES.**
+        // `BuildReflectionProbe` used to size that box at exactly RoomWidth/RoomHeight/RoomDepth, so
+        // every face landed exactly on the floor slab's top, the ceiling, and each wall's inner
+        // face - and a wall panel's own bounds sit BEHIND that face by its thickness, a floor slab's
+        // BELOW it by its own. Both renderers straddled the box boundary instead of sitting inside
+        // it, so Unity's automatic probe assignment read them as outside this probe and fell back to
+        // the scene's default reflection (the blue procedural skybox) - see `BuildReflectionProbe`
+        // for how a substituted magenta cubemap confirmed exactly that.
+        //
+        // **AND IT HAS A CEILING AS WELL AS A FLOOR: 0.5 -> 0.25, 2026-09-04. TOO MUCH MARGIN MAKES
+        // NEIGHBOURING ROOMS' BOXES OVERLAP, WHICH IS ITS OWN BUG.** The rooms are a corridor, and
+        // consecutive rooms sit `RoomPitch` apart - only `2 * WallDepth + DoorPocketDepth` (0.32m
+        // here) of divider between one room's box and the next. A 0.5m margin adds 0.25m to each
+        // side, closes that 0.32m and leaves the two boxes intersecting by 0.18m - measured in the
+        // built scene, every consecutive pair in cycle 2. Anything inside that slab is in TWO
+        // probes at once, so Unity blends them, and a room whose fixtures are switched off
+        // (room2-1, `AllLightsOn`) can reflect the lit room next door.
+        //
+        // **The number has to clear the floor slab and stay under the divider**, and those are far
+        // apart, so this is not tight: the fault it was raised for is the FLOOR, whose bounds run
+        // 0.10m BELOW y=0 - the slab's own thickness - and whose centre therefore sat below a box
+        // whose bottom face was exactly y=0. 0.25 puts the box bottom at -0.125 (floor contained),
+        // the sides at +-4.50 against the floor's +-4.49 (contained), and still leaves 0.07m of
+        // clear air between one room's box and the next. Raising it back toward 0.5 buys nothing
+        // and re-opens the overlap.
+        private const float ProbeBoxMargin = 0.25f;
 
         // Natural door proportions, deliberately NOT snapped to the grid - the panelling is cut
         // around it instead, so it reads as a doorway rather than a missing panel.
@@ -1062,7 +1122,10 @@ namespace IterationRoom.EditorTools
             // it, and pulling exposure down in the volume changes every surface in the game. This
             // changes the one surface that was wrong, and it still reads WHITE: it is 15% off
             // clipping and the eye has nothing brighter on screen to compare it against.
-            Material floorMat = MakeColorMaterial("FloorWhite", new Color(0.85f, 0.85f, 0.86f));
+            // Same white as every panel and the ceiling - referenced now rather than duplicated as
+            // its own literal, which is how the floor and the walls drifted a hair apart in blue
+            // without anyone writing that choice down. See `PanelLitColor` for why that mattered.
+            Material floorMat = MakeColorMaterial("FloorWhite", PanelLitColor);
             Material grooveMat = MakeColorMaterial("GrooveDark", new Color(0.04f, 0.04f, 0.045f));
             Material propMat = MakeColorMaterial("PropLight", new Color(0.85f, 0.85f, 0.85f));
             Material panelMat = MakeColorMaterial("PanelWhite", PanelLitColor);
@@ -1175,7 +1238,10 @@ namespace IterationRoom.EditorTools
             // it, and pulling exposure down in the volume changes every surface in the game. This
             // changes the one surface that was wrong, and it still reads WHITE: it is 15% off
             // clipping and the eye has nothing brighter on screen to compare it against.
-            Material floorMat = MakeColorMaterial("FloorWhite", new Color(0.85f, 0.85f, 0.86f));
+            // Same white as every panel and the ceiling - referenced now rather than duplicated as
+            // its own literal, which is how the floor and the walls drifted a hair apart in blue
+            // without anyone writing that choice down. See `PanelLitColor` for why that mattered.
+            Material floorMat = MakeColorMaterial("FloorWhite", PanelLitColor);
             // Sits at the bottom of every groove and inside the door pocket. Near-black so the
             // seams read the way the old painted-on grid lines did.
             Material grooveMat = MakeColorMaterial("GrooveDark", new Color(0.04f, 0.04f, 0.045f));

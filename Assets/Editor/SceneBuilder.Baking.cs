@@ -121,11 +121,48 @@ namespace IterationRoom.EditorTools
             // the saved scene and reading it back - see BakeReflectionProbes.
             probe.mode = UnityEngine.Rendering.ReflectionProbeMode.Custom;
             probe.boxProjection = true;
-            probe.size = sizeOverride != default
+            Vector3 roomSize = sizeOverride != default
                 ? sizeOverride
                 : (longAxisIsX
                     ? new Vector3(RoomDepth, RoomHeight, RoomWidth)
                     : new Vector3(RoomWidth, RoomHeight, RoomDepth));
+            // **PADDED PAST THE WALLS THIS BOX IS SUPPOSED TO ENCLOSE, ON PURPOSE.** Sized to exactly
+            // RoomWidth/RoomHeight/RoomDepth, this box's faces land EXACTLY on the floor slab's top,
+            // the ceiling, and the inner face of every wall - the same "nothing may be exactly the
+            // size of the hole it sits in" trap as a coplanar panel, just in a bounding box instead of
+            // a mesh. A wall PANEL sits with its face on that boundary and its thickness (WallDepth)
+            // behind it, and the FLOOR SLAB sits with its top surface on y=0 and its thickness below
+            // it - so both renderers' bounds straddle the box face rather than sitting inside it, and
+            // Unity's automatic probe assignment reads that as partly or wholly OUTSIDE this probe,
+            // falling back to the scene's default reflection (the blue procedural skybox) instead.
+            // Confirmed by substituting a loud magenta cubemap for the fallback and rebuilding: the
+            // floor and the two side walls picked it up (fully and partially), the far wall did not -
+            // exactly the renderers sitting on this box's un-padded faces.
+            probe.size = roomSize + Vector3.one * ProbeBoxMargin;
+
+            // **NO BLEND DISTANCE, AND THIS HAS TO BE SAID OUT LOUD BECAUSE UNITY'S DEFAULT IS 1
+            // METRE AND THAT DEFAULT IS A BUG IN THIS BUILDING.**
+            //
+            // `blendDistance` extends a probe's influence OUTWARD past its box, so two probes can
+            // claim the same renderer and get blended. In a house that is what you want. Here the
+            // rooms are a corridor of sealed cells `RoomPitch` apart, each with its own ceiling
+            // fixtures and its own lighting STATE - and one metre of reach crosses the divider
+            // easily, because a wall panel sits only ~0.15m inside its own room's box face.
+            //
+            // Play found it as the thing this rules out: room2-1 starts DARK (`AllLightsOn` - four
+            // switches, all off at rest, and both the lights and the panel emission are off from
+            // build time), yet its north wall showed bright light-shaped reflections that moved
+            // with the camera. Its own probe is honestly dark - measured, 0% of the cubemap over
+            // 1.0 against 15.9% for an ordinary lit room. What it was reflecting was ROOM2-2 NEXT
+            // DOOR, which is lit: 31 of room2-1's panels sat inside room2-2's box+blendDistance and
+            // were blending a lit cubemap into a dark room.
+            //
+            // At 0 a renderer takes the probe whose box it is actually in, full stop. The cost is
+            // that reflections change abruptly at a doorway rather than crossfading - which is
+            // correct here, because the rooms genuinely have different light, and the alternative
+            // is a dark room that reflects a bright one.
+            probe.blendDistance = 0f;
+
             // 512, not 256: at the wall smoothness used here the reflection is sharp enough that a
             // 256 cubemap shows the ceiling fixtures as vague smears rather than panels.
             probe.resolution = 512;

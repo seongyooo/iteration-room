@@ -35,6 +35,16 @@ namespace IterationRoom
         // nobody has played - an offer to continue nothing is worse than no offer.
         public Button continueButton;
 
+        // **WHICH CYCLE CONTINUE WOULD RESUME**, shown under the row while the pointer is on it -
+        // `MenuRowHover.reveal` owns when it is visible, this owns what it says. Filled here rather
+        // than authored into the scene because the number is a fact about the SAVE: any value baked
+        // into the menu is wrong for everyone who has played past it.
+        //
+        // Written WITHOUT an indent: the line is positioned by its rect (see the call site, which
+        // offsets it by the label's own glyph indent), because two spaces of an 18pt font are not
+        // the same width as two spaces of the 28pt one above it.
+        public Text continueCycleLabel;
+
         // THE CYCLE PICKER, on a button of its own. It went through three shapes in one day and
         // this is the one that survived: CONTINUE resumes, PLAY starts from the beginning, and
         // choosing a cycle is a THIRD thing that gets its own entry rather than being hidden behind
@@ -265,6 +275,10 @@ namespace IterationRoom
             // SETTINGS and QUIT; the button appears the moment a run has woken in a bed.
             if (continueButton != null)
                 continueButton.gameObject.SetActive(GameSettings.SavedCycle > 0);
+            // Written whether or not the row is shown: a hidden row is not worth branching for, and
+            // this way the label can never be left saying a cycle from a previous session.
+            if (continueCycleLabel != null)
+                continueCycleLabel.text = $"CYCLE {Mathf.Max(1, GameSettings.SavedCycle)}";
             // Same rule, different fact: CONTINUE needs a run STARTED, RECORD needs one FINISHED.
             if (recordButton != null)
                 recordButton.gameObject.SetActive(RunReport.HasRun);

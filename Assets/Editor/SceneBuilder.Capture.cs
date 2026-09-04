@@ -160,48 +160,12 @@ namespace IterationRoom.EditorTools
                 // the first run of this put the camera inside that hole looking at its wall.
                 eye.y = room.position.y + 2.0f;
 
-                // **THE REFLECTION IS SUBSTITUTED FOR THE SHOT, and this is the fix rather than a
-                // dodge.**
-                //
-                // These walls are 0.85 smoothness - they are almost entirely reflection - and a
-                // build-time render happens BEFORE the scene's probe data is loaded. CLAUDE.md
-                // already records that about this project's other capture: "`CaptureMenuBackground`
-                // renders before probe data loads". Whatever is in the reflection slot at that
-                // moment is not what the game will use, and it is not even stable: two builds a few
-                // minutes apart, with no material or lighting change between them, gave cycle 2's
-                // tap room red walls and then BLUE ones. Play reported the room as white, which it
-                // is.
-                //
-                // A white cubemap is not a lie about the room - it is the answer the probe would
-                // give once loaded. Every wall, floor and ceiling in this building is white, so what
-                // a probe in the middle of one captures IS a white surround. The floor (0.6) and the
-                // props barely moved between those two builds, which is the same fact from the other
-                // side: only the mirror-like surfaces were reading the empty slot.
-                //
-                // Swapped for the frame and put back, so nothing outside this method sees it.
-                DefaultReflectionMode wasMode = RenderSettings.defaultReflectionMode;
-                Texture wasCustom = RenderSettings.customReflectionTexture;
-                Cubemap flat = new Cubemap(1, TextureFormat.RGBA32, false);
-                foreach (CubemapFace face in System.Enum.GetValues(typeof(CubemapFace)))
-                {
-                    if (face == CubemapFace.Unknown) continue;
-                    flat.SetPixel(face, 0, 0, new Color(0.78f, 0.78f, 0.80f));
-                }
-                flat.Apply();
-                RenderSettings.defaultReflectionMode = DefaultReflectionMode.Custom;
-                RenderSettings.customReflectionTexture = flat;
-
+                // **THE REFLECTION IS SUBSTITUTED FOR THE SHOT** - see `WithFlatReflection` for the
+                // reason and for `CaptureMenuBackground`, which has needed exactly the same fix
+                // since 2026-09-03.
                 cam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(dir, Vector3.up));
-                try
-                {
-                    CaptureMenuFrame(cam, $"{RecordDir}/Cycle{index + 1}.png", 640, 360);
-                }
-                finally
-                {
-                    RenderSettings.defaultReflectionMode = wasMode;
-                    RenderSettings.customReflectionTexture = wasCustom;
-                    Object.DestroyImmediate(flat);
-                }
+                WithFlatReflection(() =>
+                    CaptureMenuFrame(cam, $"{RecordDir}/Cycle{index + 1}.png", 640, 360));
 
                 Debug.Log($"[SceneBuilder] Cycle {index + 1} preview: {CyclePreviewRooms[index]} from "
                         + $"{eye}, looking {(alongZ ? "+Z" : "+X")} down {length:0.#}m, with a flat "
@@ -237,34 +201,318 @@ namespace IterationRoom.EditorTools
             return AssetDatabase.LoadAssetAtPath<Sprite>(path);
         }
 
+        // **THE REFLECTION IS SUBSTITUTED FOR A BUILD-TIME SHOT, and this is the fix rather than a
+        // dodge.**
+        //
+        // A glossy wall or floor is almost entirely reflection, and a build-time render happens
+        // BEFORE the scene's own baked reflection probe is ready to be sampled - see
+        // `BuildReflectionProbe`/`ProbeBoxMargin` for the coverage half of this bug, which is a
+        // separate, real fault that a fix here does not replace. Whatever is in the reflection slot
+        // at the moment of a one-shot capture is not what the game will use, and it is not even
+        // stable: two builds a few minutes apart, with no material or lighting change between them,
+        // gave cycle 2's tap room red walls and then BLUE ones. Play reported the room as white,
+        // which it is.
+        //
+        // A flat near-white cubemap is not a lie about the room - it is the answer the probe would
+        // give once loaded, since every wall, floor and ceiling in this building is white and a
+        // probe in the middle of one captures a white surround. It buys correctness at the cost of
+        // detail: what it does NOT do is put the room's own geometry - the grid, the doorway, the
+        // furniture - into the reflection, because a single flat colour has none to give. Confirmed
+        // on `CaptureMenuBackground` by substituting a loud magenta cubemap instead and rebuilding:
+        // the floor and the two side walls picked it up (fully and partially), the far wall did not
+        // - so this shot was never seeing Room1's own probe on the two surfaces the flat colour now
+        // stands in for either.
+        //
+        // Swapped for the duration of `action` and put back after, so nothing outside this call
+        // sees it.
+        //
+        // `colour` is what the room would give back once the probe loaded, so it follows the room's
+        // lighting STATE rather than being a constant: near-white for the lit building, near-black
+        // when a shot douses it (see `DarkReflection`). Defaulted, so callers that only ever
+        // photograph a lit room read exactly as they did before.
+        private static void WithFlatReflection(System.Action action, Color? colour = null)
+        {
+            DefaultReflectionMode wasMode = RenderSettings.defaultReflectionMode;
+            Texture wasCustom = RenderSettings.customReflectionTexture;
+            Cubemap flat = new Cubemap(1, TextureFormat.RGBA32, false);
+            Color fill = colour ?? new Color(0.78f, 0.78f, 0.80f);
+            foreach (CubemapFace face in System.Enum.GetValues(typeof(CubemapFace)))
+            {
+                if (face == CubemapFace.Unknown) continue;
+                flat.SetPixel(face, 0, 0, fill);
+            }
+            flat.Apply();
+            RenderSettings.defaultReflectionMode = DefaultReflectionMode.Custom;
+            RenderSettings.customReflectionTexture = flat;
+            try { action(); }
+            finally
+            {
+                RenderSettings.defaultReflectionMode = wasMode;
+                RenderSettings.customReflectionTexture = wasCustom;
+                Object.DestroyImmediate(flat);
+            }
+        }
+
+        // **THE TITLE SCREEN IS A DARK ROOM WITH ONE LIT DOORWAY (2026-09-04, by request, to
+        // `docs/mainmenu_dark.png`), AND THAT IS A STAGED SHOT RATHER THAN THE GAME'S OWN FIRST
+        // FRAME.** Worth saying plainly, because the note at the call site used to boast the
+        // opposite - the background WAS literally what the Game view shows before Play is pressed.
+        // It is not any more: Room1 is lit in the game and dark here. What is kept honest is the
+        // room itself - same geometry, same lens, same place - so the picture is a lighting state
+        // this facility can be in, not a set built for a poster.
+        //
+        // Three things have to happen together, and leaving any one out gives a room that is merely
+        // greyer rather than dark:
+        //
+        //  1. **Every fixture in the room goes out**, not the left-hand pair the flicker used to
+        //     douse. The `Light` components only - a fixture's glowing FACE wears a material shared
+        //     by every fixture in the building, so dimming that dims every ceiling in the game.
+        //  2. **The ambient constant goes with them, and this is the one that actually does it.**
+        //     `docs/gotchas.md` measured it: with the fixtures off but ambient on, the walls still
+        //     read 149 of 255, because that constant is doing nearly all of the wall and ceiling
+        //     lighting in this building. Blacked out, they measure 13 - which is the near-black the
+        //     reference is. It is restored immediately after; nothing outside this method sees it.
+        //  3. **The reflection stand-in goes dark too.** The probes were baked with this room lit,
+        //     so the ordinary near-white substitute would hang a bright room in the walls of a dark
+        //     one - the same fault play found in cycle 2's switch room, from the other end.
+        //
+        // The doorway is the whole picture, so the door leaf is hidden for the frame: the room
+        // beyond keeps its own fixtures and, with ambient gone, is the only lit thing in shot.
         private static void CaptureMenuBackground(Camera cam, Transform room)
         {
-            CaptureMenuFrame(cam, MenuBackgroundPath);
+            // **`room` IS THE WHOLE CYCLE-1 CORRIDOR, NOT ROOM1.** Every one of the six rooms hangs
+            // off it, and so do room1-1's own props - `BuildShell` and `BuildBed` are both handed
+            // this same transform. The first version of this staging took it for one room and
+            // doused all 24 fixtures in the building, which put out the very light this shot is of.
+            // Everything below is therefore scoped by Z: room1-1 sits at the root's own origin and
+            // the room through its north door one `RoomPitch` beyond.
+            float hereZ = room != null ? room.position.z : 0f;
+            float beyondZ = hereZ + RoomPitch;
 
-            // **THE LIGHTS ONLY, NEVER THE EMISSIVE PANELS.** A fixture's glowing face wears
-            // `CeilingFixture`, which is ONE material shared by every fixture in the building - dim it
-            // and every ceiling in the game goes with it. The `Light` components are per-object and
-            // are what actually paints the walls and floor, which is the whole of what this shot is
-            // of: the framing deliberately excludes the ceiling (see the note at the call site), so
-            // the panels are barely in frame anyway.
-            var doused = new System.Collections.Generic.List<Light>();
-            if (room != null)
-                foreach (Light light in room.GetComponentsInChildren<Light>(true))
+            var doused = DouseLightsNear(room, hereZ);
+            var beyond = LightsNear(room, beyondZ);
+            var boosted = BoostTowardTheDoorway(beyond, hereZ);
+            var hiddenPanels = HideFixturePanelsNear(room, hereZ);
+            var hiddenProps = HideProps(room, hereZ);
+            GameObject leaf = HideNorthDoorLeaf(room);
+
+            Color wasSky = RenderSettings.ambientSkyColor;
+            Color wasEquator = RenderSettings.ambientEquatorColor;
+            Color wasGround = RenderSettings.ambientGroundColor;
+            SetAmbient(Color.black, Color.black, Color.black);
+
+
+            try
+            {
+                WithFlatReflection(() => CaptureMenuFrame(cam, MenuBackgroundPath), DarkReflection);
+
+                // **THE FLICKER IS NOW THE DOORWAY, NOT THE ROOM** (2026-09-04, by request). The
+                // pair used to be "lit room" and "same room, half its fixtures out"; in a dark room
+                // that reads as nothing at all, because there is no lit half to lose. Dropping the
+                // light BEYOND the door makes the one bright thing on screen stutter, which is the
+                // same effect aimed at the only surface that still has light on it.
+                foreach (Light light in beyond) light.enabled = false;
+                try { WithFlatReflection(() => CaptureMenuFrame(cam, MenuBackgroundDarkPath), DarkReflection); }
+                finally { foreach (Light light in beyond) light.enabled = true; }
+            }
+            finally
+            {
+                SetAmbient(wasSky, wasEquator, wasGround);
+                foreach (var (light, intensity, localZ) in boosted)
                 {
-                    // ONE SIDE OF THE ROOM. `BuildCeilingLights` lays a 2x2 grid either side of the
-                    // room's centreline, so everything at negative x is the left-hand pair - which is
-                    // the side the menu's column of text sits over, so the fault is behind the words
-                    // rather than out on the open right where the eye is resting.
-                    if (!light.enabled || light.transform.position.x >= 0f) continue;
-                    light.enabled = false;
-                    doused.Add(light);
+                    light.intensity = intensity;
+                    Vector3 p = light.transform.localPosition;
+                    light.transform.localPosition = new Vector3(p.x, p.y, localZ);
                 }
+                if (leaf != null) leaf.SetActive(true);
+                foreach (GameObject go in hiddenProps) go.SetActive(true);
+                foreach (GameObject go in hiddenPanels) go.SetActive(true);
+                foreach (Light light in doused) light.enabled = true;
+            }
 
-            try { CaptureMenuFrame(cam, MenuBackgroundDarkPath); }
-            finally { foreach (Light light in doused) light.enabled = true; }
+            Debug.Log($"[SceneBuilder] Menu background: two frames. Doused {doused.Count} fixture(s) "
+                    + $"in room1-1 and hid {hiddenPanels.Count} glowing panel(s) and "
+                    + $"{hiddenProps.Count} prop(s); {beyond.Count} fixture(s) beyond the door are "
+                    + $"what lights the shot, and the flicker cuts them. Door leaf "
+                    + $"{(leaf == null ? "NOT FOUND - the doorway will be shut" : "hidden")}. "
+                    + "Four doused and a nonzero count beyond the door is what this should say.");
+        }
 
-            Debug.Log($"[SceneBuilder] Menu background: two frames, {doused.Count} fixture(s) doused "
-                    + "for the dark one. Zero would mean the flicker has nothing to show.");
+        // What a dark room's walls should be reflecting: nearly nothing. Not pure black, because a
+        // glossy surface reflecting literally zero reads as a hole rather than as a dark surface.
+        private static readonly Color DarkReflection = new Color(0.03f, 0.03f, 0.035f);
+
+        private static void SetAmbient(Color sky, Color equator, Color ground)
+        {
+            RenderSettings.ambientSkyColor = sky;
+            RenderSettings.ambientEquatorColor = equator;
+            RenderSettings.ambientGroundColor = ground;
+            // Assigning the colours does NOT rebuild the ambient probe - see `ApplyEnvironment`,
+            // where the same line exists for the same reason. Without it the shot is unchanged.
+            DynamicGI.UpdateEnvironment();
+        }
+
+        // Every enabled fixture standing in the room centred on `atZ`. Used both to put this room
+        // out and to find the one beyond the door that must stay lit, which is why it does not
+        // change anything itself.
+        private static System.Collections.Generic.List<Light> LightsNear(Transform root, float atZ)
+        {
+            var found = new System.Collections.Generic.List<Light>();
+            if (root == null) return found;
+            foreach (Light light in root.GetComponentsInChildren<Light>(true))
+            {
+                if (!light.enabled) continue;
+                if (Mathf.Abs(light.transform.position.z - atZ) > RoomDepth / 2f) continue;
+                found.Add(light);
+            }
+            return found;
+        }
+
+        private static System.Collections.Generic.List<Light> DouseLightsNear(Transform root, float atZ)
+        {
+            var doused = LightsNear(root, atZ);
+            foreach (Light light in doused) light.enabled = false;
+            return doused;
+        }
+
+        // **THE DOORWAY IS MADE TO POUR BY MOVING AND BOOSTING THE FIXTURES THAT ARE ALREADY THERE,
+        // AND A NEW LIGHT WAS TRIED FIRST AND DOES NOT WORK.**
+        //
+        // The reference is a doorway pouring into a black room: measured off it, the floor just
+        // inside the door reads 205 of 255 while the same floor at the camera's feet reads 1.6.
+        // This building cannot do that on its own, for a structural reason rather than a brightness
+        // one - the next room's fixtures are downlights 2.6m past the wall, so their cones land on
+        // their own floor and only grazing light escapes the opening. Measured: 78 at the door, 38
+        // underfoot, a flat wash with none of the reference's falloff.
+        //
+        // **The obvious fix - stand a spot in the doorway for the frame - was built, measured and
+        // abandoned.** A brand-new `Light` at the door plane, correctly placed and facing (logged to
+        // check), contributed NOTHING: raising it from intensity 14 to 150 moved the floor by 0.1 of
+        // 255, while the next room's own fixtures visibly moved the same spot by 22. A light added
+        // after the scene is built loses the per-object additional-light contest on a renderer as
+        // large as a whole floor slab, and URP drops it silently. **If a staged light is ever needed
+        // again, check it against a measurement before believing it** - it renders as if it were
+        // simply not there.
+        //
+        // So the shot uses the lights that demonstrably do reach: the fixtures beyond the door are
+        // slid toward the opening and turned up for the two frames, then put back. Both changes are
+        // restored by the caller, including the local Z each light started at.
+        private static System.Collections.Generic.List<(Light light, float intensity, float localZ)>
+            BoostTowardTheDoorway(System.Collections.Generic.List<Light> beyond, float hereZ)
+        {
+            var saved = new System.Collections.Generic.List<(Light, float, float)>();
+            if (beyond == null) return saved;
+
+            // **THEY STAY WHERE THEY ARE, AND THAT IS THE MEASUREMENT TALKING.** Sliding them up to
+            // the opening was tried first, on the reasoning that a source at the aperture spills
+            // through it: it does the opposite. These are 156-degree downlights, so at the threshold
+            // their cone simply floods the whole room through the hole - the floor at the camera's
+            // feet went from 38 of 255 to 127 and the gradient the reference is made of vanished.
+            // Left at the back of their own room, what reaches through the doorway is a WEDGE, which
+            // is the shape wanted; it was only ever too dim.
+            //
+            // Seven times, derived rather than dialled: at their own intensity these contributed 22
+            // of 255 at the floor inside the door and about 2 further in. Seven lands that floor at
+            // 209 against the reference's 205, with the fall-off behind it intact.
+            //
+            // **THE FLOOR AT THE CAMERA'S FEET STOPS AROUND 37 AND THAT IS NOT THE LIGHTS.** Two
+            // boosts measured (x7 -> 50.6, x9 -> 54.7) solve to a constant 36.3 that scales with
+            // nothing here. It is not the fixtures, not the ambient (blacked out above), and not the
+            // lightmaps: detaching `LightmapSettings.lightmaps` for the frame was tried and moved it
+            // by nothing at all, so that change was reverted rather than kept on faith. The
+            // reference's floor is 1.6, so this is the one number the shot does not reach; whatever
+            // is feeding it has not been found yet.
+            foreach (Light light in beyond)
+            {
+                Vector3 local = light.transform.localPosition;
+                saved.Add((light, light.intensity, local.z));
+                light.intensity *= 7f;
+            }
+            return saved;
+        }
+
+        // **THE GLOWING FACES GO TOO, AND HIDING THEM IS RIGHT WHERE DIMMING THEM WOULD NOT BE.**
+        // A fixture's lit face wears `CeilingFixture`, ONE material shared by every fixture in the
+        // building - editing it would darken every ceiling in the game, which is exactly why the
+        // old half-lit flicker frame touched only the `Light` components. Switching the four panel
+        // objects off instead is local to this room and undone in the same breath. Without it a
+        // "dark" room still has four bright squares hanging in its ceiling, and the reference has
+        // none.
+        private static System.Collections.Generic.List<GameObject> HideFixturePanelsNear(
+            Transform root, float atZ)
+        {
+            var hidden = new System.Collections.Generic.List<GameObject>();
+            if (root == null) return hidden;
+
+            foreach (Renderer r in root.GetComponentsInChildren<Renderer>(true))
+            {
+                if (!r.gameObject.activeSelf) continue;
+                if (r.sharedMaterial == null || !r.sharedMaterial.name.StartsWith("CeilingFixture")) continue;
+                if (Mathf.Abs(r.transform.position.z - atZ) > RoomDepth / 2f) continue;
+                r.gameObject.SetActive(false);
+                hidden.Add(r.gameObject);
+            }
+            return hidden;
+        }
+
+        // **AN EMPTY ROOM, BY REQUEST (2026-09-04): the reference is a bare corridor and a doorway,
+        // with no furniture in it at all.** Named rather than derived, because "what is furniture"
+        // is a judgement: these are room1-1's four props, and they hang off the corridor root beside
+        // the room rather than inside it, so there is no parent to switch off in one go. Anything
+        // carried is caught by component instead - the cube on the nightstand and the pins in its
+        // drawer are `CarryableItem`s and would otherwise be left floating in an empty room.
+        private static System.Collections.Generic.List<GameObject> HideProps(Transform root, float atZ)
+        {
+            var hidden = new System.Collections.Generic.List<GameObject>();
+            if (root == null) return hidden;
+
+            foreach (Transform t in root)
+            {
+                if (!t.gameObject.activeSelf) continue;
+                if (Mathf.Abs(t.position.z - atZ) > RoomDepth / 2f) continue;
+                // `Nightstand` by PREFIX, because the drawer is a second root object beside the unit
+                // rather than a child of it (`BuildNightstand` parents `NightstandDrawer` to the
+                // corridor, not to the case) - matching the exact name left it sitting on its own in
+                // an otherwise empty room, which is what the first dark shot came back with.
+                if (!t.name.StartsWith("Nightstand")
+                    && t.name != "Bed" && t.name != "FloorButton" && t.name != "ControlsWall") continue;
+                t.gameObject.SetActive(false);
+                hidden.Add(t.gameObject);
+            }
+
+            foreach (CarryableItem item in root.GetComponentsInChildren<CarryableItem>(true))
+            {
+                if (!item.gameObject.activeSelf) continue;
+                if (Mathf.Abs(item.transform.position.z - atZ) > RoomDepth / 2f) continue;
+                item.gameObject.SetActive(false);
+                hidden.Add(item.gameObject);
+            }
+            return hidden;
+        }
+
+        // The door leaf in this room's north wall, hidden so the opening reads as an opening. The
+        // slab is named `DoorPanel` by `BuildDoorShell`; it is found by position rather than by door
+        // name so that renaming a door cannot silently shut this shot.
+        private static GameObject HideNorthDoorLeaf(Transform room)
+        {
+            if (room == null || room.parent == null) return null;
+
+            float wantZ = room.position.z + RoomDepth / 2f;
+            GameObject best = null;
+            float bestGap = float.MaxValue;
+
+            foreach (Transform t in room.parent.GetComponentsInChildren<Transform>(true))
+            {
+                if (t.name != "DoorPanel") continue;
+                float gap = Mathf.Abs(t.position.z - wantZ) + Mathf.Abs(t.position.x - room.position.x);
+                if (gap < bestGap) { bestGap = gap; best = t.gameObject; }
+            }
+
+            // A whole room's depth away is not this room's north door - better a shut doorway than
+            // a hole punched in some other room.
+            if (best == null || bestGap > RoomDepth / 2f) return null;
+            best.SetActive(false);
+            return best;
         }
 
         // THE WALL AND NOTHING ELSE (2026-09-02, by request), which makes the icon a MARK rather

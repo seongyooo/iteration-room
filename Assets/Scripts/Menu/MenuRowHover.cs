@@ -64,6 +64,16 @@ namespace IterationRoom
         public RectTransform underlineRect;
         public float underlineWidth = 120f;
 
+        // **A LINE THAT IS ONLY THERE ON HOVER.** Optional, like the underline, and for the same
+        // reason: a row without one still does everything else. CONTINUE uses it for which cycle
+        // would be resumed - a fact worth having and not worth spending a permanent line of the
+        // title screen on, since it is only ever the answer to "what does this button do".
+        public Graphic reveal;
+
+        // Held well under full strength: it is a footnote to the row, not a second row. Kept as a
+        // field rather than a constant so a future row can be louder without editing this.
+        public float revealAlpha = 0.55f;
+
         private Vector2 restingLabel;
         private bool over;
         private float t;                 // 0 at rest, 1 fully hovered
@@ -129,6 +139,17 @@ namespace IterationRoom
 
             if (underlineRect != null)
                 underlineRect.sizeDelta = new Vector2(underlineWidth * k, underlineRect.sizeDelta.y);
+
+            // A second line that only exists while the pointer is here - CONTINUE's cycle number is
+            // the one that wanted it. It rides the SAME `k` as everything else rather than having a
+            // timing of its own, so the row arrives as one gesture; and it is faded rather than
+            // switched off, because a line that pops in reads as a tooltip and this is meant to read
+            // as part of the row.
+            if (reveal != null)
+            {
+                Color c = reveal.color;
+                reveal.color = new Color(c.r, c.g, c.b, k * revealAlpha);
+            }
         }
     }
 }

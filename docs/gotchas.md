@@ -1849,6 +1849,13 @@ derived from `FallShaftRadius`.
 
 ## THE MENU CAPTURE CANNOT BE TRUSTED TO SHOW A REFLECTION (2026-09-03)
 
+> **OUTCOME, 2026-09-04: the reflective floor this entry chases was finished, played, and then
+> REJECTED by request** — "I thought reflection would be good, it is really not". `FloorSmoothness`
+> is back to 0.65, `FloorMetallic` to 0, `FloorBump` to 0.6. Everything below still stands and is
+> still in the build: the bugs were real, the fixes are correctness fixes, and two of them
+> (`ProbeBoxMargin`, `WithFlatReflection`) are what the WALLS reflect through. What was thrown away
+> is one art decision, not the plumbing. Read this before rebuilding any of it.
+
 Raising the floor's smoothness and giving it a little metallic (`FloorSmoothness`, `FloorMetallic`
 in `SceneBuilder.cs`) was meant to match a reference title screen where the floor mirrors the room.
 Both values land in `FloorWhite.mat` exactly as written — confirmed by reading the asset back off
@@ -1862,15 +1869,118 @@ A one-frame warm-up render right after `room.SetActive(true)` — on the theory 
 just reactivated by `SleepCycle`/wake is not yet in whatever table URP consults for
 `unity_SpecCube0` — made no difference either, and is not in the build.
 
-**Not resolved. Two live possibilities, neither confirmed**: (a) something particular to
-`CaptureMenuBackground` photographing a room that spends the rest of the build asleep and is woken
-for exactly one frame, which the real game never does — the player's camera has been rendering
-continuously since the scene loaded, so this may simply not reproduce in actual play; or (b) a
-genuine engine-level gap in how a script-built (never GI-baked through the Lighting window) scene's
-reflection probes reach a renderer at all, in which case the wall's own "reflection" — the two soft
-highlights on Room1's back wall — needs re-examining too, since it was never confirmed to be a probe
-reflection rather than a direct specular highlight from the downlights.
+**RESOLVED, SAME DAY — and it was neither of the two possibilities above.** `LightingProbeDump`'s
+claim that "the floor is on the same footing as a wall panel that visibly mirrors the room" was true
+of the wrong scene: its hardcoded path opens `Cycle1.unity`, and nobody had pointed it at the floor
+and wall the menu shot actually photographs before concluding the two matched. Confirmed instead by
+substituting a **loud, unmistakable magenta cubemap** for the scene's default reflection during
+`CaptureMenuBackground` and rebuilding (see `WithFlatReflection` in `SceneBuilder.Capture.cs`): the
+floor and the two SIDE walls picked the magenta up — fully and partially — and the FAR wall (the one
+carrying the two soft highlights this entry wondered about) did not. So the far wall's highlights
+were a real probe reflection all along, and the floor and side walls were never inside Room1's
+reflection probe at all — a one-frame timing race was never the cause.
 
-**Whether the floor actually reflects in the running game is a play question, not a build-log
-question** — the memory rule "no unprompted playtesting" applies, so this is left for the user to
-check rather than assumed either way from the capture.
+**The actual bug**: `BuildReflectionProbe` boxed every room's probe at exactly
+`RoomWidth × RoomHeight × RoomDepth`, centred so its six faces land exactly on the floor slab's top
+surface, the ceiling, and each wall's inner face — the same "nothing may be exactly the size of the
+hole it sits in" trap already known from coplanar meshes (§3), just in a bounding box instead of a
+mesh. A wall panel's renderer bounds sit BEHIND that face by `WallDepth`; a floor slab's sit BELOW it
+by its own thickness. Both renderers straddled the box boundary instead of sitting inside it, so
+Unity's automatic reflection-probe assignment read them as outside this probe and fell back to
+`RenderSettings`' default reflection — the blue procedural skybox, which is exactly what the floor
+had been showing regardless of `FloorSmoothness`/`FloorMetallic`: changing either tunes how a
+material uses whatever reflection reaches it, and none was reaching it at all.
+
+**The fix, in two parts, because they are two different bugs that happened to look like one:**
+
+1. `ProbeBoxMargin` (0.5m, in `SceneBuilder.cs`) pads every room's probe box past its walls and
+   floor, so a renderer sitting exactly on the room's own boundary is comfortably inside rather than
+   straddling it. This is the fix for the RUNNING GAME — verified geometrically (not by eye) by
+   dumping Room1's actual probe bounds and every floor/wall renderer's actual bounds out of the built
+   scene and checking containment on all three axes, not by rendering anything.
+2. `CaptureMenuBackground`'s one-shot build-time render still races the scene's own probe data the
+   way `CaptureCyclePreview` already documented — that part of the original write-up was right, just
+   attached to the wrong symptom. It now shares `CaptureCyclePreview`'s fix
+   (`WithFlatReflection`): a flat, near-white cubemap stands in for the real probe for the duration of
+   both menu-background frames. It buys correctness (no more blue cast) at the cost of detail — a
+   flat colour has no room geometry to put into the reflection, so the static title-screen PNG will
+   never show the door or the furniture mirrored in the floor the way a live, fully-loaded frame of
+   the running game can.
+
+**The play question above got answered, by the user's own screenshots (2026-09-04), not by this
+build.** The padded probe box worked — the in-game floor now shows real reflected structure (soft
+streaks, a hint of the grid) it never showed before — but it came back visibly BLUE next to the
+title screen's near-neutral flat substitute. Measured, not eyeballed: sampling both PNGs put the
+menu floor at B−R ≈ +4 (of 255) and the in-game floor at B−R ≈ +23.
+
+That sent the same "confirm off a loud colour, not a guess" method at the bake itself. A new
+diagnostic (`CubemapDump`, temporary, deleted after use) averaged every face of the baked
+`Room1_Reflection.exr` directly — no rendering, just the asset:
+
+| face | before | after ambient fix | after `PanelLitColor` fix |
+|---|---|---|---|
+| +X | (.609, .613, **.632**) | (.609, .613, .628) | (.609, .613, **.621**) |
+| +Y (ceiling) | (.866, .866, **.876**) | (.866, .866, .871) | (.866, .866, **.866**) |
+| −Y (floor) | (.710, .727, **.764**) | (.710, .727, .761) | (.710, .727, **.754**) |
+
+Two real, separate sources, found in order and each worth keeping regardless of the other:
+
+1. **`ApplyEnvironment`'s trilight ambient colours carried B a hair above R/G in all three bands**
+   (0.356/0.356/**0.361** and so on) — invisible on a directly-lit wall, where diffuse albedo and
+   direct light dominate the sum, but this constant is "doing almost all of the wall and ceiling
+   lighting" per the entry above it, and a probe bake sums the room fully lit, ambient included.
+   Flattened to equal R/G/B; the level (comfort tuning) is untouched.
+2. **The bigger one: `PanelLitColor`, used for every wall panel, the ceiling, AND the floor (which
+   duplicated its exact triple as a separate literal rather than referencing it) was
+   `(0.85, 0.85, 0.86)`** — the same ~1% blue-over-white on literally every surface in the building.
+   Invisible on a wall lit by one or two bounces; not invisible on a bake that sums eight GI bounces
+   (`docs/rendering-notes.md`) of a colour multiplied by itself bounce over bounce. Flattened to
+   `(0.85, 0.85, 0.85)`, and the floor now references the constant instead of duplicating it, which
+   is how the two drifted a hair apart in blue in the first place without anyone deciding that on
+   purpose.
+
+**What's left after both (+Y is now exactly neutral; the side faces and −Y are not, at roughly half
+their original bias) is very likely genuine, not a bug**: the room contains one clearly coloured
+object, the bed's blue duvet, sitting low in the room — exactly where a downward-facing cubemap face
+would pick up its bounce. A floor that mirrors the room honestly should show a whisper of the one
+coloured thing in it. Chasing that last residual to zero would mean de-saturating the bedding's own
+GI contribution, which is correcting the reflection for being accurate rather than for being wrong.
+
+## A ROUND HIGHLIGHT ON A SQUARE FIXTURE IS THE PANEL AND THE LIGHT DISAGREEING (2026-09-04)
+
+Once the floor was actually reflecting (`ProbeBoxMargin`, above), play reported the wrong shape: the
+soft white blobs on the walls read as circles sitting on a grid of square ceiling panels, and — by
+request — this needed to look calm and even, closer to `mainmenu_example.png`, not lit by visible
+spots.
+
+**The mismatch is structural, not a tuning slip.** Every ceiling fixture is two separate objects
+occupying the same spot: a square 1.4m emissive panel (the thing that LOOKS like a light) and a
+`Light` component standing in for what it emits (`BuildCeilingLights` — URP has no realtime area
+light, the same gap this file's shadow entry above already names). A wall's glossy highlight is the
+`Light`'s own specular lobe, and a point-like source's specular lobe is round no matter what shape
+the object casting it is. The panel's true square shape only ever reaches the wall through the baked
+reflection probe, at a small fraction of the light's direct strength — so what dominates on screen is
+the round one.
+
+**Narrowing the cone was the first idea, and the geometry rules it out.** `CeilingSpotAngle` was
+156.8° — wide on purpose, to behave "like a panel rather than a torch." Clearing the nearest wall
+entirely needs `atan(2.6 / 5.41) ≈ 26°` of half-angle, i.e. an ~52° cone — and four fixtures that
+tight leave a floor radius of about 2.6m each, with dark gaps between them across an 8.75 × 10.5m
+room. Worse, the fix does almost nothing over most of that range: `tan` blows up fast near 90°, so
+120° reaches almost as far up the wall as 156.8° does. There is no cone angle between "still hits the
+wall" and "leaves the floor dark" for four fixtures at this height and this spacing.
+
+**Softening the SURFACE instead of the light works, and was still reverted the next day.**
+`WallSmoothness` 0.85 → 0.65 costs nothing in coverage — no light, ambient or intensity constant
+moves, only how tightly a wall returns a point-source highlight — and it did what it promised: the
+two circles spread out and the wall read as an even gradient, visibly closer to the reference in
+the menu capture. **Reverted to 0.85 by request the same day** ("the previous feel was better"),
+along with the reflective floor, because the same knob blurs the wall's own mirroring of the room
+along with the highlight — the identical knock-on `FloorSmoothness`' history records at this value,
+"a reflection probe samples a blurred mip... a white room averaged to a flat sheet". A wall that
+reflects and a wall with no round highlight on it are the same setting pointed two ways.
+
+**So the standing answer is: the round highlight is the price of a wall that reflects at all, and
+that price has now been looked at from both sides and judged worth paying.** The one route nobody
+has built, and the only one that would make the highlight actually square without touching the cone
+or the surface, is a light COOKIE shaped like the panel on each fixture.

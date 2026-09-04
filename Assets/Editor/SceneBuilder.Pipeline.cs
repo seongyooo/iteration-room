@@ -722,9 +722,19 @@ namespace IterationRoom.EditorTools
             // bounce, then wall washers - and both failed on the same point. They add brightness where
             // light already is; what this room wants is EVENNESS, at a level that can be looked at.
             // That is an eye's judgement and it was only ever going to be found by looking.
-            RenderSettings.ambientSkyColor     = new Color(0.356f, 0.356f, 0.361f);
-            RenderSettings.ambientEquatorColor = new Color(0.763f, 0.763f, 0.768f);
-            RenderSettings.ambientGroundColor  = new Color(0.521f, 0.521f, 0.528f);
+            // **B WAS A HAIR ABOVE R IN ALL THREE BANDS (0.356/0.356/0.361 etc) UNTIL 2026-09-03,
+            // AND IT WAS INVISIBLE UNTIL THE FLOOR ACTUALLY REFLECTED.** A diffuse wall is lit
+            // mostly by its own white albedo plus direct light, so a ~1-2% blue bias in the ambient
+            // term was lost in that sum. The floor is different now that `ProbeBoxMargin` puts it
+            // properly inside its room's reflection probe (see `docs/gotchas.md`): a probe bake
+            // captures the room fully lit, ambient included, so this same small bias came out on
+            // EVERY face of the baked cubemap (checked directly, not eyeballed - all six faces read
+            // B > G > R by 2-5%) and showed up as a visibly blue floor next to the neutral flat
+            // reflection the title screen substitutes in. R and G are untouched, so the room's
+            // overall level and the comfort tuning above are unchanged - only the tiny cast is gone.
+            RenderSettings.ambientSkyColor     = new Color(0.356f, 0.356f, 0.356f);
+            RenderSettings.ambientEquatorColor = new Color(0.763f, 0.763f, 0.763f);
+            RenderSettings.ambientGroundColor  = new Color(0.521f, 0.521f, 0.521f);
             RenderSettings.ambientIntensity = 1f;
             // Assigning the colours does NOT rebuild the ambient probe. Without this they are
             // stored and never reach a shader, and every tweak looks like it did nothing.

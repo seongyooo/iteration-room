@@ -793,7 +793,16 @@ namespace IterationRoom.EditorTools
         // to be: red is this game's ALARM - the ERROR test card, the last ten seconds, the collapse -
         // and spending it on five button labels leaves nothing to say anything with. It is the same
         // charcoal the grooves in every wall are painted, so the type reads as printed ON the room.
-        private static readonly Color MenuInk = new Color(0.11f, 0.11f, 0.13f, 1f);
+        // **NEAR-WHITE SINCE 2026-09-04, AND IT WAS CHARCOAL FOR A REASON THAT NO LONGER HOLDS.**
+        // Every page that uses this - the title screen, settings, credits, the key bindings - sits
+        // over `MenuBackground.png`, and that photograph used to be a bright white room. It is a
+        // black room with one lit doorway now (`CaptureMenuBackground`, to `docs/mainmenu_dark.png`),
+        // so charcoal type on it is charcoal on black. One constant flips the whole family, which is
+        // the reason it was ever a constant.
+        //
+        // Not pure white: 0.90 sits a step below the doorway in the picture, so the brightest thing
+        // on the title screen stays the room rather than the interface.
+        private static readonly Color MenuInk = new Color(0.90f, 0.90f, 0.92f, 1f);
         // The one accent, and there is exactly one on the screen at rest.
         private static readonly Color MenuAccent = new Color(0.80f, 0.10f, 0.10f, 1f);
     }
