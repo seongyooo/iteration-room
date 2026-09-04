@@ -3,142 +3,160 @@ using UnityEngine.UI;
 
 namespace IterationRoom
 {
-    // ONE SIDE OF THE TITLE SCREEN'S ROOM GOING OUT AND COMING BACK.
+    // **THE BUILDING GOING OUT, ROOM BY ROOM** (rewritten 2026-09-04, by request).
     //
-    // **THE BACKGROUND IS A PHOTOGRAPH, WHICH IS WHY THIS WORKS THE WAY IT DOES.** The menu shows a
-    // PNG that `SceneBuilder.CaptureMenuBackground` rendered at build time - there is no room behind
-    // it, no lights and nothing to switch. So the flicker cannot be a light going off; it has to be a
-    // SECOND photograph of the same room with half its fixtures dark, laid over the first and faded
-    // in. Two stills and an alpha is the whole mechanism.
+    // The title screen looks down a corridor of six rooms. This takes them out one at a time and
+    // LEAVES them out: each room stutters two or three times and then goes dark for good, the next
+    // one starts, and when the last is gone the whole corridor comes back and it begins again.
     //
-    // The alternative - putting a live 3D room in the menu scene - would cost a scene load, a camera
-    // and a set of lights on the first screen the player ever sees, to reproduce something two images
-    // already say.
+    // The frames are CUMULATIVE - `roomFrames[k]` is the building with k+1 rooms already dark - so
+    // showing one is the whole state of it, and nothing has to be layered or ordered. That is also
+    // why a fit can cut between two of them: frame k-1 and frame k differ by exactly one room.
     //
-    // **IT IS NOT A SINE WAVE.** A light that fades smoothly in and out reads as a mood; a failing
-    // one stutters, holds, and catches. So this runs long quiet stretches broken by short bursts of
-    // hard cuts, which is what a tube on its way out actually does - and it is the one thing on this
-    // screen that says the building is not well.
+    // WHICH room each stage takes is the capture's business, not this component's (it fails from the
+    // far end inward - see `SceneBuilder.CaptureMenuBackground` for why that direction). Here a
+    // frame is just stage k of a failure that ends with everything out.
+    //
+    // **UNSCALED TIME, because the menu is not the game.** `Time.timeScale` is zero whenever the
+    // pause menu is up and this screen is reachable from there; on a scaled clock the whole sequence
+    // would freeze exactly when the player is looking at it longest.
     [RequireComponent(typeof(Image))]
     public class MenuFlicker : MonoBehaviour
     {
-        // The dark frame. Sits over the lit one at whatever alpha this drives, so 0 is a healthy room
-        // and 1 is one side of it out.
+        // The legacy single dark frame. Still driven when no per-room set was built, so a menu made
+        // by an older build - or by one that could not render - flickers instead of sitting still.
         private Image dark;
 
-        // **ONE FRAME PER ROOM DOWN THE CORRIDOR, AND THE FAULT WALKS ALONG THEM** (2026-09-04, by
-        // request). Index 0 is the room the camera stands in; each one after it is a room further
-        // away, seen through the doorways.
-        //
-        // Left empty this behaves exactly as it always did - `dark` alone, one room, on and off -
-        // which is what a menu built before these frames existed gets. With frames it steps: a fit
-        // takes one room out, the next fit takes the next room, and at the end of the corridor the
-        // direction reverses. What that reads as is a failure moving through the building rather
-        // than a bulb going in one room, which is the whole reason the shot looks down six of them.
+        // One per stage of the failure, cumulative and in order. Empty falls back to `dark`.
         public Image[] roomFrames;
 
-        private int room;
-        private int step = 1;
+        // How long a room holds steady before its turn. Per room and random inside the range, so the
+        // corridor does not go out on a metronome.
+        public Vector2 calmSeconds = new Vector2(3f, 5f);
 
-        // How long the room stays whole between fits. Long, and deliberately so: a title screen that
-        // flickers constantly is a broken television, where one that is steady for eight seconds and
-        // then stumbles is a building with a fault in it.
-        public Vector2 calmSeconds = new Vector2(4.5f, 11f);
-        // How many hard cuts a fit contains, and how long each one lasts.
-        public Vector2Int burstCuts = new Vector2Int(2, 6);
-        public Vector2 cutSeconds = new Vector2(0.035f, 0.13f);
-        // The pause at the end of a fit, where it stays out a beat longer before catching again. This
-        // is the part that reads as a light STRUGGLING rather than as a shutter.
-        // **LONGER THAN A CUT, AND THAT IS THE POINT** (widened 2026-08-28, by request: the dark
-        // should last longer). A fit that ends the instant it starts reads as a glitch in the image;
-        // one that goes out and STAYS out for a beat reads as a room with a fault in it, and that
-        // beat is the only part of this the player consciously notices.
-        public Vector2 holdSeconds = new Vector2(0.7f, 2.6f);
+        // How many times a room stutters before it goes for good, and how long each cut lasts.
+        public Vector2Int stutters = new Vector2Int(2, 3);
+        public Vector2 cutSeconds = new Vector2(0.05f, 0.14f);
+
+        // The dark beat at the end of a room's turn, before the next room starts.
+        public Vector2 settleSeconds = new Vector2(0.35f, 0.9f);
+
+        // How long the whole corridor stays black before the lights come back.
+        public Vector2 blackoutSeconds = new Vector2(1.2f, 2.2f);
+
+        // **AND SOMETIMES THE WHOLE THING GOES AT ONCE.** One run in this many is a cascade: no calm
+        // between rooms and one cut each, so the corridor snaps out end to end. It is the same
+        // sequence at a different speed rather than a second behaviour, which is what keeps it
+        // reading as the same fault having a worse moment.
+        public int cascadeOneRunIn = 3;
+        public Vector2 cascadeSeconds = new Vector2(0.06f, 0.13f);
 
         private float until;
+        private int settled = -1;      // last room index that is dark for good; -1 is a whole corridor
         private int cutsLeft;
-        private bool isOut;   // NOT `out` - that is a C# keyword.
+        private bool showingNext;      // mid-stutter, is the room being taken currently out
+        private bool cascading;
+
+        private int RoomCount => roomFrames != null ? roomFrames.Length : 0;
 
         private void Awake()
         {
             dark = GetComponent<Image>();
-            SetOut(false);
-            // Whatever a previous session or a rebuild left showing - every frame starts clear, so
-            // the first thing on screen is the corridor whole.
-            if (roomFrames != null)
-                foreach (Image frame in roomFrames) Show(frame, false);
-            // Starts calm, so the first thing the player sees is the room intact.
-            until = Time.unscaledTime + Random.Range(calmSeconds.x, calmSeconds.y);
+            Restore();
+            cascading = Random.Range(0, Mathf.Max(1, cascadeOneRunIn)) == 0;
         }
 
-        // **UNSCALED, because the menu is not the game.** `Time.timeScale` is zero whenever the pause
-        // menu is up and this same screen is reachable from there; on a scaled clock the flicker would
-        // freeze exactly when the player is looking at it longest.
         private void Update()
         {
-            if (dark == null || Time.unscaledTime < until) return;
+            if (Time.unscaledTime < until) return;
+
+            if (RoomCount == 0) { LegacyToggle(); return; }
+
+            // The corridor is fully dark - hold it, then bring everything back and start again.
+            if (settled >= RoomCount - 1)
+            {
+                Restore();
+                cascading = Random.Range(0, Mathf.Max(1, cascadeOneRunIn)) == 0;
+                return;
+            }
+
+            int taking = settled + 1;
 
             if (cutsLeft > 0)
             {
                 cutsLeft--;
-                SetOut(!isOut);
-                // The last cut of a fit is the long one - out, and hanging there before it catches.
-                until = Time.unscaledTime + (cutsLeft == 0 && isOut
-                    ? Random.Range(holdSeconds.x, holdSeconds.y)
+                showingNext = !showingNext;
+                Show(showingNext ? taking : settled);
+
+                if (cutsLeft == 0)
+                {
+                    // A turn always ENDS with the room out - it is going for good, so the last cut
+                    // is the one that keeps it.
+                    Show(taking);
+                    settled = taking;
+                    showingNext = false;
+
+                    // **THE LAST ROOM'S BEAT IS THE BLACKOUT.** Holding after the restore instead
+                    // would put the lights back the same frame the corridor went out and then wait
+                    // on a picture nobody was looking at.
+                    bool wasTheLast = settled >= RoomCount - 1;
+                    until = Time.unscaledTime + (wasTheLast
+                        ? Random.Range(blackoutSeconds.x, blackoutSeconds.y)
+                        : cascading
+                            ? Random.Range(cascadeSeconds.x, cascadeSeconds.y)
+                            : Random.Range(settleSeconds.x, settleSeconds.y));
+                    return;
+                }
+
+                until = Time.unscaledTime + (cascading
+                    ? Random.Range(cascadeSeconds.x, cascadeSeconds.y)
                     : Random.Range(cutSeconds.x, cutSeconds.y));
                 return;
             }
 
-            if (isOut)
-            {
-                // A fit always ends with the room whole again.
-                SetOut(false);
-                Advance();
-                until = Time.unscaledTime + Random.Range(calmSeconds.x, calmSeconds.y);
-                return;
-            }
-
-            cutsLeft = Random.Range(burstCuts.x, burstCuts.y + 1);
+            // Start the next room's turn: a calm stretch, then its stutter.
+            cutsLeft = cascading ? 1 : Random.Range(stutters.x, stutters.y + 1) * 2 - 1;
+            showingNext = false;
+            until = Time.unscaledTime + (cascading
+                ? Random.Range(cascadeSeconds.x, cascadeSeconds.y)
+                : Random.Range(calmSeconds.x, calmSeconds.y));
         }
 
-        // **ONE ROOM DARK AT A TIME.** The whole set is cleared and the current one shown, rather
-        // than the previous one being turned off by index - a frame left up because an index moved
-        // while a fit was mid-cut is exactly the kind of state that only shows on the fifth loop.
-        private void SetOut(bool value)
+        // Everything on. `settled` of -1 means no frame is showing at all, which is the lit still
+        // underneath doing the work.
+        private void Restore()
         {
-            isOut = value;
+            settled = -1;
+            cutsLeft = 0;
+            showingNext = false;
+            Show(-1);
+        }
 
-            if (roomFrames != null && roomFrames.Length > 0)
+        // One frame at a time, and every other one cleared - a frame left up because an index moved
+        // mid-stutter is exactly the kind of state that only shows on the fifth loop.
+        private void Show(int index)
+        {
+            for (int i = 0; i < RoomCount; i++)
             {
-                for (int i = 0; i < roomFrames.Length; i++)
-                    Show(roomFrames[i], value && i == room);
-                return;
+                Image frame = roomFrames[i];
+                if (frame == null) continue;
+                Color c = frame.color;
+                c.a = i == index ? 1f : 0f;
+                frame.color = c;
             }
+        }
 
+        // What this component was before the corridor: one still, on and off.
+        private void LegacyToggle()
+        {
+            if (dark == null) return;
             Color c = dark.color;
-            c.a = value ? 1f : 0f;
+            bool wasOut = c.a > 0.5f;
+            c.a = wasOut ? 0f : 1f;
             dark.color = c;
-        }
-
-        // Along the corridor and back. Reversing at the ends rather than wrapping, because a fault
-        // that jumps from the far room to the near one in one step reads as a cut rather than as
-        // something moving.
-        private void Advance()
-        {
-            int count = roomFrames != null ? roomFrames.Length : 0;
-            if (count < 2) return;
-
-            room += step;
-            if (room >= count) { room = count - 2; step = -1; }
-            else if (room < 0) { room = 1; step = 1; }
-        }
-
-        private static void Show(Image frame, bool visible)
-        {
-            if (frame == null) return;
-            Color c = frame.color;
-            c.a = visible ? 1f : 0f;
-            frame.color = c;
+            until = Time.unscaledTime + (wasOut
+                ? Random.Range(calmSeconds.x, calmSeconds.y)
+                : Random.Range(cutSeconds.x, cutSeconds.y));
         }
     }
 }

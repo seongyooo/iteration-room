@@ -284,58 +284,118 @@ namespace IterationRoom.EditorTools
             {
                 WithFlatReflection(() => CaptureMenuFrame(cam, MenuBackgroundPath));
 
-                // **A WHOLE ROOM AT A TIME, AND ONE FRAME FOR EACH** (2026-09-04, by request).
+                // **THE ROOMS GO OUT ONE AT A TIME AND STAY OUT, AND EACH FRAME IS CUMULATIVE**
+                // (2026-09-04, by request). Frame k is "the last k+1 rooms are dark", not "room k is
+                // dark" - the fault does not move along the corridor, it EATS it, and the last frame
+                // is a building with nothing left on. `MenuFlicker` walks 0..5 and then restores.
                 //
-                // The flicker used to douse the left-hand PAIR of fixtures in the nearest room, so
-                // what failed was half of one ceiling. Down a corridor that reads as nothing: the
-                // eye is on six rooms and a quarter of the first one dimming is a shading change.
-                // Dousing all four makes the ROOM go dark, which is a thing the building can be seen
-                // to do - and doing it per room gives `MenuFlicker` a wave it can walk away and back.
+                // **AND IT EATS INWARD, FROM THE FAR END.** The near room is the one the camera
+                // stands in and it fills the frame, so taking it first puts the title screen on a
+                // near-black field for most of the cycle - which is the opposite of what this
+                // background is for ("the white room repeating forever", and expressly not a horror
+                // game). Failing the deep end first keeps that white foreground through the whole
+                // sequence, gives the corridor somewhere to visibly retreat to, and leaves the full
+                // blackout as a beat of punctuation rather than the resting state.
                 //
-                // The rooms are one `RoomPitch` apart along +Z from the one the camera stands in, so
-                // each frame is "every fixture within half a room's depth of that centre, out".
-                int lit = 0;
-                for (int i = 0; i < MenuCorridorRooms; i++)
+                // **AND A ROOM GOES DARK BY LOSING ITS SURFACES, NOT ITS AMBIENT.** Dousing four
+                // fixtures leaves a room sitting at the ambient constant, which this project has
+                // measured at 149 of 255 on a wall - an "off" that still reads as a lit room, which
+                // is what play reported. But ambient is per SCENE. Blacking it out was tried and
+                // measured here: the first frame took the whole picture from 183 to 35, because
+                // every room lost it at once and the corridor browned out together instead of one
+                // room going off.
+                //
+                // So the rooms that are out are painted black instead - `_BaseColor` and
+                // `_EmissionColor` to zero through a property block. A surface with no albedo
+                // returns nothing from the ambient, nothing from the lightmap and nothing from a
+                // neighbour's spill, so the room reads as genuinely dark while the rooms beyond it
+                // keep every bit of the lighting they were built with. It is per RENDERER, which is
+                // the granularity the effect actually wants and the one ambient cannot give.
+                //
+                // Their fixtures go off as well: the black surfaces would absorb the light either
+                // way, but a dark room should not be throwing any into the one in front of it.
+                int frames = 0;
+                for (int k = 0; k < MenuCorridorRooms; k++)
                 {
-                    float atZ = room != null ? room.position.z + i * RoomPitch : 0f;
                     var doused = new System.Collections.Generic.List<Light>();
+                    var painted = new System.Collections.Generic.List<Renderer>();
+                    float baseZ = room != null ? room.position.z : 0f;
+
                     if (room != null)
+                    {
                         foreach (Light light in room.GetComponentsInChildren<Light>(true))
                         {
                             if (!light.enabled) continue;
-                            if (Mathf.Abs(light.transform.position.z - atZ) > RoomDepth / 2f) continue;
+                            int index = RoomIndexOf(light.transform.position.z, baseZ);
+                            if (index < MenuCorridorRooms - 1 - k) continue;
                             light.enabled = false;
                             doused.Add(light);
                         }
 
-                    int index = i;
+                        var black = new MaterialPropertyBlock();
+                        foreach (Renderer r in room.GetComponentsInChildren<Renderer>(true))
+                        {
+                            if (r == null || !r.enabled) continue;
+                            int index = RoomIndexOf(r.bounds.center.z, baseZ);
+                            if (index < MenuCorridorRooms - 1 - k) continue;
+                            black.Clear();
+                            black.SetColor(BaseColorId, Color.black);
+                            black.SetColor(EmissionColorId, Color.black);
+                            r.SetPropertyBlock(black);
+                            painted.Add(r);
+                        }
+                    }
+
+                    int frameIndex = k;
                     try
                     {
                         WithFlatReflection(() =>
-                            CaptureMenuFrame(cam, MenuBackgroundRoomDarkPath(index)));
+                            CaptureMenuFrame(cam, MenuBackgroundRoomDarkPath(frameIndex)));
+                        frames++;
                     }
-                    finally { foreach (Light light in doused) light.enabled = true; }
-
-                    if (doused.Count > 0) lit++;
-                    if (i == 0)
+                    finally
                     {
-                        // The nearest room's frame doubles as the legacy single dark still, so a
-                        // menu built before the per-room set existed still has something to cut to.
+                        // Nothing else writes a block on this geometry, so clearing is the whole
+                        // restore - but it IS a restore, and a room left painted would be baked into
+                        // every frame after it.
+                        var restore = new MaterialPropertyBlock();
+                        foreach (Renderer r in painted)
+                        {
+                            if (r == null) continue;
+                            restore.Clear();
+                            r.SetPropertyBlock(restore);
+                        }
+                        foreach (Light light in doused) light.enabled = true;
+                    }
+
+                    if (k == 0)
+                    {
+                        // The first frame doubles as the legacy single dark still, so a menu built
+                        // against the old wiring still has something to cut to.
                         System.IO.File.Copy(MenuBackgroundRoomDarkPath(0), MenuBackgroundDarkPath, true);
                         AssetDatabase.ImportAsset(MenuBackgroundDarkPath);
                     }
                 }
 
-                Debug.Log($"[SceneBuilder] Menu background: 1 lit frame and {MenuCorridorRooms} dark "
-                        + $"ones down the corridor, {lit} of which actually had fixtures to douse. "
-                        + $"{hidden.Count} renderer(s) hidden as not-the-building. A room with "
-                        + "nothing to douse is one the chain does not reach.");
+                Debug.Log($"[SceneBuilder] Menu background: 1 lit frame and {frames} cumulative "
+                        + $"dark ones - frame k is the last k+1 rooms painted out, ambient untouched. "
+                        + $"{hidden.Count} renderer(s) hidden as not-the-building.");
             }
             finally
             {
                 foreach (Renderer r in hidden) if (r != null) r.enabled = true;
             }
         }
+
+        private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
+        private static readonly int EmissionColorId = Shader.PropertyToID("_EmissionColor");
+
+        // Which room along the corridor something at this z belongs to, counting from the one the
+        // camera stands in. A DIVIDER lands on a half and is deliberately given to the NEARER room:
+        // what the camera sees of it is that room's far wall, so it has to go dark when that room
+        // does. `Ceil(t - 0.5)` is what puts it there; `Round` would decide it by the floating point.
+        private static int RoomIndexOf(float z, float baseZ)
+            => Mathf.CeilToInt((z - baseZ) / RoomPitch - 0.5f);
 
         // The surfaces this building is made OF. Anything wearing something else is furniture, a
         // door leaf, an indicator lamp or a puzzle piece - and for this shot all of those are the
