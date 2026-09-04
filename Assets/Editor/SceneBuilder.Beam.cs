@@ -1308,6 +1308,28 @@ namespace IterationRoom.EditorTools
             door.openLocalOffset = new Vector3(DoorWidth, 0f, 0f);
             door.doorPanel = panel.transform;
 
+            // **THE DOORWAY AS A SWITCHABLE HOLE** (2026-09-04, by request: occlude while the door
+            // is shut). See `Door.portal` for why a leaf cannot simply be an occluder - it moves,
+            // and baked occlusion is static.
+            //
+            // Sized to the opening and spanning the whole divider - near wall, pocket, far wall - so
+            // closing it separates the two rooms into different cells rather than leaving a slot
+            // through the middle of one. `OcclusionPortal` exposes only `open` to script, so the box
+            // is written through `SerializedObject`, which is how the Inspector does it too.
+            GameObject portalGO = new GameObject("DoorwayPortal");
+            portalGO.transform.SetParent(doorRoot.transform, false);
+            OcclusionPortal portal = portalGO.AddComponent<OcclusionPortal>();
+            var portalSO = new SerializedObject(portal);
+            portalSO.FindProperty("m_Center").vector3Value =
+                new Vector3(0f, DoorHeight / 2f, wallInnerZ + WallDepth + DoorPocketDepth / 2f);
+            portalSO.FindProperty("m_Size").vector3Value =
+                new Vector3(DoorWidth, DoorHeight, DoorPocketDepth + 2f * WallDepth);
+            // Authored SHUT, because a door is. If the portal started open, the first frame of every
+            // run would draw the whole corridor before anything asked the door about it.
+            portalSO.FindProperty("m_Open").boolValue = false;
+            portalSO.ApplyModifiedPropertiesWithoutUndo();
+            door.portal = portal;
+
             DoorIndicator indicator = lampRoot.AddComponent<DoorIndicator>();
             indicator.redHalf = redHalf.GetComponent<Renderer>();
             indicator.greenHalf = greenHalf.GetComponent<Renderer>();

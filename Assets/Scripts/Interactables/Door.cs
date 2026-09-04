@@ -122,6 +122,35 @@ namespace IterationRoom
 
         public bool IsOpen => latched || openAmount > 0.5f;
 
+        // **THE HOLE THIS DOOR FILLS, AS FAR AS OCCLUSION CULLING IS CONCERNED** (2026-09-04, by
+        // request). Baked occlusion is static, so a door leaf cannot be an occluder - it moves, and
+        // an occluder baked shut would keep hiding a room you had just walked into. An
+        // `OcclusionPortal` is the piece Unity provides for exactly this: the bake computes both
+        // states and the game says which one is true right now.
+        //
+        // It is what cycle 1 was missing. Six rooms in a straight line with every doorway on the
+        // same centre line means a ray down the axis passes through all of them, so with the
+        // doorways treated as permanently open the bake correctly concluded the whole building was
+        // visible and culled nothing - measured at ~3000 draw calls facing the door against ~340 in
+        // cycle 2, whose rooms are not aligned.
+        public OcclusionPortal portal;
+
+        // **OPEN THE MOMENT IT IS NOT FULLY SHUT, not at `IsOpen`'s halfway mark.** `IsOpen` asks
+        // whether the door is passable, which is the right question for a puzzle and the wrong one
+        // here: a portal still closed while the leaf is a third of the way open would cull a room
+        // the player can already see into. Erring open costs a few draw calls; erring shut is a room
+        // that is not there.
+        private bool portalOpen = true;
+
+        private void ApplyPortal()
+        {
+            if (portal == null) return;
+            bool wantOpen = latched || openAmount > 0f;
+            if (wantOpen == portalOpen) return;
+            portalOpen = wantOpen;
+            portal.open = wantOpen;
+        }
+
         private Vector3 closedLocalPos;
         private Vector3 doorwayCentre;
 
@@ -179,7 +208,7 @@ namespace IterationRoom
                 else if (standsOffForPlayer && openAmount > 0f && PlayerInDoorway()) target = 1f;
             }
 
-            if (Mathf.Approximately(openAmount, target)) return;
+            if (Mathf.Approximately(openAmount, target)) { ApplyPortal(); return; }
 
             // Shutting can be its own speed. Zero means "the same as opening", which is every door
             // built before room3-1's gates existed.
@@ -194,6 +223,7 @@ namespace IterationRoom
                 audioSource.PlayOneShot(openClip);
 
             openAmount = next;
+            ApplyPortal();
             Apply();
         }
 
