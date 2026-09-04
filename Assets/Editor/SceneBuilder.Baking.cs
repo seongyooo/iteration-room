@@ -175,19 +175,29 @@ namespace IterationRoom.EditorTools
             // exactly the renderers sitting on this box's un-padded faces.
             probe.size = roomSize + Vector3.one * ProbeBoxMargin;
 
-            // **BLEND DISTANCE LEFT AT UNITY'S DEFAULT, AFTER A DAY AT 0 THAT PROVED NOTHING.**
+            // **NO BLEND DISTANCE, AND THIS ONE HAS BEEN OUT AND BACK.**
             //
-            // It was set to 0 on a real measurement - `blendDistance` reaches a metre PAST each
-            // probe's box, and 31 of room2-1's wall panels sit inside the lit room next door's reach
-            // by that rule - and on the theory that this was why a dark room showed bright patches.
-            // It never reproduced the symptom and never fixed it. The actual cause turned out to be
-            // elsewhere entirely: the probes are baked at full ambient and the room is played at a
-            // fifth of it, so the reflection was five times too bright for the wall carrying it
-            // (`ProbeLightSwap.darkIntensity`).
+            // `blendDistance` reaches a metre PAST a probe's box so two probes can crossfade where
+            // they overlap. In a house that is what you want. Here the rooms are a corridor of sealed
+            // cells one thin divider apart, and a metre crosses it easily: measured, 31 of room2-1's
+            // wall panels sit inside the LIT room next door's reach.
             //
-            // So this is reverted rather than kept on the strength of an argument. What 0 costs is
-            // real - reflections change abruptly at a doorway instead of crossfading - and a change
-            // with a cost and no demonstrated benefit is not one to leave in.
+            // It was set to 0 on that measurement plus a theory - that this was why a dark room
+            // showed bright patches - and the theory was wrong. The patches were the probes being
+            // baked at full ambient against a room played at a fifth of it
+            // (`ProbeLightSwap.darkIntensity`). So it was reverted, on the reasoning that a change
+            // with a cost and no demonstrated benefit should not stay.
+            //
+            // **The revert is what demonstrated the benefit.** Play, immediately: "the square light
+            // the walls were reflecting has gone". Blending mixes this room's cubemap with the next
+            // room's, and an average of two rooms has no sharp ceiling panel in it - which is the
+            // whole thing `NoDirectSpecular` was added to let the walls show. Back to 0, now with a
+            // reason that was observed rather than argued.
+            //
+            // What it still costs is what it always cost: reflections change abruptly at a doorway
+            // rather than crossfading. That is the right trade here - the rooms genuinely have
+            // different light, and a smeared square is worse than a hard cut nobody is looking at.
+            probe.blendDistance = 0f;
 
             // 512, not 256: at the wall smoothness used here the reflection is sharp enough that a
             // 256 cubemap shows the ceiling fixtures as vague smears rather than panels.
