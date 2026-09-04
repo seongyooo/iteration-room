@@ -766,6 +766,7 @@ namespace IterationRoom.EditorTools
             int flagged = 0;
             int skipped = 0;
             int backings = 0;
+            int gateLeaves = 0;
             Renderer[] renderers = UnityEngine.Object.FindObjectsByType<Renderer>(
                 FindObjectsInactive.Include);
 
@@ -840,17 +841,24 @@ namespace IterationRoom.EditorTools
                 // slabs per wall, which is why the same bug moved the draw call count by so little
                 // that it read as "occlusion is not running here at all". It stays an OCCLUDER,
                 // because it is the solid sheet that actually hides the next room.
+                bool isGateLeaf = MovesForOcclusion(r.transform);
+
                 bool isBacking = false;
                 foreach (Material mat in r.sharedMaterials)
                     if (mat != null && mat.name.StartsWith("GrooveDark")) { isBacking = true; break; }
 
+                StaticEditorFlags occlusion = isGateLeaf
+                    ? 0
+                    : StaticEditorFlags.OccluderStatic
+                      | (isBacking ? 0 : StaticEditorFlags.OccludeeStatic);
+
                 StaticEditorFlags flags = bouncesLight
                     ? StaticEditorFlags.ReflectionProbeStatic | StaticEditorFlags.ContributeGI
-                      | StaticEditorFlags.OccluderStatic
-                      | (isBacking ? 0 : StaticEditorFlags.OccludeeStatic)
+                      | occlusion
                     : StaticEditorFlags.ReflectionProbeStatic;
                 GameObjectUtility.SetStaticEditorFlags(r.gameObject, flags);
                 if (isBacking) backings++;
+                if (isGateLeaf) gateLeaves++;
 
                 // **AND IT TAKES ITS GI FROM PROBES, NOT FROM A LIGHTMAP.** That is not a quality
                 // compromise here, it is the only option: a lightmap needs a second UV set, and every
@@ -877,9 +885,12 @@ namespace IterationRoom.EditorTools
                 Debug.Log($"[SceneBuilder] {skipped} renderer(s) held out of ContributeGI - no "
                         + "triangles to bounce light off. See MarkReflectionProbeStatic.");
 
-            Debug.Log($"[SceneBuilder] Occlusion flags: {backings} backing renderer(s) held out of the "
-                + "occludee set so the grooves cannot be culled. Zero would mean the GrooveDark "
-                + "material was renamed and room1-1's black grid is about to become sky again.");
+            Debug.Log($"[SceneBuilder] Occlusion flags: {backings} backing renderer(s) held out of "
+                + "the occludee set so the grooves cannot be culled, and "
+                + $"{gateLeaves} moving renderer(s) out of occlusion entirely (see "
+                + "MovesForOcclusion) so nothing keeps hiding a room after it has slid away. Zero "
+                + "of either is a regression: the first turns room1-1's black grid into sky, the "
+                + "second does the same to whatever is past a cycle 3 gate or under a lift.");
             return flagged;
         }
 
@@ -965,6 +976,40 @@ namespace IterationRoom.EditorTools
 
         // Walks up, because the thing that moves is usually a parent of the thing that renders - a
         // door's slab, a plinth's key, a ghost's mesh.
+        // **OCCLUSION ASKS A STRICTER QUESTION THAN LIGHTING DOES, AND IT NEEDS ITS OWN LIST.**
+        //
+        // `MovesDuringPlay` answers "should this bake into the GI and the probes", and it was tuned
+        // for that gentler consumer: getting it wrong there means a reflection is slightly off.
+        // Getting it wrong HERE means geometry disappears - an occluder baked in a pose it does not
+        // hold keeps hiding whatever was behind it after it has moved away.
+        //
+        // Play found the first one on 2026-09-05: standing on a pad in cycle 3 turned the room
+        // beyond the gate into skybox. `WallWhileShut` makes `MovesDuringPlay` answer FALSE on
+        // purpose, so a shut gate bakes as the wall it is at rest - a good argument about a RESTING
+        // state, and occlusion is not about a resting state.
+        //
+        // The rest of this list is everything else that moves a renderer and was never in that one,
+        // because it never needed to be: the two beam lifts run their decks 5.21m, the barrier
+        // crushes, the cable car flies, the tree comes apart, the chess board splits, the slide
+        // carries. **The asymmetry is what decides the membership rule**: holding something out of
+        // occlusion costs a few draw calls, and leaving something in that should not be costs a room
+        // that is not there. So this errs wide, and anything new that moves belongs in it.
+        private static bool MovesForOcclusion(Transform t)
+        {
+            while (t != null)
+            {
+                if (t.GetComponent<WallWhileShut>() != null) return true;
+                if (t.GetComponent<BeamLift>() != null) return true;
+                if (t.GetComponent<CrushingBarrier>() != null) return true;
+                if (t.GetComponent<CableCarRide>() != null) return true;
+                if (t.GetComponent<TreeTrunk>() != null) return true;
+                if (t.GetComponent<ChessReward>() != null) return true;
+                if (t.GetComponent<SlideRide>() != null) return true;
+                t = t.parent;
+            }
+            return false;
+        }
+
         private static bool MovesDuringPlay(Transform t)
         {
             while (t != null)
