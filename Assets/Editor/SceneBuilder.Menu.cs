@@ -429,6 +429,29 @@ namespace IterationRoom.EditorTools
             scrim.raycastTarget = false;
             Stretch(scrim.GetComponent<RectTransform>());
 
+            // **AND A MIRRORED ONE FOR THE OTHER CORNER** (2026-09-04, by request: RECORD could not
+            // be read). The ramp above protects the left edge, where the column is; RECORD sits at
+            // the bottom RIGHT, and the doorway's light spills across the floor to meet it. Measured
+            // on the title render: the background behind RECORD is 78 of 255 where the background
+            // behind the column is 39 - and worse than the level is the GRADIENT, because the word
+            // lands exactly on the diagonal where the dark wall meets the lit floor, so half of it is
+            // on each.
+            //
+            // The same sprite, flipped by a negative X scale rather than authored twice - it is a
+            // horizontal ramp, so its mirror is the same ramp. Held at half the left one's strength:
+            // it only has to settle one word, and this is the half of the frame the room is in.
+            GameObject rightScrimGO = new GameObject("ScrimRight");
+            rightScrimGO.transform.SetParent(canvasGO.transform, false);
+            Image rightScrim = rightScrimGO.AddComponent<Image>();
+            rightScrim.sprite = scrimSprite;
+            rightScrim.type = Image.Type.Simple;
+            rightScrim.color = scrimSprite != null
+                ? new Color(1f, 1f, 1f, 0.5f) : new Color(0f, 0f, 0f, 0.22f);
+            rightScrim.raycastTarget = false;
+            RectTransform rightScrimRect = rightScrim.GetComponent<RectTransform>();
+            Stretch(rightScrimRect);
+            rightScrimRect.localScale = new Vector3(-1f, 1f, 1f);
+
             GameObject menuGO = new GameObject("Menu");
             menuGO.transform.SetParent(canvasGO.transform, false);
             CanvasGroup menuGroup = menuGO.AddComponent<CanvasGroup>();
@@ -677,7 +700,18 @@ namespace IterationRoom.EditorTools
                                                  "RECORD", Vector2.zero, MenuInk, "Bold");
             Localize(recordButton, "menu.record", "  ");
             // ONE ROW UP: CREDITS is the bottom of this pair (2026-08-24, by request).
-            CornerBottomRight(recordButton.GetComponent<RectTransform>(), 78f);
+            // **LIFTED CLEAR OF THE WALL-FLOOR JOINT** (2026-09-04, by request: RECORD could not be
+            // read). At 78 the word landed exactly on the diagonal where the dark wall meets the lit
+            // floor, with the corner's vertical edge through its first letter - so half the word had
+            // a dark background and half a bright one, which no amount of scrim fixes because the
+            // problem is the GRADIENT rather than the level. 150 puts it on the flat dark wall above
+            // that joint.
+            //
+            // Tuning a UI position against the picture behind it is normally a trap; it is safe here
+            // because the picture is a still that the build regenerates in a fixed framing, not a
+            // live view that moves. If `CaptureMenuBackground`'s camera is ever re-aimed, this is one
+            // of the numbers that has to be looked at again.
+            CornerBottomRight(recordButton.GetComponent<RectTransform>(), 150f);
             // ~~TEST: CYCLE BOUNDARY~~ REMOVED 2026-08-15, by request. It was a development shortcut
             // into the cycle boundary with cycle 1 already finished, sitting on the title screen
             // between CONTINUE and QUIT and labelled loudly so it could not be mistaken for content.
