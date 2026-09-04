@@ -70,6 +70,18 @@ namespace IterationRoom
         private readonly System.Collections.Generic.List<Renderer> hidden =
             new System.Collections.Generic.List<Renderer>();
 
+        // **AND EVERY BACKING SLAB THIS REPAINTED, SO THE SAME BEAT CAN UNPAINT THEM.**
+        //
+        // The reveal writes `exteriorPaint` into a property block on every `Backing*` renderer, and
+        // a property block is not a renderer being switched off - so `hidden` never knew about these
+        // and `ReturnToTheFirstRoom` left them painted. Play found it as room1-1 coming back with
+        // its wall GROOVES pale: measured against a normal first iteration, the panels matched to
+        // the point (median 177 against 177) and the floor matched, and only the creases between
+        // panels differed - 145 of 255 against 13. That is `GrooveDark`, an 0.04 albedo, wearing the
+        // outside of the building's paint.
+        private readonly System.Collections.Generic.List<Renderer> repainted =
+            new System.Collections.Generic.List<Renderer>();
+
         // What the outside of the building is repainted to at the reveal.
         //
         // **THE FACILITY WAS NOT BLACK FOR WANT OF LIGHT.** It is black by MATERIAL: a wall in this
@@ -267,6 +279,19 @@ namespace IterationRoom
                 if (r != null) r.enabled = true;
             hidden.Clear();
 
+            // The paint goes back too, and it is CLEARED rather than set to a remembered colour: an
+            // empty block hands the renderer back to its material, which is the only way to say "as
+            // built" without this class having to know what `GrooveDark` is.
+            var restore = new MaterialPropertyBlock();
+            foreach (Renderer r in repainted)
+            {
+                if (r == null) continue;
+                r.GetPropertyBlock(restore);
+                restore.Clear();
+                r.SetPropertyBlock(restore);
+            }
+            repainted.Clear();
+
             if (cycles != null)
                 foreach (Cycle cycle in cycles)
                     if (cycle != null && cycle != first) cycle.SetAwake(false);
@@ -415,6 +440,7 @@ namespace IterationRoom
                     r.GetPropertyBlock(block);
                     block.SetColor(LitPropertyIds.BaseColor, exteriorPaint);
                     r.SetPropertyBlock(block);
+                    repainted.Add(r);
                     painted++;
                 }
 
