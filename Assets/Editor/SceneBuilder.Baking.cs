@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using UnityEditor;
@@ -665,10 +666,106 @@ namespace IterationRoom.EditorTools
         // open, or a plinth baked at the height SceneBuilder authors it at rather than the sunk
         // position it starts the game in, would put a thing in the reflection that is not in the
         // room. Everything else - shell, panels, fixtures, furniture, board - is genuinely fixed.
+        // **THE OCCLUSION BAKE, AND IT BAKES EVERY SCENE AT ONCE BECAUSE THE GAME LOADS THEM THAT
+        // WAY.**
+        //
+        // The first version opened each cycle on its own and baked it alone. It produced real data -
+        // 113KB, 241KB, 261KB, 28KB - and culled NOTHING, which play confirmed by toggling the
+        // camera's own Occlusion Culling checkbox and seeing the draw calls not move.
+        //
+        // The reason is the scene the camera is in. `CycleSceneLoader` loads a cycle ADDITIVELY, so
+        // `IterationRoom` stays the ACTIVE scene for the whole run - and baking the cycles separately
+        // left that scene with `m_OcclusionCullingData: {fileID: 0}`. Occlusion data for an additive
+        // set has to be baked with the set loaded together, which is also the only way the cells can
+        // agree about a camera standing in one scene looking at another.
+        //
+        // So: the core scene, then all four cycles on top of it, every root awake, one `Compute`.
+        // The cycles sit at different depths in the world - cycle 2 a storey under cycle 1, cycle 3
+        // under that - so baking them together costs a taller volume rather than an overlapping one.
+        //
+        // **THE ROOTS HAVE TO BE AWAKE.** Cycles ship asleep and a disabled renderer is invisible to
+        // the bake - the same trap `CaptureCyclePreview` documents for the camera and the probe bake
+        // documents for lightmaps. Woken for the bake and put back exactly as they were found.
+        private static void BakeOcclusionCulling()
+        {
+            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
+            {
+                Debug.LogWarning("[SceneBuilder] No graphics device (-nographics): occlusion NOT "
+                               + "baked, keeping whatever is on disk. Rebuild with a device.");
+                return;
+            }
+
+            Scene core = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            var scenes = new List<Scene> { core };
+            foreach (string name in CycleSceneNames)
+            {
+                string path = CycleScenePath(name);
+                if (File.Exists(path))
+                    scenes.Add(EditorSceneManager.OpenScene(path, OpenSceneMode.Additive));
+            }
+
+            var woken = new List<GameObject>();
+            foreach (Cycle cycle in UnityEngine.Object.FindObjectsByType<Cycle>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (cycle.worldRoot == null) continue;
+                if (cycle.worldRoot.gameObject.activeSelf) continue;
+                cycle.worldRoot.gameObject.SetActive(true);
+                woken.Add(cycle.worldRoot.gameObject);
+            }
+
+            // **OVER THE PANEL, DELIBERATELY: ONLY THE BACKING SLABS MAY OCCLUDE.**
+            //
+            // A wall here is two layers - chamfered panels in front, a solid backing slab behind -
+            // and the black grid the room is made of is that backing seen through the `GrooveDepth`
+            // gaps between panels. Ten millimetres of gap.
+            //
+            // Dropping this to 1 let the 1.75 x 1.35m panels in as occluders, and `smallestHole`
+            // 0.25 then swallowed those 10mm gaps: Umbra read the panelled face as one solid sheet,
+            // concluded the backing behind it was never visible, and culled it. Play found it
+            // immediately - the black grooves in room1-1 turned into the procedural sky, blue at the
+            // top of the wall and warm at the bottom, because the gap was now a hole through the
+            // building. A hole big enough to fix that is 0.01, which is not a bake anyone can afford.
+            //
+            // So the threshold goes back ABOVE the panel. The backing slabs are the whole wall minus
+            // its doorway - metres across - and they clear this easily, so the building still
+            // occludes itself; what it no longer does is hide its own second layer.
+            StaticOcclusionCulling.smallestOccluder = 2f;
+            StaticOcclusionCulling.smallestHole = 0.25f;
+            StaticOcclusionCulling.backfaceThreshold = 100f;
+
+            System.DateTime started = System.DateTime.Now;
+            StaticOcclusionCulling.Compute();
+            double seconds = (System.DateTime.Now - started).TotalSeconds;
+
+            foreach (GameObject go in woken) go.SetActive(false);
+            foreach (Scene scene in scenes) EditorSceneManager.SaveScene(scene);
+
+            // **MEASURED OFF THE FILES, NOT OFF `StaticOcclusionCulling.umbraDataSize`.** That
+            // property reported 0 for every scene on a batchmode build that had in fact just written
+            // real data - the number said the bake had failed while the bake had worked. The assets
+            // on disk are what ship, so they are what gets reported.
+            var sizes = new List<string>();
+            foreach (Scene scene in scenes)
+            {
+                string dir = Path.Combine(Path.GetDirectoryName(scene.path),
+                                          Path.GetFileNameWithoutExtension(scene.path));
+                string data = Path.Combine(dir, "OcclusionCullingData.asset");
+                float kb = File.Exists(data) ? new FileInfo(data).Length / 1024f : 0f;
+                sizes.Add($"{scene.name} {kb:0.#}KB");
+            }
+
+            Debug.Log($"[SceneBuilder] Occlusion baked for {scenes.Count} scene(s) TOGETHER in "
+                + $"{seconds:0.#}s, {woken.Count} root(s) woken: {string.Join(", ", sizes)}. "
+                + "IterationRoom at 0KB would mean the ACTIVE scene has no data and none of this "
+                + "reaches the camera - which is exactly how the first version failed.");
+        }
+
         private static int MarkReflectionProbeStatic()
         {
             int flagged = 0;
             int skipped = 0;
+            int backings = 0;
             Renderer[] renderers = UnityEngine.Object.FindObjectsByType<Renderer>(
                 FindObjectsInactive.Include);
 
@@ -707,10 +804,53 @@ namespace IterationRoom.EditorTools
                 bool bouncesLight = HasTriangles(r);
                 if (!bouncesLight) skipped++;
 
-                GameObjectUtility.SetStaticEditorFlags(r.gameObject,
-                    bouncesLight
-                        ? StaticEditorFlags.ReflectionProbeStatic | StaticEditorFlags.ContributeGI
-                        : StaticEditorFlags.ReflectionProbeStatic);
+                // **AND IT IS AN OCCLUDER, WHICH IS THE WHOLE OF THE OCCLUSION BAKE'S INPUT.**
+                //
+                // Measured on 2026-09-04, in cycle 1's first room: facing a blank wall the frame
+                // submits 3.6k triangles and 77 draw calls; turning to face the DOOR in that wall
+                // submits 988.8k triangles, 2,074 set-pass calls and 2,890 draw calls, and the
+                // frame time goes from 8.1ms to 18.9ms. What is on screen at that moment is a
+                // closed door. The building is one straight corridor with every doorway on the same
+                // centre line, so looking down its axis puts all six rooms inside the frustum - and
+                // frustum culling was the only culling this project had.
+                //
+                // A mover reaches this line never: the loop above skips anything `MovesDuringPlay`
+                // returns true for, which is the same predicate the reflection bake uses and for
+                // the same reason. That deliberately leaves the DOOR LEAVES out of the occluder set,
+                // so a doorway is treated as permanently open. Conservative in the safe direction:
+                // it culls less than it could, never more than it should.
+                //
+                // A mesh with no triangles gets neither flag. It occludes nothing and hides behind
+                // nothing, and this is the same guard that keeps it out of the GI bake.
+                // **THE DARK LAYER BEHIND THE PANELS IS AN OCCLUDER BUT NEVER AN OCCLUDEE, and that
+                // exception is the whole reason the first attempt at this had to be reverted.**
+                //
+                // A wall here is two layers: chamfered panels in front, a solid backing slab 0.06m
+                // behind them, and `BuildPanelWall` gives that backing the GROOVE material - so the
+                // black grid this whole building is made of is not a separate object, it IS the
+                // backing seen through the 10mm gaps between panels.
+                //
+                // Umbra voxelises at metre scale. At that granularity the panel and the backing are
+                // inside the same voxel, so the backing reads as buried in solid geometry and is
+                // culled as never visible. Play found it at once: room1-1's black grid turned into
+                // the procedural sky, blue at the top of the wall and warm at the bottom, because
+                // the groove had become a hole through the building.
+                //
+                // Taking it out of the occludee set costs almost nothing - there are a handful of
+                // slabs per wall, which is why the same bug moved the draw call count by so little
+                // that it read as "occlusion is not running here at all". It stays an OCCLUDER,
+                // because it is the solid sheet that actually hides the next room.
+                bool isBacking = false;
+                foreach (Material mat in r.sharedMaterials)
+                    if (mat != null && mat.name.StartsWith("GrooveDark")) { isBacking = true; break; }
+
+                StaticEditorFlags flags = bouncesLight
+                    ? StaticEditorFlags.ReflectionProbeStatic | StaticEditorFlags.ContributeGI
+                      | StaticEditorFlags.OccluderStatic
+                      | (isBacking ? 0 : StaticEditorFlags.OccludeeStatic)
+                    : StaticEditorFlags.ReflectionProbeStatic;
+                GameObjectUtility.SetStaticEditorFlags(r.gameObject, flags);
+                if (isBacking) backings++;
 
                 // **AND IT TAKES ITS GI FROM PROBES, NOT FROM A LIGHTMAP.** That is not a quality
                 // compromise here, it is the only option: a lightmap needs a second UV set, and every
@@ -737,6 +877,9 @@ namespace IterationRoom.EditorTools
                 Debug.Log($"[SceneBuilder] {skipped} renderer(s) held out of ContributeGI - no "
                         + "triangles to bounce light off. See MarkReflectionProbeStatic.");
 
+            Debug.Log($"[SceneBuilder] Occlusion flags: {backings} backing renderer(s) held out of the "
+                + "occludee set so the grooves cannot be culled. Zero would mean the GrooveDark "
+                + "material was renamed and room1-1's black grid is about to become sky again.");
             return flagged;
         }
 
