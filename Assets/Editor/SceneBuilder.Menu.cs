@@ -423,7 +423,7 @@ namespace IterationRoom.EditorTools
             // white multiplies to nothing. The FALLBACK is the one that has to know the ramp is dark
             // now: a flat black wash, so a menu that loses its gradient is still a legible menu
             // rather than a white sheet over a black room.
-            scrim.color = scrimSprite != null ? Color.white : new Color(0f, 0f, 0f, 0.45f);
+            scrim.color = scrimSprite != null ? Color.white : new Color(1f, 1f, 1f, 0.55f);
             if (scrimSprite == null)
                 Debug.LogWarning("[SceneBuilder] menu scrim gradient failed to import; using a flat wash.");
             scrim.raycastTarget = false;
@@ -446,7 +446,7 @@ namespace IterationRoom.EditorTools
             rightScrim.sprite = scrimSprite;
             rightScrim.type = Image.Type.Simple;
             rightScrim.color = scrimSprite != null
-                ? new Color(1f, 1f, 1f, 0.5f) : new Color(0f, 0f, 0f, 0.22f);
+                ? new Color(1f, 1f, 1f, 0.5f) : new Color(1f, 1f, 1f, 0.3f);
             rightScrim.raycastTarget = false;
             RectTransform rightScrimRect = rightScrim.GetComponent<RectTransform>();
             Stretch(rightScrimRect);
@@ -1448,23 +1448,25 @@ namespace IterationRoom.EditorTools
             tex.wrapMode = TextureWrapMode.Clamp;
             tex.filterMode = FilterMode.Bilinear;
 
-            // **BLACK AGAIN SINCE 2026-09-04, AND IT HAS NOW BEEN BOTH TWICE.** It was a dark ramp
-            // when the type was red, went white when the type became charcoal over a bright room,
-            // and comes back to dark now that the room behind it is black and the type is near-white
-            // (`MenuInk`). The rule underneath all three: the ramp is whatever the TYPE is not.
+            // **WHITE AGAIN, AND THIS RAMP HAS NOW BEEN BOTH COLOURS THREE TIMES.** Dark when the
+            // type was red; white when the type became charcoal over a bright room; dark again for
+            // the black-room title; and white now that the background is a white corridor and the
+            // type is charcoal (`MenuInk`). The rule underneath all four: **the ramp is whatever the
+            // TYPE is not**, and it is written here so the next flip is one line rather than a
+            // rediscovery.
             //
-            // Much gentler than the white one was, because it no longer has anything to fight. The
-            // white version was at 0.86 to flatten a wall of black grooves on white - the worst
-            // possible field to set type in. The dark room is already an even near-black field, so
-            // this only has to stop the doorway's spill from reaching under the words: 0.55 at the
-            // edge, gone by 55% across, which leaves the doorway itself untouched in the middle.
+            // Back to 0.86 with it, because the job is back too: what this really does is CALM THE
+            // GRID. The wall behind the column is near-black grooves on white at full contrast,
+            // which is the worst possible field to set type in - a wash of the room's own white
+            // flattens it to a whisper under the words and leaves it at full strength down the
+            // corridor, where the eye is meant to go.
             for (int x = 0; x < w; x++)
             {
                 float u = x / (float)(w - 1);
                 // Full strength at the very edge, gone by 55% across.
                 float k = 1f - Mathf.Clamp01(u / 0.55f);
-                float a = k * k * 0.55f;
-                Color c = new Color(0f, 0f, 0f, a);
+                float a = k * k * 0.86f;
+                Color c = new Color(1f, 1f, 1f, a);
                 for (int y = 0; y < h; y++) tex.SetPixel(x, y, c);
             }
             tex.Apply();

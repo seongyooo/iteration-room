@@ -793,16 +793,19 @@ namespace IterationRoom.EditorTools
         // to be: red is this game's ALARM - the ERROR test card, the last ten seconds, the collapse -
         // and spending it on five button labels leaves nothing to say anything with. It is the same
         // charcoal the grooves in every wall are painted, so the type reads as printed ON the room.
-        // **NEAR-WHITE SINCE 2026-09-04, AND IT WAS CHARCOAL FOR A REASON THAT NO LONGER HOLDS.**
-        // Every page that uses this - the title screen, settings, credits, the key bindings - sits
-        // over `MenuBackground.png`, and that photograph used to be a bright white room. It is a
-        // black room with one lit doorway now (`CaptureMenuBackground`, to `docs/mainmenu_dark.png`),
-        // so charcoal type on it is charcoal on black. One constant flips the whole family, which is
-        // the reason it was ever a constant.
+        // **CHARCOAL, AND IT HAS BEEN BOTH WAYS ROUND IN ONE DAY - WHICH IS THE POINT OF IT BEING A
+        // CONSTANT.** Every page that uses this - the title screen, settings, credits, the key
+        // bindings - sits over `MenuBackground.png`, so the ink is decided by that picture and not
+        // by taste. The picture went white room -> black room -> white corridor between 2026-09-03
+        // and 2026-09-04, and the ink followed it each time in one edit.
         //
-        // Not pure white: 0.90 sits a step below the doorway in the picture, so the brightest thing
-        // on the title screen stays the room rather than the interface.
-        private static readonly Color MenuInk = new Color(0.90f, 0.90f, 0.92f, 1f);
+        // Measured before flipping it back: the corridor shot reads 154 to 188 of 255 where the
+        // column, the title and RECORD sit, and a 0.90 ink renders at about 230. That is white on
+        // white; the words were there and could not be read.
+        //
+        // Not pure black: 0.11 against a room that never goes below about 150 is contrast enough,
+        // and full black on a photograph of a white building reads as a sticker on it.
+        private static readonly Color MenuInk = new Color(0.11f, 0.11f, 0.13f, 1f);
         // The one accent, and there is exactly one on the screen at rest.
         private static readonly Color MenuAccent = new Color(0.80f, 0.10f, 0.10f, 1f);
     }
