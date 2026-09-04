@@ -714,13 +714,23 @@ namespace IterationRoom.EditorTools
                 woken.Add(cycle.worldRoot.gameObject);
             }
 
-            // **UNDER THE PANEL, NOT OVER IT.** This was 2, and a wall panel is `GridCellWidth` by
-            // `GridCellHeight` - 1.75m by 1.35m - so the threshold sat ABOVE the thing it was meant
-            // to admit and every panel in the building was discarded as too small to hide anything.
-            // The wall BACKING slabs are metres across and cleared it either way, which is why that
-            // mistake alone does not explain the bake culling nothing; it is fixed here because it
-            // was still wrong.
-            StaticOcclusionCulling.smallestOccluder = 1f;
+            // **OVER THE PANEL, DELIBERATELY: ONLY THE BACKING SLABS MAY OCCLUDE.**
+            //
+            // A wall here is two layers - chamfered panels in front, a solid backing slab behind -
+            // and the black grid the room is made of is that backing seen through the `GrooveDepth`
+            // gaps between panels. Ten millimetres of gap.
+            //
+            // Dropping this to 1 let the 1.75 x 1.35m panels in as occluders, and `smallestHole`
+            // 0.25 then swallowed those 10mm gaps: Umbra read the panelled face as one solid sheet,
+            // concluded the backing behind it was never visible, and culled it. Play found it
+            // immediately - the black grooves in room1-1 turned into the procedural sky, blue at the
+            // top of the wall and warm at the bottom, because the gap was now a hole through the
+            // building. A hole big enough to fix that is 0.01, which is not a bake anyone can afford.
+            //
+            // So the threshold goes back ABOVE the panel. The backing slabs are the whole wall minus
+            // its doorway - metres across - and they clear this easily, so the building still
+            // occludes itself; what it no longer does is hide its own second layer.
+            StaticOcclusionCulling.smallestOccluder = 2f;
             StaticOcclusionCulling.smallestHole = 0.25f;
             StaticOcclusionCulling.backfaceThreshold = 100f;
 
