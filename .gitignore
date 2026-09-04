@@ -146,3 +146,8 @@ Tools/__pycache__/
 # Voice audition clips - regenerable from Tools/generate_narration.py, and nothing reads them.
 docs/voice-samples/
 
+
+# Anything that is about the project without being part of it - submission forms, competition
+# notices, drafts nobody else needs. A folder rather than a rule per file, so a new one can be
+# dropped in without touching this list, and `git status` stays quiet enough to be read.
+docs/private/
