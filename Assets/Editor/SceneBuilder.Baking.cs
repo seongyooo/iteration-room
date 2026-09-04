@@ -175,28 +175,19 @@ namespace IterationRoom.EditorTools
             // exactly the renderers sitting on this box's un-padded faces.
             probe.size = roomSize + Vector3.one * ProbeBoxMargin;
 
-            // **NO BLEND DISTANCE, AND THIS HAS TO BE SAID OUT LOUD BECAUSE UNITY'S DEFAULT IS 1
-            // METRE AND THAT DEFAULT IS A BUG IN THIS BUILDING.**
+            // **BLEND DISTANCE LEFT AT UNITY'S DEFAULT, AFTER A DAY AT 0 THAT PROVED NOTHING.**
             //
-            // `blendDistance` extends a probe's influence OUTWARD past its box, so two probes can
-            // claim the same renderer and get blended. In a house that is what you want. Here the
-            // rooms are a corridor of sealed cells `RoomPitch` apart, each with its own ceiling
-            // fixtures and its own lighting STATE - and one metre of reach crosses the divider
-            // easily, because a wall panel sits only ~0.15m inside its own room's box face.
+            // It was set to 0 on a real measurement - `blendDistance` reaches a metre PAST each
+            // probe's box, and 31 of room2-1's wall panels sit inside the lit room next door's reach
+            // by that rule - and on the theory that this was why a dark room showed bright patches.
+            // It never reproduced the symptom and never fixed it. The actual cause turned out to be
+            // elsewhere entirely: the probes are baked at full ambient and the room is played at a
+            // fifth of it, so the reflection was five times too bright for the wall carrying it
+            // (`ProbeLightSwap.darkIntensity`).
             //
-            // Play found it as the thing this rules out: room2-1 starts DARK (`AllLightsOn` - four
-            // switches, all off at rest, and both the lights and the panel emission are off from
-            // build time), yet its north wall showed bright light-shaped reflections that moved
-            // with the camera. Its own probe is honestly dark - measured, 0% of the cubemap over
-            // 1.0 against 15.9% for an ordinary lit room. What it was reflecting was ROOM2-2 NEXT
-            // DOOR, which is lit: 31 of room2-1's panels sat inside room2-2's box+blendDistance and
-            // were blending a lit cubemap into a dark room.
-            //
-            // At 0 a renderer takes the probe whose box it is actually in, full stop. The cost is
-            // that reflections change abruptly at a doorway rather than crossfading - which is
-            // correct here, because the rooms genuinely have different light, and the alternative
-            // is a dark room that reflects a bright one.
-            probe.blendDistance = 0f;
+            // So this is reverted rather than kept on the strength of an argument. What 0 costs is
+            // real - reflections change abruptly at a doorway instead of crossfading - and a change
+            // with a cost and no demonstrated benefit is not one to leave in.
 
             // 512, not 256: at the wall smoothness used here the reflection is sharp enough that a
             // 256 cubemap shows the ceiling fixtures as vague smears rather than panels.

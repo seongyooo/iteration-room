@@ -296,6 +296,18 @@ namespace IterationRoom.EditorTools
             RoomBlackout blackout = allLightsGO.AddComponent<RoomBlackout>();
             blackout.litWhen = allLightsOn;
             blackout.darkFraction = Room2OneDarkFraction;
+            // The authored ambient, handed over rather than left for the component to sample - see
+            // `RoomBlackout.litSky`. The ending reads these settings expecting the values
+            // `ApplyEnvironment` wrote, so a wrong restore here darkens the outside of the building.
+            blackout.litSky = AmbientSky;
+            blackout.litEquator = AmbientEquator;
+            blackout.litGround = AmbientGround;
+            // The room this blackout belongs to, so it can tell whether the player is in it - see
+            // `RoomBlackout.roomCentre`. Slightly generous on every axis: the point is to answer
+            // "is the player in this room", and a box that stopped exactly at the walls would let a
+            // player standing against one fall outside their own room.
+            blackout.roomCentre = r1.position + Vector3.up * (RoomHeight * 0.5f);
+            blackout.roomSize = new Vector3(RoomWidth + 1f, RoomHeight + 1f, RoomDepth + 1f);
 
             // The same condition drives the probe swap, and it is captured here rather than looked
             // up at bake time for the same reason the fixtures are.

@@ -30,9 +30,8 @@ namespace IterationRoom
     //     actually in. A disabled GameObject does not tick, and `OnDisable` restores, so waking and
     //     sleeping the cycle is what scopes this in time.
     //
-    // Whatever is on the settings when this wakes is what it restores, rather than any value written
-    // here - so it cannot fight `ApplyEnvironment`, and re-tuning the room's lighting needs no edit
-    // to this file.
+    // **AND IT RESTORES TO STATED VALUES, NOT TO WHATEVER IT FOUND** - see `litSky` below for the
+    // ordering that makes the difference, and for what a stale one costs the ending.
     public class RoomBlackout : MonoBehaviour
     {
         // The room's own lit condition. Null is not a failure state: with nothing to watch, this
@@ -46,37 +45,72 @@ namespace IterationRoom
         // who has just flipped the last switch is not waiting for the room.
         public float seconds = 0.35f;
 
-        private Color litSky, litEquator, litGround;
-        private bool captured;
+        // **THE LIT VALUES ARE HANDED IN, NOT SAMPLED, AND THAT IS A CORRECTNESS FIX RATHER THAN
+        // TIDINESS** (2026-09-04). The first version read `RenderSettings` at `OnEnable` and restored
+        // whatever it found. That is fine exactly once and wrong the moment the ordering is not what
+        // you pictured: `LoopManager` wakes the NEXT cycle before it sleeps the current one, so there
+        // is a window with this component still holding the ambient down - and anything that reads
+        // the settings in that window reads a darkened room as if it were the authored one, and
+        // writes it back forever.
+        //
+        // What that costs when it goes wrong is not local. `RenderSettings` is per SCENE and
+        // therefore per everything, which `FacilityExterior.LightTheOutside` says in as many words -
+        // it leaves the ambient alone deliberately, because the ending's outside "wants the same even
+        // white fill the inside has always had". A stale value here darkens the ending.
+        //
+        // Set by `SceneBuilder` from the same constants `ApplyEnvironment` writes.
+        public Color litSky = new Color(0.356f, 0.356f, 0.356f);
+        public Color litEquator = new Color(0.763f, 0.763f, 0.763f);
+        public Color litGround = new Color(0.521f, 0.521f, 0.521f);
+
+        // **AND IT ONLY APPLIES WHILE THE PLAYER IS ACTUALLY IN THE ROOM** (2026-09-04, after play
+        // found the cycle 3 ending rendering at a fifth of its ambient - walls measured 32 of 255
+        // where the documented figure with ambient is 149, which is this component's own fraction).
+        //
+        // The first version leaned on the cycle sleeping to scope this in time, and that reasoning
+        // did not survive contact: `LoopManager` wakes the NEXT cycle before the current one sleeps,
+        // the test shortcut enters a cycle directly, and tracing which of those left it live was
+        // costing more than making the question irrelevant. A global setting driven by a LOCAL fact
+        // should be gated on that local fact, not on a chain of ownership that has to stay true.
+        //
+        // The camera is asked rather than a player reference being wired, because this object lives
+        // in a cycle scene and the player lives in the core one - `docs/gotchas.md` records that
+        // Unity nulls serialized references across that boundary.
+        public Vector3 roomCentre;
+        public Vector3 roomSize = new Vector3(9f, 5.4f, 11f);
+
         private float t = 1f;             // 1 = fully lit, 0 = fully dark
 
         private void OnEnable()
         {
-            // Captured on every wake rather than once, because the cycle can be slept and woken and
-            // the authored values are whatever the active scene has by then.
-            litSky = RenderSettings.ambientSkyColor;
-            litEquator = RenderSettings.ambientEquatorColor;
-            litGround = RenderSettings.ambientGroundColor;
-            captured = true;
-
             // Arrive already correct: a room woken with its lights out should not fade down from lit
             // in front of the player.
             t = Lit ? 1f : 0f;
             Apply();
         }
 
-        private void OnDisable()
-        {
-            if (!captured) return;
-            Write(litSky, litEquator, litGround);
-        }
+        // **RESTORED ON DISABLE, WHATEVER STATE THE ROOM WAS IN.** The cycle sleeping is the last
+        // moment this can hand the ambient back, and it is unconditional for that reason.
+        private void OnDisable() => Write(litSky, litEquator, litGround);
 
-        private bool Lit => litWhen == null || litWhen.Satisfied;
+        // Outside the room counts as LIT: the blackout is this room's business and nobody else's.
+        private bool Lit => litWhen == null || litWhen.Satisfied || !PlayerInside;
+
+        private bool PlayerInside
+        {
+            get
+            {
+                Camera cam = Camera.main;
+                if (cam == null) return false;
+                Vector3 d = cam.transform.position - roomCentre;
+                return Mathf.Abs(d.x) <= roomSize.x * 0.5f
+                    && Mathf.Abs(d.y) <= roomSize.y * 0.5f
+                    && Mathf.Abs(d.z) <= roomSize.z * 0.5f;
+            }
+        }
 
         private void Update()
         {
-            if (!captured) return;
-
             float target = Lit ? 1f : 0f;
             if (Mathf.Approximately(t, target)) return;
 

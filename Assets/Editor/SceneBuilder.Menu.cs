@@ -652,8 +652,17 @@ namespace IterationRoom.EditorTools
             MenuRowHover continueHover = continueButton.GetComponent<MenuRowHover>();
             if (continueHover != null) continueHover.reveal = continueCycle;
 
+            // **PLAY IS THE RED ONE** (2026-09-04, by request). Until now `ROOM` in the title was the
+            // only red on the screen, deliberately - "red is the alarm this game rings, and a title
+            // screen that rings it before anything has happened has nothing left to ring it with".
+            // That argument was about the TITLE, and it survives: the name of the game still does not
+            // shout. What changes is that the one row a first-time player is looking for is now
+            // marked, which is the job colour does best and the only job it is doing here.
+            //
+            // `MenuRowHover` reads its rest and live colours off the label, so this row hovers in its
+            // own colour without a second value being written anywhere.
             Button playButton = MakeMenuButton(menuGO.transform, "PlayButton", "PLAY",
-                                               new Vector2(0f, -11f), MenuInk, "Bold");
+                                               new Vector2(0f, -11f), MenuAccent, "Bold");
             Localize(playButton, "menu.play", "  ");
             Button cycleSelectButton = MakeMenuButton(menuGO.transform, "CycleSelectButton",
                                                       "CYCLE SELECT", new Vector2(0f, -108f), MenuInk, "Bold");

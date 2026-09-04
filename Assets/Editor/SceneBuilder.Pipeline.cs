@@ -649,6 +649,13 @@ namespace IterationRoom.EditorTools
         //   inconsistent and sent three separate diagnoses in the wrong direction.
         //
         // **Anything else added to the environment must go in HERE, not in `SetupLighting`.**
+        // The three ambient bands, in one place - see `ApplyEnvironment` for what they are doing and
+        // why they were found by eye rather than derived. Named so `RoomBlackout` can restore to the
+        // authored values rather than to a snapshot it happened to read at the right moment.
+        private static readonly Color AmbientSky     = new Color(0.356f, 0.356f, 0.356f);
+        private static readonly Color AmbientEquator = new Color(0.763f, 0.763f, 0.763f);
+        private static readonly Color AmbientGround  = new Color(0.521f, 0.521f, 0.521f);
+
         private static void ApplyEnvironment()
         {
             // **THE SKY IS SET HERE, IN EVERY SCENE, AND IT IS SET AT BUILD TIME ON PURPOSE.**
@@ -732,9 +739,16 @@ namespace IterationRoom.EditorTools
             // B > G > R by 2-5%) and showed up as a visibly blue floor next to the neutral flat
             // reflection the title screen substitutes in. R and G are untouched, so the room's
             // overall level and the comfort tuning above are unchanged - only the tiny cast is gone.
-            RenderSettings.ambientSkyColor     = new Color(0.356f, 0.356f, 0.356f);
-            RenderSettings.ambientEquatorColor = new Color(0.763f, 0.763f, 0.763f);
-            RenderSettings.ambientGroundColor  = new Color(0.521f, 0.521f, 0.521f);
+            // **NAMED, BECAUSE SOMETHING ELSE NOW HAS TO PUT THEM BACK.** `RoomBlackout` takes the
+            // ambient down while room2-1's lights are off and restores it after, and the ending
+            // depends on these exact values being in place - `FacilityExterior.LightTheOutside` is
+            // explicit that the outside "wants the same even white fill the inside has always had,
+            // and it is already set". A restore-to-whatever-was-there-before is one enable ordering
+            // away from writing a darkened value back as if it were the authored one, so the
+            // authored one is stated here and handed over rather than sampled.
+            RenderSettings.ambientSkyColor     = AmbientSky;
+            RenderSettings.ambientEquatorColor = AmbientEquator;
+            RenderSettings.ambientGroundColor  = AmbientGround;
             RenderSettings.ambientIntensity = 1f;
             // Assigning the colours does NOT rebuild the ambient probe. Without this they are
             // stored and never reach a shader, and every tweak looks like it did nothing.
