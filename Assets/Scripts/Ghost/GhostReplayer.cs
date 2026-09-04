@@ -469,6 +469,34 @@ namespace IterationRoom
         // Editor and development builds only: it is a line per refusal and a released player should
         // not pay for it, but a refusal is exactly the moment somebody is trying to work out what
         // their past selves did with the glass.
+        // **THE ATTEMPT IS LOGGED AS WELL AS THE REFUSAL, so that SILENCE MEANS SOMETHING.**
+        //
+        // With only refusals reported, an empty console had three readings and no way to tell them
+        // apart: the take reproduced fine, the take was never recorded so nothing tried, or warnings
+        // were filtered out of the Console. Play hit exactly that. One line per attempt and one per
+        // success turns the quiet case into an answer - no line at all now means the recording has
+        // no Take event for that object, which points at the recording side rather than the replay.
+        //
+        // Takes are rare - a handful per ghost per run - so this is not the kind of logging that
+        // drowns the console it is meant to help.
+        [System.Diagnostics.Conditional("UNITY_EDITOR")]
+        [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
+        private void AttemptedTake(string itemId, string instanceName)
+        {
+            Debug.Log($"[GhostReplayer] {name} is reproducing a take of "
+                + $"'{(string.IsNullOrEmpty(instanceName) ? itemId : instanceName)}' ({itemId})...", this);
+        }
+
+        [System.Diagnostics.Conditional("UNITY_EDITOR")]
+        [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
+        private void TookIt(string itemId, string instanceName)
+        {
+            Debug.Log($"[GhostReplayer] {name} TOOK "
+                + $"'{(string.IsNullOrEmpty(instanceName) ? itemId : instanceName)}' ({itemId}). "
+                + "If the beam still does not follow, the take is not the problem - look at "
+                + "LaserBeam, LaserReceiver and Mirror.Sync.", this);
+        }
+
         [System.Diagnostics.Conditional("UNITY_EDITOR")]
         [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
         private void RefusedTake(string itemId, string instanceName, string why)
@@ -661,6 +689,8 @@ namespace IterationRoom
             // pocket. Falling through to the generic paths below on that rejection is correct: this
             // ghost is still entitled to A pin even when it specifically cannot have the one it
             // originally got.
+            AttemptedTake(itemId, instanceName);
+
             CarryableItem item = null;
             if (!string.IsNullOrEmpty(instanceName))
             {
@@ -748,6 +778,7 @@ namespace IterationRoom
                 item.HeldByGhost.ReleaseItem(item, toWorld: false);
 
             held.Add(item);
+            TookIt(itemId, instanceName);
             // Straight into the hand, mirroring PlayerHand.Take - and the recording's own Equip
             // event lands in the same breath anyway, so this only covers the frame between them.
             // ApplyEquip lays every carried item out, which is what takes custody of this one and
