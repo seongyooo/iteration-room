@@ -666,18 +666,26 @@ namespace IterationRoom.EditorTools
         // open, or a plinth baked at the height SceneBuilder authors it at rather than the sunk
         // position it starts the game in, would put a thing in the reflection that is not in the
         // room. Everything else - shell, panels, fixtures, furniture, board - is genuinely fixed.
-        // **THE OCCLUSION BAKE, AND WHY IT IS A SEPARATE PASS OVER FINISHED SCENES.**
+        // **THE OCCLUSION BAKE, AND IT BAKES EVERY SCENE AT ONCE BECAUSE THE GAME LOADS THEM THAT
+        // WAY.**
         //
-        // Umbra bakes whatever is loaded, and this build has the core scene plus four cycles open at
-        // once while it is assembling them. Baking then would mix five buildings into one set of
-        // cells. So this runs last, over the files: each cycle scene is opened on its own, woken,
-        // baked and written back.
+        // The first version opened each cycle on its own and baked it alone. It produced real data -
+        // 113KB, 241KB, 261KB, 28KB - and culled NOTHING, which play confirmed by toggling the
+        // camera's own Occlusion Culling checkbox and seeing the draw calls not move.
         //
-        // **THE ROOT HAS TO BE AWAKE.** Cycles ship asleep and a disabled renderer is invisible to
+        // The reason is the scene the camera is in. `CycleSceneLoader` loads a cycle ADDITIVELY, so
+        // `IterationRoom` stays the ACTIVE scene for the whole run - and baking the cycles separately
+        // left that scene with `m_OcclusionCullingData: {fileID: 0}`. Occlusion data for an additive
+        // set has to be baked with the set loaded together, which is also the only way the cells can
+        // agree about a camera standing in one scene looking at another.
+        //
+        // So: the core scene, then all four cycles on top of it, every root awake, one `Compute`.
+        // The cycles sit at different depths in the world - cycle 2 a storey under cycle 1, cycle 3
+        // under that - so baking them together costs a taller volume rather than an overlapping one.
+        //
+        // **THE ROOTS HAVE TO BE AWAKE.** Cycles ship asleep and a disabled renderer is invisible to
         // the bake - the same trap `CaptureCyclePreview` documents for the camera and the probe bake
-        // documents for lightmaps. Woken for the bake and put back exactly as it was found.
-        //
-        // The core scene is not baked: it holds twelve renderers, which is nothing to hide behind.
+        // documents for lightmaps. Woken for the bake and put back exactly as they were found.
         private static void BakeOcclusionCulling()
         {
             if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
@@ -687,57 +695,60 @@ namespace IterationRoom.EditorTools
                 return;
             }
 
-            for (int i = 0; i < CycleSceneNames.Length; i++)
+            Scene core = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            var scenes = new List<Scene> { core };
+            foreach (string name in CycleSceneNames)
             {
-                string path = CycleScenePath(CycleSceneNames[i]);
-                if (!File.Exists(path)) continue;
-
-                Scene scene = EditorSceneManager.OpenScene(path, OpenSceneMode.Single);
-
-                var woken = new List<GameObject>();
-                foreach (Cycle cycle in UnityEngine.Object.FindObjectsByType<Cycle>(
-                             FindObjectsInactive.Include, FindObjectsSortMode.None))
-                {
-                    if (cycle.worldRoot == null) continue;
-                    if (cycle.worldRoot.gameObject.activeSelf) continue;
-                    cycle.worldRoot.gameObject.SetActive(true);
-                    woken.Add(cycle.worldRoot.gameObject);
-                }
-
-                // **THE DEFAULT SMALLEST OCCLUDER IS 5m AND THIS BUILDING IS MADE OF 1.75m PANELS.**
-                // Left at the default, a wall would be too fine-grained to hide anything and the bake
-                // would produce data that culls nothing. The panels form one continuous surface, so
-                // what this really sets is how finely Umbra voxelises it; 2m is under a panel and
-                // over the door pocket. The smallest hole stays at the default - a doorway is 1.3m
-                // wide, five times that, so nothing here needs a finer one and asking for one costs
-                // bake time and data size for no gain.
-                StaticOcclusionCulling.smallestOccluder = 2f;
-                StaticOcclusionCulling.smallestHole = 0.25f;
-                StaticOcclusionCulling.backfaceThreshold = 100f;
-
-                System.DateTime started = System.DateTime.Now;
-                StaticOcclusionCulling.Compute();
-                double seconds = (System.DateTime.Now - started).TotalSeconds;
-
-                foreach (GameObject go in woken) go.SetActive(false);
-                EditorSceneManager.SaveScene(scene, path);
-
-                // **MEASURED OFF THE FILE, NOT OFF `StaticOcclusionCulling.umbraDataSize`.** That
-                // property reported 0 for every scene on a batchmode build that had in fact just
-                // written 113KB, 241KB, 261KB and 28KB of real data - so the number said the bake had
-                // failed while the bake had worked. The asset on disk is the thing that ships, so the
-                // asset on disk is what gets reported.
-                string dataPath = System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(path),
-                    System.IO.Path.GetFileNameWithoutExtension(path),
-                    "OcclusionCullingData.asset");
-                float kb = File.Exists(dataPath) ? new FileInfo(dataPath).Length / 1024f : 0f;
-
-                Debug.Log($"[SceneBuilder] Occlusion baked for '{CycleSceneNames[i]}' in "
-                    + $"{seconds:0.#}s, {kb:0.#} KB written, {woken.Count} root(s) woken for it. "
-                    + "Zero KB would mean nothing was marked an occluder - check "
-                    + "MarkReflectionProbeStatic.");
+                string path = CycleScenePath(name);
+                if (File.Exists(path))
+                    scenes.Add(EditorSceneManager.OpenScene(path, OpenSceneMode.Additive));
             }
+
+            var woken = new List<GameObject>();
+            foreach (Cycle cycle in UnityEngine.Object.FindObjectsByType<Cycle>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (cycle.worldRoot == null) continue;
+                if (cycle.worldRoot.gameObject.activeSelf) continue;
+                cycle.worldRoot.gameObject.SetActive(true);
+                woken.Add(cycle.worldRoot.gameObject);
+            }
+
+            // **UNDER THE PANEL, NOT OVER IT.** This was 2, and a wall panel is `GridCellWidth` by
+            // `GridCellHeight` - 1.75m by 1.35m - so the threshold sat ABOVE the thing it was meant
+            // to admit and every panel in the building was discarded as too small to hide anything.
+            // The wall BACKING slabs are metres across and cleared it either way, which is why that
+            // mistake alone does not explain the bake culling nothing; it is fixed here because it
+            // was still wrong.
+            StaticOcclusionCulling.smallestOccluder = 1f;
+            StaticOcclusionCulling.smallestHole = 0.25f;
+            StaticOcclusionCulling.backfaceThreshold = 100f;
+
+            System.DateTime started = System.DateTime.Now;
+            StaticOcclusionCulling.Compute();
+            double seconds = (System.DateTime.Now - started).TotalSeconds;
+
+            foreach (GameObject go in woken) go.SetActive(false);
+            foreach (Scene scene in scenes) EditorSceneManager.SaveScene(scene);
+
+            // **MEASURED OFF THE FILES, NOT OFF `StaticOcclusionCulling.umbraDataSize`.** That
+            // property reported 0 for every scene on a batchmode build that had in fact just written
+            // real data - the number said the bake had failed while the bake had worked. The assets
+            // on disk are what ship, so they are what gets reported.
+            var sizes = new List<string>();
+            foreach (Scene scene in scenes)
+            {
+                string dir = Path.Combine(Path.GetDirectoryName(scene.path),
+                                          Path.GetFileNameWithoutExtension(scene.path));
+                string data = Path.Combine(dir, "OcclusionCullingData.asset");
+                float kb = File.Exists(data) ? new FileInfo(data).Length / 1024f : 0f;
+                sizes.Add($"{scene.name} {kb:0.#}KB");
+            }
+
+            Debug.Log($"[SceneBuilder] Occlusion baked for {scenes.Count} scene(s) TOGETHER in "
+                + $"{seconds:0.#}s, {woken.Count} root(s) woken: {string.Join(", ", sizes)}. "
+                + "IterationRoom at 0KB would mean the ACTIVE scene has no data and none of this "
+                + "reaches the camera - which is exactly how the first version failed.");
         }
 
         private static int MarkReflectionProbeStatic()
