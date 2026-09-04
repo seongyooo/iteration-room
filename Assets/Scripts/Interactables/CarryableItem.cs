@@ -255,6 +255,42 @@ namespace IterationRoom
             return a + ab * along;
         }
 
+        // **WHERE THIS OBJECT CAN BE REACHED, which is not always where its origin is.**
+        //
+        // A ghost's take is gated on being close enough to what it is taking, and the honest question
+        // is "could a body standing here have got a hand to it" - so the point measured has to be the
+        // one the PLAYER's own take is judged against. Two different things answer that, and this
+        // takes whichever is nearer because both are real:
+        //
+        //  - `NearestPoint` walks `heldSpan`, for something longer than arm's reach. The ladder is
+        //    taken anywhere along its length, so its far end is a legitimate place to reach it.
+        //  - `HintAnchor`, for something whose origin is not where the object appears. A held MIRROR
+        //    is the case that matters: it is parented to its holder's hand - a wrist bone, on a ghost
+        //    - while `Mirror.Sync` puts the glass out in front of their body, so the root and the
+        //    thing you can actually touch are most of a metre apart.
+        //
+        // For everything that fits in a hand and sits where its origin says, both are the root and
+        // this is the root.
+        //
+        // **THIS IS THE GHOST HALF OF A FIX THAT ONLY LANDED ON THE PLAYER'S SIDE.** Taking a mirror
+        // off a past self was already reported once and fixed by moving `hintAnchor` onto the glass,
+        // which repaired the aim test, the prompt disc and the trigger volume - every path the LIVING
+        // player takes. The ghost's reach test was left measuring to the root, so a past self
+        // reproducing that same take was still asking about the wrist: with the glass 0.55m in front
+        // of the body and the taker up to 0.95m from the glass, the wrist sits within a few
+        // centimetres of `takeReach`, and the take was refused or allowed depending on exactly how
+        // far back the player had stood. Silently, because every refusal in `TryTake` is a bare
+        // return. CLAUDE.md's rule for this is to compare the ACTS, not the outcomes.
+        public Vector3 ReachPointFrom(Vector3 from)
+        {
+            Vector3 along = NearestPoint(from);
+            Transform anchor = HintAnchor;
+            if (anchor == null || anchor == transform) return along;
+
+            Vector3 hint = anchor.position;
+            return (hint - from).sqrMagnitude < (along - from).sqrMagnitude ? hint : along;
+        }
+
         public Collider blocker;
 
         public AudioSource audioSource;

@@ -456,6 +456,28 @@ namespace IterationRoom
             return item.HeldByGhost != null ? item : null;
         }
 
+        // **EVERY REFUSAL IN `TryTake` USED TO BE A BARE `return`, AND THAT IS ITS OWN BUG.**
+        //
+        // A past self that cannot reproduce a take does nothing and says nothing: it walks the same
+        // route, arrives, and the object stays where it was. From the outside that is indistinguishable
+        // from the take never having been recorded, from the object being somewhere else, and from
+        // the whole errand having been re-evaluated away on purpose - and there are several different
+        // reasons it can happen. Cycle 3's mirrors are where this bites hardest, because a hand-over
+        // that does not reproduce is the entire puzzle silently not accumulating, and the only symptom
+        // is a beam pointing somewhere the player did not leave it.
+        //
+        // Editor and development builds only: it is a line per refusal and a released player should
+        // not pay for it, but a refusal is exactly the moment somebody is trying to work out what
+        // their past selves did with the glass.
+        [System.Diagnostics.Conditional("UNITY_EDITOR")]
+        [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
+        private void RefusedTake(string itemId, string instanceName, string why)
+        {
+            Debug.LogWarning($"[GhostReplayer] {name} could not reproduce taking "
+                + $"'{(string.IsNullOrEmpty(instanceName) ? itemId : instanceName)}' ({itemId}): {why}. "
+                + "The rest of this recording still plays; only this one errand did not happen.", this);
+        }
+
         private void TryDrop(string itemId)
         {
             for (int i = 0; i < held.Count; i++)
@@ -665,7 +687,7 @@ namespace IterationRoom
                 if (item == null) item = ItemRegistry.FindHeldByGhost(itemId);
             }
 
-            if (item == null) return;
+            if (item == null) { RefusedTake(itemId, instanceName, "no eligible object"); return; }
 
             // The condition that ENABLED the pickup, re-evaluated - same rule as everywhere else.
             // The pin lives inside the nightstand drawer, and a ghost must no more take it through
@@ -680,7 +702,11 @@ namespace IterationRoom
             // closable the answer is the PARITY of how many past selves have pulled them
             // (docs/gotchas.md), so the re-take failed on some iterations and not others, which is
             // exactly how play described it.
-            if (item.InsideDrawer && !item.requiresOpenDrawer.IsFullyOpen) return;
+            if (item.InsideDrawer && !item.requiresOpenDrawer.IsFullyOpen)
+            {
+                RefusedTake(itemId, instanceName, "it is in a drawer that is not open");
+                return;
+            }
 
             // ...AND IT HAS TO BE WHERE THIS GHOST IS. Without this the object is dragged to the
             // ghost from anywhere in the building - see takeReach. A ghost that cannot reach what it
@@ -690,14 +716,28 @@ namespace IterationRoom
             // `CarryableItem.ghostTakeReach`: a thing that drifts on its own must not have its own
             // drift decide whether a past self's errand happens.
             // **MEASURED TO THE NEAREST POINT OF IT, not to its pivot** - see
-            // `CarryableItem.NearestPoint`. For everything that fits in a hand the two are the same
+            // `CarryableItem.ReachPointFrom`. For everything that fits in a hand the two are the same
             // point and this is the test it always was; for the ladder they are six metres apart,
             // and the pivot version silently stopped every past self from ever fetching it.
+            // **MEASURED TO WHERE THE OBJECT CAN BE TOUCHED, NOT TO ITS ORIGIN** - see
+            // `CarryableItem.ReachPointFrom`, which is where the mirrors' version of this is written
+            // down. A held mirror's origin is its holder's wrist and its glass is a metre in front of
+            // their body; measuring to the wrist put this test within centimetres of its own limit,
+            // so a hand-over reproduced or did not depending on where the player had been standing.
+            //
+            // One frame stale for a mirror: `Mirror.Sync` runs in LateUpdate and this runs in Update,
+            // so the glass is where it was last frame. Against a 2m reach that is nothing, and it is
+            // the same staleness every other frame-ordered read here lives with.
             float reach = item.ghostTakeReach > 0f ? item.ghostTakeReach : takeReach;
             if (reach > 0f
-             && (item.NearestPoint(transform.position) - transform.position).sqrMagnitude
+             && (item.ReachPointFrom(transform.position) - transform.position).sqrMagnitude
                 > reach * reach)
+            {
+                RefusedTake(itemId, instanceName,
+                    $"out of reach: {Vector3.Distance(item.ReachPointFrom(transform.position), transform.position):0.##}m "
+                  + $"against a limit of {reach:0.##}m");
                 return;
+            }
 
             // Taking it out of another past self's hands rather than out of the world - true when
             // the named object (above) turned out to be ghost-held, or fallback 2 found one; never
