@@ -369,6 +369,19 @@ namespace IterationRoom.EditorTools
         // are taken from the same camera in the same pose, so nothing between them moves except the
         // light.
         private const string MenuBackgroundDarkPath = TexturesDir + "/MenuBackgroundDark.png";
+
+        // **ONE DARK FRAME PER ROOM DOWN THE CORRIDOR** (2026-09-04, by request). The flicker used to
+        // be one still with half of room1-1's fixtures out; the title screen now looks down six
+        // rooms, and what it wants is a whole room going dark at a time, travelling away and back.
+        // That cannot be done with an alpha on one image - it needs a frame per room, so `MenuFlicker`
+        // has something to cut TO for each of them.
+        private static string MenuBackgroundRoomDarkPath(int index) =>
+            $"{TexturesDir}/MenuBackgroundDark_{index}.png";
+
+        // Six rooms in the chain, and the shot sees all of them - the near one fills the frame and
+        // the far one is a few pixels inside four nested doorways. Kept as a constant because both
+        // the capture and the menu build have to agree on how many files there are.
+        private const int MenuCorridorRooms = 6;
         // THE APP ICON IS A RENDER OF THE ROOM, taken on the same build and from the same camera as
         // the two above. `PlayerBuilder` reads this file and hands it to `PlayerSettings.SetIcons`;
         // nothing in the game draws it. Square and tighter - see `CaptureAppIcon` for the framing

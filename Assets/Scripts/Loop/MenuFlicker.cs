@@ -26,6 +26,20 @@ namespace IterationRoom
         // and 1 is one side of it out.
         private Image dark;
 
+        // **ONE FRAME PER ROOM DOWN THE CORRIDOR, AND THE FAULT WALKS ALONG THEM** (2026-09-04, by
+        // request). Index 0 is the room the camera stands in; each one after it is a room further
+        // away, seen through the doorways.
+        //
+        // Left empty this behaves exactly as it always did - `dark` alone, one room, on and off -
+        // which is what a menu built before these frames existed gets. With frames it steps: a fit
+        // takes one room out, the next fit takes the next room, and at the end of the corridor the
+        // direction reverses. What that reads as is a failure moving through the building rather
+        // than a bulb going in one room, which is the whole reason the shot looks down six of them.
+        public Image[] roomFrames;
+
+        private int room;
+        private int step = 1;
+
         // How long the room stays whole between fits. Long, and deliberately so: a title screen that
         // flickers constantly is a broken television, where one that is steady for eight seconds and
         // then stumbles is a building with a fault in it.
@@ -49,6 +63,10 @@ namespace IterationRoom
         {
             dark = GetComponent<Image>();
             SetOut(false);
+            // Whatever a previous session or a rebuild left showing - every frame starts clear, so
+            // the first thing on screen is the corridor whole.
+            if (roomFrames != null)
+                foreach (Image frame in roomFrames) Show(frame, false);
             // Starts calm, so the first thing the player sees is the room intact.
             until = Time.unscaledTime + Random.Range(calmSeconds.x, calmSeconds.y);
         }
@@ -75,6 +93,7 @@ namespace IterationRoom
             {
                 // A fit always ends with the room whole again.
                 SetOut(false);
+                Advance();
                 until = Time.unscaledTime + Random.Range(calmSeconds.x, calmSeconds.y);
                 return;
             }
@@ -82,12 +101,44 @@ namespace IterationRoom
             cutsLeft = Random.Range(burstCuts.x, burstCuts.y + 1);
         }
 
+        // **ONE ROOM DARK AT A TIME.** The whole set is cleared and the current one shown, rather
+        // than the previous one being turned off by index - a frame left up because an index moved
+        // while a fit was mid-cut is exactly the kind of state that only shows on the fifth loop.
         private void SetOut(bool value)
         {
             isOut = value;
+
+            if (roomFrames != null && roomFrames.Length > 0)
+            {
+                for (int i = 0; i < roomFrames.Length; i++)
+                    Show(roomFrames[i], value && i == room);
+                return;
+            }
+
             Color c = dark.color;
             c.a = value ? 1f : 0f;
             dark.color = c;
+        }
+
+        // Along the corridor and back. Reversing at the ends rather than wrapping, because a fault
+        // that jumps from the far room to the near one in one step reads as a cut rather than as
+        // something moving.
+        private void Advance()
+        {
+            int count = roomFrames != null ? roomFrames.Length : 0;
+            if (count < 2) return;
+
+            room += step;
+            if (room >= count) { room = count - 2; step = -1; }
+            else if (room < 0) { room = 1; step = 1; }
+        }
+
+        private static void Show(Image frame, bool visible)
+        {
+            if (frame == null) return;
+            Color c = frame.color;
+            c.a = visible ? 1f : 0f;
+            frame.color = c;
         }
     }
 }

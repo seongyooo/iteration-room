@@ -391,7 +391,37 @@ namespace IterationRoom.EditorTools
                 darkImage.color = new Color(1f, 1f, 1f, 0f);
                 darkImage.raycastTarget = false;
                 Stretch(darkImage.GetComponent<RectTransform>());
-                darkGO.AddComponent<MenuFlicker>();
+                MenuFlicker flicker = darkGO.AddComponent<MenuFlicker>();
+
+                // **AND ONE IMAGE PER ROOM DOWN THE CORRIDOR.** Siblings of the legacy dark frame
+                // and children of the background for the same reason it is - `MenuBackdrop` drifts
+                // the picture, and a frame that did not inherit that drift would arrive as the room
+                // jumping sideways rather than going dark.
+                //
+                // Built from whatever files exist rather than from `MenuCorridorRooms` directly: a
+                // `-nographics` build leaves the previous set on disk and a first build may have
+                // none at all, and in both cases a short array is better than a row of nulls.
+                var frames = new System.Collections.Generic.List<Image>();
+                for (int i = 0; i < MenuCorridorRooms; i++)
+                {
+                    Sprite roomShot = AssetDatabase.LoadAssetAtPath<Sprite>(MenuBackgroundRoomDarkPath(i));
+                    if (roomShot == null) continue;
+
+                    GameObject roomGO = new GameObject($"BackgroundDark_{i}");
+                    roomGO.transform.SetParent(backgroundGO.transform, false);
+                    Image roomImage = roomGO.AddComponent<Image>();
+                    roomImage.sprite = roomShot;
+                    roomImage.color = new Color(1f, 1f, 1f, 0f);
+                    roomImage.raycastTarget = false;
+                    Stretch(roomImage.GetComponent<RectTransform>());
+                    frames.Add(roomImage);
+                }
+                flicker.roomFrames = frames.ToArray();
+
+                if (frames.Count < 2)
+                    Debug.LogWarning($"[SceneBuilder] Only {frames.Count} per-room dark frame(s) on "
+                                   + "disk, so the title screen's fault will sit in one room instead "
+                                   + "of moving down the corridor.");
             }
             else
             {

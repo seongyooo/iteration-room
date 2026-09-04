@@ -284,29 +284,52 @@ namespace IterationRoom.EditorTools
             {
                 WithFlatReflection(() => CaptureMenuFrame(cam, MenuBackgroundPath));
 
-                // **THE FLICKER IS THE ROOM AGAIN.** With a lit room there is a lit half to lose, so
-                // this goes back to what it was before the dark version: one side's fixtures out.
-                // `BuildCeilingLights` lays a 2x2 grid either side of the centreline, so everything
-                // at negative x is the left-hand pair - the side the menu's column of type sits
-                // over, which puts the fault behind the words rather than out in the open corridor
-                // where the eye is resting.
-                var doused = new System.Collections.Generic.List<Light>();
-                if (room != null)
-                    foreach (Light light in room.GetComponentsInChildren<Light>(true))
+                // **A WHOLE ROOM AT A TIME, AND ONE FRAME FOR EACH** (2026-09-04, by request).
+                //
+                // The flicker used to douse the left-hand PAIR of fixtures in the nearest room, so
+                // what failed was half of one ceiling. Down a corridor that reads as nothing: the
+                // eye is on six rooms and a quarter of the first one dimming is a shading change.
+                // Dousing all four makes the ROOM go dark, which is a thing the building can be seen
+                // to do - and doing it per room gives `MenuFlicker` a wave it can walk away and back.
+                //
+                // The rooms are one `RoomPitch` apart along +Z from the one the camera stands in, so
+                // each frame is "every fixture within half a room's depth of that centre, out".
+                int lit = 0;
+                for (int i = 0; i < MenuCorridorRooms; i++)
+                {
+                    float atZ = room != null ? room.position.z + i * RoomPitch : 0f;
+                    var doused = new System.Collections.Generic.List<Light>();
+                    if (room != null)
+                        foreach (Light light in room.GetComponentsInChildren<Light>(true))
+                        {
+                            if (!light.enabled) continue;
+                            if (Mathf.Abs(light.transform.position.z - atZ) > RoomDepth / 2f) continue;
+                            light.enabled = false;
+                            doused.Add(light);
+                        }
+
+                    int index = i;
+                    try
                     {
-                        if (!light.enabled || light.transform.position.x >= 0f) continue;
-                        if (Mathf.Abs(light.transform.position.z - room.position.z) > RoomDepth / 2f) continue;
-                        light.enabled = false;
-                        doused.Add(light);
+                        WithFlatReflection(() =>
+                            CaptureMenuFrame(cam, MenuBackgroundRoomDarkPath(index)));
                     }
+                    finally { foreach (Light light in doused) light.enabled = true; }
 
-                try { WithFlatReflection(() => CaptureMenuFrame(cam, MenuBackgroundDarkPath)); }
-                finally { foreach (Light light in doused) light.enabled = true; }
+                    if (doused.Count > 0) lit++;
+                    if (i == 0)
+                    {
+                        // The nearest room's frame doubles as the legacy single dark still, so a
+                        // menu built before the per-room set existed still has something to cut to.
+                        System.IO.File.Copy(MenuBackgroundRoomDarkPath(0), MenuBackgroundDarkPath, true);
+                        AssetDatabase.ImportAsset(MenuBackgroundDarkPath);
+                    }
+                }
 
-                Debug.Log($"[SceneBuilder] Menu background: two frames down the corridor. "
-                        + $"{hidden.Count} renderer(s) hidden as not-the-building, "
-                        + $"{doused.Count} fixture(s) doused for the flicker. Zero of either would "
-                        + $"mean the shot is of a furnished room or has no flicker to cut to.");
+                Debug.Log($"[SceneBuilder] Menu background: 1 lit frame and {MenuCorridorRooms} dark "
+                        + $"ones down the corridor, {lit} of which actually had fixtures to douse. "
+                        + $"{hidden.Count} renderer(s) hidden as not-the-building. A room with "
+                        + "nothing to douse is one the chain does not reach.");
             }
             finally
             {
@@ -320,8 +343,14 @@ namespace IterationRoom.EditorTools
         //
         // Matched by prefix because `MakeColorMaterial` names by role and Unity suffixes instances;
         // a new wall or floor variant that follows the same naming is included without editing this.
+        //
+        // `IndicatorLamp` is on the list for the same reason the fixtures are (2026-09-04, by
+        // request): the lamp over each doorway is part of what the building IS, and down a corridor
+        // it repeats with the doors - a row of small lit marks receding, which is the detail that
+        // tells you those are doors and not just holes.
         private static readonly string[] BuildingSurfaces =
-            { "PanelWhite", "FloorWhite", "CeilingWhite", "GrooveDark", "CeilingFixture" };
+            { "PanelWhite", "FloorWhite", "CeilingWhite", "GrooveDark", "CeilingFixture",
+              "IndicatorLamp" };
 
         private static System.Collections.Generic.List<Renderer> KeepOnlyTheBuilding(Transform root)
         {
