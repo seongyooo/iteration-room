@@ -329,6 +329,18 @@ namespace IterationRoom.EditorTools
         // is where the lighting is tuned, so it is the one room whose lights something else holds.
         private static Renderer[] Room2WestPanels;
 
+        // **ROOM2-1'S FIXTURES AND ITS TWO FIXTURE MATERIALS, HELD FOR THE SECOND PROBE BAKE.**
+        // That room is dark for the whole build - `BuildCycleTwoShell` switches it off the moment it
+        // has built it - so the ordinary bake at the end of `Build()` can only ever photograph an
+        // unlit room. `BakeSwitchRoomLitProbe` turns it back on for one extra bake, and needs the
+        // same four things the build used to turn it off. Held rather than found by name later, for
+        // the reason the Room2West pair above gives: a lookup is a second statement of a name.
+        private static Light[] Room2OneLights;
+        private static Renderer[] Room2OnePanels;
+        private static Material Room2OneFixtureLit;
+        private static Material Room2OneFixtureOff;
+        private static RoomCondition Room2OneLitWhen;
+
         private const string TexturesDir = "Assets/Textures";
         // Symbols printed on the cube room's cubes and on the recesses that want them. Their own
         // folder because they are WORLD textures - mipmapped, opaque, imported as Default - where
@@ -1131,6 +1143,9 @@ namespace IterationRoom.EditorTools
             Material panelMat = MakeColorMaterial("PanelWhite", PanelLitColor);
             Texture2D surfaceGrain = MakeNoiseNormalMap("SurfaceGrain", 512, 2.5f);
             ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), WallSmoothness);
+            // The wall keeps its 0.85 mirroring of the room and loses only the round phantom a
+            // point light draws on top of it - see NoDirectSpecular.
+            NoDirectSpecular(panelMat);
             // **BOTH NUMBERS NOW LIVE IN `FloorSmoothness` / `FloorBump`, AND BOTH HAVE MOVED
             // AGAIN** (2026-09-03: 0.65 -> 0.9 and 0.6 -> 0.12, so the floor reflects the room).
             // What follows is why they were 0.65 and 0.6, which is kept because every word of it is
@@ -1162,6 +1177,18 @@ namespace IterationRoom.EditorTools
             // them standing under a fixture, not in the middle of the room.
             ApplySurfaceDetail(floorMat, surfaceGrain, FloorBump, new Vector2(26f, 30f),
                                FloorSmoothness);
+            // **THE FLOOR LOSES ITS ROUND GLINT TOO** (2026-09-04, by request, after play checked
+            // which of the two round things on a floor this was: it MOVED with the camera, so it is
+            // the mirror image of a fixture rather than the pool of light one throws. A pool does not
+            // move, and would have wanted a cookie instead - see NoDirectSpecular for why the two
+            // have opposite answers.)
+            //
+            // **The floor pays more for this than the walls did, and that is worth knowing before
+            // reverting or repeating it.** A wall keeps its 0.85 mirroring, so removing the phantom
+            // leaves the panel's real square reflection behind it. The floor is at 0.65 with no
+            // metallic, where the environment term is weak - so what is left in the glint's place is
+            // close to nothing, and the floor reads flatter. That is the trade, and it is one line.
+            NoDirectSpecular(floorMat);
             // Metallic is not part of `ApplySurfaceDetail` - every OTHER surface it touches (walls,
             // ceiling) is meant to stay a true dielectric, so this is set here, on the floor
             // material alone, rather than threading a new parameter through a call every other
@@ -1281,6 +1308,9 @@ namespace IterationRoom.EditorTools
             // break up its reflection and the floor is one bare slab. See the floor's own comment.
             Texture2D surfaceGrain = MakeNoiseNormalMap("SurfaceGrain", 512, 2.5f);
             ApplySurfaceDetail(panelMat, surfaceGrain, 0.2f, new Vector2(5f, 3f), WallSmoothness);
+            // The wall keeps its 0.85 mirroring of the room and loses only the round phantom a
+            // point light draws on top of it - see NoDirectSpecular.
+            NoDirectSpecular(panelMat);
             // Floor and ceiling: plain white, matte, with the same plaster grain the walls get -
             // just at a far higher repeat count, since a slab face is 9 x 10.9m against a wall
             // panel's 1.7 x 0.9m.
@@ -1315,6 +1345,18 @@ namespace IterationRoom.EditorTools
             // them standing under a fixture, not in the middle of the room.
             ApplySurfaceDetail(floorMat, surfaceGrain, FloorBump, new Vector2(26f, 30f),
                                FloorSmoothness);
+            // **THE FLOOR LOSES ITS ROUND GLINT TOO** (2026-09-04, by request, after play checked
+            // which of the two round things on a floor this was: it MOVED with the camera, so it is
+            // the mirror image of a fixture rather than the pool of light one throws. A pool does not
+            // move, and would have wanted a cookie instead - see NoDirectSpecular for why the two
+            // have opposite answers.)
+            //
+            // **The floor pays more for this than the walls did, and that is worth knowing before
+            // reverting or repeating it.** A wall keeps its 0.85 mirroring, so removing the phantom
+            // leaves the panel's real square reflection behind it. The floor is at 0.65 with no
+            // metallic, where the environment term is weak - so what is left in the glint's place is
+            // close to nothing, and the floor reads flatter. That is the trade, and it is one line.
+            NoDirectSpecular(floorMat);
             // Metallic is not part of `ApplySurfaceDetail` - every OTHER surface it touches (walls,
             // ceiling) is meant to stay a true dielectric, so this is set here, on the floor
             // material alone, rather than threading a new parameter through a call every other

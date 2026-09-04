@@ -59,6 +59,41 @@ namespace IterationRoom.EditorTools
         // ONE TEXTURE PER METALLIC VALUE, cached by name, because the map carries metallic in its red
         // channel - two materials that differ only in colour share one, and a metal and a non-metal
         // cannot.
+        // **THE ROUND BLOB ON THE WALLS IS A PUNCTUAL LIGHT'S SPECULAR LOBE, AND THIS IS THE ONE
+        // DIAL THAT REMOVES IT WITHOUT COSTING ANYTHING ELSE** (2026-09-04, by request).
+        //
+        // A ceiling fixture is TWO objects: a square emissive panel, and a `Light` standing in for
+        // what it emits (`BuildCeilingLights`). A glossy wall therefore shows TWO reflections of the
+        // same fixture at once, and play could see both - the panel's REAL reflection, square,
+        // arriving through the reflection probe as a mirror image of actual geometry, and the
+        // Light's specular highlight, which is ROUND however square the thing throwing it is,
+        // because a point source's lobe has no shape of its own. The round one is brighter and sits
+        // on top of the square one.
+        //
+        // **THE SQUARE CANNOT BE MADE BY THE LIGHT, AND DOES NOT NEED TO BE.** URP says so in as
+        // many words - `// Rect area light is baked only in URP` - so a rectangle light contributes
+        // to the lightmap and never to a real-time highlight; and a cookie shapes the POOL a light
+        // throws, not the lobe, because the highlight subtends too small an angle from the source
+        // for the mask to vary across it. What is wanted is already on screen: turning the punctual
+        // specular off leaves the probe's reflection of the actual panel, which is square because
+        // the panel is.
+        //
+        // **WHAT THIS DOES NOT TURN OFF: the light.** `_SPECULARHIGHLIGHTS_OFF` drops the specular
+        // term only - the diffuse half of every direct light is untouched, so the room is lit
+        // exactly as brightly as before. Environment reflections are a separate keyword and stay on,
+        // which is the whole point: this is the thing `WallSmoothness` 0.65 could not do, since
+        // roughness blurs the wall's mirroring of the room and the highlight together.
+        private static void NoDirectSpecular(Material mat)
+        {
+            if (mat == null) return;
+            // Both halves, as ever: the float is what the inspector and any material copy read, the
+            // keyword is what the shader actually branches on. Setting one without the other is the
+            // trap `_SURFACE_TYPE_TRANSPARENT` and `_METALLICSPECGLOSSMAP` are both recorded under.
+            if (mat.HasProperty("_SpecularHighlights")) mat.SetFloat("_SpecularHighlights", 0f);
+            mat.EnableKeyword("_SPECULARHIGHLIGHTS_OFF");
+            EditorUtility.SetDirty(mat);
+        }
+
         private static void ApplyWear(Material mat)
         {
             if (mat == null) return;
@@ -533,6 +568,78 @@ namespace IterationRoom.EditorTools
             // flat, and nothing else. If this ever says anything but n/n, the metal will go black.
             Debug.Log($"[SceneBuilder] Reflection probes baked and wired: {wired}/{probes.Length} " +
                       $"({flagged} renderers reflection-probe-static)");
+
+            BakeSwitchRoomLitProbe(probes);
+        }
+
+        // **THE ONE ROOM THAT NEEDS TWO OF THESE.** Room2-1 spends the entire build dark - see
+        // `BuildCycleTwoShell`, which douses its fixtures and swaps their glowing faces the moment it
+        // has finished building them - so the pass above can only photograph an unlit room. That is
+        // the right reflection while the room is dark and the wrong one the moment the player
+        // finishes its puzzle, which is what play reported: the lights come on and the walls still
+        // have no ceiling in them.
+        //
+        // So the room is turned back on, photographed a second time, and put back. Both cubemaps go
+        // to `ProbeLightSwap`, which picks between them at runtime on the room's own lit condition.
+        //
+        // **THIS RUNS AFTER THE MAIN PASS ON PURPOSE**: it needs `customBakedTexture` to already
+        // hold the dark bake, which is what it hands over as the dark half of the pair.
+        private static void BakeSwitchRoomLitProbe(ReflectionProbe[] probes)
+        {
+            if (Room2OneLights == null || Room2OnePanels == null
+                || Room2OneFixtureLit == null || Room2OneFixtureOff == null) return;
+
+            ReflectionProbe probe = null;
+            foreach (ReflectionProbe p in probes)
+                if (p != null && p.name == "Room2_1_ReflectionProbe") probe = p;
+
+            if (probe == null)
+            {
+                Debug.LogWarning("[SceneBuilder] Room2_1 has no reflection probe to bake a lit "
+                               + "variant for; its walls will reflect an unlit room once its lights "
+                               + "are switched on.");
+                return;
+            }
+
+            Cubemap dark = probe.customBakedTexture as Cubemap;
+
+            // Lit exactly the way the switches will light it: the `Light` components back on, and the
+            // panels handed back to the material every other room's fixtures already wear.
+            foreach (Light l in Room2OneLights) if (l != null) l.enabled = true;
+            foreach (Renderer r in Room2OnePanels) if (r != null) r.sharedMaterial = Room2OneFixtureLit;
+
+            Cubemap lit = null;
+            string path = $"{TexturesDir}/Room2_1_Reflection_Lit.exr";
+            try
+            {
+                if (Lightmapping.BakeReflectionProbe(probe, path))
+                {
+                    AssetDatabase.ImportAsset(path);
+                    lit = AssetDatabase.LoadAssetAtPath<Cubemap>(path);
+                }
+            }
+            finally
+            {
+                // Back to dark, and back to the cubemap the room ships in - the runtime component
+                // takes it from here.
+                foreach (Light l in Room2OneLights) if (l != null) l.enabled = false;
+                foreach (Renderer r in Room2OnePanels) if (r != null) r.sharedMaterial = Room2OneFixtureOff;
+                if (dark != null) probe.customBakedTexture = dark;
+            }
+
+            ProbeLightSwap swap = probe.gameObject.GetComponent<ProbeLightSwap>()
+                                  ?? probe.gameObject.AddComponent<ProbeLightSwap>();
+            swap.probe = probe;
+            swap.dark = dark;
+            swap.lit = lit;
+            swap.litWhen = Room2OneLitWhen;
+
+            // Said as a comparison, because the whole point is that the two differ: a lit bake with
+            // no pixels over 1.0 would mean the fixtures did not come back on for the shot, and the
+            // swap would be switching between two identical dark rooms.
+            Debug.Log($"[SceneBuilder] Room2_1 lit probe: {(lit == null ? "FAILED" : "baked")}, "
+                    + $"dark {(dark == null ? "MISSING" : "held")}, condition "
+                    + $"{(Room2OneLitWhen == null ? "MISSING" : "wired")}.");
         }
 
         // WHAT A BAKED PROBE CAPTURES IS STATIC GEOMETRY, AND NOTHING IN THIS SCENE WAS STATIC.

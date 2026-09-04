@@ -226,6 +226,14 @@ namespace IterationRoom.EditorTools
             foreach (Light l in room1Lights) l.enabled = false;
             foreach (Renderer p in room1Panels) p.sharedMaterial = fixtureOffMat;
 
+            // Kept for the SECOND probe bake - see `BakeSwitchRoomLitProbe`. From here to the end of
+            // the build this room is dark, so the ordinary bake photographs an unlit room and the
+            // walls have no lit ceiling to reflect once the player switches it on.
+            Room2OneLights = room1Lights;
+            Room2OnePanels = room1Panels;
+            Room2OneFixtureLit = fixtureMat;
+            Room2OneFixtureOff = fixtureOffMat;
+
             // THE HEIGHT WAS PLACED BY HAND IN THE EDITOR AND READ BACK, which is why it is not round.
             // 1.2m is a light switch's real height and read as low and easy to miss in a dark room.
             //
@@ -270,8 +278,27 @@ namespace IterationRoom.EditorTools
             // surfaces: lower the global ambient and give the fixtures back the difference, which keeps
             // lit rooms looking as they do now and lets an unlit one actually fall away. That is a
             // change to numbers cycle 1 is tuned around, so it is not a small one.
+            //
+            // **AND THAT IS WHAT `RoomBlackout` DOES, 2026-09-04, by request - except DYNAMICALLY,
+            // which is what makes it a small change after all.** The note above is right that ambient
+            // is the dial and wrong that it has to be paid for globally: nothing is re-tuned, because
+            // a LIT room keeps the authored values exactly. Only this room, only while its switches
+            // are off, drops to a fifth of them - and it is the same component that puts them back.
+            //
+            // A fifth rather than nothing, because the switches are at 1.85m and this file already
+            // calls them easy to miss in a dark room; at zero the puzzle loses its own pieces. See
+            // `RoomBlackout` for why a global setting is safe for a local effect here - the short of
+            // it is that the door below seals this room until the condition it watches is met, so
+            // there is no moment when the player can see another room while it is applied.
             // Door2_1 is ringDoors[0] - the south door r1 built above, the only way out of this room.
             ringDoors[0].condition = allLightsOn;
+
+            RoomBlackout blackout = allLightsGO.AddComponent<RoomBlackout>();
+            blackout.litWhen = allLightsOn;
+
+            // The same condition drives the probe swap, and it is captured here rather than looked
+            // up at bake time for the same reason the fixtures are.
+            Room2OneLitWhen = allLightsOn;
 
             // ROOM2-2'S TAPS. Not gating anything yet - see BuildWaterTap.
             WaterTap[] taps = BuildWaterTap(r2);
