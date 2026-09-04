@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using UnityEditor;
@@ -274,15 +275,24 @@ namespace IterationRoom.EditorTools
         //     needing its own pass: a leaf is a prop material, so it is already gone. What is left
         //     is the opening cut in the wall, which is panel material and stays.
         //
-        // The room keeps its lights, its ambient and its probes. This is the building as the game
-        // lights it - the only difference between this and standing there is the furniture.
+        // The room keeps its lights, its ambient and its probes. **What it does NOT keep is the
+        // total absence of aerial perspective a perfect render of six identical rooms has** - see
+        // `PaintCorridor`, which is the one thing in this shot that is not the room as the game
+        // draws it, and why it had to stop being true that furniture was the only difference.
         private static void CaptureMenuBackground(Camera cam, Transform room)
         {
             var hidden = KeepOnlyTheBuilding(room);
+            float baseZ = room != null ? room.position.z : 0f;
 
             try
             {
-                WithFlatReflection(() => CaptureMenuFrame(cam, MenuBackgroundPath));
+                // **THE LIT FRAME IS PAINTED TOO**, and it has to be: the depth falloff is what makes
+                // the doorways read as rooms rather than as a pattern, and every frame the flicker
+                // cuts between has to agree about the rooms that are still on. `MenuCorridorRooms`
+                // as `firstDark` means "none of them are out".
+                var litPaint = PaintCorridor(room, baseZ, MenuCorridorRooms);
+                try { WithFlatReflection(() => CaptureMenuFrame(cam, MenuBackgroundPath)); }
+                finally { UnpaintCorridor(litPaint); }
 
                 // **THE ROOMS GO OUT ONE AT A TIME AND STAY OUT, AND EACH FRAME IS CUMULATIVE**
                 // (2026-09-04, by request). Frame k is "the last k+1 rooms are dark", not "room k is
@@ -303,49 +313,26 @@ namespace IterationRoom.EditorTools
                 // is what play reported. But ambient is per SCENE. Blacking it out was tried and
                 // measured here: the first frame took the whole picture from 183 to 35, because
                 // every room lost it at once and the corridor browned out together instead of one
-                // room going off.
-                //
-                // So the rooms that are out are painted black instead - `_BaseColor` and
-                // `_EmissionColor` to zero through a property block. A surface with no albedo
-                // returns nothing from the ambient, nothing from the lightmap and nothing from a
-                // neighbour's spill, so the room reads as genuinely dark while the rooms beyond it
-                // keep every bit of the lighting they were built with. It is per RENDERER, which is
-                // the granularity the effect actually wants and the one ambient cannot give.
+                // room going off. `PaintCorridor` does it per renderer instead.
                 //
                 // Their fixtures go off as well: the black surfaces would absorb the light either
                 // way, but a dark room should not be throwing any into the one in front of it.
                 int frames = 0;
                 for (int k = 0; k < MenuCorridorRooms; k++)
                 {
-                    var doused = new System.Collections.Generic.List<Light>();
-                    var painted = new System.Collections.Generic.List<Renderer>();
-                    float baseZ = room != null ? room.position.z : 0f;
+                    int firstDark = MenuCorridorRooms - 1 - k;
+                    var doused = new List<Light>();
 
                     if (room != null)
-                    {
                         foreach (Light light in room.GetComponentsInChildren<Light>(true))
                         {
                             if (!light.enabled) continue;
-                            int index = RoomIndexOf(light.transform.position.z, baseZ);
-                            if (index < MenuCorridorRooms - 1 - k) continue;
+                            if (RoomIndexOf(light.transform.position.z, baseZ) < firstDark) continue;
                             light.enabled = false;
                             doused.Add(light);
                         }
 
-                        var black = new MaterialPropertyBlock();
-                        foreach (Renderer r in room.GetComponentsInChildren<Renderer>(true))
-                        {
-                            if (r == null || !r.enabled) continue;
-                            int index = RoomIndexOf(r.bounds.center.z, baseZ);
-                            if (index < MenuCorridorRooms - 1 - k) continue;
-                            black.Clear();
-                            black.SetColor(BaseColorId, Color.black);
-                            black.SetColor(EmissionColorId, Color.black);
-                            r.SetPropertyBlock(black);
-                            painted.Add(r);
-                        }
-                    }
-
+                    var painted = PaintCorridor(room, baseZ, firstDark);
                     int frameIndex = k;
                     try
                     {
@@ -355,16 +342,7 @@ namespace IterationRoom.EditorTools
                     }
                     finally
                     {
-                        // Nothing else writes a block on this geometry, so clearing is the whole
-                        // restore - but it IS a restore, and a room left painted would be baked into
-                        // every frame after it.
-                        var restore = new MaterialPropertyBlock();
-                        foreach (Renderer r in painted)
-                        {
-                            if (r == null) continue;
-                            restore.Clear();
-                            r.SetPropertyBlock(restore);
-                        }
+                        UnpaintCorridor(painted);
                         foreach (Light light in doused) light.enabled = true;
                     }
 
@@ -377,13 +355,124 @@ namespace IterationRoom.EditorTools
                     }
                 }
 
-                Debug.Log($"[SceneBuilder] Menu background: 1 lit frame and {frames} cumulative "
-                        + $"dark ones - frame k is the last k+1 rooms painted out, ambient untouched. "
-                        + $"{hidden.Count} renderer(s) hidden as not-the-building.");
+                Debug.Log($"[SceneBuilder] Menu background: 1 lit frame and {frames} cumulative dark "
+                        + $"ones - frame k is the last k+1 rooms painted out, over a depth tint of "
+                        + $"{DepthTintStep} per room. {hidden.Count} renderer(s) hidden as "
+                        + "not-the-building.");
             }
             finally
             {
                 foreach (Renderer r in hidden) if (r != null) r.enabled = true;
+            }
+        }
+
+        // **HOW MUCH DARKER EACH ROOM IS THAN THE ONE IN FRONT OF IT**, as a multiplier on albedo,
+        // compounding down the corridor: room n is painted `DepthTintStep^n`. One number, because
+        // the whole point is a constant ratio - a constant DIFFERENCE would step hard at the near
+        // end and stop separating anything at the far one.
+        //
+        // 0.85 lands the deepest room near 133 of 255 against the near room's 195, which is a clear
+        // separation without the far end going murky. Albedo is linear and the frame is sRGB, so the
+        // step a viewer sees is the 0.4545 root of this - 0.85 albedo is a 93% tone, not an 85% one,
+        // which is why this number looks gentler than it reads.
+        private const float DepthTintStep = 0.85f;
+
+        // **ONE PASS PAINTS THE WHOLE CORRIDOR: how far away each room is, and whether it is out.**
+        //
+        // Both are the same operation - a multiplier on a room's albedo - so they are one method,
+        // and that is not tidiness. FOG WAS TRIED FIRST for the depth half and it is what proved the
+        // point: it is per-pixel and continuous, which looked better in the lit shot, but a fog
+        // colour is GLOBAL and this corridor is lit at the near end and black at the far one at the
+        // same time. Measured, a room painted black 54m away came back at 93 of 255 instead of 29,
+        // because the fog blended it toward the grey the lit rooms needed. Painting per room has no
+        // such conflict: a room that is out is multiplied by zero whatever its depth says.
+        //
+        // What the corridor needs it for: six identical rooms lit by six identical sets of fixtures
+        // render identically, which is correct and unreadable. Measured off the shot before this,
+        // the wall of each room down the corridor came back at 195, 193, 191 and 188 of 255 and
+        // every floor was clipped at 255, so the doorways read as concentric rectangles drawn on the
+        // far wall rather than as rooms behind it - which is what play reported.
+        //
+        // Size cannot fix that. The door is 1.3m in an 8.75m room, so from anywhere that keeps both
+        // side walls in frame the second doorway is under 90px of 1920 and the fifth is 35 - far too
+        // small to read as a SHAPE. At that size VALUE is the only cue left, and there was none.
+        //
+        // **IT IS STAGING, and it is why this shot is no longer the room as the game renders it.**
+        // A real corridor separates by depth through haze and imperfect light; a perfect render of
+        // identical rooms has neither.
+        //
+        // `firstDark` is the nearest room that is OUT - everything from it to the far end is painted
+        // black. Pass `MenuCorridorRooms` for a corridor with every light on.
+        //
+        // Returns what it touched, for the caller to put back. Nothing else writes a block on this
+        // geometry, so clearing is the whole restore - but it IS a restore, and a room left painted
+        // would be baked into every frame after it.
+        private static List<Renderer> PaintCorridor(Transform room, float baseZ, int firstDark)
+        {
+            var painted = new List<Renderer>();
+            if (room == null) return painted;
+
+            var block = new MaterialPropertyBlock();
+            foreach (Renderer r in room.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null || !r.enabled) continue;
+                int index = RoomIndexOf(r.bounds.center.z, baseZ);
+                if (index < 0) continue;                       // behind the camera
+
+                float tint;
+                if (index >= firstDark) tint = 0f;
+                // The near room is the one the camera stands in and it fills the frame, so tinting
+                // it for depth would grey the whole picture - the opposite of a depth cue. It still
+                // goes black when its turn comes, which is why this test sits AFTER the one above.
+                else if (index == 0) continue;
+                else tint = Mathf.Pow(DepthTintStep, index);
+
+                // **A PROPERTY BLOCK REPLACES A COLOUR, IT DOES NOT MULTIPLY ONE**, so the tint has
+                // to be applied to each material's OWN base colour and written back. Writing the
+                // tint straight in was tried and measured: it painted every surface the same grey,
+                // which LIFTED the near-black grooves to 189 of 255 and took the far end of the
+                // corridor to 217 - brighter than the room in front of it, and the depth cue running
+                // backwards. Per submesh, because these renderers do not all carry one material.
+                Material[] mats = r.sharedMaterials;
+                bool any = false;
+                for (int m = 0; m < mats.Length; m++)
+                {
+                    Material mat = mats[m];
+                    if (mat == null) continue;
+                    block.Clear();
+                    if (mat.HasProperty(BaseColorId))
+                    {
+                        Color own = mat.GetColor(BaseColorId);
+                        // Alpha is not brightness. Multiplying it would make a dark room TRANSPARENT
+                        // rather than dark, and this building has transparent surfaces in it.
+                        block.SetColor(BaseColorId, new Color(own.r * tint, own.g * tint, own.b * tint, own.a));
+                    }
+                    if (mat.HasProperty(EmissionColorId))
+                    {
+                        Color own = mat.GetColor(EmissionColorId);
+                        block.SetColor(EmissionColorId, new Color(own.r * tint, own.g * tint, own.b * tint, own.a));
+                    }
+                    r.SetPropertyBlock(block, m);
+                    any = true;
+                }
+                if (any) painted.Add(r);
+            }
+            return painted;
+        }
+
+        private static void UnpaintCorridor(List<Renderer> painted)
+        {
+            var restore = new MaterialPropertyBlock();
+            foreach (Renderer r in painted)
+            {
+                if (r == null) continue;
+                // Per submesh, matching how it was written - a renderer's whole-object block and its
+                // per-index ones are separate slots, and clearing the wrong one leaves the paint on.
+                for (int m = 0; m < r.sharedMaterials.Length; m++)
+                {
+                    restore.Clear();
+                    r.SetPropertyBlock(restore, m);
+                }
             }
         }
 
@@ -412,9 +501,9 @@ namespace IterationRoom.EditorTools
             { "PanelWhite", "FloorWhite", "CeilingWhite", "GrooveDark", "CeilingFixture",
               "IndicatorLamp" };
 
-        private static System.Collections.Generic.List<Renderer> KeepOnlyTheBuilding(Transform root)
+        private static List<Renderer> KeepOnlyTheBuilding(Transform root)
         {
-            var hidden = new System.Collections.Generic.List<Renderer>();
+            var hidden = new List<Renderer>();
             if (root == null) return hidden;
 
             foreach (Renderer r in root.GetComponentsInChildren<Renderer>(true))

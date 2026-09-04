@@ -557,7 +557,6 @@ namespace IterationRoom.EditorTools
             title.horizontalOverflow = HorizontalWrapMode.Overflow;
             title.verticalOverflow = VerticalWrapMode.Overflow;
             title.raycastTarget = false;
-            SurviveTheLightsGoingOut(title);
             // LEFT-HUNG, not centred. A centred title over a centred column is a poster: the screen
             // reads as a picture of a menu. Pushing both to the left edge puts the ROOM in the middle
             // of the frame with the words beside it, which is the arrangement horror titles on Steam
@@ -625,8 +624,6 @@ namespace IterationRoom.EditorTools
             subtitle.horizontalOverflow = HorizontalWrapMode.Overflow;
             subtitle.verticalOverflow = VerticalWrapMode.Overflow;
             subtitle.raycastTarget = false;
-            // ROOM is red rather than charcoal, and red on black is no better than charcoal on it.
-            SurviveTheLightsGoingOut(subtitle);
             RectTransform subtitleRect = subtitle.GetComponent<RectTransform>();
             subtitleRect.anchorMin = new Vector2(0.5f, 0.5f);
             subtitleRect.anchorMax = new Vector2(0.5f, 0.5f);
@@ -1476,30 +1473,6 @@ namespace IterationRoom.EditorTools
         // The falloff is squared and stops well short of the right edge: the aim is a pool of shade
         // under the column, not a vignette, and anything that reaches the middle starts reading as a
         // dimmed screenshot again.
-        // **THE TITLE HAS TO SURVIVE THE BACKGROUND GOING OUT UNDER IT.** The corridor behind this
-        // screen fails room by room and ends, briefly, fully dark - and the title sits centre-top,
-        // which is the one part of the frame the scrim ramp does not reach (it is gone by 55% across,
-        // by design: a plate under the words was the loudest thing on this screen and was removed).
-        // Charcoal on a white room is the whole point of `MenuInk`; charcoal on the 18-of-255 that
-        // room measures with its lights out is nothing at all.
-        //
-        // So the contrast goes on the GLYPHS, which is the same answer `SceneBuilder.Hud`'s PA
-        // caption reached for the same reason - one treatment that has to work on a white wall and
-        // in a dark shaft, where only a per-glyph one does. This is that rim with its polarity
-        // flipped: light around dark type rather than dark around light. On the white room it is
-        // white on white and invisible, which is why it costs the resting screen nothing.
-        private static void SurviveTheLightsGoingOut(Text text)
-        {
-            if (text == null) return;
-            Outline rim = text.gameObject.AddComponent<Outline>();
-            // Not pure white: at full strength the rim closes the counters of 'O' and 'R' at these
-            // sizes and the word reads as a blur when the room is dark. Slightly under, slightly
-            // transparent, and it stays an edge.
-            rim.effectColor = new Color(0.95f, 0.95f, 0.95f, 0.85f);
-            rim.effectDistance = new Vector2(2f, 2f);
-            rim.useGraphicAlpha = true;
-        }
-
         private static Sprite MakeMenuScrimSprite()
         {
             const int w = 256, h = 4;
