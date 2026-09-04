@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using UnityEditor;
@@ -665,6 +666,80 @@ namespace IterationRoom.EditorTools
         // open, or a plinth baked at the height SceneBuilder authors it at rather than the sunk
         // position it starts the game in, would put a thing in the reflection that is not in the
         // room. Everything else - shell, panels, fixtures, furniture, board - is genuinely fixed.
+        // **THE OCCLUSION BAKE, AND WHY IT IS A SEPARATE PASS OVER FINISHED SCENES.**
+        //
+        // Umbra bakes whatever is loaded, and this build has the core scene plus four cycles open at
+        // once while it is assembling them. Baking then would mix five buildings into one set of
+        // cells. So this runs last, over the files: each cycle scene is opened on its own, woken,
+        // baked and written back.
+        //
+        // **THE ROOT HAS TO BE AWAKE.** Cycles ship asleep and a disabled renderer is invisible to
+        // the bake - the same trap `CaptureCyclePreview` documents for the camera and the probe bake
+        // documents for lightmaps. Woken for the bake and put back exactly as it was found.
+        //
+        // The core scene is not baked: it holds twelve renderers, which is nothing to hide behind.
+        private static void BakeOcclusionCulling()
+        {
+            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
+            {
+                Debug.LogWarning("[SceneBuilder] No graphics device (-nographics): occlusion NOT "
+                               + "baked, keeping whatever is on disk. Rebuild with a device.");
+                return;
+            }
+
+            for (int i = 0; i < CycleSceneNames.Length; i++)
+            {
+                string path = CycleScenePath(CycleSceneNames[i]);
+                if (!File.Exists(path)) continue;
+
+                Scene scene = EditorSceneManager.OpenScene(path, OpenSceneMode.Single);
+
+                var woken = new List<GameObject>();
+                foreach (Cycle cycle in UnityEngine.Object.FindObjectsByType<Cycle>(
+                             FindObjectsInactive.Include, FindObjectsSortMode.None))
+                {
+                    if (cycle.worldRoot == null) continue;
+                    if (cycle.worldRoot.gameObject.activeSelf) continue;
+                    cycle.worldRoot.gameObject.SetActive(true);
+                    woken.Add(cycle.worldRoot.gameObject);
+                }
+
+                // **THE DEFAULT SMALLEST OCCLUDER IS 5m AND THIS BUILDING IS MADE OF 1.75m PANELS.**
+                // Left at the default, a wall would be too fine-grained to hide anything and the bake
+                // would produce data that culls nothing. The panels form one continuous surface, so
+                // what this really sets is how finely Umbra voxelises it; 2m is under a panel and
+                // over the door pocket. The smallest hole stays at the default - a doorway is 1.3m
+                // wide, five times that, so nothing here needs a finer one and asking for one costs
+                // bake time and data size for no gain.
+                StaticOcclusionCulling.smallestOccluder = 2f;
+                StaticOcclusionCulling.smallestHole = 0.25f;
+                StaticOcclusionCulling.backfaceThreshold = 100f;
+
+                System.DateTime started = System.DateTime.Now;
+                StaticOcclusionCulling.Compute();
+                double seconds = (System.DateTime.Now - started).TotalSeconds;
+
+                foreach (GameObject go in woken) go.SetActive(false);
+                EditorSceneManager.SaveScene(scene, path);
+
+                // **MEASURED OFF THE FILE, NOT OFF `StaticOcclusionCulling.umbraDataSize`.** That
+                // property reported 0 for every scene on a batchmode build that had in fact just
+                // written 113KB, 241KB, 261KB and 28KB of real data - so the number said the bake had
+                // failed while the bake had worked. The asset on disk is the thing that ships, so the
+                // asset on disk is what gets reported.
+                string dataPath = System.IO.Path.Combine(
+                    System.IO.Path.GetDirectoryName(path),
+                    System.IO.Path.GetFileNameWithoutExtension(path),
+                    "OcclusionCullingData.asset");
+                float kb = File.Exists(dataPath) ? new FileInfo(dataPath).Length / 1024f : 0f;
+
+                Debug.Log($"[SceneBuilder] Occlusion baked for '{CycleSceneNames[i]}' in "
+                    + $"{seconds:0.#}s, {kb:0.#} KB written, {woken.Count} root(s) woken for it. "
+                    + "Zero KB would mean nothing was marked an occluder - check "
+                    + "MarkReflectionProbeStatic.");
+            }
+        }
+
         private static int MarkReflectionProbeStatic()
         {
             int flagged = 0;
@@ -707,10 +782,29 @@ namespace IterationRoom.EditorTools
                 bool bouncesLight = HasTriangles(r);
                 if (!bouncesLight) skipped++;
 
-                GameObjectUtility.SetStaticEditorFlags(r.gameObject,
-                    bouncesLight
-                        ? StaticEditorFlags.ReflectionProbeStatic | StaticEditorFlags.ContributeGI
-                        : StaticEditorFlags.ReflectionProbeStatic);
+                // **AND IT IS AN OCCLUDER, WHICH IS THE WHOLE OF THE OCCLUSION BAKE'S INPUT.**
+                //
+                // Measured on 2026-09-04, in cycle 1's first room: facing a blank wall the frame
+                // submits 3.6k triangles and 77 draw calls; turning to face the DOOR in that wall
+                // submits 988.8k triangles, 2,074 set-pass calls and 2,890 draw calls, and the
+                // frame time goes from 8.1ms to 18.9ms. What is on screen at that moment is a
+                // closed door. The building is one straight corridor with every doorway on the same
+                // centre line, so looking down its axis puts all six rooms inside the frustum - and
+                // frustum culling was the only culling this project had.
+                //
+                // A mover reaches this line never: the loop above skips anything `MovesDuringPlay`
+                // returns true for, which is the same predicate the reflection bake uses and for
+                // the same reason. That deliberately leaves the DOOR LEAVES out of the occluder set,
+                // so a doorway is treated as permanently open. Conservative in the safe direction:
+                // it culls less than it could, never more than it should.
+                //
+                // A mesh with no triangles gets neither flag. It occludes nothing and hides behind
+                // nothing, and this is the same guard that keeps it out of the GI bake.
+                StaticEditorFlags flags = bouncesLight
+                    ? StaticEditorFlags.ReflectionProbeStatic | StaticEditorFlags.ContributeGI
+                      | StaticEditorFlags.OccluderStatic | StaticEditorFlags.OccludeeStatic
+                    : StaticEditorFlags.ReflectionProbeStatic;
+                GameObjectUtility.SetStaticEditorFlags(r.gameObject, flags);
 
                 // **AND IT TAKES ITS GI FROM PROBES, NOT FROM A LIGHTMAP.** That is not a quality
                 // compromise here, it is the only option: a lightmap needs a second UV set, and every

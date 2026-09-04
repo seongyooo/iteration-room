@@ -2133,6 +2133,7 @@ namespace IterationRoom.EditorTools
                                   new[] { wallDisplay, cycleTwoDisplay, cycleThreeDisplay,
                                           cycleFourDisplay });
 
+
             // And again, because the cycles have just left it. The first save wrote a scene that still
             // contained them.
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -2272,8 +2273,16 @@ namespace IterationRoom.EditorTools
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
-            // BuildMainMenuScene left the menu open. Put the room back, so building from the GUI
-            // leaves the Editor looking at the thing that was just built.
+            // **THE OCCLUSION BAKE IS THE LAST THING THIS METHOD DOES, and it has to be.** It opens
+            // each cycle scene with `OpenSceneMode.Single`, which DESTROYS everything else that is
+            // loaded. Put after `SplitCyclesIntoScenes` - which is where it reads best - it took the
+            // core scene out from under the rest of Build, and the next line to touch a room object
+            // threw a MissingReferenceException. Nothing after this point may hold a scene object.
+            BakeOcclusionCulling();
+
+            // BuildMainMenuScene left the menu open, and the bake above left a cycle open. Put the
+            // room back, so building from the GUI leaves the Editor looking at the thing that was
+            // just built.
             EditorSceneManager.OpenScene(ScenePath);
 
             Debug.Log("[SceneBuilder] IterationRoom scene built at " + ScenePath);
