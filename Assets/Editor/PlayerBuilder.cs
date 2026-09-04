@@ -29,6 +29,18 @@ namespace IterationRoom.EditorTools
         // later rename by accident.
         private const string BundleId = "com.seonline.iteration";
 
+        // **THE VERSION IS AUTHORED HERE, next to the rest of the identity, rather than typed into
+        // Player Settings by hand** (2026-09-05). It is the one piece of branding that changes
+        // often, and it was the only one this method read without writing - so a build could be cut
+        // with a version nobody had chosen, which is exactly what happened to v1.0.
+        //
+        // Unlike `Company` and `BundleId` above, changing this is SAFE: it is stamped on the
+        // executable and reported in the build log, and nothing keys player data off it.
+        //
+        // 1.1, from 1.0: occlusion culling, END on the touch controls, and the cycle 2 floor hatch,
+        // cycle 3 gate and ghost mirror-reach fixes.
+        private const string Version = "1.1";
+
         [MenuItem("Iteration Room/Build WebGL Player")]
         public static void BuildWebGL()
         {
@@ -222,6 +234,8 @@ namespace IterationRoom.EditorTools
         // these three are only ever noticed by somebody who is not in the room.
         private static void ApplyBrand()
         {
+            PlayerSettings.bundleVersion = Version;
+
             // THE ICON IS A BUILD PRODUCT. `SceneBuilder.CaptureAppIcon` renders it from the room on
             // every scene build, so it can never drift from what the game looks like - and it is
             // missing on a fresh clone until the scenes are built, exactly like the scenes.
