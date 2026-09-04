@@ -289,6 +289,7 @@ namespace IterationRoom.EditorTools
             float hereZ = room != null ? room.position.z : 0f;
             float beyondZ = hereZ + RoomPitch;
 
+            var dimmedProbes = DimReflectionProbes();
             var doused = DouseLightsNear(room, hereZ);
             var beyond = LightsNear(room, beyondZ);
             var boosted = BoostTowardTheDoorway(beyond, hereZ);
@@ -318,6 +319,7 @@ namespace IterationRoom.EditorTools
             finally
             {
                 SetAmbient(wasSky, wasEquator, wasGround);
+                foreach (var (probe, intensity) in dimmedProbes) probe.intensity = intensity;
                 foreach (var (light, intensity, localZ) in boosted)
                 {
                     light.intensity = intensity;
@@ -336,6 +338,35 @@ namespace IterationRoom.EditorTools
                     + $"what lights the shot, and the flicker cuts them. Door leaf "
                     + $"{(leaf == null ? "NOT FOUND - the doorway will be shut" : "hidden")}. "
                     + "Four doused and a nonzero count beyond the door is what this should say.");
+        }
+
+        // **THE PROBES HAVE TO COME DOWN WITH THE AMBIENT, AND THIS IS THE 36 OF 255 THAT WOULD NOT
+        // GO AWAY.**
+        //
+        // The floor at the camera's feet stopped at ~36 no matter what was switched off - not the
+        // fixtures, not the ambient, and not the lightmaps (detaching those was tried and moved it
+        // by nothing). The reason is that `WithFlatReflection` swaps the scene's DEFAULT reflection,
+        // and the floor is not using it: it sits inside Room1's own probe box and reads the LOCAL
+        // cubemap, which was baked with the room fully lit. A dielectric floor returns about 4% of
+        // that through Fresnel - 0.04 x ~0.7 is ~0.028 linear, which is about 48 of 255 in sRGB, the
+        // band the residual was measured in.
+        //
+        // So every probe is turned down for the frame. It is the same fault, and the same fix, that
+        // `ProbeLightSwap` applies to room2-1 from the other end: a bake cannot know the room has
+        // been darkened since, so the reflection has to be scaled to match by hand.
+        private static System.Collections.Generic.List<(ReflectionProbe probe, float intensity)>
+            DimReflectionProbes()
+        {
+            var saved = new System.Collections.Generic.List<(ReflectionProbe, float)>();
+            foreach (ReflectionProbe probe in Object.FindObjectsByType<ReflectionProbe>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                saved.Add((probe, probe.intensity));
+                // Not zero: a glossy surface reflecting literally nothing reads as a hole rather
+                // than as a dark surface - the same reason `DarkReflection` is 0.03 and not black.
+                probe.intensity = 0.04f;
+            }
+            return saved;
         }
 
         // What a dark room's walls should be reflecting: nearly nothing. Not pure black, because a
@@ -411,22 +442,25 @@ namespace IterationRoom.EditorTools
             // Left at the back of their own room, what reaches through the doorway is a WEDGE, which
             // is the shape wanted; it was only ever too dim.
             //
-            // Seven times, derived rather than dialled: at their own intensity these contributed 22
-            // of 255 at the floor inside the door and about 2 further in. Seven lands that floor at
-            // 209 against the reference's 205, with the fall-off behind it intact.
+            // Ten times, derived rather than dialled, and re-derived once. Seven was fitted while
+            // the local probes were still lighting this shot; dimming those (`DimReflectionProbes`)
+            // took the base out from under it and the same 7x fell to 155. Two measurements solve
+            // the line - 15.05 of 255 per multiple over a base of ~54 - and ten lands the floor
+            // inside the door at the reference's 205 with the fall-off behind it intact.
             //
-            // **THE FLOOR AT THE CAMERA'S FEET STOPS AROUND 37 AND THAT IS NOT THE LIGHTS.** Two
-            // boosts measured (x7 -> 50.6, x9 -> 54.7) solve to a constant 36.3 that scales with
-            // nothing here. It is not the fixtures, not the ambient (blacked out above), and not the
-            // lightmaps: detaching `LightmapSettings.lightmaps` for the frame was tried and moved it
-            // by nothing at all, so that change was reverted rather than kept on faith. The
-            // reference's floor is 1.6, so this is the one number the shot does not reach; whatever
-            // is feeding it has not been found yet.
+            // **THE CONSTANT ~36 UNDER THE FLOOR IS FOUND, AND IT WAS THE PROBES** (2026-09-04).
+            // Two boosts (x7 -> 50.6, x9 -> 54.7) had solved to something that scaled with nothing
+            // here: not the fixtures, not the ambient, and not the lightmaps - detaching those was
+            // tried and moved it by nothing. It was the LOCAL reflection probe, which
+            // `WithFlatReflection` never touched because that swaps the scene's DEFAULT reflection
+            // and the floor reads its own room's cubemap instead. With `DimReflectionProbes` in the
+            // staging the same spot measures 16 against the reference's 1.6, and the wall 0.0
+            // against 0.7.
             foreach (Light light in beyond)
             {
                 Vector3 local = light.transform.localPosition;
                 saved.Add((light, light.intensity, local.z));
-                light.intensity *= 7f;
+                light.intensity *= 10f;
             }
             return saved;
         }

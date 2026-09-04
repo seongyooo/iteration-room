@@ -599,6 +599,14 @@ namespace IterationRoom.EditorTools
             // the room is. Words printed on a wall with nothing around them have only their own
             // weight to hold the screen with, which is exactly why Medium was not enough here and
             // would have been fine inside a box.
+            // **THE ORDER IS THE ONE THING IN THIS COLUMN THAT DOES NOT FOLLOW THE REFERENCE, AND
+            // THAT IS DECIDED RATHER THAN OVERLOOKED** (2026-09-04, confirmed by request).
+            // `docs/mainmenu_dark.png` puts PLAY at the top; CONTINUE stays there. The two swapped
+            // on 2026-08-20 for a reason the mock-up has no way to carry - "the thing a returning
+            // player wants is the run they were in, and the thing they rarely want is a list" - and
+            // a picture of a menu cannot argue with a fact about who is reading it. Everything else
+            // on this screen was matched to that reference; this row order is the exception.
+            //
             // **AND BACK TO THE LEFT** (2026-09-04, by request, from `docs/mainmenu_dark.png`).
             // Same five rows, same order, same pitch; it has been on both margins now and each move
             // followed the picture behind it. The argument for the right was that the interface

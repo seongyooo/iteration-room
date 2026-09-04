@@ -295,6 +295,7 @@ namespace IterationRoom.EditorTools
 
             RoomBlackout blackout = allLightsGO.AddComponent<RoomBlackout>();
             blackout.litWhen = allLightsOn;
+            blackout.darkFraction = Room2OneDarkFraction;
 
             // The same condition drives the probe swap, and it is captured here rather than looked
             // up at bake time for the same reason the fixtures are.

@@ -33,6 +33,23 @@ namespace IterationRoom
         // The room's own lit condition - the same object its door hangs on.
         public RoomCondition litWhen;
 
+        // **AND THE DARK BAKE IS STILL TOO BRIGHT, BECAUSE A BAKE CANNOT SEE `RoomBlackout`.**
+        //
+        // Both cubemaps are photographed at BUILD time, with the ambient constant at its authored
+        // value - the blackout is a runtime effect and no bake can know about it. So in a room whose
+        // ambient has been taken down to a fifth, the walls were reflecting a cubemap of the same
+        // room at FULL ambient: a reflection five times brighter than the surface carrying it.
+        //
+        // Play found it exactly where the maths says it would be - "get close to a wall and there is
+        // a bright patch". Close to a wall is a GRAZING angle, Fresnel rises steeply there, and the
+        // environment term goes from a trace to the dominant one. (It is not the door's indicator
+        // lamp, which was the first suspect: that is a single pixel of the cubemap, measured.)
+        //
+        // Scaling the probe's own intensity by the same fraction the ambient is scaled by puts the
+        // reflection back in step with the room. One float, no second bake, and it tracks whatever
+        // `RoomBlackout` is set to because it is handed the same number.
+        [Range(0f, 1f)] public float darkIntensity = 0.2f;
+
         // Nullable so the first Apply always writes, whatever state the probe was saved in.
         private bool? applied;
 
@@ -58,6 +75,7 @@ namespace IterationRoom
 
             applied = wantLit;
             probe.customBakedTexture = want;
+            probe.intensity = wantLit ? 1f : darkIntensity;
         }
     }
 }

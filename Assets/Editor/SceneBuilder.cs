@@ -341,6 +341,16 @@ namespace IterationRoom.EditorTools
         private static Material Room2OneFixtureOff;
         private static RoomCondition Room2OneLitWhen;
 
+        // **HOW MUCH OF THE ROOM SURVIVES WITH ITS LIGHTS OFF, IN ONE PLACE.** Two things have to
+        // agree on it or the room contradicts itself: `RoomBlackout` scales the AMBIENT by it, and
+        // `ProbeLightSwap` scales the probe's INTENSITY by it. Set them differently and the walls
+        // reflect a room at a brightness the room is not - which is the fault play found as "a
+        // bright patch when you get close to a wall", from the other side.
+        //
+        // A fifth rather than nothing because the switches have to stay findable - see the note at
+        // the call site.
+        private const float Room2OneDarkFraction = 0.2f;
+
         private const string TexturesDir = "Assets/Textures";
         // Symbols printed on the cube room's cubes and on the recesses that want them. Their own
         // folder because they are WORLD textures - mipmapped, opaque, imported as Default - where

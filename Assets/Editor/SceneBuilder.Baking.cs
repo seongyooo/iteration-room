@@ -633,6 +633,9 @@ namespace IterationRoom.EditorTools
             swap.dark = dark;
             swap.lit = lit;
             swap.litWhen = Room2OneLitWhen;
+            // The same fraction the ambient is scaled by, so the reflection stays in step with the
+            // room it is a reflection OF - see `Room2OneDarkFraction`.
+            swap.darkIntensity = Room2OneDarkFraction;
 
             // Said as a comparison, because the whole point is that the two differ: a lit bake with
             // no pixels over 1.0 would mean the fixtures did not come back on for the shot, and the
