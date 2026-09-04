@@ -981,21 +981,41 @@ namespace IterationRoom.EditorTools
             return (root.transform, spawn, gas, r1, signals, northBarrier, lifts);
         }
 
-        // THE BED A PLAYER FALLS INTO HAS TO BE UNDER THE HATCH THEY FELL THROUGH, and nothing else in
-        // the build checks that. `CycleThreeX`/`Z` are read off room2-0 by hand (see their comment), so
-        // this is the line that notices when room2-0 moves and they do not.
-        private static void AssertUnderHatch(Transform breakRoom)
+        // THE LID HAS TO SIT ON THE HOLE IT FILLS, and nothing else in the build checks that.
+        // `CycleThreeX`/`Z` are read off room2-0 by hand (see their comment), so this is the line
+        // that notices when room2-0 moves and they do not.
+        //
+        // **IT COMPARED THE HATCH WITH THE CONSTANTS THAT PLACED THE HATCH** until 2026-09-04, which
+        // is a value against itself: it could not fail, and it did not - it passed while the lid sat
+        // 0.30m off its hole and play found the gap instead. An assert has to compare two things that
+        // came from DIFFERENT places or it is decoration. The hole comes from room2-0, so room2-0 is
+        // what the hatch is now measured against.
+        //
+        // Room2-0's own origin IS the hole's centre, because `CycleTwoExitHole` is cut on the room's
+        // local origin rather than offset like cycle 1's - so its transform is the thing to compare.
+        private static void AssertUnderHatch(Transform hatch, Transform roomTwoZero)
         {
-            if (breakRoom == null) return;
+            if (hatch == null) return;
+            if (roomTwoZero == null)
+            {
+                Debug.LogError("[SceneBuilder] AssertUnderHatch found no 'Room2_0' to measure the "
+                    + "cycle 2 hatch against, so the check that the lid covers its hole did not run. "
+                    + "If that room was renamed, rename it here too.");
+                return;
+            }
 
-            Vector3 hatch = breakRoom.position;
-            float dx = Mathf.Abs(hatch.x - CycleThreeX), dz = Mathf.Abs(hatch.z - CycleThreeZ);
+            Vector3 lid = hatch.position, hole = roomTwoZero.position;
+            float dx = Mathf.Abs(lid.x - hole.x), dz = Mathf.Abs(lid.z - hole.z);
+            // Well under the clearance a visible gap needs: the opening is 1.75m square, so 5cm of
+            // slip is invisible and 30cm was not.
             if (dx < 0.05f && dz < 0.05f) return;
 
-            Debug.LogError($"[SceneBuilder] Cycle 3's bed room is not under room2-0's hatch: the hatch "
-                + $"is at ({hatch.x:0.##}, {hatch.z:0.##}) and CycleThreeX/Z say "
-                + $"({CycleThreeX:0.##}, {CycleThreeZ:0.##}). A player dropping through would land "
-                + "outside the room, or inside a wall. Update the two constants.");
+            Debug.LogError($"[SceneBuilder] Cycle 2's floor hatch does not cover its hole. The lid is "
+                + $"at ({lid.x:0.###}, {lid.z:0.###}) and room2-0's hole is at "
+                + $"({hole.x:0.###}, {hole.z:0.###}) - out by ({dx:0.###}, {dz:0.###})m, which leaves "
+                + $"that much of the opening uncovered and drops cycle 3's bed off the shaft. "
+                + $"CycleThreeX/Z are ({CycleThreeX:0.###}, {CycleThreeZ:0.###}) and are what place "
+                + "the lid; set them to room2-0's centre.");
         }
 
         private static (Transform room, FinalRoomSequence final, CycleExit exit) BuildBreakRoom(

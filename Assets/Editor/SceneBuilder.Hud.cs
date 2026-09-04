@@ -196,6 +196,21 @@ namespace IterationRoom.EditorTools
                            new Vector2(0.700f, 0.135f), 0.072f, MouseLeftIcon());
             SetTouchButton(touch.jump, root.transform, disc, "JUMP",
                            new Vector2(0.885f, 0.175f), 0.072f);
+            // **IMMEDIATELY LEFT OF E** (2026-09-04, by request: that space is empty).
+            //
+            // The x is worked out rather than eyeballed, because a RADIUS IS A FRACTION OF SCREEN
+            // HEIGHT while a centre is a fraction of each axis - so a button's width in x is
+            // `radius / aspect` and the gap between two of them SHRINKS as the screen gets squarer.
+            // At 16:9 E spans x 0.830..0.940; at 4:3 it spans 0.812..0.959. Sitting this at 0.755
+            // with a radius of 0.062 leaves 0.040 of clear width at 16:9 and still 0.010 at 4:3,
+            // where 0.775 - which looks right on a phone - would have overlapped E on a tablet.
+            // `TouchControls` hit-tests buttons in order and gives the finger to the first one hit,
+            // so two that overlap would make which verb fires depend on the array order.
+            //
+            // Smaller than E, and it is a hold with a charging gauge: E is pressed constantly and
+            // this throws the iteration away, so it must not be reachable by the same brush.
+            SetTouchButton(touch.endIteration, root.transform, disc, "END",
+                           new Vector2(0.755f, 0.420f), 0.062f);
             // Top corner, small, and away from everything else: it is pressed between runs rather
             // than during one.
             SetTouchButton(touch.pause, root.transform, disc, "II",

@@ -238,13 +238,20 @@ namespace IterationRoom
             get
             {
                 Pump();
+                if (TouchActive) return touch.EndIterationHeld;
                 return Held(GameAction.EndIteration);
             }
         }
 
-        // ENDING AN ITERATION EARLY IS NOT HERE, and that is deliberate. `EndCycleControl` is a
-        // uGUI element with its own IPointerDown/Up handlers, so a thumb held on it already works
-        // through the EventSystem - it is the one control that needed nothing. See
-        // TouchControls.OverInteractiveUI for the guard that stops that same touch turning the view.
+        // **AND IT IS HERE NOW** (2026-09-04). It used to be argued that `EndCycleControl`'s own
+        // IPointerDown/Up handlers were enough, since a thumb held on that box works through the
+        // EventSystem. They are not: the box is INVISIBLE until the control is down. On a keyboard
+        // that is fine - press N and it appears - but a phone has no key to press, so the only way
+        // to reach it was to hold a spot that shows nothing until you have already found it.
+        //
+        // It matters more than one button sounds. The measured tempo is 29 seconds an iteration
+        // against a 60-second budget, so this game's rhythm IS this control being used; without it a
+        // touch player waits out every clock and the run takes twice as long. See
+        // TouchControls.OverInteractiveUI for the guard that stops the same touch turning the view.
     }
 }

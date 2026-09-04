@@ -72,6 +72,14 @@ namespace IterationRoom
         public TouchButton use = new TouchButton { label = "USE" };
         public TouchButton jump = new TouchButton { label = "JUMP" };
         public TouchButton pause = new TouchButton { label = "II" };
+        // **HELD, NOT PRESSED** - `EndCycleControl` charges a gauge while it is down, and this is the
+        // one touch control that is read through `Held` rather than `PressedThisFrame`.
+        //
+        // It is here at all because the desktop path does NOT carry over. `EndCycleControl` has its
+        // own pointer handlers, so a thumb on that box already worked - but the box is invisible
+        // until the control is down, which on a keyboard is fine (press N and it appears) and on a
+        // phone means hunting for something that cannot be seen. There is no key to press.
+        public TouchButton endIteration = new TouchButton { label = "END" };
         // NO "END ITERATION" BUTTON, and that is not an omission. `EndCycleControl` is already a
         // uGUI element implementing IPointerDown/Up, so a thumb held on it works through the
         // EventSystem exactly as a mouse does - it needed nothing. What it DID need is the guard in
@@ -85,6 +93,7 @@ namespace IterationRoom
         public bool InteractPressed => interact.PressedThisFrame;
         public bool UsePressed => use.PressedThisFrame;
         public bool PausePressed => pause.PressedThisFrame;
+        public bool EndIterationHeld => endIteration.Held;
 
         private static readonly List<RaycastResult> uiProbe = new List<RaycastResult>();
 
@@ -120,7 +129,7 @@ namespace IterationRoom
 
         private void Awake()
         {
-            buttons = new[] { interact, use, jump, pause };
+            buttons = new[] { interact, use, jump, pause, endIteration };
         }
 
         private void OnEnable() => GameInput.Register(this);

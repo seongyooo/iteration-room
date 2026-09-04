@@ -987,8 +987,18 @@ namespace IterationRoom.EditorTools
         // tree hall's origin, the slide room's offsets and `CycleTwoYaw`, and re-deriving that chain
         // here would be a second copy of it to keep in step. If room2-0 ever moves, these move with it
         // and the build says so - `AssertUnderHatch` below fails the build if they drift apart.
-        private const float CycleThreeX = 21.7f;
-        private const float CycleThreeZ = 108.5f;
+        //
+        // **CORRECTED 2026-09-04, FROM 21.7 / 108.5, AFTER PLAY REPORTED THE HATCH SITTING OPEN.**
+        // room2-0's floor hole is cut by `CycleTwoExitHole` on the room's own centre, and measuring
+        // the built scene put that centre at (21.64, 108.2) while these said (21.7, 108.5). The lid
+        // is placed from these, so it sat 0.30m north and 0.06m west of the hole it fills - leaving a
+        // 0.30m strip of the opening uncovered along its south edge, which is what was seen.
+        //
+        // The assert that was supposed to catch exactly this could not: it compared the hatch against
+        // these constants, and the hatch is POSITIONED from them, so it was comparing a value with
+        // itself. It compares against room2-0 now. See `AssertUnderHatch`.
+        private const float CycleThreeX = 21.64f;
+        private const float CycleThreeZ = 108.2f;
         // Room2-0's floor is at -10.916; one storey under it is where cycle 3's floor goes.
         private const float CycleThreeFloorY = -10.916f - StoreyDrop;
 
@@ -1870,7 +1880,11 @@ namespace IterationRoom.EditorTools
             // And the tube the player falls down, joining room2-0's floor to room3-1's ceiling.
             BuildExitShaft(join23.transform, "ExitShaft_Cycle2", 0f, floorMat);
 
-            AssertUnderHatch(cycleTwoExit != null ? cycleTwoExit.transform : null);
+            // Both halves, because the point is to compare two things that were built from DIFFERENT
+            // numbers: the lid comes from `CycleThreeX/Z`, the hole comes from wherever room2-0
+            // actually ended up.
+            AssertUnderHatch(cycleTwoExit != null ? cycleTwoExit.transform : null,
+                             FindChildByName(cycleTwoRoot, "Room2_0"));
 
             (Cycle cycleThree, WallPanelDisplay cycleThreeDisplay) = AssembleCycleThree(
                 cycleThreeRoot, cycleThreeBedSpawn, cycleThreeGas, cycleThreeSignals,
