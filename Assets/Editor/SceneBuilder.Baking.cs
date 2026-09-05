@@ -763,6 +763,8 @@ namespace IterationRoom.EditorTools
 
         private static int MarkReflectionProbeStatic()
         {
+            occlusionMovers = null;
+
             int flagged = 0;
             int skipped = 0;
             int backings = 0;
@@ -980,31 +982,59 @@ namespace IterationRoom.EditorTools
         //
         // `MovesDuringPlay` answers "should this bake into the GI and the probes", and it was tuned
         // for that gentler consumer: getting it wrong there means a reflection is slightly off.
-        // Getting it wrong HERE means geometry disappears - an occluder baked in a pose it does not
-        // hold keeps hiding whatever was behind it after it has moved away.
+        // Getting it wrong HERE means geometry disappears - an occluder or occludee baked in a pose
+        // it does not hold keeps being culled, or keeps hiding what is behind it, after it has moved.
         //
-        // Play found the first one on 2026-09-05: standing on a pad in cycle 3 turned the room
-        // beyond the gate into skybox. `WallWhileShut` makes `MovesDuringPlay` answer FALSE on
-        // purpose, so a shut gate bakes as the wall it is at rest - a good argument about a RESTING
-        // state, and occlusion is not about a resting state.
+        // **AND IT IS A SUBTREE QUESTION, NOT AN ANCESTOR ONE.** The first version walked UP from
+        // each renderer looking for one of these components, which quietly missed the tree: play
+        // found its leaves blinking in and out while crossing the felled trunk. `TreeTrunk` is a bare
+        // trigger object standing BESIDE the tree, a sibling of the geometry rather than a parent of
+        // it, so walking up from a leaf never passed through it and the whole tree stayed an
+        // occludee - baked standing, then chopped into a bridge.
         //
-        // The rest of this list is everything else that moves a renderer and was never in that one,
-        // because it never needed to be: the two beam lifts run their decks 5.21m, the barrier
-        // crushes, the cable car flies, the tree comes apart, the chess board splits, the slide
-        // carries. **The asymmetry is what decides the membership rule**: holding something out of
-        // occlusion costs a few draw calls, and leaving something in that should not be costs a room
-        // that is not there. So this errs wide, and anything new that moves belongs in it.
+        // So the roots are collected first and the test is membership. Cheaper too: this used to run
+        // a component walk per renderer across ten thousand of them.
+        private static HashSet<Transform> occlusionMovers;
+
+        private static void CollectOcclusionMovers()
+        {
+            occlusionMovers = new HashSet<Transform>();
+
+            void Exclude(Transform t) { if (t != null) occlusionMovers.Add(t); }
+
+            // Each of these sits on a root that is genuinely above the renderers it moves.
+            foreach (var c in UnityEngine.Object.FindObjectsByType<WallWhileShut>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None)) Exclude(c.transform);
+            foreach (var c in UnityEngine.Object.FindObjectsByType<BeamLift>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None)) Exclude(c.transform);
+            foreach (var c in UnityEngine.Object.FindObjectsByType<CrushingBarrier>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None)) Exclude(c.transform);
+            foreach (var c in UnityEngine.Object.FindObjectsByType<CableCarRide>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None)) Exclude(c.transform);
+            foreach (var c in UnityEngine.Object.FindObjectsByType<ChessReward>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None)) Exclude(c.transform);
+            foreach (var c in UnityEngine.Object.FindObjectsByType<SlideRide>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None)) Exclude(c.transform);
+
+            // **AND THE ONE THAT DOES NOT.** `TreeTrunk` is a reach volume parked next to the tree,
+            // not a parent of it, so the thing that has to leave the occlusion set is its PARENT -
+            // the tree root, which owns the standing trunk, the notch stages, the felled pair and
+            // the leaves. This is the exception that made a set necessary; if another component is
+            // ever authored beside what it animates rather than above it, it belongs here too.
+            foreach (var c in UnityEngine.Object.FindObjectsByType<TreeTrunk>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None))
+                Exclude(c.transform.parent != null ? c.transform.parent : c.transform);
+        }
+
+        // **THE MEMBERSHIP RULE IS THE ASYMMETRY**: holding something out of occlusion costs a few
+        // draw calls, and leaving something in that should not be costs a room that is not there, or
+        // a tree that blinks. It errs wide, and anything new that moves belongs in the collector.
         private static bool MovesForOcclusion(Transform t)
         {
+            if (occlusionMovers == null) CollectOcclusionMovers();
             while (t != null)
             {
-                if (t.GetComponent<WallWhileShut>() != null) return true;
-                if (t.GetComponent<BeamLift>() != null) return true;
-                if (t.GetComponent<CrushingBarrier>() != null) return true;
-                if (t.GetComponent<CableCarRide>() != null) return true;
-                if (t.GetComponent<TreeTrunk>() != null) return true;
-                if (t.GetComponent<ChessReward>() != null) return true;
-                if (t.GetComponent<SlideRide>() != null) return true;
+                if (occlusionMovers.Contains(t)) return true;
                 t = t.parent;
             }
             return false;
