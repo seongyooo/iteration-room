@@ -128,8 +128,8 @@ namespace IterationRoom
         // number and wants it set before anything starts. All three write `GameSettings.MouseSensitivity`,
         // which is the single value, so none of them can disagree with another.
 
-        // See GameSettings.RenderScale for why this is the graphics setting the game has, and why it
-        // is a scale rather than a resolution list.
+        // See `SettingsPanel` for what this page holds and `VideoSettings` for the graphics half
+        // of it - the resolution, the fullscreen flag and the quality preset.
 
         // The controls list. Owns which key each verb is on only in the sense of asking
         // `InputBindings`; see KeyBindingPanel.
