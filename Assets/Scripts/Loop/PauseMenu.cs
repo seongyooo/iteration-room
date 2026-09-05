@@ -29,34 +29,34 @@ namespace IterationRoom
         public Button menuButton;
         public Button quitButton;
 
-        // The pause overlay is also the settings screen, because it is the only place the player
-        // can reach with the cursor free and the room still in front of them - which is exactly
-        // what tuning a look sensitivity needs. Resume, look around, pause again, adjust.
-        public Slider sensitivitySlider;
-        public Text sensitivityValue;
+        // **THE SAME SETTINGS PAGE THE TITLE SCREEN SHOWS.** It used to be four of its six rows,
+        // built inline here, with a private copy of every handler behind them - see `SettingsPanel`
+        // for what that cost and why the render scale in particular could not stay behind.
+        public Button settingsButton;
+        public SettingsPanel settings;
 
-        // VOLUME, here as well as on the title screen. "Too loud" is a thought a player has while the
-        // PA is talking over them, and until this existed the only way to act on it was to quit the
-        // run. Both write `GameSettings.MasterVolume`, which is the single value.
-        public Slider volumeSlider;
-        public Text volumeValue;
 
-        // **THE TWO PICKERS THE TITLE SCREEN HAS.** Both write the same statics that page writes -
-        // `GameSettings.Language` and `GameSettings.Subtitles` - so the two pages cannot disagree,
-        // and both are re-read every time this menu opens for the reason `SyncSensitivity` records:
-        // anything that can move a value behind a panel's back makes a single seed stale, and the
-        // subtitle key (M) moves this one from inside the game.
-        public Button englishButton;
-        public Button koreanButton;
-        public Text englishInk;
-        public Text koreanInk;
 
-        public Button subtitlesOnButton;
-        public Button subtitlesOffButton;
-        public Text subtitlesOnInk;
-        public Text subtitlesOffInk;
+
 
         public bool IsPaused { get; private set; }
+
+        // Which of the two faces of this overlay is up. The page and the buttons share one scrim, so
+        // one has to stand down for the other.
+        private void ShowSettings(bool show)
+        {
+            if (settings != null) settings.Show(show);
+            SetButtons(!show);
+        }
+
+        private void SetButtons(bool on)
+        {
+            if (resumeButton != null) resumeButton.gameObject.SetActive(on);
+            if (restartButton != null) restartButton.gameObject.SetActive(on);
+            if (menuButton != null) menuButton.gameObject.SetActive(on);
+            if (quitButton != null) quitButton.gameObject.SetActive(on);
+            if (settingsButton != null) settingsButton.gameObject.SetActive(on);
+        }
 
         // What the loop wanted control to be before the pause. Restored rather than forced true:
         // pausing during the wake-up must not hand the player a camera the loop had taken away.
@@ -69,45 +69,24 @@ namespace IterationRoom
             if (menuButton != null) menuButton.onClick.AddListener(ToMainMenu);
             if (quitButton != null) quitButton.onClick.AddListener(Quit);
 
+            // **THE PAGE IS SHARED; WHAT BACK DOES IS NOT.** Here it returns to the four buttons
+            // rather than to a title-screen column - see `SettingsPanel.onBack`.
+            if (settingsButton != null) settingsButton.onClick.AddListener(() => ShowSettings(true));
+            if (settings != null) settings.onBack = () =>
+            {
+                GameSettings.Save();
+                ShowSettings(false);
+            };
+
             // The saved volume, pushed at the engine here as well as on the title screen: a run
             // started straight from the Editor never passes through the menu, and `AudioListener`'s
             // volume is a global nothing else initialises. The slider for it lives on the title
             // screen (MainMenu.settingsGroup); this only honours what it set.
             GameSettings.ApplyAudio();
 
-            if (sensitivitySlider != null)
-            {
-                sensitivitySlider.minValue = GameSettings.MinMouseSensitivity;
-                sensitivitySlider.maxValue = GameSettings.MaxMouseSensitivity;
-                // The listener is attached AFTER the first seed below, because a Slider raises
-                // onValueChanged on assignment - seeding through an attached listener would write
-                // the slider's own starting value straight back over the saved one.
-                SyncSensitivity();
-                sensitivitySlider.onValueChanged.AddListener(SetSensitivity);
-            }
-            ShowSensitivity();
 
-            if (volumeSlider != null)
-            {
-                volumeSlider.minValue = 0f;
-                volumeSlider.maxValue = 1f;
-                // Seeded before the listener, for the reason the sensitivity slider above documents.
-                volumeSlider.SetValueWithoutNotify(GameSettings.MasterVolume);
-                volumeSlider.onValueChanged.AddListener(SetVolume);
-            }
-            ShowVolume();
 
-            if (englishButton != null)
-                englishButton.onClick.AddListener(() => SetLanguage(GameLanguage.English));
-            if (koreanButton != null)
-                koreanButton.onClick.AddListener(() => SetLanguage(GameLanguage.Korean));
-            ShowLanguage();
 
-            if (subtitlesOnButton != null)
-                subtitlesOnButton.onClick.AddListener(() => SetSubtitles(true));
-            if (subtitlesOffButton != null)
-                subtitlesOffButton.onClick.AddListener(() => SetSubtitles(false));
-            ShowSubtitles();
 
             Apply(false);
         }
@@ -118,55 +97,10 @@ namespace IterationRoom
         // never showed what the player had just set. Opening the pause menu reported the old number
         // and dragging it snapped away from the real one.
         //
-        // It is the other half of the lesson the deleted LightingTuner taught. "Seed the panel from
-        // the live state" is not a thing to do once - anything that can change the value behind the
-        // panel's back makes a single seed stale, and here something does.
-        private void SyncSensitivity()
-        {
-            if (sensitivitySlider != null)
-                sensitivitySlider.SetValueWithoutNotify(GameSettings.MouseSensitivity);
-            ShowSensitivity();
 
-            // The volume with it, and for the same reason: the title screen's own slider writes this
-            // value, so a pause menu seeded once at scene load would show a stale number and snap
-            // away from it on the first drag.
-            if (volumeSlider != null)
-                volumeSlider.SetValueWithoutNotify(GameSettings.MasterVolume);
-            ShowVolume();
 
-            // The two pickers, for the same reason. Subtitles especially: M moves it from inside the
-            // game, so a pause menu that seeded once would show OFF over a run that had turned it on.
-            ShowLanguage();
-            ShowSubtitles();
-        }
 
-        private void SetLanguage(GameLanguage value)
-        {
-            GameSettings.Language = value;
-            ShowLanguage();
-        }
 
-        // The live one at full strength and the other dimmed - no tick, no frame, the same shape the
-        // title screen uses so the two pages read as one design.
-        private void ShowLanguage()
-        {
-            bool korean = GameSettings.Language == GameLanguage.Korean;
-            Dim(englishInk, !korean);
-            Dim(koreanInk, korean);
-        }
-
-        private void SetSubtitles(bool on)
-        {
-            GameSettings.Subtitles = on;
-            ShowSubtitles();
-        }
-
-        private void ShowSubtitles()
-        {
-            bool on = GameSettings.Subtitles;
-            Dim(subtitlesOnInk, on);
-            Dim(subtitlesOffInk, !on);
-        }
 
         private static void Dim(Text ink, bool live)
         {
@@ -174,33 +108,9 @@ namespace IterationRoom
             ink.color = new Color(ink.color.r, ink.color.g, ink.color.b, live ? 1f : 0.35f);
         }
 
-        private void SetVolume(float value)
-        {
-            // Applied live by the setter, so a drag is audible while it is being dragged - which is
-            // the only way to judge a volume. Committed to disk with everything else by Save().
-            GameSettings.MasterVolume = value;
-            ShowVolume();
-        }
 
-        private void ShowVolume()
-        {
-            // A percentage, not 0.00: this is a loudness and nobody thinks about loudness in
-            // hundredths. Sensitivity keeps its decimals because a mouse multiplier is a ratio.
-            if (volumeValue != null)
-                volumeValue.text = Mathf.RoundToInt(GameSettings.MasterVolume * 100f) + "%";
-        }
 
-        private void SetSensitivity(float value)
-        {
-            GameSettings.MouseSensitivity = value;
-            ShowSensitivity();
-        }
 
-        private void ShowSensitivity()
-        {
-            if (sensitivityValue != null)
-                sensitivityValue.text = GameSettings.MouseSensitivity.ToString("0.00");
-        }
 
         // Time scale and the audio pause are global, not per-scene. Leaving either set on the way
         // out would freeze and silence whatever loads next, and this runs on a scene change as
@@ -246,8 +156,11 @@ namespace IterationRoom
             if (IsPaused) return;
 
             controlBeforePause = playerController == null || playerController.ControlEnabled;
-            // Re-read here, every open. See SyncSensitivity.
-            SyncSensitivity();
+            // **THE OVERLAY ALWAYS OPENS ON THE BUTTONS, never on the settings page it was left
+            // showing.** ESC is "let me out of this"; landing back on a page of sliders is not that.
+            // Closing it is also what re-reads the stored values next time it is opened - see
+            // `SettingsPanel.Show`, which does that on the way in rather than caching.
+            ShowSettings(false);
             Apply(true);
         }
 

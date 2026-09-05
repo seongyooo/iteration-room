@@ -115,10 +115,11 @@ namespace IterationRoom
         public CanvasGroup creditsGroup;
 
         public Button settingsButton;
-        public Button settingsBackButton;
-        public CanvasGroup settingsGroup;
-        public Slider volumeSlider;
-        public Text volumeValue;
+
+        // **THE WHOLE SETTINGS PAGE, AND THE PAUSE MENU HOLDS THE SAME KIND OF REFERENCE.** Every
+        // control that used to be listed here one field at a time - and every handler behind them -
+        // lives in `SettingsPanel` now. See it for why there were two copies and what that cost.
+        public SettingsPanel settings;
 
         // SENSITIVITY, ON THE TITLE SCREEN AS WELL AS IN THE PAUSE MENU AND THE CALIBRATION ROOM.
         // Three places for one number is not duplication - they answer three different situations. The
@@ -126,17 +127,12 @@ namespace IterationRoom
         // pause menu is for one mid-run who has just found out; this is for one who already knows their
         // number and wants it set before anything starts. All three write `GameSettings.MouseSensitivity`,
         // which is the single value, so none of them can disagree with another.
-        public Slider sensitivitySlider;
-        public Text sensitivityValue;
 
         // See GameSettings.RenderScale for why this is the graphics setting the game has, and why it
         // is a scale rather than a resolution list.
-        public Slider renderScaleSlider;
-        public Text renderScaleValue;
 
         // The controls list. Owns which key each verb is on only in the sense of asking
         // `InputBindings`; see KeyBindingPanel.
-        public KeyBindingPanel bindings;
 
         // LANGUAGE. Two buttons rather than a slider or a cycling toggle: with two options a toggle
         // costs the same space and tells you only what you would get NEXT, where two buttons show
@@ -144,15 +140,7 @@ namespace IterationRoom
         // purpose - see the note where it builds them.
         // The subtitle row, in the same shape as the language row below it: two buttons, the live
         // one lit and the other dimmed. See `ShowSubtitles`.
-        public Button subtitlesOnButton;
-        public Button subtitlesOffButton;
-        public Text subtitlesOnInk;
-        public Text subtitlesOffInk;
 
-        public Button englishButton;
-        public Button koreanButton;
-        public Text englishInk;
-        public Text koreanInk;
         public Image loadingFill;
         public Text loadingLabel;
 
@@ -203,61 +191,24 @@ namespace IterationRoom
             if (creditsBackButton != null) creditsBackButton.onClick.AddListener(() => ShowCredits(false));
 
             if (settingsButton != null) settingsButton.onClick.AddListener(() => ShowSettings(true));
-            if (settingsBackButton != null) settingsBackButton.onClick.AddListener(() =>
+            // **BACK IS THE PANEL'S BUTTON AND THIS IS WHAT IT DOES HERE.** The panel does not
+            // know which menu it is in, so the menu supplies the action - see `SettingsPanel.onBack`.
+            //
+            // Committed on the way OUT, not on every frame of a drag - the same rule the pause menu
+            // follows, and for the same reason (PlayerPrefs.Save is a storage flush on WebGL).
+            if (settings != null) settings.onBack = () =>
             {
-                // Committed on the way OUT, not on every frame of a drag - the same rule the pause
-                // menu's sensitivity slider follows, and for the same reason (PlayerPrefs.Save is a
-                // storage flush on WebGL).
                 GameSettings.Save();
                 ShowSettings(false);
-            });
+            };
 
             // The stored volume reaches the engine here rather than at the first slider drag, so a
             // player who never opens this page still gets the level they chose last time.
             GameSettings.ApplyAudio();
 
-            if (volumeSlider != null)
-            {
-                volumeSlider.minValue = 0f;
-                volumeSlider.maxValue = 1f;
-                // Seeded BEFORE the listener is attached: a Slider raises onValueChanged when its
-                // value is assigned, and a seed that reported itself as a change would write the
-                // default over whatever was loaded.
-                volumeSlider.SetValueWithoutNotify(GameSettings.MasterVolume);
-                volumeSlider.onValueChanged.AddListener(SetVolume);
-            }
-            ShowVolumeValue();
-
-            if (sensitivitySlider != null)
-            {
-                sensitivitySlider.minValue = GameSettings.MinMouseSensitivity;
-                sensitivitySlider.maxValue = GameSettings.MaxMouseSensitivity;
-                // Seeded before the listener for the same reason the volume slider is, one block up.
-                sensitivitySlider.SetValueWithoutNotify(GameSettings.MouseSensitivity);
-                sensitivitySlider.onValueChanged.AddListener(SetSensitivity);
-            }
-
-            if (renderScaleSlider != null)
-            {
-                renderScaleSlider.minValue = 0.5f;
-                renderScaleSlider.maxValue = 1f;
-                renderScaleSlider.SetValueWithoutNotify(GameSettings.RenderScale);
-                renderScaleSlider.onValueChanged.AddListener(SetRenderScale);
-                ShowRenderScale(GameSettings.RenderScale);
-            }
-            ShowSensitivityValue();
-
-            if (subtitlesOnButton != null)
-                subtitlesOnButton.onClick.AddListener(() => SetSubtitles(true));
-            if (subtitlesOffButton != null)
-                subtitlesOffButton.onClick.AddListener(() => SetSubtitles(false));
-            ShowSubtitles();
-
-            if (englishButton != null)
-                englishButton.onClick.AddListener(() => SetLanguage(GameLanguage.English));
-            if (koreanButton != null)
-                koreanButton.onClick.AddListener(() => SetLanguage(GameLanguage.Korean));
-            ShowLanguage();
+            // Every control on the settings page seeds itself when the page opens - see
+            // `SettingsPanel.Show`, which reads `GameSettings` on the way in rather than caching.
+            // Four calls used to sit here and they were the title screen's own copy of that.
 
             if (cycleButtons != null)
                 for (int i = 0; i < cycleButtons.Length; i++)
@@ -431,92 +382,15 @@ namespace IterationRoom
             StartCoroutine(LoadGame());
         }
 
-        // **THE ONE GRAPHICS SETTING, and it is the one the measurement asked for.** A built
-        // player runs fullscreen at native resolution with 4x MSAA where the Editor draws a docked
-        // panel, which is why the build felt heavier than the Editor did - and 1280x720 windowed was
-        // completely smooth. Fill is the cost, so this is the dial.
-        private void SetRenderScale(float value)
-        {
-            GameSettings.RenderScale = value;
-            ShowRenderScale(GameSettings.RenderScale);
-            GameSettings.Save();
-        }
 
-        // Percent, because "0.75" means nothing and "75%" means "three quarters of the pixels".
-        private void ShowRenderScale(float value)
-        {
-            if (renderScaleValue != null)
-                renderScaleValue.text = Mathf.RoundToInt(value * 100f) + "%";
-        }
 
-        private void SetVolume(float value)
-        {
-            GameSettings.MasterVolume = value;
-            ShowVolumeValue();
-        }
 
-        private void ShowVolumeValue()
-        {
-            // As a percentage rather than 0.00: this is a loudness, and nobody thinks about loudness
-            // in hundredths. Sensitivity keeps its decimals because a mouse multiplier is a ratio.
-            if (volumeValue != null)
-                volumeValue.text = Mathf.RoundToInt(GameSettings.MasterVolume * 100f) + "%";
-        }
 
-        // Written straight through, like the bindings and unlike the sliders - see
-        // `GameSettings.Subtitles`. The key in the game can move it too, which is why the row is
-        // redrawn from the setting rather than from what was last clicked.
-        private void SetSubtitles(bool on)
-        {
-            GameSettings.Subtitles = on;
-            ShowSubtitles();
-        }
 
-        private void ShowSubtitles()
-        {
-            bool on = GameSettings.Subtitles;
-            if (subtitlesOnInk != null)
-                subtitlesOnInk.color = new Color(subtitlesOnInk.color.r, subtitlesOnInk.color.g,
-                                                 subtitlesOnInk.color.b, on ? 1f : 0.35f);
-            if (subtitlesOffInk != null)
-                subtitlesOffInk.color = new Color(subtitlesOffInk.color.r, subtitlesOffInk.color.g,
-                                                  subtitlesOffInk.color.b, on ? 0.35f : 1f);
-        }
 
-        private void SetLanguage(GameLanguage value)
-        {
-            // The setter is what raises `Loc.Changed`, so every `LocalizedText` on this page has
-            // already redrawn by the time this returns - including the BACK button under the pointer.
-            GameSettings.Language = value;
-            ShowLanguage();
-        }
 
-        // WHICH ONE IS LIVE, said with ink rather than with a plate. The buttons already carry a
-        // hover and a press state; adding a third background would make "selected" and "hovered"
-        // two shades of the same thing. Full-strength ink for the current language, faded for the
-        // other, which reads at a glance and survives the pointer being anywhere.
-        private void ShowLanguage()
-        {
-            bool korean = GameSettings.Language == GameLanguage.Korean;
-            if (englishInk != null)
-                englishInk.color = new Color(englishInk.color.r, englishInk.color.g,
-                                             englishInk.color.b, korean ? 0.35f : 1f);
-            if (koreanInk != null)
-                koreanInk.color = new Color(koreanInk.color.r, koreanInk.color.g,
-                                            koreanInk.color.b, korean ? 1f : 0.35f);
-        }
 
-        private void SetSensitivity(float value)
-        {
-            GameSettings.MouseSensitivity = value;
-            ShowSensitivityValue();
-        }
 
-        private void ShowSensitivityValue()
-        {
-            if (sensitivityValue != null)
-                sensitivityValue.text = GameSettings.MouseSensitivity.ToString("0.00");
-        }
 
         // The same shape as `ShowSettings` and deliberately simpler: this page holds no state, so
         // there is nothing to re-seed on open and nothing to commit on close.
@@ -534,21 +408,11 @@ namespace IterationRoom
             }
         }
 
+        // The page is `SettingsPanel`'s now; this is only the title screen's half - which column
+        // is on show while it is up.
         private void ShowSettings(bool show)
         {
-            if (settingsGroup != null)
-            {
-                settingsGroup.alpha = show ? 1f : 0f;
-                settingsGroup.blocksRaycasts = show;
-            }
-            // RE-SEEDED ON EVERY OPEN, not once in Awake. The calibration room and the pause menu both
-            // write this number behind the page's back, so a slider seeded at scene load shows a stale
-            // value and dragging it snaps away from the real one - the exact bug PauseMenu.SyncSensitivity
-            // documents, which this page would otherwise have its own copy of.
-            if (show && sensitivitySlider != null)
-                sensitivitySlider.SetValueWithoutNotify(GameSettings.MouseSensitivity);
-            if (show) ShowSensitivityValue();
-            if (!show && bindings != null) bindings.Cancel();
+            if (settings != null) settings.Show(show);
             if (menuGroup != null)
             {
                 menuGroup.alpha = show ? 0f : 1f;

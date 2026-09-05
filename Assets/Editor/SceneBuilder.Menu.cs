@@ -900,92 +900,10 @@ namespace IterationRoom.EditorTools
             // down" should not require starting first. The same argument now carries the other two:
             // a player who already knows their sensitivity, or who cannot use the default movement
             // keys at all, should not have to play an iteration to say so.
-            GameObject settingsGO = new GameObject("Settings");
-            settingsGO.transform.SetParent(canvasGO.transform, false);
-            CanvasGroup settingsGroup = settingsGO.AddComponent<CanvasGroup>();
-            settingsGroup.alpha = 0f;
-            settingsGroup.blocksRaycasts = false;
-            Stretch(settingsGO.AddComponent<RectTransform>());
-
-            // EVERYTHING ON ONE LEFT EDGE, the same one the title screen's buttons and this page's
-            // own BACK are hung on - see MakeLeftColumn for why that is a container rather than a
-            // number written into each row.
-            Transform col = MakeLeftColumn(settingsGO.transform, "Column");
-
-            // The page says its own name, in the title's face rather than the buttons'. The title
-            // screen sets its hierarchy with SIZE and WEIGHT and no rules or boxes anywhere, so this
-            // page does too: ExtraLight 52 against the rows' Regular 18 is what separates them.
-            Localize(MakeRowLabelWeight(col, "SettingsHeading", "SETTINGS",
-                new Vector2(300f, 330f), new Vector2(600f, 70f), TextAnchor.MiddleLeft, MenuInk,
-                "ExtraLight", 52), "menu.settings");
-
-            // THE FOUR ROWS, evenly spaced, label on the edge and control at one indent. Language
-            // first because it is the setting that rewrites every other label on the page, including
-            // BACK - a player who has landed here by accident should reach it before reading anything.
-            // Subtitles second, directly under it: it is the other setting about words on screen, and
-            // the two are read together.
-            //
-            // The step went 55 -> 50 to fit the fourth without pushing CONTROLS into BACK; the
-            // bindings panel drops by `SettingsControlsDrop` to take up the rest.
-            const float languageRowY = 240f;
-            const float subtitleRowY = 190f;
-            const float volumeRowY = 140f;
-            const float sensitivityRowY = 90f;
-            // **THE ONLY GRAPHICS SETTING THIS GAME HAS**, added 2026-09-05 after play found the
-            // built player heavier than the Editor - see `GameSettings.RenderScale`. Last in the
-            // column because it is the one a player touches once, if at all, where the four above
-            // are tuned by feel.
-            const float renderScaleRowY = 40f;
-
-            MakeRowLabelInk(col, "LanguageLabel", "LANGUAGE",
-                new Vector2(SettingsLabelWidth / 2f, languageRowY),
-                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, MenuInk);
-            // **THE TWO BUTTONS ARE NEVER TRANSLATED.** "ENGLISH" and "한국어" each stay in their own
-            // language whichever is selected, which is the one convention every language picker
-            // follows and the only one that works: a player who has landed in a language they cannot
-            // read has to be able to find their way out, and "영어"/"한국어" would be two words they
-            // cannot tell apart. It is also why they are plain `MakeSettingsButton`s with no
-            // `Localize` on them.
-            Button englishButton = MakeSettingsButton(col, "LanguageEnglish", "ENGLISH",
-                new Vector2(SettingsControlX + 75f, languageRowY), new Vector2(150f, 30f), out Text englishInk);
-            Button koreanButton = MakeSettingsButton(col, "LanguageKorean", "한국어",
-                new Vector2(SettingsControlX + 240f, languageRowY), new Vector2(150f, 30f), out Text koreanInk);
-            // The Korean button has to be able to draw its own name before anything has switched, so
-            // it is the one label in the project that takes the Hangul face at build time.
-            Font koreanFace = KoreanUIFont();
-            if (koreanFace != null) koreanInk.font = koreanFace;
-
-            // **TWO BUTTONS, NOT A SLIDER OR A CHECKBOX.** It is the same shape as the language
-            // row directly above it - a pair of states, the live one lit and the other dimmed - and
-            // repeating that shape is what makes the top of this page read as one block of two
-            // choices rather than as four unrelated widgets. The key that also does this (M) is
-            // listed in CONTROLS below, where every other key is.
-            MakeRowLabelInk(col, "SubtitleLabel", "SUBTITLES",
-                new Vector2(SettingsLabelWidth / 2f, subtitleRowY),
-                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, MenuInk);
-            Button subtitlesOnButton = Localize(MakeSettingsButton(col, "SubtitlesOn", "ON",
-                new Vector2(SettingsControlX + 75f, subtitleRowY), new Vector2(150f, 30f),
-                out Text subtitlesOnInk), "set.on");
-            Button subtitlesOffButton = Localize(MakeSettingsButton(col, "SubtitlesOff", "OFF",
-                new Vector2(SettingsControlX + 240f, subtitleRowY), new Vector2(150f, 30f),
-                out Text subtitlesOffInk), "set.off");
-
-            (Slider volumeSlider, Text volumeValue) =
-                MakeSettingsSliderRow(col, "Volume", "VOLUME", "set.volume", "80%", volumeRowY, MenuInk);
-            (Slider sensitivitySlider, Text sensitivityValue) =
-                MakeSettingsSliderRow(col, "Sensitivity", "MOUSE SENSITIVITY", "set.sensitivity",
-                                      "1.10", sensitivityRowY, MenuInk);
-            (Slider renderScaleSlider, Text renderScaleValue) =
-                MakeSettingsSliderRow(col, "RenderScale", "RENDER SCALE", "set.renderscale",
-                                      "100%", renderScaleRowY, MenuInk);
-
-            KeyBindingPanel bindings = BuildKeyBindings(col, settingsGroup);
-
-            // BACK sits on the same edge as everything above it, which is the whole point of the
-            // column. It anchors to the screen's left rather than to the column, because that is what
-            // MakeMenuButton does and the two edges are now the same edge.
-            Button settingsBack = Localize(MakeMenuButtonInk(settingsGO.transform, "SettingsBackButton",
-                                                 "BACK", new Vector2(0f, -355f)), "menu.back", "  ");
+            // **THE SETTINGS PAGE IS BUILT BY A SHARED METHOD NOW** (2026-09-05), because the
+            // pause menu shows the same one - see `BuildSettingsPage` and `SettingsPanel`.
+            SettingsPanel settings = BuildSettingsPage(canvasGO.transform);
+            CanvasGroup settingsGroup = settings.group;
 
             // The loading state, built over the same middle of the screen the buttons occupy so
             // one replaces the other in place instead of the eye having to travel.
@@ -1100,23 +1018,7 @@ namespace IterationRoom.EditorTools
             mainMenu.creditsBackButton = creditsBack;
             mainMenu.creditsGroup = creditsGroup;
             mainMenu.settingsButton = settingsButton;
-            mainMenu.settingsBackButton = settingsBack;
-            mainMenu.settingsGroup = settingsGroup;
-            mainMenu.sensitivitySlider = sensitivitySlider;
-            mainMenu.renderScaleSlider = renderScaleSlider;
-            mainMenu.renderScaleValue = renderScaleValue;
-            mainMenu.subtitlesOnButton = subtitlesOnButton;
-            mainMenu.subtitlesOffButton = subtitlesOffButton;
-            mainMenu.subtitlesOnInk = subtitlesOnInk;
-            mainMenu.subtitlesOffInk = subtitlesOffInk;
-            mainMenu.englishButton = englishButton;
-            mainMenu.koreanButton = koreanButton;
-            mainMenu.englishInk = englishInk;
-            mainMenu.koreanInk = koreanInk;
-            mainMenu.sensitivityValue = sensitivityValue;
-            mainMenu.bindings = bindings;
-            mainMenu.volumeSlider = volumeSlider;
-            mainMenu.volumeValue = volumeValue;
+            mainMenu.settings = settings;
             mainMenu.loadingFill = fill;
             mainMenu.loadingLabel = loadingLabel;
 
@@ -1483,6 +1385,125 @@ namespace IterationRoom.EditorTools
         // The falloff is squared and stops well short of the right edge: the aim is a pool of shade
         // under the column, not a vignette, and anything that reaches the middle starts reading as a
         // dimmed screenshot again.
+        // **ONE SETTINGS PAGE, BUILT WHEREVER IT IS ASKED FOR** (2026-09-05, by request: reach the
+        // settings from inside a run).
+        //
+        // It used to be inline in `BuildMainMenuScene`, which is why the pause menu grew its own
+        // loose copy of four of the six rows and `PauseMenu` grew its own copy of every handler
+        // behind them. Extracted rather than duplicated a third time; `SettingsPanel` is the other
+        // half of the same move and owns the behaviour.
+        //
+        // The caller decides what BACK does and where the page hangs - the panel knows neither.
+        private static SettingsPanel BuildSettingsPage(Transform parent)
+        {
+            GameObject settingsGO = new GameObject("Settings");
+            settingsGO.transform.SetParent(parent, false);
+            CanvasGroup settingsGroup = settingsGO.AddComponent<CanvasGroup>();
+            settingsGroup.alpha = 0f;
+            settingsGroup.blocksRaycasts = false;
+            Stretch(settingsGO.AddComponent<RectTransform>());
+
+            // EVERYTHING ON ONE LEFT EDGE, the same one the title screen's buttons and this page's
+            // own BACK are hung on - see MakeLeftColumn for why that is a container rather than a
+            // number written into each row.
+            Transform col = MakeLeftColumn(settingsGO.transform, "Column");
+
+            // The page says its own name, in the title's face rather than the buttons'. The title
+            // screen sets its hierarchy with SIZE and WEIGHT and no rules or boxes anywhere, so this
+            // page does too: ExtraLight 52 against the rows' Regular 18 is what separates them.
+            Localize(MakeRowLabelWeight(col, "SettingsHeading", "SETTINGS",
+                new Vector2(300f, 330f), new Vector2(600f, 70f), TextAnchor.MiddleLeft, MenuInk,
+                "ExtraLight", 52), "menu.settings");
+
+            // THE FOUR ROWS, evenly spaced, label on the edge and control at one indent. Language
+            // first because it is the setting that rewrites every other label on the page, including
+            // BACK - a player who has landed here by accident should reach it before reading anything.
+            // Subtitles second, directly under it: it is the other setting about words on screen, and
+            // the two are read together.
+            //
+            // The step went 55 -> 50 to fit the fourth without pushing CONTROLS into BACK; the
+            // bindings panel drops by `SettingsControlsDrop` to take up the rest.
+            const float languageRowY = 240f;
+            const float subtitleRowY = 190f;
+            const float volumeRowY = 140f;
+            const float sensitivityRowY = 90f;
+            // **THE ONLY GRAPHICS SETTING THIS GAME HAS**, added 2026-09-05 after play found the
+            // built player heavier than the Editor - see `GameSettings.RenderScale`. Last in the
+            // column because it is the one a player touches once, if at all, where the four above
+            // are tuned by feel.
+            const float renderScaleRowY = 40f;
+
+            MakeRowLabelInk(col, "LanguageLabel", "LANGUAGE",
+                new Vector2(SettingsLabelWidth / 2f, languageRowY),
+                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, MenuInk);
+            // **THE TWO BUTTONS ARE NEVER TRANSLATED.** "ENGLISH" and "한국어" each stay in their own
+            // language whichever is selected, which is the one convention every language picker
+            // follows and the only one that works: a player who has landed in a language they cannot
+            // read has to be able to find their way out, and "영어"/"한국어" would be two words they
+            // cannot tell apart. It is also why they are plain `MakeSettingsButton`s with no
+            // `Localize` on them.
+            Button englishButton = MakeSettingsButton(col, "LanguageEnglish", "ENGLISH",
+                new Vector2(SettingsControlX + 75f, languageRowY), new Vector2(150f, 30f), out Text englishInk);
+            Button koreanButton = MakeSettingsButton(col, "LanguageKorean", "한국어",
+                new Vector2(SettingsControlX + 240f, languageRowY), new Vector2(150f, 30f), out Text koreanInk);
+            // The Korean button has to be able to draw its own name before anything has switched, so
+            // it is the one label in the project that takes the Hangul face at build time.
+            Font koreanFace = KoreanUIFont();
+            if (koreanFace != null) koreanInk.font = koreanFace;
+
+            // **TWO BUTTONS, NOT A SLIDER OR A CHECKBOX.** It is the same shape as the language
+            // row directly above it - a pair of states, the live one lit and the other dimmed - and
+            // repeating that shape is what makes the top of this page read as one block of two
+            // choices rather than as four unrelated widgets. The key that also does this (M) is
+            // listed in CONTROLS below, where every other key is.
+            MakeRowLabelInk(col, "SubtitleLabel", "SUBTITLES",
+                new Vector2(SettingsLabelWidth / 2f, subtitleRowY),
+                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, MenuInk);
+            Button subtitlesOnButton = Localize(MakeSettingsButton(col, "SubtitlesOn", "ON",
+                new Vector2(SettingsControlX + 75f, subtitleRowY), new Vector2(150f, 30f),
+                out Text subtitlesOnInk), "set.on");
+            Button subtitlesOffButton = Localize(MakeSettingsButton(col, "SubtitlesOff", "OFF",
+                new Vector2(SettingsControlX + 240f, subtitleRowY), new Vector2(150f, 30f),
+                out Text subtitlesOffInk), "set.off");
+
+            (Slider volumeSlider, Text volumeValue) =
+                MakeSettingsSliderRow(col, "Volume", "VOLUME", "set.volume", "80%", volumeRowY, MenuInk);
+            (Slider sensitivitySlider, Text sensitivityValue) =
+                MakeSettingsSliderRow(col, "Sensitivity", "MOUSE SENSITIVITY", "set.sensitivity",
+                                      "1.10", sensitivityRowY, MenuInk);
+            (Slider renderScaleSlider, Text renderScaleValue) =
+                MakeSettingsSliderRow(col, "RenderScale", "RENDER SCALE", "set.renderscale",
+                                      "100%", renderScaleRowY, MenuInk);
+
+            KeyBindingPanel bindings = BuildKeyBindings(col, settingsGroup);
+
+            // BACK sits on the same edge as everything above it, which is the whole point of the
+            // column. It anchors to the screen's left rather than to the column, because that is what
+            // MakeMenuButton does and the two edges are now the same edge.
+            Button settingsBack = Localize(MakeMenuButtonInk(settingsGO.transform, "SettingsBackButton",
+                                                 "BACK", new Vector2(0f, -355f)), "menu.back", "  ");
+
+            SettingsPanel panel = settingsGO.AddComponent<SettingsPanel>();
+            panel.group = settingsGroup;
+            panel.volumeSlider = volumeSlider;
+            panel.volumeValue = volumeValue;
+            panel.sensitivitySlider = sensitivitySlider;
+            panel.sensitivityValue = sensitivityValue;
+            panel.renderScaleSlider = renderScaleSlider;
+            panel.renderScaleValue = renderScaleValue;
+            panel.englishButton = englishButton;
+            panel.koreanButton = koreanButton;
+            panel.englishInk = englishInk;
+            panel.koreanInk = koreanInk;
+            panel.subtitlesOnButton = subtitlesOnButton;
+            panel.subtitlesOffButton = subtitlesOffButton;
+            panel.subtitlesOnInk = subtitlesOnInk;
+            panel.subtitlesOffInk = subtitlesOffInk;
+            panel.bindings = bindings;
+            panel.backButton = settingsBack;
+            return panel;
+        }
+
         private static Sprite MakeMenuScrimSprite()
         {
             const int w = 256, h = 4;

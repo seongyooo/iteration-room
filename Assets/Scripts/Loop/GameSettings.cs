@@ -50,8 +50,10 @@ namespace IterationRoom
         // full resolution, so the HUD, the PA captions and this menu stay sharp while the room gets
         // cheaper. A resolution drop blurs all of it.
         public const float DefaultRenderScale = 1f;
-        private const float MinRenderScale = 0.5f;
-        private const float MaxRenderScale = 1f;
+        // Public because `SettingsPanel` sets its slider range from them, exactly as it does
+        // for the mouse sensitivity bounds above.
+        public const float MinRenderScale = 0.5f;
+        public const float MaxRenderScale = 1f;
         private static float renderScale = -1f;
         private const string RenderScaleKey = "iteration.renderScale";
 

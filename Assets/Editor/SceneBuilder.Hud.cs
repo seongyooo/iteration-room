@@ -816,7 +816,7 @@ namespace IterationRoom.EditorTools
             Button resume = Localize(MakeMenuButton(root.transform, "ResumeButton", "RESUME", new Vector2(0f, 80f)), "pause.resume", "  ");
             Button restart = Localize(MakeMenuButton(root.transform, "RestartButton", "RESTART CYCLE", new Vector2(0f, 0f)), "pause.restart", "  ");
             Button toMenu = Localize(MakeMenuButton(root.transform, "MenuButton", "MAIN MENU", new Vector2(0f, -80f)), "pause.mainMenu", "  ");
-            Button quit = Localize(MakeMenuButton(root.transform, "QuitButton", "QUIT", new Vector2(0f, -160f)), "menu.quit", "  ");
+
 
             // THE SETTINGS, below the buttons rather than above them: these are settings, not
             // actions, and the things a paused player most often wants stay at the top.
@@ -833,57 +833,23 @@ namespace IterationRoom.EditorTools
             // column the buttons hang on, which put the language row directly under QUIT and
             // overlapping it - QUIT is 60 tall centred at -160, so its bottom edge is -190, and that
             // is exactly where the first settings row was.
+            // **THE WHOLE SETTINGS PAGE, NOT FOUR ROWS OF IT** (2026-09-05, by request).
             //
-            // Moving it down alone would have fixed the collision and left the page as two things
-            // sharing one edge with a gap in it. Centred, the overlay reads as it is built: a column
-            // of ACTIONS on the left margin, and a block of SETTINGS under them in the middle of the
-            // screen, which is also where the eye already is.
-            Transform pauseColumn = MakeCentreColumn(root.transform, "Column", PauseSettingsWidth);
-            // Red on a near-black scrim, where the settings page is charcoal on a bright photograph.
-            Color pauseInk = new Color(1f, 0.35f, 0.35f, 0.85f);
-
-            // **AND THE TWO PICKERS THE TITLE SCREEN HAS** (2026-09-03, by request: *"add settings to
-            // the window that comes up on ESC"*). The overlay had the two sliders and neither of the
-            // choices, which is the same gap VOLUME was in until 2026-08-21 and for the same reason:
-            // the moment a player wants a setting is the moment it is bothering them, and quitting to
-            // the title screen to change it is not a fix, it is a workaround.
+            // This used to build language, subtitles, sensitivity and volume inline, as loose rows
+            // under the four buttons - which left the OTHER two settings, the key bindings and the
+            // render scale, reachable only from the title screen. The render scale is the worst one
+            // to strand there: it is the setting a player reaches for BECAUSE the run is stuttering,
+            // which is exactly when quitting to the menu is the least acceptable answer.
             //
-            // Language first for the reason the settings page gives - it rewrites every other label
-            // here, including the buttons above - and subtitles under it, because the two are the
-            // settings about words on the screen and are read together. Both write the same statics
-            // the title screen writes, so neither page can disagree with the other.
-            MakeRowLabelInk(pauseColumn, "LanguageLabel", "LANGUAGE",
-                new Vector2(SettingsLabelWidth / 2f, -250f),
-                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, pauseInk);
-            // Never translated, and each stays in its own language whichever is live - see the note
-            // on the title screen's pair, which is the same convention and the same argument.
-            Button pauseEnglish = MakeSettingsButton(pauseColumn, "LanguageEnglish", "ENGLISH",
-                new Vector2(SettingsControlX + 75f, -250f), new Vector2(150f, 30f), out Text pauseEnglishInk);
-            Button pauseKorean = MakeSettingsButton(pauseColumn, "LanguageKorean", "한국어",
-                new Vector2(SettingsControlX + 240f, -250f), new Vector2(150f, 30f), out Text pauseKoreanInk);
-            Font pauseKoreanFace = KoreanUIFont();
-            if (pauseKoreanFace != null) pauseKoreanInk.font = pauseKoreanFace;
-            OnTheScrim(pauseEnglish, pauseEnglishInk, pauseInk);
-            OnTheScrim(pauseKorean, pauseKoreanInk, pauseInk);
+            // So the pause menu gets a SETTINGS button and the same page the title screen shows.
+            // `SettingsPanel` owns every control and every handler; the eight that `PauseMenu` used
+            // to carry its own copy of are gone with the rows.
+            Button settingsButton = Localize(MakeMenuButton(root.transform, "SettingsButton",
+                "SETTINGS", new Vector2(0f, -160f)), "menu.settings", "  ");
+            Button quitTail = Localize(MakeMenuButton(root.transform, "QuitButton", "QUIT",
+                new Vector2(0f, -240f)), "menu.quit", "  ");
 
-            MakeRowLabelInk(pauseColumn, "SubtitleLabel", "SUBTITLES",
-                new Vector2(SettingsLabelWidth / 2f, -300f),
-                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, pauseInk);
-            Button pauseSubsOn = Localize(MakeSettingsButton(pauseColumn, "SubtitlesOn", "ON",
-                new Vector2(SettingsControlX + 75f, -300f), new Vector2(150f, 30f),
-                out Text pauseSubsOnInk), "set.on");
-            Button pauseSubsOff = Localize(MakeSettingsButton(pauseColumn, "SubtitlesOff", "OFF",
-                new Vector2(SettingsControlX + 240f, -300f), new Vector2(150f, 30f),
-                out Text pauseSubsOffInk), "set.off");
-            OnTheScrim(pauseSubsOn, pauseSubsOnInk, pauseInk);
-            OnTheScrim(pauseSubsOff, pauseSubsOffInk, pauseInk);
-
-            (Slider sensitivity, Text sensitivityValue) =
-                MakeSettingsSliderRow(pauseColumn, "Sensitivity", "MOUSE SENSITIVITY",
-                                      "set.sensitivity", "0.00", -350f, pauseInk);
-            (Slider volume, Text volumeValue) =
-                MakeSettingsSliderRow(pauseColumn, "Volume", "VOLUME", "set.volume", "80%",
-                                      -400f, pauseInk);
+            SettingsPanel pauseSettings = BuildSettingsPage(root.transform);
 
             GameObject hintGO = new GameObject("Hint");
             hintGO.transform.SetParent(root.transform, false);
@@ -907,19 +873,9 @@ namespace IterationRoom.EditorTools
             pause.resumeButton = resume;
             pause.restartButton = restart;
             pause.menuButton = toMenu;
-            pause.quitButton = quit;
-            pause.sensitivitySlider = sensitivity;
-            pause.sensitivityValue = sensitivityValue;
-            pause.volumeSlider = volume;
-            pause.volumeValue = volumeValue;
-            pause.englishButton = pauseEnglish;
-            pause.koreanButton = pauseKorean;
-            pause.englishInk = pauseEnglishInk;
-            pause.koreanInk = pauseKoreanInk;
-            pause.subtitlesOnButton = pauseSubsOn;
-            pause.subtitlesOffButton = pauseSubsOff;
-            pause.subtitlesOnInk = pauseSubsOnInk;
-            pause.subtitlesOffInk = pauseSubsOffInk;
+            pause.quitButton = quitTail;
+            pause.settingsButton = settingsButton;
+            pause.settings = pauseSettings;
         }
 
         // **A SETTINGS BUTTON BORROWED ONTO THE PAUSE OVERLAY, REPAINTED FOR IT.**
