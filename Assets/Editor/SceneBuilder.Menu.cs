@@ -931,6 +931,11 @@ namespace IterationRoom.EditorTools
             const float subtitleRowY = 190f;
             const float volumeRowY = 140f;
             const float sensitivityRowY = 90f;
+            // **THE ONLY GRAPHICS SETTING THIS GAME HAS**, added 2026-09-05 after play found the
+            // built player heavier than the Editor - see `GameSettings.RenderScale`. Last in the
+            // column because it is the one a player touches once, if at all, where the four above
+            // are tuned by feel.
+            const float renderScaleRowY = 40f;
 
             MakeRowLabelInk(col, "LanguageLabel", "LANGUAGE",
                 new Vector2(SettingsLabelWidth / 2f, languageRowY),
@@ -970,6 +975,9 @@ namespace IterationRoom.EditorTools
             (Slider sensitivitySlider, Text sensitivityValue) =
                 MakeSettingsSliderRow(col, "Sensitivity", "MOUSE SENSITIVITY", "set.sensitivity",
                                       "1.10", sensitivityRowY, MenuInk);
+            (Slider renderScaleSlider, Text renderScaleValue) =
+                MakeSettingsSliderRow(col, "RenderScale", "RENDER SCALE", "set.renderscale",
+                                      "100%", renderScaleRowY, MenuInk);
 
             KeyBindingPanel bindings = BuildKeyBindings(col, settingsGroup);
 
@@ -1095,6 +1103,8 @@ namespace IterationRoom.EditorTools
             mainMenu.settingsBackButton = settingsBack;
             mainMenu.settingsGroup = settingsGroup;
             mainMenu.sensitivitySlider = sensitivitySlider;
+            mainMenu.renderScaleSlider = renderScaleSlider;
+            mainMenu.renderScaleValue = renderScaleValue;
             mainMenu.subtitlesOnButton = subtitlesOnButton;
             mainMenu.subtitlesOffButton = subtitlesOffButton;
             mainMenu.subtitlesOnInk = subtitlesOnInk;

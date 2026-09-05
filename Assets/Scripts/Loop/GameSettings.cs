@@ -35,6 +35,26 @@ namespace IterationRoom
         // title screen setting it is enough for the run that follows.
         public const float DefaultMasterVolume = 0.8f;
 
+        // **HOW MANY PIXELS THE 3D IS ACTUALLY RENDERED AT, as a fraction of the window.**
+        //
+        // Play, 2026-09-05: the built player was heavier than the Editor, which reads backwards until
+        // you notice they are not drawing the same picture. The Editor's Game view is a docked panel;
+        // the standalone runs `defaultIsNativeResolution` fullscreen with 4x MSAA on top. This game
+        // is GPU-bound - an empty dark room measured 6.6ms of GPU time, which is fill and post rather
+        // than geometry - and fill scales with pixels. Windowed at 1280x720 the same build was
+        // completely smooth, which is the measurement that chose this lever over any other.
+        //
+        // **RENDER SCALE RATHER THAN A RESOLUTION LIST**, for three reasons: it needs no enumeration
+        // of a monitor's modes, it is continuous so a player can stop at the first setting that
+        // helps, and URP applies it to the CAMERA'S target only - the overlay canvas still draws at
+        // full resolution, so the HUD, the PA captions and this menu stay sharp while the room gets
+        // cheaper. A resolution drop blurs all of it.
+        public const float DefaultRenderScale = 1f;
+        private const float MinRenderScale = 0.5f;
+        private const float MaxRenderScale = 1f;
+        private static float renderScale = -1f;
+        private const string RenderScaleKey = "iteration.renderScale";
+
         private const string MouseSensitivityKey = "iteration.mouseSensitivity";
         private const string MasterVolumeKey = "iteration.masterVolume";
 
@@ -96,6 +116,9 @@ namespace IterationRoom
         {
             ApplyAudio();
             ApplyFrameCap();
+            // Same argument as the two above: the pipeline asset ships at whatever renderScale it
+            // was saved with, and nothing else would put the player's choice back.
+            ApplyRenderScale();
         }
 
         // Pushes the stored value at the engine. Called wherever audio starts mattering - the title
@@ -234,9 +257,46 @@ namespace IterationRoom
         // Called when the pause menu closes, by any route out of it. Nothing relies on
         // OnApplicationQuit: a browser tab is closed rather than quit, and Unity's WebGL shutdown
         // path is not guaranteed to run at all.
+        public static float RenderScale
+        {
+            get
+            {
+                if (renderScale < 0f) renderScale = Mathf.Clamp(
+                    PlayerPrefs.GetFloat(RenderScaleKey, DefaultRenderScale),
+                    MinRenderScale, MaxRenderScale);
+                return renderScale;
+            }
+            set
+            {
+                renderScale = Mathf.Clamp(value, MinRenderScale, MaxRenderScale);
+                ApplyRenderScale();
+            }
+        }
+
+        // **WRITTEN ONTO THE PIPELINE ASSET, WHICH IS A PROJECT FILE.** In a built player that is a
+        // copy loaded into memory and the change dies with the process, which is what makes this
+        // safe to set from a menu. IN THE EDITOR IT DIRTIES `IterationURP.asset` and Unity may write
+        // it back - so a value fiddled with while testing can end up committed. The build log names
+        // the asset if that ever looks like it has happened.
+        //
+        // `GraphicsSettings.defaultRenderPipeline` rather than `QualitySettings.renderPipeline`:
+        // SceneBuilder wires this one asset into both, so either would do, and the default is the
+        // one that is always there.
+        public static void ApplyRenderScale()
+        {
+            var urp = UnityEngine.Rendering.GraphicsSettings.defaultRenderPipeline
+                      as UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset;
+            if (urp != null) urp.renderScale = RenderScale;
+        }
+
         public static void Save()
         {
             bool any = false;
+            if (renderScale >= 0f)
+            {
+                PlayerPrefs.SetFloat(RenderScaleKey, renderScale);
+                any = true;
+            }
 
             if (mouseSensitivity >= 0f)
             {

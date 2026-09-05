@@ -63,6 +63,7 @@ namespace IterationRoom
             // Settings
             { "set.volume",         "VOLUME" },
             { "set.sensitivity",    "MOUSE SENSITIVITY" },
+            { "set.renderscale",    "RENDER SCALE" },
             { "set.language",       "LANGUAGE" },
             { "set.controls",       "CONTROLS" },
             { "set.subtitles",      "SUBTITLES" },
@@ -174,6 +175,7 @@ namespace IterationRoom
 
             { "set.volume",         "음량" },
             { "set.sensitivity",    "마우스 감도" },
+            { "set.renderscale",    "렌더 배율" },
             { "set.language",       "언어" },
             { "set.controls",       "조작" },
             { "set.subtitles",      "자막" },

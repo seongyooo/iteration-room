@@ -129,6 +129,11 @@ namespace IterationRoom
         public Slider sensitivitySlider;
         public Text sensitivityValue;
 
+        // See GameSettings.RenderScale for why this is the graphics setting the game has, and why it
+        // is a scale rather than a resolution list.
+        public Slider renderScaleSlider;
+        public Text renderScaleValue;
+
         // The controls list. Owns which key each verb is on only in the sense of asking
         // `InputBindings`; see KeyBindingPanel.
         public KeyBindingPanel bindings;
@@ -230,6 +235,15 @@ namespace IterationRoom
                 // Seeded before the listener for the same reason the volume slider is, one block up.
                 sensitivitySlider.SetValueWithoutNotify(GameSettings.MouseSensitivity);
                 sensitivitySlider.onValueChanged.AddListener(SetSensitivity);
+            }
+
+            if (renderScaleSlider != null)
+            {
+                renderScaleSlider.minValue = 0.5f;
+                renderScaleSlider.maxValue = 1f;
+                renderScaleSlider.SetValueWithoutNotify(GameSettings.RenderScale);
+                renderScaleSlider.onValueChanged.AddListener(SetRenderScale);
+                ShowRenderScale(GameSettings.RenderScale);
             }
             ShowSensitivityValue();
 
@@ -415,6 +429,24 @@ namespace IterationRoom
             DebugStart.FinishOnJump = true;
             starting = true;
             StartCoroutine(LoadGame());
+        }
+
+        // **THE ONE GRAPHICS SETTING, and it is the one the measurement asked for.** A built
+        // player runs fullscreen at native resolution with 4x MSAA where the Editor draws a docked
+        // panel, which is why the build felt heavier than the Editor did - and 1280x720 windowed was
+        // completely smooth. Fill is the cost, so this is the dial.
+        private void SetRenderScale(float value)
+        {
+            GameSettings.RenderScale = value;
+            ShowRenderScale(GameSettings.RenderScale);
+            GameSettings.Save();
+        }
+
+        // Percent, because "0.75" means nothing and "75%" means "three quarters of the pixels".
+        private void ShowRenderScale(float value)
+        {
+            if (renderScaleValue != null)
+                renderScaleValue.text = Mathf.RoundToInt(value * 100f) + "%";
         }
 
         private void SetVolume(float value)
