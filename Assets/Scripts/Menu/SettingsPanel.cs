@@ -153,6 +153,8 @@ namespace IterationRoom
             if (volumeSlider != null) volumeSlider.SetValueWithoutNotify(GameSettings.MasterVolume);
             if (sensitivitySlider != null)
                 sensitivitySlider.SetValueWithoutNotify(GameSettings.MouseSensitivity);
+            SyncResolutionIndex();
+
             ShowVolume();
             ShowSensitivity();
             ShowResolution();
@@ -213,24 +215,58 @@ namespace IterationRoom
             return modes;
         }
 
-        private void StepResolution(int by)
+        // **THE PANEL HOLDS THE CHOICE; `Screen` IS NOT ASKED.** Reading it back was wrong twice
+        // over. `Screen.SetResolution` applies at the END of the frame, so the label refreshed on
+        // the next line still showed the old size - in a real build, not just here. And in the
+        // EDITOR the call does nothing at all, because the Game view owns the size: `Screen.width`
+        // then matched no entry in the mode list, the index pinned to 0, and the left arrow clamped
+        // and returned. Play found it as "the arrows do nothing".
+        //
+        // Driving the label from this index instead means the choice is visible the moment it is
+        // made, and the screen catches up when it can. In the Editor the window will still not move
+        // - that is Unity, not this - but the list can now be seen working.
+        private int resolutionIndex = -1;
+
+        private void SyncResolutionIndex()
         {
             Vector2Int[] list = Modes();
-            int at = 0;
+            Vector2Int want = VideoSettings.ChosenResolution;
+
+            // Nearest by pixel count rather than an exact match, because a stored size can outlive
+            // the monitor it was chosen on and an exact search would silently land on entry zero.
+            int best = 0;
+            long bestGap = long.MaxValue;
             for (int i = 0; i < list.Length; i++)
-                if (list[i].x == Screen.width && list[i].y == Screen.height) { at = i; break; }
+            {
+                long gap = System.Math.Abs((long)list[i].x * list[i].y - (long)want.x * want.y);
+                if (gap >= bestGap) continue;
+                bestGap = gap;
+                best = i;
+            }
+            resolutionIndex = best;
+        }
 
-            int next = Mathf.Clamp(at + by, 0, list.Length - 1);
-            if (next == at) return;
+        private void StepResolution(int by)
+        {
+            if (resolutionIndex < 0) SyncResolutionIndex();
 
+            Vector2Int[] list = Modes();
+            int next = Mathf.Clamp(resolutionIndex + by, 0, list.Length - 1);
+            if (next == resolutionIndex) return;
+
+            resolutionIndex = next;
             VideoSettings.SetResolution(list[next].x, list[next].y, VideoSettings.Fullscreen);
             ShowResolution();
         }
 
         private void ShowResolution()
         {
-            if (resolutionValue != null)
-                resolutionValue.text = Screen.width + " x " + Screen.height;
+            if (resolutionValue == null) return;
+            if (resolutionIndex < 0) SyncResolutionIndex();
+
+            Vector2Int[] list = Modes();
+            Vector2Int at = list[Mathf.Clamp(resolutionIndex, 0, list.Length - 1)];
+            resolutionValue.text = at.x + " x " + at.y;
         }
 
         private void SetFullscreen(bool on)

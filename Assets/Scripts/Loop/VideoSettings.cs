@@ -125,6 +125,20 @@ namespace IterationRoom
             SetResolution(w, h, full);
         }
 
+        // What the player last CHOSE, which is not what `Screen` reports: `SetResolution` applies
+        // at the end of the frame, and in the Editor it does nothing at all. A menu that reads the
+        // screen back cannot show the choice that was just made.
+        public static Vector2Int ChosenResolution
+        {
+            get
+            {
+                int w = PlayerPrefs.GetInt(WidthKey, 0);
+                int h = PlayerPrefs.GetInt(HeightKey, 0);
+                return w > 0 && h > 0 ? new Vector2Int(w, h)
+                                      : new Vector2Int(Screen.width, Screen.height);
+            }
+        }
+
         public static bool Fullscreen
         {
             get => PlayerPrefs.GetInt(FullscreenKey, 1) != 0;
