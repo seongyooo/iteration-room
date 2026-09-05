@@ -849,7 +849,10 @@ namespace IterationRoom.EditorTools
             Button quitTail = Localize(MakeMenuButton(root.transform, "QuitButton", "QUIT",
                 new Vector2(0f, -240f)), "menu.quit", "  ");
 
-            SettingsPanel pauseSettings = BuildSettingsPage(root.transform);
+            // Red on a near-black scrim, where the title screen's copy is charcoal on a bright
+            // photograph. Same page, and it has to be told which ground it is standing on.
+            SettingsPanel pauseSettings = BuildSettingsPage(root.transform,
+                new Color(1f, 0.35f, 0.35f, 0.85f));
 
             GameObject hintGO = new GameObject("Hint");
             hintGO.transform.SetParent(root.transform, false);

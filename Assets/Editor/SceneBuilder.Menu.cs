@@ -48,9 +48,14 @@ namespace IterationRoom.EditorTools
         // opposite grounds: the settings page is charcoal on a bright photograph, the pause overlay
         // is red on a near-black scrim. Everything else about the row is identical, which is the
         // point of having one.
+        // `valueWidth` is the readout beside the slider. 90 fits a percentage or "1.10"; the render
+        // scale row asks for more because it prints the resolution the scale actually produces, which
+        // is the only part of that setting a player can act on. The x below is `+ valueWidth / 2`
+        // because the label is centre-positioned and left-aligned, so half its own width is what
+        // keeps its left edge where the narrow ones start.
         private static (Slider slider, Text value) MakeSettingsSliderRow(
             Transform column, string name, string label, string locKey, string initialValue,
-            float y, Color ink)
+            float y, Color ink, float valueWidth = 90f)
         {
             Localize(MakeRowLabelInk(column, name + "Label", label,
                 new Vector2(SettingsLabelWidth / 2f, y), new Vector2(SettingsLabelWidth, 30f),
@@ -64,8 +69,8 @@ namespace IterationRoom.EditorTools
             // "100%" and "8%" both begin at the same x instead of the number sliding about as it
             // changes width.
             Text value = MakeRowLabelInk(column, name + "Value", initialValue,
-                new Vector2(SettingsControlX + sliderWidth + 20f + 45f, y), new Vector2(90f, 30f),
-                TextAnchor.MiddleLeft, ink);
+                new Vector2(SettingsControlX + sliderWidth + 20f + valueWidth / 2f, y),
+                new Vector2(valueWidth, 30f), TextAnchor.MiddleLeft, ink);
 
             return (slider, value);
         }
@@ -902,7 +907,7 @@ namespace IterationRoom.EditorTools
             // keys at all, should not have to play an iteration to say so.
             // **THE SETTINGS PAGE IS BUILT BY A SHARED METHOD NOW** (2026-09-05), because the
             // pause menu shows the same one - see `BuildSettingsPage` and `SettingsPanel`.
-            SettingsPanel settings = BuildSettingsPage(canvasGO.transform);
+            SettingsPanel settings = BuildSettingsPage(canvasGO.transform, MenuInk);
             CanvasGroup settingsGroup = settings.group;
 
             // The loading state, built over the same middle of the screen the buttons occupy so
@@ -1394,7 +1399,12 @@ namespace IterationRoom.EditorTools
         // half of the same move and owns the behaviour.
         //
         // The caller decides what BACK does and where the page hangs - the panel knows neither.
-        private static SettingsPanel BuildSettingsPage(Transform parent)
+        // **THE INK IS THE CALLER'S, and forgetting that was a regression.** The title screen sets
+        // this page over a photograph of a bright white room, where charcoal is right; the pause
+        // menu puts it over a near-black scrim, where charcoal is invisible. The overlay used to
+        // carry its own red for exactly this and the colour went out with the rows it belonged to -
+        // play found it as "the values are too dark to see".
+        private static SettingsPanel BuildSettingsPage(Transform parent, Color ink)
         {
             GameObject settingsGO = new GameObject("Settings");
             settingsGO.transform.SetParent(parent, false);
@@ -1412,7 +1422,7 @@ namespace IterationRoom.EditorTools
             // screen sets its hierarchy with SIZE and WEIGHT and no rules or boxes anywhere, so this
             // page does too: ExtraLight 52 against the rows' Regular 18 is what separates them.
             Localize(MakeRowLabelWeight(col, "SettingsHeading", "SETTINGS",
-                new Vector2(300f, 330f), new Vector2(600f, 70f), TextAnchor.MiddleLeft, MenuInk,
+                new Vector2(300f, 330f), new Vector2(600f, 70f), TextAnchor.MiddleLeft, ink,
                 "ExtraLight", 52), "menu.settings");
 
             // THE FOUR ROWS, evenly spaced, label on the edge and control at one indent. Language
@@ -1435,7 +1445,7 @@ namespace IterationRoom.EditorTools
 
             MakeRowLabelInk(col, "LanguageLabel", "LANGUAGE",
                 new Vector2(SettingsLabelWidth / 2f, languageRowY),
-                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, MenuInk);
+                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, ink);
             // **THE TWO BUTTONS ARE NEVER TRANSLATED.** "ENGLISH" and "한국어" each stay in their own
             // language whichever is selected, which is the one convention every language picker
             // follows and the only one that works: a player who has landed in a language they cannot
@@ -1443,9 +1453,9 @@ namespace IterationRoom.EditorTools
             // cannot tell apart. It is also why they are plain `MakeSettingsButton`s with no
             // `Localize` on them.
             Button englishButton = MakeSettingsButton(col, "LanguageEnglish", "ENGLISH",
-                new Vector2(SettingsControlX + 75f, languageRowY), new Vector2(150f, 30f), out Text englishInk);
+                new Vector2(SettingsControlX + 75f, languageRowY), new Vector2(150f, 30f), out Text englishInk, ink);
             Button koreanButton = MakeSettingsButton(col, "LanguageKorean", "한국어",
-                new Vector2(SettingsControlX + 240f, languageRowY), new Vector2(150f, 30f), out Text koreanInk);
+                new Vector2(SettingsControlX + 240f, languageRowY), new Vector2(150f, 30f), out Text koreanInk, ink);
             // The Korean button has to be able to draw its own name before anything has switched, so
             // it is the one label in the project that takes the Hangul face at build time.
             Font koreanFace = KoreanUIFont();
@@ -1458,30 +1468,32 @@ namespace IterationRoom.EditorTools
             // listed in CONTROLS below, where every other key is.
             MakeRowLabelInk(col, "SubtitleLabel", "SUBTITLES",
                 new Vector2(SettingsLabelWidth / 2f, subtitleRowY),
-                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, MenuInk);
+                new Vector2(SettingsLabelWidth, 30f), TextAnchor.MiddleLeft, ink);
             Button subtitlesOnButton = Localize(MakeSettingsButton(col, "SubtitlesOn", "ON",
                 new Vector2(SettingsControlX + 75f, subtitleRowY), new Vector2(150f, 30f),
-                out Text subtitlesOnInk), "set.on");
+                out Text subtitlesOnInk, ink), "set.on");
             Button subtitlesOffButton = Localize(MakeSettingsButton(col, "SubtitlesOff", "OFF",
                 new Vector2(SettingsControlX + 240f, subtitleRowY), new Vector2(150f, 30f),
-                out Text subtitlesOffInk), "set.off");
+                out Text subtitlesOffInk, ink), "set.off");
 
             (Slider volumeSlider, Text volumeValue) =
-                MakeSettingsSliderRow(col, "Volume", "VOLUME", "set.volume", "80%", volumeRowY, MenuInk);
+                MakeSettingsSliderRow(col, "Volume", "VOLUME", "set.volume", "80%", volumeRowY, ink);
             (Slider sensitivitySlider, Text sensitivityValue) =
                 MakeSettingsSliderRow(col, "Sensitivity", "MOUSE SENSITIVITY", "set.sensitivity",
-                                      "1.10", sensitivityRowY, MenuInk);
+                                      "1.10", sensitivityRowY, ink);
             (Slider renderScaleSlider, Text renderScaleValue) =
                 MakeSettingsSliderRow(col, "RenderScale", "RENDER SCALE", "set.renderscale",
-                                      "100%", renderScaleRowY, MenuInk);
+                                      "100%", renderScaleRowY, ink, 260f);
 
-            KeyBindingPanel bindings = BuildKeyBindings(col, settingsGroup);
+            KeyBindingPanel bindings = BuildKeyBindings(col, settingsGroup, ink);
 
             // BACK sits on the same edge as everything above it, which is the whole point of the
             // column. It anchors to the screen's left rather than to the column, because that is what
             // MakeMenuButton does and the two edges are now the same edge.
-            Button settingsBack = Localize(MakeMenuButtonInk(settingsGO.transform, "SettingsBackButton",
-                                                 "BACK", new Vector2(0f, -355f)), "menu.back", "  ");
+            // `MakeMenuButton` rather than the `Ink` wrapper: that one hardcodes the title screen's
+            // charcoal, which is the whole thing this page had to stop doing.
+            Button settingsBack = Localize(MakeMenuButton(settingsGO.transform, "SettingsBackButton",
+                                           "BACK", new Vector2(0f, -355f), ink, "Bold"), "menu.back", "  ");
 
             SettingsPanel panel = settingsGO.AddComponent<SettingsPanel>();
             panel.group = settingsGroup;
@@ -1573,7 +1585,7 @@ namespace IterationRoom.EditorTools
         // the Editor, where `InputBindings.Get` would read whatever the developer's own PlayerPrefs
         // happen to hold and bake it into the shipped scene; `KeyBindingPanel.Awake` refreshes every
         // row from the real bindings on the first frame anyway.
-        private static KeyBindingPanel BuildKeyBindings(Transform page, CanvasGroup group)
+        private static KeyBindingPanel BuildKeyBindings(Transform page, CanvasGroup group, Color ink)
         {
             GameObject root = new GameObject("KeyBindings");
             root.transform.SetParent(page, false);
@@ -1592,13 +1604,13 @@ namespace IterationRoom.EditorTools
             // title screen sets its hierarchy with size and weight and draws no rules or boxes
             // anywhere, so this page does the same.
             Localize(MakeRowLabelWeight(root.transform, "ControlsHeading", "CONTROLS",
-                new Vector2(200f, 55f), new Vector2(400f, 32f), TextAnchor.MiddleLeft, MenuInk,
+                new Vector2(200f, 55f), new Vector2(400f, 32f), TextAnchor.MiddleLeft, ink,
                 "Medium", 26), "set.controls");
             // Paler than the labels: it is an instruction about the list rather than part of it, and
             // it is the one line on the page that changes while the player is using it.
             Text hint = MakeRowLabelInk(root.transform, "ControlsHint", "CLICK A KEY TO CHANGE IT",
                 new Vector2(310f, 22f), new Vector2(620f, 24f), TextAnchor.MiddleLeft,
-                new Color(MenuInk.r, MenuInk.g, MenuInk.b, 0.55f));
+                new Color(ink.r, ink.g, ink.b, 0.55f));
 
             GameAction[] actions = InputBindings.All;
             var rows = new KeyBindingPanel.Row[actions.Length];
@@ -1614,12 +1626,12 @@ namespace IterationRoom.EditorTools
                 // 250 wide against the longest label ("STRAFE RIGHT", 12 characters, about 130px at
                 // this size) - the 0.6 x fontSize x length check CLAUDE.md asks for, with room spare.
                 Localize(MakeRowLabelInk(root.transform, "Label_" + actions[i], InputBindings.Label(actions[i]),
-                    new Vector2(originX + 125f, y), new Vector2(250f, 26f), TextAnchor.MiddleLeft, MenuInk),
+                    new Vector2(originX + 125f, y), new Vector2(250f, 26f), TextAnchor.MiddleLeft, ink),
                     "act." + actions[i]);
 
                 Button keyButton = MakeSettingsButton(root.transform, "Key_" + actions[i],
                     InputBindings.KeyLabel(InputBindings.DefaultFor(actions[i])),
-                    new Vector2(originX + 370f, y), new Vector2(190f, 30f), out Text keyLabel);
+                    new Vector2(originX + 370f, y), new Vector2(190f, 30f), out Text keyLabel, ink);
 
                 rows[i] = new KeyBindingPanel.Row
                 {
@@ -1632,7 +1644,7 @@ namespace IterationRoom.EditorTools
             // Left edge on the column like every label above it, so its centre - which is what a
             // centre-pivot rect is positioned by - sits half its width in.
             Button reset = Localize(MakeSettingsButton(root.transform, "ResetBindings", "RESET TO DEFAULTS",
-                new Vector2(140f, -280f), new Vector2(280f, 34f), out _), "set.resetBindings");
+                new Vector2(140f, -280f), new Vector2(280f, 34f), out _, ink), "set.resetBindings");
 
             KeyBindingPanel panel = root.AddComponent<KeyBindingPanel>();
             panel.rows = rows;
@@ -1658,8 +1670,12 @@ namespace IterationRoom.EditorTools
         // same gap it had when there were three.
         private const float SettingsControlsDrop = 40f;
 
+        // The ink defaults to the title screen's charcoal, and every caller on the settings page
+        // passes its own - see `BuildSettingsPage`, where the same page is set over a white
+        // photograph in one menu and a near-black scrim in the other.
         private static Button MakeSettingsButton(Transform parent, string name, string label,
-                                                 Vector2 anchoredPosition, Vector2 size, out Text text)
+                                                 Vector2 anchoredPosition, Vector2 size, out Text text,
+                                                 Color? ink = null)
         {
             GameObject go = new GameObject(name);
             go.transform.SetParent(parent, false);
@@ -1682,7 +1698,7 @@ namespace IterationRoom.EditorTools
             text.font = UIFont("Medium");
             text.fontSize = 18;
             text.alignment = TextAnchor.MiddleCenter;
-            text.color = MenuInk;
+            text.color = ink ?? MenuInk;
             text.text = label;
             text.raycastTarget = false;
             // Overflow rather than wrap: "MIDDLE MOUSE" is the longest thing this can be asked to hold

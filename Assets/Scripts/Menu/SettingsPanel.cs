@@ -159,11 +159,22 @@ namespace IterationRoom
             GameSettings.Save();
         }
 
-        // Percent, because "0.75" means nothing and "75%" means three quarters of the pixels.
+        // **THE PERCENTAGE ALONE DOES NOT TELL A PLAYER WHAT THEY ARE BUYING**, which play said
+        // outright: "I cannot tell how much changes depending on how I set it". So the row prints
+        // the resolution the scale actually produces beside it. 75% is an abstraction; 1440x810 is
+        // a number anybody who has used a graphics menu can act on.
+        //
+        // Off `Screen.width/height` rather than anything stored, because that is what the scale is a
+        // fraction OF - the same slider means a different picture on a different monitor, and on the
+        // title screen it is the window rather than the fullscreen the game will run in.
         private void ShowRenderScale()
         {
-            if (renderScaleValue != null)
-                renderScaleValue.text = Mathf.RoundToInt(GameSettings.RenderScale * 100f) + "%";
+            if (renderScaleValue == null) return;
+
+            float scale = GameSettings.RenderScale;
+            int w = Mathf.Max(1, Mathf.RoundToInt(Screen.width * scale));
+            int h = Mathf.Max(1, Mathf.RoundToInt(Screen.height * scale));
+            renderScaleValue.text = $"{Mathf.RoundToInt(scale * 100f)}%   {w} x {h}";
         }
 
         private void SetLanguage(GameLanguage value)
