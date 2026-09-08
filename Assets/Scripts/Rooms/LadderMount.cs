@@ -46,6 +46,8 @@ namespace IterationRoom
         // in world space, pointing from the foot to the head - `SceneBuilder` measures it off the
         // same numbers that place the ladder, so the two cannot disagree.
         public Vector3 climbDirection = Vector3.up;
+        // Capsule centre stays in front of a wall-mounted ladder rather than inside its rails.
+        public Vector3 climbOffset;
 
         // WHERE THE LADDER'S AXIS IS at a given height. The foot is this transform; every point up
         // the ladder is that plus the slant, and how far along depends only on how much height has
@@ -56,7 +58,7 @@ namespace IterationRoom
             // A ladder lying flat has no "at this height" - guarded rather than trusted, because a
             // divide by a rounding error here would send the volume to infinity.
             if (Mathf.Abs(dir.y) < 0.05f) return transform.position;
-            return transform.position + dir * ((y - transform.position.y) / dir.y);
+            return transform.position + climbOffset + dir * ((y - transform.position.y) / dir.y);
         }
         // How wide of the shaft's centre counts as being on the ladder. Generous enough that a
         // player who walked into the hole is climbing rather than falling, tight enough that

@@ -269,11 +269,9 @@ namespace IterationRoom.EditorTools
                 Cycle, System.Collections.Generic.List<Light>>();
             int orphans = 0;
 
-            Cycle[] cycles = Object.FindObjectsByType<Cycle>(FindObjectsInactive.Include,
-                                                             FindObjectsSortMode.None);
+            Cycle[] cycles = Object.FindObjectsByType<Cycle>(FindObjectsInactive.Include);
 
-            foreach (Light light in Object.FindObjectsByType<Light>(FindObjectsInactive.Include,
-                                                                    FindObjectsSortMode.None))
+            foreach (Light light in Object.FindObjectsByType<Light>(FindObjectsInactive.Include))
             {
                 if (light.shadows == LightShadows.None) continue;
 

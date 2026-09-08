@@ -72,6 +72,7 @@ namespace IterationRoom
         // keeps ghosts from delivering.
         public GameObject bridgeSurface;
         public Collider[] branchColliders;
+        public Collider standingBlocker;
 
         public Transform hintAnchor;
 
@@ -110,7 +111,7 @@ namespace IterationRoom
         public bool CanChop =>
             playerInRange && !HasFallen
             && hand != null && hand.Holding(axeItemId)
-            && PlayerLookup.InView(HintAnchor);
+            && PlayerLookup.InView(HintAnchor, fallPivot != null ? fallPivot.parent : transform);
 
         public Transform HintAnchor => hintAnchor != null ? hintAnchor : transform;
 
@@ -197,6 +198,7 @@ namespace IterationRoom
         // wedge deepens by whole steps - eight across forty swings, so five swings buy a visible bite.
         private void ApplyNotch()
         {
+            if (standingBlocker != null) standingBlocker.enabled = !HasFallen;
             int stages = notchStages != null ? notchStages.Length : 0;
 
             // -1 is "no notch at all", which is the untouched tree rather than a very shallow cut.

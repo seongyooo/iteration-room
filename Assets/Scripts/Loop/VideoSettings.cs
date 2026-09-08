@@ -46,6 +46,18 @@ namespace IterationRoom
 
         private static int quality = -1;
 
+        // All selectable render sizes share the composition's 16:9 aspect ratio.
+        public static readonly Vector2Int[] ResolutionPresets = {
+            new Vector2Int(1280, 720), new Vector2Int(1600, 900),
+            new Vector2Int(1920, 1080), new Vector2Int(2560, 1440), new Vector2Int(3840, 2160)
+        };
+
+        public static Vector2Int FitResolution(int width, int height)
+        {
+            int unit = Mathf.Max(1, Mathf.Min(width / 16, height / 9));
+            return new Vector2Int(unit * 16, unit * 9);
+        }
+
         public static GraphicsQuality Quality
         {
             get
@@ -134,19 +146,25 @@ namespace IterationRoom
             {
                 int w = PlayerPrefs.GetInt(WidthKey, 0);
                 int h = PlayerPrefs.GetInt(HeightKey, 0);
-                return w > 0 && h > 0 ? new Vector2Int(w, h)
-                                      : new Vector2Int(Screen.width, Screen.height);
+                return FitResolution(w > 0 ? w : Screen.width, h > 0 ? h : Screen.height);
             }
         }
 
         public static bool Fullscreen
         {
             get => PlayerPrefs.GetInt(FullscreenKey, 1) != 0;
-            set => SetResolution(Screen.width, Screen.height, value);
+            set
+            {
+                Vector2Int chosen = ChosenResolution;
+                SetResolution(chosen.x, chosen.y, value);
+            }
         }
 
         public static void SetResolution(int width, int height, bool fullscreen)
         {
+            Vector2Int fitted = FitResolution(width, height);
+            width = fitted.x;
+            height = fitted.y;
             PlayerPrefs.SetInt(WidthKey, width);
             PlayerPrefs.SetInt(HeightKey, height);
             PlayerPrefs.SetInt(FullscreenKey, fullscreen ? 1 : 0);

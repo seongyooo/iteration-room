@@ -133,7 +133,7 @@ namespace IterationRoom.EditorTools
             // THE CAPTIONS. Found rather than threaded down, because the HUD is built long before the
             // PA is and the two have no other reason to know about each other. Same scene, so this is
             // not one of the references `SplitCyclesIntoScenes` can null - see `cross-scene-report.txt`.
-            PaSubtitle subtitle = Object.FindFirstObjectByType<PaSubtitle>();
+            PaSubtitle subtitle = Object.FindAnyObjectByType<PaSubtitle>();
             if (subtitle == null)
                 Debug.LogWarning("[SceneBuilder] No PaSubtitle in the scene - the PA will speak with "
                                + "no captions, so a player who does not read English gets nothing.");
@@ -146,7 +146,7 @@ namespace IterationRoom.EditorTools
                 // also toggle the thing that key currently does. Found the same way the subtitle
                 // itself is, and in the same scene, so it is not a reference the cycle split can
                 // null - `cross-scene-report.txt` is the check.
-                subtitle.loop = Object.FindFirstObjectByType<LoopManager>();
+                subtitle.loop = Object.FindAnyObjectByType<LoopManager>();
                 if (subtitle.loop == null)
                     Debug.LogWarning("[SceneBuilder] The PA subtitle has no LoopManager, so its "
                                    + "toggle key will fire while the pause menu is capturing a "

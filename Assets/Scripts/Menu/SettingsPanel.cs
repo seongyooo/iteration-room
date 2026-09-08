@@ -39,6 +39,8 @@ namespace IterationRoom
         public Button resolutionDownButton;
         public Button resolutionUpButton;
         public Text resolutionValue;
+        public Button applyDisplayButton;
+        private bool pendingFullscreen;
         public Button fullscreenOnButton;
         public Button fullscreenOffButton;
         public Text fullscreenOnInk;
@@ -95,6 +97,8 @@ namespace IterationRoom
                 resolutionDownButton.onClick.AddListener(() => StepResolution(-1));
             if (resolutionUpButton != null)
                 resolutionUpButton.onClick.AddListener(() => StepResolution(1));
+            if (applyDisplayButton != null)
+                applyDisplayButton.onClick.AddListener(ApplyDisplaySettings);
             if (fullscreenOnButton != null)
                 fullscreenOnButton.onClick.AddListener(() => SetFullscreen(true));
             if (fullscreenOffButton != null)
@@ -154,6 +158,7 @@ namespace IterationRoom
             if (sensitivitySlider != null)
                 sensitivitySlider.SetValueWithoutNotify(GameSettings.MouseSensitivity);
             SyncResolutionIndex();
+            pendingFullscreen = VideoSettings.Fullscreen;
 
             ShowVolume();
             ShowSensitivity();
@@ -162,6 +167,7 @@ namespace IterationRoom
             ShowQuality();
             ShowLanguage();
             ShowSubtitles();
+            ShowDisplayApply();
         }
 
         private void SetVolume(float value)
@@ -189,31 +195,8 @@ namespace IterationRoom
                 sensitivityValue.text = GameSettings.MouseSensitivity.ToString("0.00");
         }
 
-        // **THE LIST IS THE MONITOR'S OWN MODES, deduplicated and sorted.** `Screen.resolutions`
-        // repeats every size once per refresh rate, so the raw list offers 1920x1080 four times and
-        // reads as broken. Anything under 1280 wide is dropped: this game puts monospace type and a
-        // grid of thin lines on screen, and below that the HUD stops being readable, which is not a
-        // trade a menu should offer.
-        private static Vector2Int[] modes;
-
-        private static Vector2Int[] Modes()
-        {
-            if (modes != null) return modes;
-
-            var seen = new System.Collections.Generic.List<Vector2Int>();
-            foreach (Resolution r in Screen.resolutions)
-            {
-                if (r.width < 1280) continue;
-                var size = new Vector2Int(r.width, r.height);
-                if (!seen.Contains(size)) seen.Add(size);
-            }
-            // A headless or unusual display can report nothing usable; the current size is always a
-            // valid answer and keeps the row from being empty.
-            if (seen.Count == 0) seen.Add(new Vector2Int(Screen.width, Screen.height));
-            seen.Sort((a, b) => (a.x * a.y).CompareTo(b.x * b.y));
-            modes = seen.ToArray();
-            return modes;
-        }
+        // Fixed 16:9 choices keep composition stable; the display adds bars for other aspects.
+        private static Vector2Int[] Modes() => VideoSettings.ResolutionPresets;
 
         // **THE PANEL HOLDS THE CHOICE; `Screen` IS NOT ASKED.** Reading it back was wrong twice
         // over. `Screen.SetResolution` applies at the END of the frame, so the label refreshed on
@@ -255,8 +238,8 @@ namespace IterationRoom
             if (next == resolutionIndex) return;
 
             resolutionIndex = next;
-            VideoSettings.SetResolution(list[next].x, list[next].y, VideoSettings.Fullscreen);
             ShowResolution();
+            ShowDisplayApply();
         }
 
         private void ShowResolution()
@@ -271,13 +254,29 @@ namespace IterationRoom
 
         private void SetFullscreen(bool on)
         {
-            VideoSettings.SetResolution(Screen.width, Screen.height, on);
+            pendingFullscreen = on;
             ShowFullscreen();
+            ShowDisplayApply();
+        }
+
+        public void ApplyDisplaySettings()
+        {
+            if (resolutionIndex < 0) return;
+            Vector2Int size = Modes()[resolutionIndex];
+            VideoSettings.SetResolution(size.x, size.y, pendingFullscreen);
+            ShowDisplayApply();
+        }
+
+        private void ShowDisplayApply()
+        {
+            if (applyDisplayButton == null || resolutionIndex < 0) return;
+            applyDisplayButton.interactable = Modes()[resolutionIndex] != VideoSettings.ChosenResolution
+                || pendingFullscreen != VideoSettings.Fullscreen;
         }
 
         private void ShowFullscreen()
         {
-            bool on = VideoSettings.Fullscreen;
+            bool on = pendingFullscreen;
             Dim(fullscreenOnInk, on);
             Dim(fullscreenOffInk, !on);
         }

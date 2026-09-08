@@ -242,6 +242,15 @@ namespace IterationRoom
             Instance = this;
         }
 
+        // The manager lives in the core game scene, so returning to the title screen destroys it.
+        // Clear the static explicitly: Unity's destroyed objects only compare equal to null through
+        // its overloaded operator, while callers using ?. would otherwise still see the stale CLR
+        // reference until another run assigns a new instance.
+        private void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+        }
+
         private void Start()
         {
             // A RUN STARTS HERE, and the tally starts with it. Explicitly rather than in a static

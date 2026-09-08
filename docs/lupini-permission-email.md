@@ -481,3 +481,94 @@ README. It is no longer needed for this mail.
   stop being the film's rooms.
 - **A "yes" is worth putting on the store page** — *"made with the permission of the director"* is a
   line most projects in this position cannot write.
+
+---
+
+## NEXT PROGRESS UPDATE — SCHEDULED FOR 2026-09-08 01:05 KST
+
+Scheduled as **Reply all** in the existing thread, with both Jess and Lucas as recipients. The new
+unlisted video is `https://www.youtube.com/watch?v=gy9VckZoSdY`; confirm manually while signed out
+that playback works and HD processing is complete before the scheduled send.
+
+Recommended delivery: **2026-09-08 01:05 KST**, which is **2026-09-07 09:05 in Vancouver**. If a
+Tuesday Vancouver delivery is preferred, schedule **2026-09-09 01:05 KST** instead.
+
+**BUILD AUDIT, 2026-09-07:** the Drive folder still contained `iteration-windows-v1.1.zip`
+(228,104,006 bytes), whose internal build was dated 2026-09-06 00:13 KST. The current local player
+was built at 2026-09-06 22:53 KST, so v1.1 is stale. A replacement was prepared at
+`Build/iteration-windows-v1.2.zip` (228,128,418 bytes; SHA-256
+`624045D5E2F6BA86E23D6DF3F3363EB7DCF8C489590C1DC833A6FA2ECEB729A3`). The archive's
+`globalgamemanagers`, `level3`, `level5`, and `IterationRoom.Runtime.dll` hashes all match the current
+local build. Upload v1.2 to the same shared folder and remove v1.1 before the scheduled mail sends;
+the folder URL in the mail does not need to change.
+
+Hi Jess and Lucas,
+
+I wanted to share the update I mentioned in my previous email.
+
+Development through Cycles 1, 2, and 3 is now complete, and all three are playable from beginning to
+end.
+
+Here is a new gameplay video:
+
+https://www.youtube.com/watch?v=gy9VckZoSdY
+
+The video shows Cycle 1 from the beginning through completion. To keep it reasonably short, the
+Cycle 2 and Cycle 3 sections show their completion sequences rather than full playthroughs.
+
+I have also prepared the playable build I mentioned:
+
+https://drive.google.com/drive/folders/1mjJZw9YETn0MhwBkocQRG5u0m2PxnIao?usp=sharing
+
+The current build is available for Windows only. After downloading it, please extract the ZIP file
+and run Iteration.exe.
+
+There may still be bugs I have not encountered, and the visual quality and UI could use further
+polish. However, the content through Cycle 3 is complete, and the project has reached a stage where
+it could be released as a Steam demo after a final polish pass.
+
+I have not created or published a Steam page yet. I would now like to begin promoting the project
+through a Steam page for the demo, so I wanted to ask how you would feel about that before moving
+forward.
+
+Thank you again.
+
+Best regards,
+Seongyo Kim
+
+### Korean reference
+
+**Send the English version above.** This translation is only for checking its meaning.
+
+> 안녕하세요, Jess, Lucas.
+>
+> 이전 메일에서 말씀드렸던 진행 상황을 공유하고자 합니다.
+>
+> 현재 Cycle 1, 2, 3까지 개발이 완료되었으며, 세 Cycle 모두 처음부터 끝까지 플레이할 수
+> 있습니다.
+>
+> 새로운 플레이 영상입니다.
+>
+> https://www.youtube.com/watch?v=gy9VckZoSdY
+>
+> 영상에는 Cycle 1을 처음부터 완료까지 플레이하는 과정이 담겨 있습니다. 영상이 지나치게
+> 길어지지 않도록 Cycle 2와 Cycle 3은 전체 플레이 과정 대신 각각의 완료 장면을 담았습니다.
+>
+> 이전에 말씀드렸던 플레이 빌드도 준비했습니다.
+>
+> https://drive.google.com/drive/folders/1mjJZw9YETn0MhwBkocQRG5u0m2PxnIao?usp=sharing
+>
+> 현재 빌드는 Windows에서만 실행할 수 있습니다. 다운로드한 뒤 ZIP 파일의 압축을 풀고
+> Iteration.exe를 실행하시면 됩니다.
+>
+> 아직 제가 발견하지 못한 버그가 있을 수 있고, 그래픽 품질과 UI도 조금 더 다듬을 부분이
+> 있습니다. 하지만 Cycle 3까지의 콘텐츠는 완성되었으며, 마지막 개선 작업을 거치면 Steam
+> 데모로 공개할 수 있는 단계까지 진행되었습니다.
+>
+> 아직 Steam 페이지를 만들거나 공개하지는 않았습니다. 이제 Steam 데모 페이지를 통해
+> 프로젝트를 홍보하고 싶어, 진행하기 전에 두 분은 어떻게 생각하시는지 여쭙고 싶습니다.
+>
+> 다시 한번 감사드립니다.
+>
+> 감사합니다.
+> 김성교

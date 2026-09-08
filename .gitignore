@@ -151,3 +151,6 @@ docs/voice-samples/
 # notices, drafts nobody else needs. A folder rather than a rule per file, so a new one can be
 # dropped in without touching this list, and `git status` stays quiet enough to be read.
 docs/private/
+
+# NUnit reports and Unity batch test logs.
+/TestResults/

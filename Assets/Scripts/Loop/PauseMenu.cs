@@ -91,22 +91,11 @@ namespace IterationRoom
             Apply(false);
         }
 
-        // Re-read on every open, not seeded once in Awake, and that distinction is the whole of a
-        // bug this shipped with: Awake runs at scene load, the calibration step runs from
-        // LoopManager.Start() afterwards, so a slider seeded in Awake held the load-time value and
-        // never showed what the player had just set. Opening the pause menu reported the old number
-        // and dragging it snapped away from the real one.
-        //
 
 
 
 
 
-        private static void Dim(Text ink, bool live)
-        {
-            if (ink == null) return;
-            ink.color = new Color(ink.color.r, ink.color.g, ink.color.b, live ? 1f : 0.35f);
-        }
 
 
 

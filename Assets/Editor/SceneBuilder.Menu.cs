@@ -1032,6 +1032,7 @@ namespace IterationRoom.EditorTools
             eventSystem.AddComponent<UnityEngine.EventSystems.EventSystem>();
             eventSystem.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
 
+            ApplyUserFeedbackToScene(menu);
             EditorSceneManager.SaveScene(menu, MenuScenePath);
         }
 
@@ -1537,6 +1538,7 @@ namespace IterationRoom.EditorTools
             panel.resolutionDownButton = resDown;
             panel.resolutionUpButton = resUp;
             panel.resolutionValue = resolutionValue;
+            AddDisplayApplyButton(panel);
             panel.fullscreenOnButton = fullOn;
             panel.fullscreenOffButton = fullOff;
             panel.fullscreenOnInk = fullOnInk;

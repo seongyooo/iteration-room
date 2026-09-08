@@ -184,10 +184,11 @@ namespace IterationRoom
         // is working before it stops working.
         public float swayFrom = 0.30f;
 
-        // Where the climb ends. Sized so the PA finishes first - the fourteen ride lines are 54.0s
-        // of audio in a 68s climb - because a voice cut off mid-word reads as a bug, and a voice
-        // that finishes its sentence and THEN lets go does not. Check both if either changes.
+        // Where the climb ends. The departure director holds the release here until its final PA
+        // line has finished; geometry and audio timing are allowed to change independently without
+        // turning the last sentence into something the fall cuts off.
         public float fallAt = 0.92f;
+        [System.NonSerialized] public bool holdReleaseForNarration;
         // 2.8 -> 5.5 (2026-09-03, by request: it hit the bottom far too soon). At real gravity that
         // is about 148m of drop against 38m, which is the right order for a building the exterior
         // measures at 164m tall - the car lets go near the top and falls most of it.
@@ -478,6 +479,19 @@ namespace IterationRoom
                 // and the last thing that should happen is a line firing at a car that is falling.
                 if (Progress >= fallAt)
                 {
+                    // Audio import settings, frame stalls and later copy changes can all consume the
+                    // small timing margin that path length used to provide. Wait at the failing
+                    // hanger instead of guessing that margin. Keep the cabin swaying while held so
+                    // the wait reads as the mechanism struggling rather than the ride freezing.
+                    while (holdReleaseForNarration)
+                    {
+                        t += EndingClock.Delta;
+                        car.rotation = Sway(aimed, t, 1f);
+                        Creak(t, 1f);
+                        CarryPlayer();
+                        yield return null;
+                    }
+
                     yield return Fall(car.rotation, t);
                     yield break;
                 }

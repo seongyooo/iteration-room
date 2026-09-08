@@ -1,0 +1,6 @@
+{
+  "name": "IterationRoom.EditModeTests",
+  "references": ["IterationRoom.Runtime", "UnityEngine.UI"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

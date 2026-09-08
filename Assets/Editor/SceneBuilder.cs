@@ -2123,6 +2123,7 @@ namespace IterationRoom.EditorTools
             // that has never been written to disk is "untitled", and Unity refuses to open a second
             // scene additively alongside an untitled one. The split creates the cycle scenes exactly
             // that way, so without this it fails outright.
+            ApplyUserFeedbackToScene(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
 
             // THE SPLIT, AND IT HAPPENS LAST FOR A REASON. Everything above builds and bakes in ONE

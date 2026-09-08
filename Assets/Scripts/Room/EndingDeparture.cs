@@ -29,12 +29,12 @@ namespace IterationRoom
         // The pause between one ride line finishing and the next starting, on top of the 0.75s of
         // tail silence every clip already carries (`generate_narration.TAIL_SILENCE`).
         //
-        // Derived, not picked: the fourteen clips are 54.0s of audio and the ride is 216.8m at
-        // 3.2m/s = 68s, of which the narration starts 3% in. 54.0 + 13 x 0.45 = 59.9s, so it lands
-        // about six seconds before the car stops - enough that the last line is never cut, and not
-        // so much that the climb ends in silence. **Re-do that arithmetic if either the line count
-        // or the car's speed changes**; the build logs the ride length and speed every time.
+        // A short pause between the thirteen ride lines. The car now waits at its release point for
+        // the final line to finish, so this value controls cadence rather than correctness.
         public float betweenRideLines = 0.45f;
+
+        private Camera[] exteriorViews;
+        private bool[] exteriorViewOcclusion;
 
         // The wall of room3-2N that comes apart to let the car in. A `CycleExit` - the same
         // component the floor hatches are, for the same reason: it opens once, is used once, and it
@@ -193,6 +193,7 @@ namespace IterationRoom
             //     all of it now finished before the first panel moves.
             if (exterior != null)
             {
+                DisableOcclusionForExteriorView();
                 exterior.cycles = cycles;
                 // The cycle the player is standing in keeps its ceilings - see
                 // `FacilityExterior.occupied`. Handed over by `CycleBinding` rather than found from
@@ -226,11 +227,15 @@ namespace IterationRoom
                 // `FacilityExterior.CutAwayTheLastCycle` for why it could not before.
                 exterior?.CutAwayTheLastCycle();
 
+                car.holdReleaseForNarration = true;
                 Coroutine talking = StartCoroutine(NarrateTheRide());
                 yield return car.ShutTheDoors();
                 yield return car.Ride();
+                car.holdReleaseForNarration = false;
                 StopCoroutine(talking);
             }
+
+            RestoreOcclusionAfterExteriorView();
 
             // 7. **AND IT DOES NOT REACH THE SURFACE.** `Ride` returns having dropped the car.
             //    What follows - the blink, room1-1, the counter back at 1 - is `LoopManager`'s, not
@@ -256,7 +261,11 @@ namespace IterationRoom
         // somewhere specific and the line is about being there.
         private IEnumerator NarrateTheRide()
         {
-            if (narration == null || car == null) yield break;
+            if (narration == null || car == null)
+            {
+                if (car != null) car.holdReleaseForNarration = false;
+                yield break;
+            }
 
             // **BACK TO BACK, NOT AT MARKS** (2026-09-03, by request: the PA should not stop
             // talking for the whole climb).
@@ -285,6 +294,43 @@ namespace IterationRoom
                 while (narration.Speaking) yield return null;
                 yield return Wait(betweenRideLines);
             }
+
+            car.holdReleaseForNarration = false;
+        }
+
+        // The baked data describes closed rooms viewed from their interiors. During the departure
+        // those same scenes are woken additively, their cutaway walls are hidden, and the camera
+        // travels outside the baked view cells. Umbra can then keep treating a removed wall as an
+        // occluder: looking straight into a room hides it while an oblique angle happens to select a
+        // different visibility cell and draws it. Static occlusion is valuable for normal play, so
+        // disable it only for the exterior shot and put every player camera back afterwards.
+        private void DisableOcclusionForExteriorView()
+        {
+            exteriorViews = player != null
+                ? player.GetComponentsInChildren<Camera>(true)
+                : System.Array.Empty<Camera>();
+            exteriorViewOcclusion = new bool[exteriorViews.Length];
+
+            for (int i = 0; i < exteriorViews.Length; i++)
+            {
+                Camera view = exteriorViews[i];
+                if (view == null) continue;
+                exteriorViewOcclusion[i] = view.useOcclusionCulling;
+                view.useOcclusionCulling = false;
+            }
+        }
+
+        private void RestoreOcclusionAfterExteriorView()
+        {
+            if (exteriorViews == null || exteriorViewOcclusion == null) return;
+
+            int count = Mathf.Min(exteriorViews.Length, exteriorViewOcclusion.Length);
+            for (int i = 0; i < count; i++)
+                if (exteriorViews[i] != null)
+                    exteriorViews[i].useOcclusionCulling = exteriorViewOcclusion[i];
+
+            exteriorViews = null;
+            exteriorViewOcclusion = null;
         }
 
         // The lid, up into the ceiling hole. On the ending's own clock like everything else here.

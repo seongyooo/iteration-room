@@ -35,9 +35,8 @@ namespace IterationRoom
         public CanvasGroup dropHint;
 
         // Retired against drops actually PERFORMED, not against having been shown. A prompt shown
-        // once has not taught anything - but one that nags for the rest of a sixty-second loop
-        // becomes the most repeated thing on screen. Three is "they have done it on purpose".
-        public int dropHintRetireAfter = 3;
+        // once has not taught anything. Retire after the first release, across items and loops.
+        public int dropHintRetireAfter = 1;
 
         public float fadeSpeed = 6f;
         // Short of opaque, like the control discs: a label on the readout rather than the game

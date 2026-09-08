@@ -70,6 +70,7 @@ namespace IterationRoom
             { "set.resolution",     "RESOLUTION" },
             { "set.fullscreen",     "FULLSCREEN" },
             { "set.quality",        "QUALITY" },
+            { "set.apply",          "APPLY" },
             { "set.qualityLow",     "LOW" },
             { "set.qualityMedium",  "MEDIUM" },
             { "set.qualityHigh",    "HIGH" },
@@ -181,6 +182,7 @@ namespace IterationRoom
             { "menu.quit",          "종료" },
             { "menu.back",          "뒤로" },
             { "menu.loading",       "불러오는 중" },
+            { "set.apply",          "적용" },
 
             { "set.volume",         "음량" },
             { "set.sensitivity",    "마우스 감도" },

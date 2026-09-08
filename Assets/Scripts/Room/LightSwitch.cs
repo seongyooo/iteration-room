@@ -133,15 +133,17 @@ namespace IterationRoom
         }
 
         // The loop rewinding, at the top of an iteration - called from AllLightsOn.ResetCondition
-        // rather than latched world state this component keeps on its own. Silent and instant, like
-        // Door.Close(): this is behind the closed eyelids, not somebody flipping the switch back.
+        // rather than latched world state this component keeps on its own. Only a real on-to-off
+        // transition makes a sound; initial setup and repeated resets remain silent.
         public void TurnOff()
         {
+            bool wasOn = IsOn;
             StopAllCoroutines();
             IsOn = false;
             onPulseUntil = -1f;
             if (switchVisual != null) switchVisual.localRotation = offRotation;
             ApplyState();
+            if (wasOn) Click(offClip);
         }
 
         private void ApplyState()
@@ -152,9 +154,7 @@ namespace IterationRoom
             if (controlledPanel != null && wanted != null) controlledPanel.sharedMaterial = wanted;
         }
 
-        // Deliberately NOT played by TurnOff: that is the loop rewinding behind closed eyelids, and
-        // four switches clicking themselves off in the dark would be the machinery showing through -
-        // the same reason Door.Close() is silent and Door.Seal() is not.
+        // Both transitions use the existing authored switch clips.
         private void Click(AudioClip clip)
         {
             if (audioSource == null || clip == null) return;

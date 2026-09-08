@@ -1,0 +1,5 @@
+{
+  "name": "IterationRoom.PlayModeTests",
+  "references": ["IterationRoom.Runtime"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

@@ -100,9 +100,15 @@ namespace IterationRoom
         // a failure in the middle of a success.
         public bool CanOpen => Inserting || (hand != null && hand.Holding(requiredItemId));
 
+        // A held object is part of eligibility. With empty hands TryUnlock deliberately does
+        // nothing so a nearby key can receive the press; advertising the lock in that state would
+        // draw an E prompt for an action that cannot happen, contrary to IInteractHintTarget.
+        // Wrong objects remain eligible because their red refusal is a real response.
         // On screen as well as in reach, like every other E fixture - see PlayerLookup.InView.
         public bool WantsInteractHint =>
-            playerInRange && !IsSpent && !Inserting && PlayerLookup.InView(HintAnchor);
+            playerInRange && !IsSpent && !Inserting
+            && hand != null && hand.HandsFull
+            && PlayerLookup.InView(HintAnchor);
         public Transform HintAnchor => transform;
 
         // Once the door is open there is nothing left for E to do here. The loop shuts the door

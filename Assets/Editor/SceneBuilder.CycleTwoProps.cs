@@ -626,7 +626,7 @@ namespace IterationRoom.EditorTools
         {
             int added = 0;
             CarryableItem[] items = UnityEngine.Object.FindObjectsByType<CarryableItem>(
-                FindObjectsInactive.Include, FindObjectsSortMode.None);
+                FindObjectsInactive.Include);
 
             foreach (CarryableItem item in items)
                 if (item.GetComponent<FallingItem>() == null) { AddFalling(item); added++; }

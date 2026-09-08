@@ -248,18 +248,14 @@ namespace IterationRoom
             if (recordButton != null)
                 recordButton.gameObject.SetActive(RunReport.HasRun);
 
-            if (menuGroup != null) menuGroup.alpha = 1f;
+            ShowCredits(false);
             ShowRecord(false);
             ShowCyclePicker(false);
             // Both sub-pages down, and the menu back up after them: each of these restores
             // `menuGroup`, so whichever runs last is what the player sees.
             ShowSettings(false);
-            if (menuGroup != null) { menuGroup.alpha = 1f; menuGroup.blocksRaycasts = true; }
-            if (loadingGroup != null)
-            {
-                loadingGroup.alpha = 0f;
-                loadingGroup.blocksRaycasts = false;
-            }
+            SetGroup(menuGroup, true);
+            SetGroup(loadingGroup, false);
 
             SetProgress(0f);
 
@@ -396,16 +392,8 @@ namespace IterationRoom
         // there is nothing to re-seed on open and nothing to commit on close.
         private void ShowCredits(bool show)
         {
-            if (creditsGroup != null)
-            {
-                creditsGroup.alpha = show ? 1f : 0f;
-                creditsGroup.blocksRaycasts = show;
-            }
-            if (menuGroup != null)
-            {
-                menuGroup.alpha = show ? 0f : 1f;
-                menuGroup.blocksRaycasts = !show;
-            }
+            SetGroup(creditsGroup, show);
+            SetGroup(menuGroup, !show);
         }
 
         // The page is `SettingsPanel`'s now; this is only the title screen's half - which column
@@ -413,11 +401,7 @@ namespace IterationRoom
         private void ShowSettings(bool show)
         {
             if (settings != null) settings.Show(show);
-            if (menuGroup != null)
-            {
-                menuGroup.alpha = show ? 0f : 1f;
-                menuGroup.blocksRaycasts = !show;
-            }
+            SetGroup(menuGroup, !show);
         }
 
         // **A ROW PER CYCLE THAT HAS ONE, AND NOTHING FOR THE REST.** `RunReport.TryLoad` answers
@@ -453,30 +437,25 @@ namespace IterationRoom
         {
             if (show) FillRecord();
 
-            if (recordGroup != null)
-            {
-                recordGroup.alpha = show ? 1f : 0f;
-                recordGroup.blocksRaycasts = show;
-            }
-            if (menuGroup != null)
-            {
-                menuGroup.alpha = show ? 0f : 1f;
-                menuGroup.blocksRaycasts = !show;
-            }
+            SetGroup(recordGroup, show);
+            SetGroup(menuGroup, !show);
         }
 
         private void ShowCyclePicker(bool show)
         {
-            if (cycleGroup != null)
-            {
-                cycleGroup.alpha = show ? 1f : 0f;
-                cycleGroup.blocksRaycasts = show;
-            }
-            if (menuGroup != null)
-            {
-                menuGroup.alpha = show ? 0f : 1f;
-                menuGroup.blocksRaycasts = !show;
-            }
+            SetGroup(cycleGroup, show);
+            SetGroup(menuGroup, !show);
+        }
+
+        // Alpha only changes what is drawn and blocksRaycasts only affects pointers. Selectables
+        // also read CanvasGroup.interactable, so all three must move together or a hidden page can
+        // still answer Submit from a keyboard or controller.
+        private static void SetGroup(CanvasGroup target, bool show)
+        {
+            if (target == null) return;
+            target.alpha = show ? 1f : 0f;
+            target.blocksRaycasts = show;
+            target.interactable = show;
         }
 
         public void Quit()

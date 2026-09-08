@@ -155,8 +155,7 @@ namespace IterationRoom.EditorTools
             // in the room yet. Waking them would bake light around objects the player cannot see,
             // which is the same mistake `MovesDuringPlay` exists to stop for the reflection probes.
             var asleep = new System.Collections.Generic.List<GameObject>();
-            foreach (Cycle cycle in Object.FindObjectsByType<Cycle>(FindObjectsInactive.Include,
-                                                                    FindObjectsSortMode.None))
+            foreach (Cycle cycle in Object.FindObjectsByType<Cycle>(FindObjectsInactive.Include))
             {
                 foreach (GameObject go in new[] { cycle.gameObject,
                                                   cycle.worldRoot != null ? cycle.worldRoot.gameObject : null })

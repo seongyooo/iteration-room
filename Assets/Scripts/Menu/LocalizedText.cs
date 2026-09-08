@@ -26,6 +26,7 @@ namespace IterationRoom
         // rather than re-derived, because the menu uses three weights of JetBrains Mono and this
         // component has no way to know which one it was handed.
         private Font authoredFont;
+        private FontStyle authoredStyle;
         private bool captured;
 
         private void OnEnable()
@@ -34,6 +35,7 @@ namespace IterationRoom
             if (!captured && target != null)
             {
                 authoredFont = target.font;
+                authoredStyle = target.fontStyle;
                 captured = true;
             }
 
@@ -55,6 +57,7 @@ namespace IterationRoom
             // where a null font is an invisible label.
             if (Loc.Current == GameLanguage.Korean && korean != null) target.font = korean;
             else if (authoredFont != null) target.font = authoredFont;
+            target.fontStyle = Loc.Current == GameLanguage.Korean ? FontStyle.Bold : authoredStyle;
         }
     }
 

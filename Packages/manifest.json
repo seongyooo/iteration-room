@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "com.unity.test-framework": "1.7.0",
     "com.coplaydev.unity-mcp": "https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#main",
     "com.unity.cloud.gltfast": "6.19.0",
     "com.unity.multiplayer.center": "1.0.1",

@@ -220,7 +220,7 @@ namespace IterationRoom.EditorTools
             // teardown gathers it like everything else and drives it out of the room - and it is the
             // one object in here whose entire job is to arrive DURING the teardown. It would have
             // left at the same moment it was asked to close.
-            "CorridorShutter",
+            "CorridorShutter", "LadderShaft",
         };
 
         // How far a thing travels before it is switched off. Down goes clear under the floor slab;
@@ -644,23 +644,9 @@ namespace IterationRoom.EditorTools
         // hand wants when it is stepping off the top of something, and what turns a hole in a floor
         // into somewhere you can obviously climb out of.
         private const float LadderHeadRise = 1.20f;
-        // OFF VERTICAL. **TWENTY, RAISED FROM TWELVE ON 2026-08-31 BECAUSE TWELVE READ AS
-        // VERTICAL.** The lean was applied correctly at twelve - the scene had it, the wiring had it
-        // - and play still reported a ladder standing straight up. The reason is where the player is
-        // when they look at it: on deck B, at the FOOT, looking up the ladder's own axis. Foreshortened
-        // along its length, a shallow lean is invisible; 1.27m of run over six metres reads as nothing
-        // from the one place everybody sees it from.
-        //
-        // **A NUMBER THAT IS RIGHT IN PLAN CAN STILL BE WRONG FROM THE ONLY ANGLE ANYONE SEES IT.**
-        // The geometry was checked in section, which is where a lean is most obvious and where no
-        // player ever stands.
-        //
-        // Twenty is 70 degrees off horizontal, which is what a leaning ladder is actually set at, and
-        // it costs 0.30m of length. It also RELAXES the tight constraint rather than tightening it:
-        // the head is fixed against the wall, so a steeper lean carries the whole climb further from
-        // that wall. The player's capsule clears the shaft mouth by 29cm at twenty, against 11cm at
-        // twelve - so if this is ever raised again, the mouth is not what stops it.
-        private const float LadderLeanDegrees = 20f;
+        // Wall-mounted and vertical. The player's capsule uses LadderMount.climbOffset
+        // to climb in front of the rails without rubbing against the wall.
+        private const float LadderLeanDegrees = 0f;
         // How far the head sits off the wall FACE - half the ladder's own thickness, so it touches
         // rather than intersects. `BuildPanelWall` is given the finished panel surface, so a room's
         // half-width IS its visible wall (see that method's `faceCenterAtBase`).
